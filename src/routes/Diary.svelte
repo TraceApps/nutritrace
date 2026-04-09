@@ -484,6 +484,8 @@
   // Water card state
   let _waterCustomAmt  = '';
   let _waterShowCustom = false;
+  let _waterEditIndex  = -1;   // which log row is being edited (-1 = none)
+  let _waterEditAmt    = '';   // edit field value (in display unit)
 
   // SVG bottle fill geometry (fillable interior y=50→182, 132 units tall)
   const _WB_TOP = 50, _WB_BOTTOM = 182, _WB_H = 132;
@@ -565,6 +567,38 @@
       body_stats: ent.bodyStats || {},
       water,
     });
+    await loadEntry($currentDate);
+  }
+
+  function _startWaterEdit(i) {
+    const log = _waterLogs[i];
+    // Convert stored ml back to display unit for the input
+    if (_waterUnit === 'oz') _waterEditAmt = (log.amount / 29.5735).toFixed(0);
+    else if (_waterUnit === 'L') _waterEditAmt = (log.amount / 1000).toFixed(2);
+    else if (_waterUnit === 'G') _waterEditAmt = (log.amount / 3785.41).toFixed(3);
+    else _waterEditAmt = String(log.amount);
+    _waterEditIndex = i;
+  }
+
+  async function _saveWaterEdit(i) {
+    const val = parseFloat(_waterEditAmt);
+    if (!val || val <= 0) { _waterEditIndex = -1; return; }
+    // Convert display unit back to ml
+    let ml = val;
+    if (_waterUnit === 'oz') ml = val * 29.5735;
+    else if (_waterUnit === 'L') ml = val * 1000;
+    else if (_waterUnit === 'G') ml = val * 3785.41;
+    ml = Math.round(ml);
+    let ent = null;
+    currentEntry.subscribe(v => ent = v)();
+    if (!ent) return;
+    const water = (ent.water || []).map((l, idx) => idx === i ? { ...l, amount: ml } : l);
+    await NtApi.saveDiaryDate($currentDate, {
+      items: ent.items || [],
+      body_stats: ent.bodyStats || {},
+      water,
+    });
+    _waterEditIndex = -1;
     await loadEntry($currentDate);
   }
 
@@ -961,16 +995,39 @@
       <div class="card wc-log-card">
         {#each _waterLogs as log, i}
           {#if i > 0}<div class="wc-divider"></div>{/if}
-          <div class="wc-log-row">
-            <span class="material-symbols-rounded wc-log-icon">water_drop</span>
-            <div class="wc-log-info">
-              <span class="font-medium">{_waterDisplay(log.amount)}</span>
-              {#if log.time}<span class="text-3 text-sm">{log.time}</span>{/if}
+          {#if _waterEditIndex === i}
+            <div class="wc-log-row wc-log-edit">
+              <span class="material-symbols-rounded wc-log-icon">edit</span>
+              <input
+                class="input wc-edit-input"
+                type="number"
+                min="1"
+                bind:value={_waterEditAmt}
+                on:keydown={e => { if (e.key === 'Enter') _saveWaterEdit(i); if (e.key === 'Escape') _waterEditIndex = -1; }}
+                autofocus />
+              <span class="text-3 text-sm">{_waterUnit}</span>
+              <button class="btn-icon" on:click={() => _saveWaterEdit(i)} title="Save">
+                <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">check</span>
+              </button>
+              <button class="btn-icon" on:click={() => _waterEditIndex = -1} title="Cancel">
+                <span class="material-symbols-rounded" style="font-size:18px;color:var(--text-3)">close</span>
+              </button>
             </div>
-            <button class="btn-icon" on:click={() => _removeWaterLog(i)} title="Remove">
-              <span class="material-symbols-rounded" style="font-size:18px;color:var(--text-3)">delete</span>
-            </button>
-          </div>
+          {:else}
+            <div class="wc-log-row" role="button" tabindex="0"
+              on:click={() => _startWaterEdit(i)}
+              on:keydown={e => e.key === 'Enter' && _startWaterEdit(i)}
+              title="Tap to edit">
+              <span class="material-symbols-rounded wc-log-icon">water_drop</span>
+              <div class="wc-log-info">
+                <span class="font-medium">{_waterDisplay(log.amount)}</span>
+                {#if log.time}<span class="text-3 text-sm">{log.time}</span>{/if}
+              </div>
+              <button class="btn-icon" on:click|stopPropagation={() => _removeWaterLog(i)} title="Remove">
+                <span class="material-symbols-rounded" style="font-size:18px;color:var(--text-3)">delete</span>
+              </button>
+            </div>
+          {/if}
         {/each}
       </div>
     {:else}
@@ -1524,7 +1581,11 @@
 
   /* Log */
   .wc-log-card { border-left:3px solid var(--accent); }
-  .wc-log-row  { display:flex; align-items:center; gap:12px; padding:12px 16px; }
+  .wc-log-row  { display:flex; align-items:center; gap:12px; padding:12px 16px; cursor:pointer; }
+  .wc-log-row:hover { background:var(--bg-2); }
+  .wc-log-edit { cursor:default; background:var(--bg-2); }
+  .wc-log-edit:hover { background:var(--bg-2); }
+  .wc-edit-input { width:80px; padding:4px 8px; font-size:14px; }
   .wc-log-icon { color:var(--accent); font-size:20px; flex-shrink:0; }
   .wc-log-info { flex:1; display:flex; flex-direction:column; gap:2px; }
   .wc-divider  { height:1px; background:var(--border); margin:0 16px; }

@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.38.2-beta] — 2026-04-08
+
+### Smart Log — water logging
+- Smart Log can now log water intake. Say "drank a glass of water", "500ml of water", or use a container name from your configured water containers (e.g. "had my protein shaker").
+- Parser recognizes `kind: 'water'` items. `_matchWater` resolves the amount to ml using: (1) exact/fuzzy match against user's configured container names + volumes, (2) explicit ml/oz/L amounts, (3) generic container defaults (glass=240ml, bottle=500ml, mug=350ml, etc.).
+- Water items skip the diary food entry flow entirely — `saveItems` calls `addWaterLog` in the diary store, same as tapping the water button manually.
+- New `addWaterLog(amountMl, date)` exported from `src/stores/diary.js`.
+- Modal shows a blue **Water** badge; meal slot picker and quantity field are hidden for water rows. An editable ml input lets the user correct the amount before confirming.
+- Container names are injected into the AI parser prompt verbatim (same pattern as meal slot names) so custom names like "Protein Shaker", "Nalgene", "Thermos" resolve correctly.
+
+---
+
+## [0.38.1-beta] — 2026-04-08
+
+### Added
+- **Water log editing** — tap any water log entry to edit the amount inline. Input opens in place with the current value pre-filled in your display unit (ml/oz/L/G). Press Enter or tap ✓ to save, Escape or ✕ to cancel. Delete button still works as before (stopPropagation prevents accidental edit trigger).
+
+---
+
 ## [0.38.0-beta] — 2026-04-08
 
 ### Security

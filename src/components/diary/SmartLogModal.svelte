@@ -326,6 +326,7 @@
       <div class="ql-list">
         {#each matchedItems as m, i}
           {@const isExpansion = (m.source === 'meal' || m.source === 'yesterday') && m.food && Array.isArray(m.food.items)}
+          {@const isWater = m.source === 'water'}
           <div class="ql-row" class:unmatched={!m.food}>
             <div class="ql-row-main">
               <div class="ql-row-name">
@@ -335,9 +336,12 @@
                 {#if m.source === 'meal'}<span class="ql-badge ql-badge-meal">Meal</span>{/if}
                 {#if m.source === 'recipe'}<span class="ql-badge ql-badge-recipe">Recipe</span>{/if}
                 {#if m.source === 'yesterday'}<span class="ql-badge ql-badge-yesterday">Yesterday</span>{/if}
+                {#if isWater}<span class="ql-badge ql-badge-water">Water</span>{/if}
                 {#if !m.food}<span class="ql-badge ql-badge-warn">Not found</span>{/if}
               </div>
-              {#if m.food && isExpansion}
+              {#if isWater && m.food}
+                <div class="ql-row-meta">{m.food._waterMl} ml — adds to water log</div>
+              {:else if m.food && isExpansion}
                 <div class="ql-row-meta">
                   Expands to {m.food.items.length} item{m.food.items.length === 1 ? '' : 's'}
                   {#if m.food.nutrition?.calories}
@@ -359,7 +363,7 @@
               {:else}
                 <div class="ql-row-meta">No nutrition data — remove or add manually</div>
               {/if}
-              {#if m.candidates && m.candidates.length > 1 && !isExpansion}
+              {#if m.candidates && m.candidates.length > 1 && !isExpansion && !isWater}
                 <details class="ql-swap">
                   <summary>Swap match ({m.candidates.length})</summary>
                   <div class="ql-candidates">
@@ -373,13 +377,18 @@
               {/if}
             </div>
             <div class="ql-row-controls">
-              <select class="select sel-sm ql-meal-pick" bind:value={m.mealSlot}>
-                {#each meals as name, idx}
-                  <option value={idx}>{name}</option>
-                {/each}
-              </select>
-              {#if !isExpansion}
+              {#if !isWater}
+                <select class="select sel-sm ql-meal-pick" bind:value={m.mealSlot}>
+                  {#each meals as name, idx}
+                    <option value={idx}>{name}</option>
+                  {/each}
+                </select>
+              {/if}
+              {#if !isExpansion && !isWater}
                 <input type="number" class="input ql-qty" min="1" bind:value={m.quantity} />
+              {/if}
+              {#if isWater && m.food}
+                <input type="number" class="input ql-qty" min="1" bind:value={m.food._waterMl} title="Amount in ml" />
               {/if}
               <button class="btn-icon" style="color:var(--danger)" on:click={() => removeRow(i)} aria-label="Remove">
                 <span class="material-symbols-rounded" style="font-size:18px">close</span>
@@ -588,6 +597,7 @@
   .ql-badge-meal      { background: color-mix(in srgb, #a855f7 20%, transparent); color: #c084fc; }
   .ql-badge-recipe    { background: color-mix(in srgb, #ec4899 20%, transparent); color: #f472b6; }
   .ql-badge-yesterday { background: color-mix(in srgb, #10b981 20%, transparent); color: #34d399; }
+  .ql-badge-water     { background: color-mix(in srgb, #38bdf8 20%, transparent); color: #38bdf8; }
   .ql-badge-warn      { background: color-mix(in srgb, var(--warning, #f59e0b) 20%, transparent); color: var(--warning, #f59e0b); }
   .ql-subitem {
     font-size: 12px;

@@ -153,6 +153,27 @@ export async function updateDiaryItem(index, changes) {
   currentEntry.set(await _save(updated));
 }
 
+export async function addWaterLog(amountMl, date) {
+  const todayStr = () => new Date().toLocaleDateString('sv-SE');
+  let viewDate = null;
+  currentDate.subscribe(v => viewDate = v)();
+  const targetDate = date || viewDate || todayStr();
+
+  let entry = null;
+  if (targetDate === viewDate) {
+    currentEntry.subscribe(v => entry = v)();
+  }
+  if (!entry || entry.date !== targetDate) {
+    entry = _fromApi(await NtApi.getDiaryDate(targetDate));
+  }
+  if (!entry) entry = { date: targetDate, items: [], bodyStats: {}, water: [] };
+
+  const log = { amount: Math.round(amountMl), time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) };
+  const updated = { ...entry, water: [...(entry.water || []), log] };
+  const saved = await _save(updated);
+  if (targetDate === viewDate) currentEntry.set(saved);
+}
+
 export async function saveBodyStats(stats) {
   let entry = null;
   currentEntry.subscribe(v => entry = v)();

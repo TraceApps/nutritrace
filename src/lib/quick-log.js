@@ -22,25 +22,33 @@ import { callAI } from './aiChat.js';
  * the AI can target custom slots like "Pre-workout", "Snack 1", "Late Snack",
  * not just the default Breakfast/Lunch/Dinner/Snacks.
  */
-function _buildParsePrompt(userMealNames) {
+function _buildParsePrompt(userMealNames, waterContainers) {
   const names = Array.isArray(userMealNames) && userMealNames.length > 0
     ? userMealNames
     : ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
   const namesQuoted = names.map(n => '"' + n + '"').join(', ');
-  return `You are a food parser for a nutrition tracking app. Extract food items AND the target meal from the user's input and return them as JSON.
 
-The user's configured meal slots are: [${namesQuoted}]
+  // Build container hint — include user's custom container names so the AI
+  // can match "my protein shaker" → the right container name.
+  const containerHint = Array.isArray(waterContainers) && waterContainers.length > 0
+    ? `\nThe user's water containers are: ${waterContainers.map(c => `"${c.name}" (${c.volumeMl}ml)`).join(', ')}.`
+    : '';
+
+  return `You are a food and water parser for a nutrition tracking app. Extract food/water items AND the target meal from the user's input and return them as JSON.
+
+The user's configured meal slots are: [${namesQuoted}]${containerHint}
 
 Rules:
 - Return ONLY valid JSON, no commentary, no markdown fences.
 - Top-level shape: { "meal": <slot name from the list above, or null>, "items": [ ... ] }
-- Each item has: name (string), quantity (number, default 1), unit (string or null), kind ("food" | "meal" | "recipe" | "yesterday").
+- Each item has: name (string), quantity (number, default 1), unit (string or null), kind ("food" | "meal" | "recipe" | "yesterday" | "water").
 
 ITEM KIND — figure out what the user is referring to:
 - "food" (default): a single food, ingredient, or branded product. e.g. "2 eggs", "a slice of toast", "Greek yogurt"
 - "meal": the user references a SAVED MEAL by name. Trigger phrases include "my X meal", "the meal called X", "my saved X", "X meal", "for breakfast I had my morning bowl meal".
 - "recipe": the user references a SAVED RECIPE by name. Trigger phrases include "my X recipe", "the recipe X", "from my X recipe", "recipe called X".
 - "yesterday": the user wants to repeat something from yesterday's diary. Trigger phrases include "same as yesterday", "yesterday's lunch", "what I had for breakfast yesterday", "repeat yesterday's dinner". For these items, set "name" to the meal slot from yesterday they want to repeat (e.g. "Lunch", "Breakfast"), quantity 1, unit null.
+- "water": the user drank water or a beverage that counts as water intake. Trigger words: "water", "drank", "glass of water", "bottle of water", or a container name from the list above. Set "name" to the container name if one matches (e.g. "protein shaker"), otherwise set name to the unit word (e.g. "glass", "bottle"). Set "quantity" to the number of containers/glasses and "unit" to "ml", "oz", "L", or the container name.
 
 Other rules:
 - Use common units: "slice", "cup", "tbsp", "tsp", "oz", "g", "ml", "piece", "bowl", "can", "bottle".
@@ -69,7 +77,16 @@ Input: "same as yesterday for lunch"
 Output: {"meal":"Lunch","items":[{"name":"Lunch","quantity":1,"unit":null,"kind":"yesterday"}]}
 
 Input: "had my pre-workout meal and a banana"
-Output: {"meal":null,"items":[{"name":"pre-workout","quantity":1,"unit":null,"kind":"meal"},{"name":"banana","quantity":1,"unit":null,"kind":"food"}]}`;
+Output: {"meal":null,"items":[{"name":"pre-workout","quantity":1,"unit":null,"kind":"meal"},{"name":"banana","quantity":1,"unit":null,"kind":"food"}]}
+
+Input: "drank a glass of water"
+Output: {"meal":null,"items":[{"name":"glass","quantity":1,"unit":"glass","kind":"water"}]}
+
+Input: "500ml of water"
+Output: {"meal":null,"items":[{"name":"water","quantity":500,"unit":"ml","kind":"water"}]}
+
+Input: "had my protein shaker"
+Output: {"meal":null,"items":[{"name":"protein shaker","quantity":1,"unit":"protein shaker","kind":"water"}]}`;
 }
 
 /**
@@ -88,12 +105,14 @@ export async function parseInput(text, userMealNames) {
   const model    = DB.getSetting('aiModel', '');
   if (!apiKey) throw new Error('AI provider not configured. Set up FitBot in Settings → AI first.');
 
+  const waterContainers = DB.getSetting('waterContainers', []);
+
   const reply = await callAI({
     provider,
     apiKey,
     model,
     messages: [{ role: 'user', content: text.trim() }],
-    systemPrompt: _buildParsePrompt(userMealNames),
+    systemPrompt: _buildParsePrompt(userMealNames, waterContainers),
     tools: [],
   });
 
@@ -105,7 +124,7 @@ export async function parseInput(text, userMealNames) {
   try {
     const parsed = JSON.parse(jsonText);
     const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
-    const VALID_KINDS = new Set(['food', 'meal', 'recipe', 'yesterday']);
+    const VALID_KINDS = new Set(['food', 'meal', 'recipe', 'yesterday', 'water']);
     const items = rawItems
       .filter(it => it && typeof it === 'object' && it.name)
       .map(it => ({
@@ -218,6 +237,7 @@ export async function matchItem(parsedItem) {
   if (kind === 'meal') return _matchMeal(parsedItem, false);
   if (kind === 'recipe') return _matchMeal(parsedItem, true);
   if (kind === 'yesterday') return _matchYesterday(parsedItem);
+  if (kind === 'water') return _matchWater(parsedItem);
   return _matchFood(parsedItem);
 }
 
@@ -372,6 +392,62 @@ async function _matchYesterday(parsedItem) {
   return out;
 }
 
+// ── _matchWater: resolve water amount in ml ───────────────────────────────
+// Generic container defaults (ml) for when the user says "a glass" etc.
+const _WATER_DEFAULTS = {
+  glass: 240, cup: 240, mug: 350, bottle: 500,
+  'water bottle': 500, 'small bottle': 330, 'large bottle': 750,
+  jug: 1000, pitcher: 1000, sip: 30, gulp: 60, can: 355,
+};
+
+async function _matchWater(parsedItem) {
+  const out = { item: parsedItem, candidates: [], best: null, source: 'water' };
+  const name = (parsedItem.name || '').toLowerCase().trim();
+  const qty  = Number(parsedItem.quantity) > 0 ? Number(parsedItem.quantity) : 1;
+  const unit = (parsedItem.unit || '').toLowerCase().trim();
+
+  let amountMl = 0;
+
+  // 1. Check user's configured containers by name
+  const containers = DB.getSetting('waterContainers', []);
+  if (Array.isArray(containers) && containers.length > 0) {
+    const match = containers.find(c =>
+      (c.name || '').toLowerCase() === name ||
+      (c.name || '').toLowerCase() === unit
+    ) || containers.find(c =>
+      name.includes((c.name || '').toLowerCase()) ||
+      (c.name || '').toLowerCase().includes(name)
+    );
+    if (match) {
+      amountMl = Math.round((match.volumeMl || 250) * qty);
+      out.best = { _waterMl: amountMl, _containerName: match.name, name: match.name };
+      out.candidates = [out.best];
+      return out;
+    }
+  }
+
+  // 2. Explicit ml/oz/L amount
+  if (unit === 'ml' || unit === 'milliliter' || unit === 'milliliters') {
+    amountMl = Math.round(qty);
+  } else if (unit === 'oz' || unit === 'fl oz' || unit === 'fluid ounce') {
+    amountMl = Math.round(qty * 29.5735);
+  } else if (unit === 'l' || unit === 'liter' || unit === 'liters') {
+    amountMl = Math.round(qty * 1000);
+  } else if (unit === 'cl' || unit === 'centiliter') {
+    amountMl = Math.round(qty * 10);
+  }
+
+  // 3. Generic container word
+  if (!amountMl) {
+    const defaultMl = _WATER_DEFAULTS[name] || _WATER_DEFAULTS[unit] || 250;
+    amountMl = Math.round(defaultMl * qty);
+  }
+
+  out.best = { _waterMl: amountMl, name: name || 'water' };
+  out.candidates = [out.best];
+  return out;
+}
+
 // ── Step 3: Save matched items to diary ──────────────────────────────────
 
 /**
@@ -391,12 +467,23 @@ async function _matchYesterday(parsedItem) {
  */
 export async function saveItems(matchedList, { date, defaultMealSlot = 0 }) {
   if (!Array.isArray(matchedList) || matchedList.length === 0) return { saved: 0 };
-  const { addDiaryItem } = await import('../stores/diary.js');
+  const { addDiaryItem, addWaterLog } = await import('../stores/diary.js');
 
   let saved = 0;
   for (const m of matchedList) {
     if (!m || !m.food) continue;
     const slot = m.mealSlot != null ? Number(m.mealSlot) : defaultMealSlot;
+
+    // ── Water: add to water log ──────────────────────────────────────────
+    if (m.source === 'water' && m.food?._waterMl) {
+      try {
+        await addWaterLog(m.food._waterMl, date);
+        saved++;
+      } catch (e) {
+        console.warn('[quick-log] add water failed:', e.message);
+      }
+      continue;
+    }
 
     // ── Meal / Yesterday: expand .items[] into multiple diary entries ──
     // (Recipes are explicitly NOT in this branch — they're added as a

@@ -87,6 +87,7 @@ Smart Log is an experimental feature that lets you log food by **pressing and ho
 | **Saved Meals** | Multi-ingredient meals you've built in MealEditor | "my **chicken caesar salad meal**", "the **pasta carbonara meal**", "for lunch I had my **morning bowl meal**" |
 | **Saved Recipes** | Recipes you've saved (with `is_recipe: 1`) | "my **chicken stir fry recipe**", "made the **pasta carbonara recipe**", "from my **lasagna recipe**" |
 | **Yesterday's diary** | Copy items from yesterday's matching meal slot | "**same as yesterday for lunch**", "**yesterday's breakfast**", "**repeat yesterday's dinner**", "**what I had for breakfast yesterday**" |
+| **Water** | Adds to your water log (not the food diary) | "drank a glass of water", "500ml of water", "had my **protein shaker**", "two cups of water" |
 
 The trigger words **"meal"**, **"recipe"**, and **"yesterday"** are how you tell the AI which kind of record to look for. Without those keywords, Smart Log defaults to searching individual foods.
 
@@ -101,7 +102,6 @@ You can mention the meal in your sentence and Smart Log will route the items the
 Smart Log uses your **actual configured meal slot names** (visible in the AI prompt), so custom slots like "Snack 1 / 2 / 3", "Brunch", or "Late Night" all work. It also handles renamed defaults — if you renamed "Breakfast" to "Morning Bowl", saying "for breakfast" still routes there via fuzzy matching.
 
 ### What Smart Log does NOT do (yet)
-- It does **not** log water intake — say it via the diary water section instead
 - It does **not** log body stats (weight, measurements, etc.)
 - It does **not** support multi-day patterns ("yesterday and today" — yesterday only works for the prior calendar day)
 - It does **not** modify or delete existing diary entries — only adds new ones
