@@ -2431,7 +2431,7 @@
                     </div>
                   </div>
                   <div style="margin-top:8px">
-                    See the <a href="https://github.com/thebigjoe1/nutritrace#smart-log--voice--ai-food-logging" target="_blank" rel="noopener" class="about-link">Smart Log section in the README</a> for the full list of trigger words, examples, what it can/can't match, and the privacy story.
+                    See the <a href="https://github.com/traceapps/nutritrace#smart-log--voice--ai-food-logging" target="_blank" rel="noopener" class="about-link">Smart Log section in the README</a> for the full list of trigger words, examples, what it can/can't match, and the privacy story.
                   </div>
                 </div>
               </div>
@@ -3405,7 +3405,7 @@
           <div class="setting-divider"></div>
           <div class="about-row">
             <span class="material-symbols-rounded about-feat-icon">code</span>
-            <span>Server: <a href="https://github.com/thebigjoe1/nutritrace" target="_blank" rel="noopener" class="about-link">Open source</a> (AGPL-3.0)</span>
+            <span>Server: <a href="https://github.com/traceapps/nutritrace" target="_blank" rel="noopener" class="about-link">Open source</a> (AGPL-3.0)</span>
           </div>
           <div class="setting-divider"></div>
           <div class="about-row">
