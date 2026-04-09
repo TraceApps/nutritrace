@@ -1,0 +1,27 @@
+services:
+  nutritrace:
+    image: ghcr.io/traceapps/nutritrace:latest
+    container_name: nutritrace
+    ports:
+      - "3000:3001"
+    volumes:
+      - ${DATA_DB_PATH}:/data/db
+      - ${DATA_UPLOADS_PATH}:/data/uploads
+    environment:
+      # Do not change — container-internal paths tied to volume mounts above
+      - DB_PATH=/data/db/nutritrace.db
+      - UPLOADS_PATH=/data/uploads
+      # Required if using user management — set a long random secret
+      - JWT_SECRET=${JWT_SECRET}
+      # Optional — lockout recovery token (required for login page recovery)
+      - RECOVERY_TOKEN=${RECOVERY_TOKEN:-}
+      # Optional — log level: error | warn | info (default) | debug
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Optional — SMTP email (for password reset & invites). Can also be set in Settings UI.
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+    restart: unless-stopped

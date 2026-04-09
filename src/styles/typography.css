@@ -1,0 +1,20 @@
+/* Inter from Google Fonts — self-host via @font-face if needed offline */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+h1 { font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; }
+h2 { font-size: 20px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
+h3 { font-size: 17px; font-weight: 600; line-height: 1.4; }
+h4 { font-size: 15px; font-weight: 600; line-height: 1.4; }
+
+.display-xl { font-size: 48px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+.display-lg { font-size: 36px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.display-md { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+
+.label-lg  { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+.label-md  { font-size: 12px; font-weight: 600; letter-spacing: 0.03em; }
+.label-sm  { font-size: 11px; font-weight: 500; letter-spacing: 0.04em; }
+.label-xs  { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+
+.body-lg   { font-size: 16px; line-height: 1.6; }
+.body-md   { font-size: 15px; line-height: 1.5; }
+.body-sm   { font-size: 13px; line-height: 1.5; }

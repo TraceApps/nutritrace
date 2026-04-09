@@ -1,0 +1,44 @@
+{
+  "name": "nutritrace",
+  "version": "0.38.0-beta",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "postinstall": "node scripts/postinstall.cjs"
+  },
+  "dependencies": {
+    "@capacitor-community/speech-recognition": "^7.0.1",
+    "@capacitor-community/sqlite": "^8.1.0",
+    "@capacitor-mlkit/barcode-scanning": "^8.0.1",
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
+    "@capacitor/camera": "^8.0.2",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/keyboard": "^8.0.2",
+    "@capacitor/local-notifications": "^8.0.2",
+    "@capacitor/share": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
+    "@devmaxime/capacitor-health-connect": "^1.1.0",
+    "chart.js": "^4.4.0",
+    "emoji-picker-element": "^1.29.1",
+    "jszip": "^3.10.1",
+    "nodemailer": "^8.0.3",
+    "svelte-spa-router": "^4.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.3.0",
+    "@sveltejs/vite-plugin-svelte": "^3.0.0",
+    "svelte": "^4.2.0",
+    "typescript": "^6.0.2",
+    "vite": "^5.0.0",
+    "vite-plugin-pwa": "^0.19.0",
+    "workbox-window": "^7.0.0"
+  }
+}

@@ -1,0 +1,811 @@
+<script>
+  import { onMount } from 'svelte';
+  import { DB, localDateStr } from '../lib/db.js';
+  import { NtApi } from '../lib/api.js';
+  import { portal } from '../lib/portal.js';
+  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, wellnessEnabled, fitbitEnabled, garminEnabled } from '../stores/settings.js';
+  import GoalsBanner from '../components/banners/GoalsBanner.svelte';
+  import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
+  import { loadEntry } from '../stores/diary.js';
+  import { showSuccess } from '../stores/toast.js';
+
+  const BODY_STATS = [
+    { id: 'weight',   label: 'Weight',   isBody: true },
+    { id: 'neck',     label: 'Neck',     isBody: true },
+    { id: 'waist',    label: 'Waist',    isBody: true },
+    { id: 'hips',     label: 'Hips',     isBody: true },
+    { id: 'chest',    label: 'Chest',    isBody: true },
+    { id: 'thighs',   label: 'Thighs',   isBody: true },
+    { id: 'biceps',   label: 'Biceps',   isBody: true },
+    { id: 'calves',   label: 'Calves',   isBody: true },
+    { id: 'body_fat', label: 'Body Fat', isBody: true, unit: '%' },
+  ];
+
+  $: wUnit = $weightUnit || 'kg';
+  $: hUnit = $heightUnit || 'cm';
+  $: lUnit = $lengthUnit || 'in';
+  $: bodyStatsWithUnit = BODY_STATS.map(s => ({
+    ...s,
+    unit: s.unit || (s.id === 'weight' ? wUnit : lUnit)
+  }));
+
+  // All nutrients filtered only by energy unit — used in Goals so you can set
+  // goals for any nutrient regardless of diary visibility settings
+  $: allNutrients = NUTRIMENTS.filter(n => {
+    if (n.id === 'kilojoules' && ($energyUnit||'kcal') === 'kcal') return false;
+    if (n.id === 'calories'   && ($energyUnit||'kcal') === 'kJ') return false;
+    return true;
+  });
+
+  // Wellness goal fields (shown when wellness is enabled)
+  const WELLNESS_GOALS = [
+    // Fitbit — Movement
+    { id: 'steps',              label: 'Daily Steps',       unit: 'steps', isWellness: true },
+    { id: 'active_minutes',     label: 'Active Minutes',    unit: 'min',   isWellness: true },
+    { id: 'floors',             label: 'Floors Climbed',    unit: 'floors',isWellness: true },
+    { id: 'calories_out',       label: 'Calories Burned',   unit: 'kcal',  isWellness: true },
+    // Fitbit — Sleep
+    { id: 'sleep_duration_min', label: 'Sleep Duration',    unit: 'min',   isWellness: true },
+    { id: 'sleep_efficiency',   label: 'Sleep Efficiency',  unit: '%',     isWellness: true },
+    // Fitbit — Heart
+    { id: 'hrv_daily_rmssd',    label: 'HRV (RMSSD)',       unit: 'ms',    isWellness: true },
+    // Withings — Body
+    { id: 'weight_kg',          label: 'Target Weight',     unit: 'kg',    isWellness: true },
+    { id: 'body_fat_pct',       label: 'Target Body Fat',   unit: '%',     isWellness: true },
+    { id: 'muscle_mass_kg',     label: 'Target Muscle Mass',unit: 'kg',    isWellness: true },
+  ];
+
+  // All fields for goal-setting: all body stats + all nutrients + wellness if enabled
+  $: wellnessFields = $wellnessEnabled ? WELLNESS_GOALS : [];
+  $: allFields = [...bodyStatsWithUnit, ...allNutrients, ...wellnessFields];
+  // Your Goals: categorized
+  $: configuredBodyStats = bodyStatsWithUnit.filter(s => $goals[s.id]);
+  $: configuredNutrients = allNutrients.filter(s => $goals[s.id]);
+  $: configuredWellness  = wellnessFields.filter(s => $goals[s.id]);
+  $: hasAnyGoal = configuredBodyStats.length > 0 || configuredNutrients.length > 0 || configuredWellness.length > 0;
+
+  let activeTab = 'yours'; // 'yours' | 'all' | 'templates'
+
+  // ── Goal templates ─────────────────────────────────────────────────────────
+  let showSaveSheet    = false;
+  let templateName     = '';
+  let showApplyConfirm = null; // template object pending apply
+
+  function openSaveSheet() {
+    templateName = '';
+    showSaveSheet = true;
+  }
+
+  function saveTemplate() {
+    const name = templateName.trim();
+    if (!name) return;
+    const goalCount = Object.keys($goals).filter(k => $goals[k]?.min != null || $goals[k]?.max != null).length
+      + ($waterGoalMl > 0 ? 1 : 0);
+    const tpl = {
+      id:        Date.now(),
+      name,
+      createdAt: new Date().toISOString(),
+      goals:     { ...$goals },
+      waterGoalMl: $waterGoalMl,
+      goalCount,
+    };
+    goalTemplates.update(list => [...list, tpl]);
+    showSaveSheet = false;
+    showSuccess('Template saved');
+  }
+
+  function applyTemplate(tpl) {
+    goals.set({ ...tpl.goals });
+    if (tpl.waterGoalMl != null) waterGoalMl.set(tpl.waterGoalMl);
+    showApplyConfirm = null;
+    activeTab = 'yours';
+    showSuccess(`"${tpl.name}" applied`);
+  }
+
+  function deleteTemplate(id) {
+    goalTemplates.update(list => list.filter(t => t.id !== id));
+  }
+
+  function formatDate(iso) {
+    return new Date(iso).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' });
+  }
+  let today = localDateStr();
+  let todayTotals = {};
+  let todayBodyStats = {};
+  let todayWaterMl = 0;
+  let todayWellness    = {}; // merged fitbit + garmin for today
+  let _wellnessLoaded  = false;
+
+  async function loadWellnessToday() {
+    _wellnessLoaded = true;
+    let fitbit = {}, garmin = {};
+    try { if ($fitbitEnabled) { const r = await NtApi.get(`/api/wellness/fitbit/data?date=${today}`); fitbit = r[today] || {}; } } catch {}
+    try { if ($garminEnabled) { const r = await NtApi.get(`/api/wellness/garmin/data?date=${today}`); garmin = r[today] || {}; } } catch {}
+    todayWellness = { ...fitbit, ...garmin };
+  }
+
+  // Fire as soon as settings stores resolve true — avoids the first-load race
+  // where onMount ran before settings loaded from server (both start false).
+  $: if (($fitbitEnabled || $garminEnabled) && !_wellnessLoaded) loadWellnessToday();
+
+  onMount(async () => {
+    const entry = await NtApi.getDiaryDate(today).catch(() => null);
+    if (entry) {
+      todayBodyStats = entry.body_stats || entry.bodyStats || {};
+      todayTotals = Nutrition.sum((entry.items || []).map(i => Nutrition.calculate(i)));
+      todayWaterMl = (entry.water || []).reduce((s, l) => s + (l.amount || 0), 0);
+    }
+  });
+
+  // ── Water goal helpers ────────────────────────────────────────────────────
+  function mlToDisplay(ml, unit) {
+    if (unit === 'oz') return +(ml / 29.5735).toFixed(1);
+    if (unit === 'L')  return +(ml / 1000).toFixed(2);
+    if (unit === 'G')  return +(ml / 3785.41).toFixed(3);
+    return Math.round(ml);
+  }
+  function displayToMl(val, unit) {
+    const n = parseFloat(val) || 0;
+    if (unit === 'oz') return Math.round(n * 29.5735);
+    if (unit === 'L')  return Math.round(n * 1000);
+    if (unit === 'G')  return Math.round(n * 3785.41);
+    return Math.round(n);
+  }
+
+  let editWaterOpen = false;
+  let editWaterVal = '';
+  function openEditWater() {
+    editWaterVal = String(mlToDisplay($waterGoalMl, $waterUnit));
+    editWaterOpen = true;
+  }
+  function saveWaterGoal() {
+    waterGoalMl.set(displayToMl(editWaterVal, $waterUnit));
+    editWaterOpen = false;
+    showSuccess('Water goal saved');
+  }
+
+  $: waterGoalDisplay = mlToDisplay($waterGoalMl, $waterUnit);
+  $: waterTodayDisplay = mlToDisplay(todayWaterMl, $waterUnit);
+  $: waterPct = $waterGoalMl > 0 ? Math.min(100, Math.round(todayWaterMl / $waterGoalMl * 100)) : 0;
+
+  // ── Edit state ────────────────────────────────────────────────────────────
+  let editOpen = false;
+  let editStat = null;
+  let editShared = true;
+  let editIsMin = false;
+  let editVal0 = '';
+  let editDayVals = ['','','','','','',''];
+  let editShowDiary  = true;
+  let editShowStats  = true;
+  let editIsPercent  = false;
+  let editAutoAdjust = false;
+
+  let _gLock = false;
+  let _gLockTimer;
+  function openEdit(stat) {
+    editStat = stat;
+    const g = $goals[stat.id];
+    if (g) {
+      editShared  = g.sharedGoal !== false;
+      editIsMin   = g.isMin || false;
+      editShowDiary  = g.showInDiary  !== false;
+      editShowStats  = g.showInStats  !== false;
+      editIsPercent  = g.isPercent    || false;
+      editAutoAdjust = g.autoAdjust   || false;
+      if (editShared) {
+        editVal0 = String(g.max ?? g.min ?? '');
+      } else {
+        editDayVals = g.days ? [...g.days] : ['','','','','','',''];
+        editVal0 = String(editDayVals[0]);
+      }
+    } else {
+      editShared  = true; editIsMin = false;
+      editVal0 = ''; editDayVals = ['','','','','','',''];
+      editShowDiary = true; editShowStats = true;
+      editIsPercent = false; editAutoAdjust = false;
+    }
+    clearTimeout(_gLockTimer);
+    _gLock = true;
+    editOpen = true;
+    _gLockTimer = setTimeout(() => _gLock = false, 400);
+  }
+
+  function saveGoal() {
+    if (!editStat) return;
+    const val = parseFloat(editVal0) || null;
+    const dayArr = editShared
+      ? Array(7).fill(val)
+      : editDayVals.map(v => parseFloat(v) || null);
+
+    const validDays = dayArr.filter(v => v != null && v > 0);
+    const peakVal = validDays.length ? Math.max(...validDays) : null;
+
+    const entry = {
+      sharedGoal:  editShared,
+      isMin:       editIsMin,
+      isPercent:   editIsPercent,
+      autoAdjust:  editAutoAdjust,
+      showInDiary: editShowDiary,
+      showInStats: editShowStats,
+      days: dayArr
+    };
+    if (editIsMin) entry.min = editShared ? val : peakVal;
+    else           entry.max = editShared ? val : peakVal;
+
+    goals.update(g => ({ ...g, [editStat.id]: entry }));
+    editOpen = false;
+    showSuccess('Goal saved');
+  }
+
+  function deleteGoal() {
+    if (!editStat) return;
+    if (!confirm(`Remove goal for ${editStat.label || editStat.id}?`)) return;
+    goals.update(g => { const n = {...g}; delete n[editStat.id]; return n; });
+    editOpen = false;
+  }
+
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const MACRO_DENSITY = { fat: 9, 'saturated-fat': 9, carbohydrates: 4, sugars: 4, proteins: 4 };
+  function isPercentEligible(stat) {
+    return stat && (stat.id in MACRO_DENSITY);
+  }
+
+  function getTodayValue(stat, totals, bodyStats, wellness) {
+    const t = totals    ?? todayTotals;
+    const b = bodyStats ?? todayBodyStats;
+    const w = wellness  ?? todayWellness;
+    if (stat.isWellness) return w[stat.id] ?? null;
+    if (stat.isBody) return b[stat.id] ?? null;
+    return t[stat.id] ?? null;
+  }
+
+  function getTarget(stat) {
+    const g = $goals[stat.id];
+    if (!g) return null;
+    let raw;
+    if (g.sharedGoal !== false) {
+      raw = g.max ?? g.min ?? null;
+    } else {
+      const d = new Date().getDay();
+      raw = (g.days && g.days[d] != null) ? g.days[d] : (g.max ?? g.min ?? null);
+    }
+    if (raw == null || !g.isPercent) return raw;
+    const density = MACRO_DENSITY[stat.id];
+    if (!density) return raw;
+    const calGoal = $goals.calories?.max ?? $goals.calories?.min ?? 2000;
+    return Math.round(calGoal * raw / 100 / density);
+  }
+
+  function getPct(stat, totals, bodyStats, wellness) {
+    const cur = getTodayValue(stat, totals, bodyStats, wellness);
+    const tgt = getTarget(stat);
+    if (cur == null || tgt == null || tgt === 0) return 0;
+    return Math.min(100, Math.round(cur / tgt * 100));
+  }
+</script>
+
+<div class="page-shell">
+  <header class="page-header" class:has-banner={$pageBanners}>
+    {#if $pageBanners}<GoalsBanner />{/if}
+    <h1>Goals</h1>
+  </header>
+
+  <!-- Tabs -->
+  <div class="tab-bar">
+    <button class="tab-btn" class:active={activeTab==='yours'} on:click={() => activeTab='yours'}>
+      Your Goals
+    </button>
+    <button class="tab-btn" class:active={activeTab==='all'} on:click={() => activeTab='all'}>
+      All Fields
+    </button>
+    <button class="tab-btn" class:active={activeTab==='templates'} on:click={() => activeTab='templates'}>
+      Templates
+    </button>
+  </div>
+
+  <div class="page-content">
+
+    <!-- ── Your Goals tab ── -->
+    {#if activeTab === 'yours'}
+      {#if !hasAnyGoal}
+        <div class="empty-state">
+          <span class="material-symbols-rounded" style="font-size:48px;opacity:0.2">flag</span>
+          <p>No goals set yet.</p>
+          <p class="text-3 text-sm">Go to <strong>All Fields</strong> tab to add goals.</p>
+        </div>
+      {:else}
+        {#if configuredBodyStats.length > 0}
+          <p class="section-title">Body Stats</p>
+          <div class="card">
+            {#each configuredBodyStats as stat, i}
+              {#if i > 0}<div class="divider"></div>{/if}
+              <button class="goal-row" on:click={() => openEdit(stat)}>
+                <div class="goal-info">
+                  <span class="font-medium">{stat.label}</span>
+                  {#if getTarget(stat) != null}
+                    {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                    {@const tgt = getTarget(stat)}
+                    {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                    {@const isMin = $goals[stat.id]?.isMin}
+                    {@const bad = cur != null && tgt != null && (isMin ? cur < tgt : cur > tgt)}
+                    <div class="goal-progress-bar">
+                      <div class="goal-progress-fill" class:over={bad} style="width:{pct}%"></div>
+                    </div>
+                    <span class="text-3 text-sm">
+                      {cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit || ''}
+                      {#if isMin}<span style="opacity:0.6">(min)</span>{/if}
+                    </span>
+                  {:else}
+                    <span class="text-3 text-sm">Not set</span>
+                  {/if}
+                </div>
+                <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+
+        {#if configuredNutrients.length > 0}
+          <p class="section-title">Nutrients</p>
+          <div class="card">
+            {#each configuredNutrients as stat, i}
+              {#if i > 0}<div class="divider"></div>{/if}
+              <button class="goal-row" on:click={() => openEdit(stat)}>
+                <div class="goal-info">
+                  <span class="font-medium">{stat.label}</span>
+                  {#if getTarget(stat) != null}
+                    {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                    {@const tgt = getTarget(stat)}
+                    {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                    {@const isMin = $goals[stat.id]?.isMin}
+                    {@const bad = cur != null && tgt != null && (isMin ? cur < tgt : cur > tgt)}
+                    <div class="goal-progress-bar">
+                      <div class="goal-progress-fill" class:over={bad} style="width:{pct}%"></div>
+                    </div>
+                    <span class="text-3 text-sm">
+                      {cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit || ''}
+                      {#if isMin}<span style="opacity:0.6">(min)</span>{/if}
+                    </span>
+                  {:else}
+                    <span class="text-3 text-sm">Not set</span>
+                  {/if}
+                </div>
+                <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+
+      {/if}
+
+      <!-- Water Goal — alphabetically before Wellness -->
+      <p class="section-title">Water</p>
+      <div class="card">
+        <button class="goal-row" on:click={openEditWater}>
+          <div class="goal-info">
+            <span class="font-medium">Daily Water Goal</span>
+            <div class="goal-progress-bar">
+              <div class="goal-progress-fill" style="width:{waterPct}%"></div>
+            </div>
+            <span class="text-3 text-sm">{waterTodayDisplay.toLocaleString()} / {waterGoalDisplay.toLocaleString()} {$waterUnit}</span>
+          </div>
+          <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
+        </button>
+      </div>
+
+      {#if configuredWellness.length > 0}
+        <p class="section-title">Wellness</p>
+        <div class="card">
+          {#each configuredWellness as stat, i}
+            {#if i > 0}<div class="divider"></div>{/if}
+            <button class="goal-row" on:click={() => openEdit(stat)}>
+              <div class="goal-info">
+                <span class="font-medium">{stat.label}</span>
+                {#if getTarget(stat) != null}
+                  {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                  {@const tgt = getTarget(stat)}
+                  {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                  <div class="goal-progress-bar">
+                    <div class="goal-progress-fill" style="width:{pct}%"></div>
+                  </div>
+                  <span class="text-3 text-sm">{cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit}</span>
+                {:else}
+                  <span class="text-3 text-sm">Not set</span>
+                {/if}
+              </div>
+              <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+
+    <!-- ── All Fields tab ── -->
+    {:else if activeTab === 'all'}
+      <p class="text-3 text-sm" style="padding:0 var(--page-px) 8px">Tap any field to set or edit its goal.</p>
+
+      <!-- Body Stats -->
+      <p class="section-title">Body Stats</p>
+      <div class="card">
+        {#each bodyStatsWithUnit as stat, i}
+          {#if i > 0}<div class="divider"></div>{/if}
+          <button class="goal-row" on:click={() => openEdit(stat)}>
+            <div class="goal-info">
+              <span class="font-medium">{stat.label}</span>
+              {#if $goals[stat.id]}
+                {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                {@const tgt = getTarget(stat)}
+                {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                <div class="goal-progress-bar">
+                  <div class="goal-progress-fill" style="width:{pct}%"></div>
+                </div>
+                <span class="text-3 text-sm">{cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit}</span>
+              {:else}
+                <span class="text-3 text-sm" style="opacity:0.4">No goal</span>
+              {/if}
+            </div>
+            <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
+          </button>
+        {/each}
+      </div>
+
+      <!-- Nutrients -->
+      <p class="section-title">Nutrients</p>
+      <div class="card">
+        {#each allNutrients as stat, i}
+          {#if i > 0}<div class="divider"></div>{/if}
+          <button class="goal-row" on:click={() => openEdit(stat)}>
+            <div class="goal-info">
+              <span class="font-medium">{stat.label}</span>
+              {#if $goals[stat.id]}
+                {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                {@const tgt = getTarget(stat)}
+                {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                <div class="goal-progress-bar">
+                  <div class="goal-progress-fill" style="width:{pct}%"></div>
+                </div>
+                <span class="text-3 text-sm">{cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit}</span>
+              {:else}
+                <span class="text-3 text-sm" style="opacity:0.4">No goal</span>
+              {/if}
+            </div>
+            <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
+          </button>
+        {/each}
+      </div>
+
+      <!-- Water -->
+      <p class="section-title">Water</p>
+      <div class="card">
+        <button class="goal-row" on:click={openEditWater}>
+          <div class="goal-info">
+            <span class="font-medium">Daily Water Goal</span>
+            <div class="goal-progress-bar">
+              <div class="goal-progress-fill" style="width:{waterPct}%"></div>
+            </div>
+            <span class="text-3 text-sm">{waterTodayDisplay.toLocaleString()} / {waterGoalDisplay.toLocaleString()} {$waterUnit}</span>
+          </div>
+          <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
+        </button>
+      </div>
+
+      <!-- Wellness (when enabled) -->
+      {#if $wellnessEnabled}
+        <p class="section-title">Wellness</p>
+        <div class="card">
+          {#each WELLNESS_GOALS as stat, i}
+            {#if i > 0}<div class="divider"></div>{/if}
+            <button class="goal-row" on:click={() => openEdit(stat)}>
+              <div class="goal-info">
+                <span class="font-medium">{stat.label}</span>
+                {#if $goals[stat.id]}
+                  {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                  {@const tgt = getTarget(stat)}
+                  {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                  <div class="goal-progress-bar">
+                    <div class="goal-progress-fill" style="width:{pct}%"></div>
+                  </div>
+                  <span class="text-3 text-sm">{cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit}</span>
+                {:else}
+                  <span class="text-3 text-sm" style="opacity:0.4">No goal</span>
+                {/if}
+              </div>
+              <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+
+    <!-- ── Templates tab ── -->
+    {:else if activeTab === 'templates'}
+      <div class="tpl-header">
+        <p class="text-3 text-sm">Save your current goals as a named template to reuse later.</p>
+        <button class="btn btn-primary tpl-save-btn" on:click={openSaveSheet}>
+          <span class="material-symbols-rounded" style="font-size:18px">save</span>
+          Save Current Goals
+        </button>
+      </div>
+
+      {#if $goalTemplates.length === 0}
+        <div class="empty-state">
+          <span class="material-symbols-rounded" style="font-size:48px;opacity:0.2">bookmarks</span>
+          <p>No templates yet.</p>
+          <p class="text-3 text-sm">Save your current goals to create your first template.</p>
+        </div>
+      {:else}
+        <div class="card">
+          {#each $goalTemplates as tpl, i}
+            {#if i > 0}<div class="divider"></div>{/if}
+            <div class="tpl-row">
+              <div class="tpl-info">
+                <span class="font-medium">{tpl.name}</span>
+                <span class="text-3 text-sm">{formatDate(tpl.createdAt)} · {tpl.goalCount || Object.keys(tpl.goals).filter(k => tpl.goals[k]?.min != null || tpl.goals[k]?.max != null).length + (tpl.waterGoalMl > 0 ? 1 : 0)} goals</span>
+              </div>
+              <div class="tpl-actions">
+                <button class="btn btn-ghost tpl-btn" on:click={() => showApplyConfirm = tpl}>
+                  Apply
+                </button>
+                <button class="btn-icon" style="color:var(--text-3)" on:click={() => deleteTemplate(tpl.id)} title="Delete template">
+                  <span class="material-symbols-rounded" style="font-size:20px">delete</span>
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {/if}
+
+    <div style="height:24px"></div>
+  </div>
+</div>
+
+<!-- ── Goal editor sheet ── -->
+{#if editOpen && editStat}
+  <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
+    on:click={() => { if (!_gLock) editOpen = false; }} on:keydown={() => {}}>
+    <div class="sheet-panel" on:click|stopPropagation on:keydown={() => {}}>
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h3 class="sheet-title">{editStat.label} {editStat.unit ? '('+editStat.unit+')' : ''}</h3>
+      </div>
+      <div class="sheet-body">
+
+        <!-- Options -->
+        {#if !editStat?.isWellness}
+        <div class="toggle-row">
+          <label class="toggle-label">Show in Diary</label>
+          <label class="toggle-switch">
+            <input type="checkbox" bind:checked={editShowDiary} />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle-label">Show in Statistics</label>
+          <label class="toggle-switch">
+            <input type="checkbox" bind:checked={editShowStats} />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        {/if}
+        <div class="toggle-row">
+          <label class="toggle-label">Same goal every day</label>
+          <label class="toggle-switch">
+            <input type="checkbox" bind:checked={editShared} />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle-label">Minimum goal (must reach target)</label>
+          <label class="toggle-switch">
+            <input type="checkbox" bind:checked={editIsMin} />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        {#if isPercentEligible(editStat)}
+        <div class="toggle-row">
+          <label class="toggle-label">Goal as % of calories</label>
+          <label class="toggle-switch">
+            <input type="checkbox" bind:checked={editIsPercent} />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        {/if}
+        <div class="toggle-row">
+          <label class="toggle-label">Auto-adjust to activity</label>
+          <label class="toggle-switch">
+            <input type="checkbox" bind:checked={editAutoAdjust} />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+
+        <div class="divider" style="margin:8px 0"></div>
+
+        <!-- Goal value(s) -->
+        {#if editShared}
+          <label class="form-label">Target ({editIsPercent ? '% of calories' : (editStat.unit || '')})</label>
+          <input class="input" type="number" min="0" step="any"
+            placeholder="0" bind:value={editVal0} />
+        {:else}
+          {#each DAYS as day, i}
+            <label class="form-label">{day} ({editIsPercent ? '% of calories' : (editStat.unit || '')})</label>
+            <input class="input" type="number" min="0" step="any"
+              placeholder="0" bind:value={editDayVals[i]} style="margin-bottom:8px" />
+          {/each}
+        {/if}
+      </div>
+      <div class="sheet-footer">
+        {#if $goals[editStat?.id]}
+          <button class="btn btn-danger w-full" style="margin-bottom:8px" on:click={deleteGoal}>
+            Remove Goal
+          </button>
+        {/if}
+        <button class="btn btn-primary w-full" on:click={saveGoal}>Save Goal</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- ── Water goal edit sheet ── -->
+{#if editWaterOpen}
+  <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
+    on:click={() => editWaterOpen = false} on:keydown={() => {}}>
+    <div class="sheet-panel" on:click|stopPropagation on:keydown={() => {}}>
+      <div class="sheet-handle"></div>
+      <div class="sheet-header"><h3 class="sheet-title">Daily Water Goal</h3></div>
+      <div class="sheet-body">
+        <label class="form-label">Goal ({$waterUnit})</label>
+        <input class="input" type="number" min="0" step="0.1" bind:value={editWaterVal}
+          on:keydown={e => e.key === 'Enter' && saveWaterGoal()} />
+        <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveWaterGoal}>Save</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- ── Save template sheet ── -->
+{#if showSaveSheet}
+  <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
+    on:click={() => showSaveSheet = false} on:keydown={() => {}}>
+    <div class="sheet-panel" on:click|stopPropagation on:keydown={() => {}}>
+      <div class="sheet-handle"></div>
+      <div class="sheet-header"><h3 class="sheet-title">Save as Template</h3></div>
+      <div class="sheet-body">
+        <label class="form-label">Template name</label>
+        <input class="input" placeholder="e.g. Cut — Summer 2025" bind:value={templateName}
+          on:keydown={e => e.key === 'Enter' && saveTemplate()} />
+        <p class="text-3 text-sm" style="margin-top:4px">
+          Saves a snapshot of all {Object.keys($goals).filter(k => $goals[k]?.min != null || $goals[k]?.max != null).length + ($waterGoalMl > 0 ? 1 : 0)} current goals.
+        </p>
+      </div>
+      <div class="sheet-footer">
+        <button class="btn btn-primary w-full" on:click={saveTemplate}
+          disabled={!templateName.trim()}>Save Template</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- ── Apply confirm sheet ── -->
+{#if showApplyConfirm}
+  <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
+    on:click={() => showApplyConfirm = null} on:keydown={() => {}}>
+    <div class="sheet-panel" on:click|stopPropagation on:keydown={() => {}}>
+      <div class="sheet-handle"></div>
+      <div class="sheet-header"><h3 class="sheet-title">Apply Template</h3></div>
+      <div class="sheet-body">
+        <p>Apply <strong>{showApplyConfirm.name}</strong>?</p>
+        <p class="text-3 text-sm">This will replace your current goals with the {showApplyConfirm.goalCount || Object.keys(showApplyConfirm.goals).filter(k => showApplyConfirm.goals[k]?.min != null || showApplyConfirm.goals[k]?.max != null).length + (showApplyConfirm.waterGoalMl > 0 ? 1 : 0)} goals saved in this template.</p>
+      </div>
+      <div class="sheet-footer" style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-primary w-full" on:click={() => applyTemplate(showApplyConfirm)}>Apply</button>
+        <button class="btn btn-ghost w-full" on:click={() => showApplyConfirm = null}>Cancel</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<style>
+
+  .tab-bar {
+    display: flex; border-bottom: 1px solid var(--border);
+    margin-top: 12px;
+  }
+  .tab-btn {
+    flex: 1; padding: 10px 0; font-size: 14px; font-weight: 600;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-3); border-bottom: 2px solid transparent;
+    transition: color var(--dur-fast), border-color var(--dur-fast);
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .card { border-left: 3px solid var(--accent); }
+
+  .goal-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; width: 100%;
+    background: none; border: none; cursor: pointer;
+    text-align: left; color: var(--text-1);
+    transition: background var(--dur-fast);
+  }
+  .goal-row:active { background: var(--surface-2); }
+  .goal-row .material-symbols-rounded { color: var(--accent); }
+  .goal-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .divider { height: 1px; background: var(--border); margin: 0 16px; }
+
+  .empty-state .material-symbols-rounded { color: var(--accent); opacity: 0.5; }
+
+  .goal-progress-bar {
+    height: 4px; background: var(--surface-3); border-radius: 2px;
+    overflow: hidden; max-width: 200px;
+  }
+  .goal-progress-fill {
+    height: 100%; background: var(--accent);
+    border-radius: 2px;
+    transition: width var(--dur-base) var(--ease-inout);
+  }
+  .goal-progress-fill.over { background: var(--red, #f44336); }
+
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 8px; padding: 48px 16px; text-align: center;
+  }
+
+  /* Templates */
+  .tpl-header {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 12px var(--page-px);
+  }
+  .tpl-save-btn { display: flex; align-items: center; gap: 6px; }
+  .tpl-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+  }
+  .tpl-info { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+  .tpl-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .tpl-btn { height: 32px; padding: 0 12px; font-size: 13px; color: var(--accent); }
+
+  /* Sheet */
+  .sheet-backdrop {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.5);
+    display: flex; align-items: flex-end;
+  }
+  .sheet-panel {
+    background: var(--surface-1);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    width: 100%; max-width: 600px; margin: 0 auto;
+    max-height: 90dvh; display: flex; flex-direction: column;
+    padding-bottom: var(--safe-bottom);
+  }
+  .sheet-handle {
+    width: 36px; height: 4px; background: var(--border);
+    border-radius: 2px; margin: 10px auto 0;
+  }
+  .sheet-header { padding: 12px 20px 4px; }
+  .sheet-title  { font-size: 16px; font-weight: 700; }
+  .sheet-body   { flex: 1; overflow-y: auto; padding: 8px 20px 0; display: flex; flex-direction: column; gap: 8px; }
+  .sheet-footer { padding: 16px 20px; }
+
+  /* Toggle rows */
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0;
+  }
+  .toggle-label { font-size: 14px; }
+  .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute; inset: 0;
+    background: var(--surface-3); border-radius: 12px;
+    transition: background var(--dur-fast);
+  }
+  .toggle-track::after {
+    content: ''; position: absolute;
+    top: 3px; left: 3px;
+    width: 18px; height: 18px;
+    border-radius: 50%; background: white;
+    transition: transform var(--dur-fast);
+  }
+  .toggle-switch input:checked ~ .toggle-track { background: var(--accent); }
+  .toggle-switch input:checked ~ .toggle-track::after { transform: translateX(20px); }
+</style>

@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Vite
+.vite/
+vite.config.js.timestamp-*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local backups (not needed in repo)
+.backup-polish/
+
+# Bind mount data (DB + uploads live on the host, not in git)
+data/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+

@@ -1,0 +1,313 @@
+/**
+ * AI Chat — multi-provider API layer with tool use (function calling)
+ * Supports: Anthropic Claude, OpenAI, Google Gemini
+ * All calls made client-side using the user's own API key.
+ *
+ * Tool use flow:
+ * 1. Send messages + tool definitions to AI
+ * 2. If AI responds with tool_use, execute the tool and send result back
+ * 3. Repeat until AI responds with text (max 5 tool rounds)
+ */
+
+// ── Tool definitions (shared across all providers) ────────────────────────────
+export const TOOLS = [
+  {
+    name: 'get_wellness_data',
+    description: 'Get wellness/fitness metrics for a date range. Returns daily data including steps, calories burned, distance, active minutes, sleep (duration, stages, score, efficiency), heart rate (resting HR, HRV, SpO2), respiratory rate, readiness score, stress score, skin temp, VO2 max, and more. Sources: Fitbit, Garmin, Health Connect.',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
+        to:   { type: 'string', description: 'End date (YYYY-MM-DD)' },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'get_body_composition',
+    description: 'Get body composition data from Withings scale for a date range. Returns weight, body fat %, muscle mass, bone mass, body water %, lean mass, fat mass, visceral fat, vascular age, metabolic age, BMR, nerve health, ECG, and segmental analysis.',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
+        to:   { type: 'string', description: 'End date (YYYY-MM-DD)' },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'get_diary',
+    description: 'Get food diary for a specific date. Returns all meals with food items, portions, quantities, and full nutrition breakdown (calories, protein, carbs, fat, and micronutrients). Also returns body stats and water intake for that date.',
+    parameters: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'Date (YYYY-MM-DD)' },
+      },
+      required: ['date'],
+    },
+  },
+  {
+    name: 'get_workouts',
+    description: 'Get recorded workouts/exercises for a date range. Returns activity name, duration, distance, calories, average/max heart rate, steps, and whether GPS route data is available.',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
+        to:   { type: 'string', description: 'End date (YYYY-MM-DD)' },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'get_goals',
+    description: 'Get the user\'s nutrition and wellness goals. Returns calorie, macro, and other nutrient targets.',
+    parameters: { type: 'object', properties: {} },
+  },
+];
+
+// ── Main entry point ─────────────────────────────────────────────────────────
+
+export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall }) {
+  if (!apiKey) throw new Error('No API key configured. Add one in Settings → FitBot AI.');
+  switch (provider) {
+    case 'claude':  return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
+    case 'openai':  return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
+    case 'gemini':  return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
+    default: throw new Error(`Unknown AI provider: ${provider}`);
+  }
+}
+
+/**
+ * Server-side proxy call — used when AI config is env-locked.
+ * The API key stays on the server; only messages + systemPrompt are sent.
+ */
+export async function callAIProxy({ messages, systemPrompt }) {
+  const { apiUrl } = await import('./platform.js');
+  const csrf = localStorage.getItem('nt:csrf');
+  const res = await fetch(apiUrl('/api/ai/chat'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+    body: JSON.stringify({ messages, systemPrompt }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `AI proxy error ${res.status}`);
+  return data.text;
+}
+
+// ── Default models per provider ───────────────────────────────────────────────
+export const AI_PROVIDERS = [
+  { value: 'claude', label: 'Anthropic Claude' },
+  { value: 'openai', label: 'OpenAI'           },
+  { value: 'gemini', label: 'Google Gemini'    },
+];
+
+export const AI_MODELS = {
+  claude: [
+    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast, cheap)' },
+    { value: 'claude-sonnet-4-6',         label: 'Claude Sonnet (smarter)'    },
+  ],
+  openai: [
+    { value: 'gpt-4o-mini', label: 'GPT-4o mini (fast, cheap)' },
+    { value: 'gpt-4o',      label: 'GPT-4o (smarter)'          },
+  ],
+  gemini: [
+    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (fast, cheap)' },
+    { value: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro (smarter)'       },
+  ],
+};
+
+export const AI_DEFAULT_MODELS = {
+  claude: 'claude-haiku-4-5-20251001',
+  openai: 'gpt-4o-mini',
+  gemini: 'gemini-2.0-flash',
+};
+
+// ── Anthropic Claude (with tool use) ─────────────────────────────────────────
+
+async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall) {
+  const claudeTools = (tools || []).map(t => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters,
+  }));
+
+  let currentMessages = [...messages];
+  const MAX_ROUNDS = 5;
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const body = {
+      model: model || AI_DEFAULT_MODELS.claude,
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: currentMessages,
+    };
+    if (claudeTools.length) body.tools = claudeTools;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || `Claude API error ${res.status}`);
+
+    // Check if response contains tool use
+    const toolUses = (data.content || []).filter(b => b.type === 'tool_use');
+    const textBlocks = (data.content || []).filter(b => b.type === 'text');
+
+    if (toolUses.length === 0 || data.stop_reason !== 'tool_use') {
+      // No tool calls — return text
+      return textBlocks.map(b => b.text).join('\n') || '';
+    }
+
+    // Execute tool calls
+    currentMessages.push({ role: 'assistant', content: data.content });
+    const toolResults = [];
+    for (const tu of toolUses) {
+      if (onToolCall) onToolCall(tu.name);
+      const result = await _executeTool(tu.name, tu.input);
+      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) });
+    }
+    currentMessages.push({ role: 'user', content: toolResults });
+  }
+
+  throw new Error('Too many tool call rounds');
+}
+
+// ── OpenAI (with function calling) ──────────────────────────────────────────
+
+async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall) {
+  const openaiTools = (tools || []).map(t => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+
+  let currentMessages = [
+    { role: 'system', content: systemPrompt },
+    ...messages,
+  ];
+  const MAX_ROUNDS = 5;
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const body = {
+      model: model || AI_DEFAULT_MODELS.openai,
+      max_tokens: 4096,
+      messages: currentMessages,
+    };
+    if (openaiTools.length) body.tools = openaiTools;
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || `OpenAI API error ${res.status}`);
+
+    const choice = data.choices[0];
+    const msg = choice.message;
+
+    if (!msg.tool_calls || msg.tool_calls.length === 0) {
+      return msg.content || '';
+    }
+
+    // Execute tool calls
+    currentMessages.push(msg);
+    for (const tc of msg.tool_calls) {
+      if (onToolCall) onToolCall(tc.function.name);
+      const args = JSON.parse(tc.function.arguments || '{}');
+      const result = await _executeTool(tc.function.name, args);
+      currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+    }
+  }
+
+  throw new Error('Too many tool call rounds');
+}
+
+// ── Google Gemini (with function calling) ────────────────────────────────────
+
+async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall) {
+  const m = model || AI_DEFAULT_MODELS.gemini;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+
+  const geminiTools = (tools || []).length ? [{
+    functionDeclarations: tools.map(t => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    })),
+  }] : undefined;
+
+  let contents = messages.map(msg => {
+    const parts = [];
+    if (msg._image) {
+      parts.push({ inlineData: { mimeType: msg._image.mimeType, data: msg._image.base64 } });
+    }
+    parts.push({ text: typeof msg.content === 'string' ? msg.content : (msg.content || '') });
+    return { role: msg.role === 'assistant' ? 'model' : 'user', parts };
+  });
+
+  const MAX_ROUNDS = 5;
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const body = {
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents,
+    };
+    if (geminiTools) body.tools = geminiTools;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || `Gemini API error ${res.status}`);
+
+    const candidate = data.candidates?.[0];
+    const parts = candidate?.content?.parts || [];
+    const functionCalls = parts.filter(p => p.functionCall);
+    const textParts = parts.filter(p => p.text);
+
+    if (functionCalls.length === 0) {
+      return textParts.map(p => p.text).join('\n') || '';
+    }
+
+    // Execute function calls
+    contents.push({ role: 'model', parts });
+    const responseParts = [];
+    for (const fc of functionCalls) {
+      if (onToolCall) onToolCall(fc.functionCall.name);
+      const result = await _executeTool(fc.functionCall.name, fc.functionCall.args || {});
+      responseParts.push({ functionResponse: { name: fc.functionCall.name, response: result } });
+    }
+    contents.push({ role: 'user', parts: responseParts });
+  }
+
+  throw new Error('Too many tool call rounds');
+}
+
+// ── Tool execution ───────────────────────────────────────────────────────────
+
+let _toolHandler = null;
+
+/** Register the tool handler (called from AIFitBot.svelte) */
+export function setToolHandler(handler) { _toolHandler = handler; }
+
+async function _executeTool(name, args) {
+  if (!_toolHandler) return { error: 'Tool handler not registered' };
+  try {
+    return await _toolHandler(name, args);
+  } catch (e) {
+    return { error: e.message || 'Tool execution failed' };
+  }
+}

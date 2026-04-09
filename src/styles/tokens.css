@@ -1,0 +1,308 @@
+/* ============================================================
+   Design Tokens — NutriTrace
+   Dark theme is default; light overrides follow.
+   Auto mode is handled in index.html IIFE + settings store.
+   ============================================================ */
+
+/* --- Dark theme (default) --- */
+:root,
+[data-theme="dark"] {
+  /* Backgrounds */
+  --bg:            #0A0B0F;
+  --surface-1:     #12141A;
+  --surface-2:     #1A1D26;
+  --surface-3:     #20232E;
+  --overlay:       rgba(0, 0, 0, 0.70);
+
+  /* Borders */
+  --border:        rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Text */
+  --text-1:        #F0F2F8;
+  --text-2:        rgba(240, 242, 248, 0.60);
+  --text-3:        rgba(240, 242, 248, 0.35);
+
+  /* Accent — vibrant mint / cyan gradient */
+  --accent:        #4FFFB0;
+  --accent-2:      #00C9FF;
+  --accent-dim:    rgba(79, 255, 176, 0.15);
+  --accent-text:   #0A0B0F;   /* text ON accent background */
+
+  /* Semantic */
+  --success:       #4FFFB0;
+  --warning:       #FFB547;
+  --danger:        #FF5C5C;
+  --info:          #4FC3F7;
+
+  /* Macros */
+  --macro-fat:          #FFB347;
+  --macro-carbs:        #4FFFB0;
+  --macro-protein:      #CE93D8;
+  --macro-calories:     #FFD54F;
+  --macro-fat-dim:      rgba(255,179,71,0.15);
+  --macro-carbs-dim:    rgba(79,255,176,0.15);
+  --macro-protein-dim:  rgba(206,147,216,0.15);
+  --macro-calories-dim: rgba(255,213,79,0.15);
+
+  /* UI */
+  --shadow-sm:     0 1px  3px rgba(0,0,0,0.4);
+  --shadow-md:     0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg:     0 8px 32px rgba(0,0,0,0.6);
+  --shadow-glow:   0 4px 24px rgba(0,0,0,0.6);
+  --backdrop-blur: blur(20px);
+  --glass-surface: rgba(18, 20, 26, 0.88);
+
+  /* Theme-color for PWA chrome */
+  --theme-chrome:  #0A0B0F;
+}
+
+/* --- Light theme --- */
+[data-theme="light"] {
+  --bg:            #F5F7FA;
+  --surface-1:     #FFFFFF;
+  --surface-2:     #EEF1F7;
+  --surface-3:     #E5E8F0;
+  --overlay:       rgba(0, 0, 0, 0.45);
+
+  --border:        rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.16);
+
+  --text-1:        #0D0F14;
+  --text-2:        rgba(13, 15, 20, 0.60);
+  --text-3:        rgba(13, 15, 20, 0.35);
+
+  /* Accent stays mint but darkened for contrast on light */
+  --accent:        #00C47A;
+  --accent-2:      #0099CC;
+  --accent-dim:    rgba(0, 196, 122, 0.12);
+  --accent-text:   #FFFFFF;
+
+  --success:       #00C47A;
+  --warning:       #E09400;
+  --danger:        #D93025;
+  --info:          #0277BD;
+
+  --macro-fat:          #E07A00;
+  --macro-carbs:        #00A865;
+  --macro-protein:      #8E24AA;
+  --macro-calories:     #F9A825;
+  --macro-fat-dim:      rgba(224,122,0,0.12);
+  --macro-carbs-dim:    rgba(0,168,101,0.12);
+  --macro-protein-dim:  rgba(142,36,170,0.12);
+  --macro-calories-dim: rgba(249,168,37,0.12);
+
+  --shadow-sm:     0 1px  3px rgba(0,0,0,0.10);
+  --shadow-md:     0 4px 12px rgba(0,0,0,0.12);
+  --shadow-lg:     0 8px 32px rgba(0,0,0,0.16);
+  --shadow-glow:   0 4px 24px rgba(0,0,0,0.14);
+  --glass-surface: rgba(255, 255, 255, 0.88);
+
+  --theme-chrome:  #F5F7FA;
+}
+
+/* --- Spacing & Shape --- */
+:root {
+  --radius-xs:   4px;
+  --radius-sm:   8px;
+  --radius-md:  12px;
+  --radius-lg:  16px;
+  --radius-xl:  24px;
+  --radius-full: 9999px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Bottom nav height + safe area */
+  --nav-h: 64px;
+  --page-top: var(--safe-top); /* overridden by App.svelte when hamburger is shown */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top:    env(safe-area-inset-top, 0px);
+
+  /* Page content side padding */
+  --page-px: 16px;
+}
+
+/* --- Transitions --- */
+:root {
+  --ease-out:   cubic-bezier(0.0, 0.0, 0.2, 1);
+  --ease-in:    cubic-bezier(0.4, 0.0, 1, 1);
+  --ease-inout: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast:  150ms;
+  --dur-base:  220ms;
+  --dur-slow:  350ms;
+}
+
+/* --- Accent color palettes (data-accent attribute) --- */
+/* mint = default, no override needed */
+
+[data-accent="blue"] {
+  --accent:      #4FC3F7;
+  --accent-2:    #7986CB;
+  --accent-dim:  rgba(79, 195, 247, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #4FC3F7;
+}
+[data-theme="light"][data-accent="blue"] {
+  --accent:      #0277BD;
+  --accent-2:    #3949AB;
+  --accent-dim:  rgba(2, 119, 189, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #0277BD;
+}
+
+[data-accent="red"] {
+  --accent:      #FF7070;
+  --accent-2:    #FF9A9A;
+  --accent-dim:  rgba(255, 112, 112, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="red"] {
+  --accent:      #D93025;
+  --accent-2:    #C62828;
+  --accent-dim:  rgba(217, 48, 37, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #00C47A;
+}
+
+[data-accent="purple"] {
+  --accent:      #CE93D8;
+  --accent-2:    #B39DDB;
+  --accent-dim:  rgba(206, 147, 216, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="purple"] {
+  --accent:      #8E24AA;
+  --accent-2:    #5E35B1;
+  --accent-dim:  rgba(142, 36, 170, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #00C47A;
+}
+
+[data-accent="orange"] {
+  --accent:      #FFB547;
+  --accent-2:    #FFCC80;
+  --accent-dim:  rgba(255, 181, 71, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="orange"] {
+  --accent:      #E65100;
+  --accent-2:    #EF6C00;
+  --accent-dim:  rgba(230, 81, 0, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #00C47A;
+}
+
+[data-accent="teal"] {
+  --accent:      #4DD0E1;
+  --accent-2:    #80DEEA;
+  --accent-dim:  rgba(77, 208, 225, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="teal"] {
+  --accent:      #00838F;
+  --accent-2:    #006064;
+  --accent-dim:  rgba(0, 131, 143, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #00C47A;
+}
+
+[data-accent="pink"] {
+  --accent:      #F48FB1;
+  --accent-2:    #F06292;
+  --accent-dim:  rgba(244, 143, 177, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="pink"] {
+  --accent:      #C2185B;
+  --accent-2:    #AD1457;
+  --accent-dim:  rgba(194, 24, 91, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #00C47A;
+}
+
+[data-accent="yellow"] {
+  --accent:      #FFF176;
+  --accent-2:    #FFE57F;
+  --accent-dim:  rgba(255, 241, 118, 0.18);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="yellow"] {
+  --accent:      #F9A825;
+  --accent-2:    #F57F17;
+  --accent-dim:  rgba(249, 168, 37, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #00C47A;
+}
+
+[data-accent="indigo"] {
+  --accent:      #9FA8DA;
+  --accent-2:    #7986CB;
+  --accent-dim:  rgba(159, 168, 218, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="indigo"] {
+  --accent:      #3949AB;
+  --accent-2:    #283593;
+  --accent-dim:  rgba(57, 73, 171, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #00C47A;
+}
+
+[data-accent="lime"] {
+  --accent:      #C5E1A5;
+  --accent-2:    #AED581;
+  --accent-dim:  rgba(197, 225, 165, 0.18);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="lime"] {
+  --accent:      #558B2F;
+  --accent-2:    #33691E;
+  --accent-dim:  rgba(85, 139, 47, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #00C47A;
+}
+
+[data-accent="rose"] {
+  --accent:      #FF80AB;
+  --accent-2:    #FF4081;
+  --accent-dim:  rgba(255, 128, 171, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="rose"] {
+  --accent:      #E91E63;
+  --accent-2:    #D81B60;
+  --accent-dim:  rgba(233, 30, 99, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #00C47A;
+}
+
+[data-accent="cyan"] {
+  --accent:      #80DEEA;
+  --accent-2:    #4DD0E1;
+  --accent-dim:  rgba(128, 222, 234, 0.15);
+  --accent-text: #0A0B0F;
+  --success:     #4FFFB0;
+}
+[data-theme="light"][data-accent="cyan"] {
+  --accent:      #0097A7;
+  --accent-2:    #00838F;
+  --accent-dim:  rgba(0, 151, 167, 0.12);
+  --accent-text: #FFFFFF;
+  --success:     #00C47A;
+}

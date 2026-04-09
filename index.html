@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0A0B0F" id="theme-color-meta" />
+  <title>NutriTrace</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <!-- Fonts: CDN for web, local fallback for Android/offline -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&family=Inter:wght@300;400;500;600;700&display=block" rel="stylesheet" />
+  <script>
+    // Only load local font fallback on Capacitor (prevents TTF from overriding CDN woff2 on web)
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/fonts/fonts.css';
+      document.head.appendChild(link);
+    }
+  </script>
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+  <!-- Apply theme before first paint to prevent flash of wrong colour -->
+  <!-- Disable service worker in Capacitor native mode (assets served natively, SW causes offline.html redirect) -->
+  <script>
+    (function() {
+      // Block SW registration in native Capacitor shell
+      if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+        // Unregister any existing SW and prevent new registrations
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            regs.forEach(function(r) { r.unregister(); });
+          });
+          // Override register to no-op so vite-plugin-pwa's registerSW.js does nothing
+          navigator.serviceWorker.register = function() { return Promise.resolve(); };
+        }
+      }
+
+      var _raw = localStorage.getItem('wl_appearance');
+      var appearance = _raw ? JSON.parse(_raw) : 'system';
+      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var dark = appearance === 'dark' || (appearance === 'system' && prefersDark);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      var meta = document.getElementById('theme-color-meta');
+      if (meta) meta.content = dark ? '#0A0B0F' : '#F5F7FA';
+    })();
+  </script>
+
+  <!-- Barcode scanner libraries (globals: ZXing, Html5Qrcode, Quagga) -->
+  <script src="/vendor/zxing.min.js"></script>
+  <script src="/vendor/html5-qrcode.min.js"></script>
+  <script src="/vendor/quagga2.min.js"></script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

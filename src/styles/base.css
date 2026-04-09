@@ -1,0 +1,228 @@
+/* ============================================================
+   Base / Reset — NutriTrace
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 100%;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  position: relative;
+}
+
+a { color: var(--accent); text-decoration: none; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input, select, textarea { font-family: inherit; }
+
+/* Scrollbar — webkit */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--radius-full); }
+
+/* Material Symbols */
+.material-symbols-rounded {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  user-select: none;
+  -webkit-user-select: none;
+  vertical-align: middle;
+}
+
+/* Focus ring */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Utility classes */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flex { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
+.w-full { width: 100%; }
+.text-2 { color: var(--text-2); }
+.text-3 { color: var(--text-3); }
+.text-sm { font-size: 13px; }
+.text-xs { font-size: 11px; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+
+/* Shared page header — sticky, consistent padding and title style */
+.page-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--glass-surface);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* Top padding leaves room for the floating hamburger button row above the
+     title. When hamburger is showing: safe-top + 10 (top inset) + 40 (button) +
+     8 (gap) = title row starts well below the hamburger. When hamburger is
+     hidden: just safe-top + 10. */
+  padding: calc(var(--page-top, var(--safe-top)) + 10px + var(--hamburger-row, 0px)) var(--page-px) 12px;
+  /* Align the H1's first letter to the hamburger centerline (viewport x=32)
+     so the title visually anchors to the menu button. When hamburger is
+     hidden, --hamburger-offset is 0 and we fall back to normal --page-px. */
+  padding-left: max(var(--page-px), var(--hamburger-offset, 0px));
+}
+.page-header h1 {
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0;
+  line-height: 1.1;
+  flex: 1;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* Fixed 40px height so the title sits at the same vertical position on every
+     page (matching .btn-icon height used in page-header actions). Sticky sub-bars
+     on Diary/Wellness rely on this exact value for their top offset calculation. */
+  height: 40px;
+  display: flex;
+  align-items: center;
+}
+
+/* Banner variant — taller header with illustrated SVG backdrop */
+.page-header.has-banner {
+  clip-path: inset(0);       /* clip the SVG to the header bounds — avoids iOS Safari
+                                 bug where overflow:hidden on sticky stops child animations */
+  padding-bottom: 72px;      /* extend downward to give the illustration room */
+  align-items: flex-end;     /* push h1 (and any action buttons) to the bottom */
+}
+/* Ensure h1 gradient text is legible over the illustration */
+.page-header.has-banner h1 {
+  position: relative;        /* stack above the absolute SVG */
+  z-index: 1;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.35);
+}
+
+/* Page shell — used by all route pages.
+   NOTE: padding-top is intentionally 0 here. Pages with a sticky .page-header
+   already account for safe-area-top inside the header's own padding, and
+   adding shell-level padding-top creates a black bar above the header on
+   initial render (before the user scrolls). Editor pages that don't have a
+   .page-header use the .editor-page modifier below to add their own inset. */
+.page-shell {
+  display: block;
+  min-height: 100dvh;
+  padding-bottom: calc(var(--nav-h) + var(--safe-bottom));
+}
+/* Editor pages (FoodEditor, MealEditor) use .editor-header, not .page-header,
+   so they need the safe-area inset applied at the shell level. */
+.page-shell.editor-page {
+  padding-top: var(--safe-top);
+}
+
+.page-content {
+  padding: 12px var(--page-px) 0;
+}
+
+/* Card */
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: transform var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow);
+  }
+}
+
+/* Divider */
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: var(--space-3) 0;
+}
+
+/* Pill / chip */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+.chip.accent {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: transparent;
+}
+.chip.mealie-chip {
+  background: rgba(255, 152, 0, 0.15);
+  color: #FF9800;
+  border-color: transparent;
+}
+
+/* Section header */
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: var(--space-4) var(--page-px) var(--space-2);
+}
+
+/* Backdrop */
+.backdrop {
+  position: fixed; inset: 0;
+  background: var(--overlay);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  z-index: 100;
+}

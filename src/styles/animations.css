@@ -1,0 +1,84 @@
+/* ============================================================
+   Animations & Transitions — NutriTrace
+   ============================================================ */
+
+/* Page transition wrapper */
+.page-transition {
+  position: absolute;
+  inset: 0;
+  will-change: transform, opacity;
+}
+
+/* Skeleton loading pulse */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 0.9; }
+}
+.skeleton {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+/* Scan line animation for barcode scanner */
+@keyframes scan-line {
+  0%   { transform: translateY(0); opacity: 1; }
+  50%  { opacity: 0.6; }
+  100% { transform: translateY(128px); opacity: 1; }
+}
+.scan-line {
+  animation: scan-line 2s var(--ease-inout) infinite alternate;
+}
+
+/* Ripple */
+@keyframes ripple {
+  from { transform: scale(0); opacity: 0.4; }
+  to   { transform: scale(2.5); opacity: 0; }
+}
+
+/* Spin */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spin { animation: spin 0.8s linear infinite; }
+
+/* Bounce dot (loading) */
+@keyframes bounce-dot {
+  0%, 80%, 100% { transform: scale(0); }
+  40%           { transform: scale(1); }
+}
+
+/* Fade in up */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in-up { animation: fade-in-up var(--dur-base) var(--ease-out) both; }
+
+/* Slide in from bottom (sheets) */
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+@keyframes slide-down {
+  from { transform: translateY(0); }
+  to   { transform: translateY(100%); }
+}
+
+/* Scale pop (dialogs) */
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.90); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Success check */
+@keyframes check-draw {
+  from { stroke-dashoffset: 40; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* Macro ring progress */
+@keyframes ring-fill {
+  from { stroke-dashoffset: var(--ring-circumference); }
+  to   { stroke-dashoffset: var(--ring-offset); }
+}

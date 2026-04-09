@@ -1,0 +1,1703 @@
+<script>
+  import { onMount, tick } from 'svelte';
+  import { fly, fade } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
+  import FitBotFace from './FitBotFace.svelte';
+  import { NtApi }     from '../../lib/api.js';
+  import { DB, localDateStr } from '../../lib/db.js';
+  import { Nutrition } from '../../lib/nutrition.js';
+  import { callAI, callAIProxy, TOOLS, setToolHandler } from '../../lib/aiChat.js';
+  import { aiEnabled, aiAssistantName, aiApiKey, aiProvider, aiModel, goals, mealNames, energyUnit, dateFormat, tempUnit, quickLogEnabled } from '../../stores/settings.js';
+  import SmartLogModal from '../diary/SmartLogModal.svelte';
+  import { showError } from '../../stores/toast.js';
+  import { isNative } from '../../lib/platform.js';
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let panelOpen  = false;
+  let messages   = [];   // { role, content, time, image? }
+  let input      = '';
+  let loading    = false;
+  let messagesEl;
+  let hasUnread  = false;
+  let attachedImage = null; // { base64, mimeType, preview }
+  let _toolStatus = ''; // shown while AI is calling tools
+  let fileInput;
+  let _cameraInput;
+  let _showAttachMenu = false;
+  let _hasCamera = false;
+
+  // Check if device has a camera (PWA only)
+  if (!isNative && navigator.mediaDevices?.enumerateDevices) {
+    navigator.mediaDevices.enumerateDevices().then(devices => {
+      _hasCamera = devices.some(d => d.kind === 'videoinput');
+    }).catch(() => {});
+  }
+
+  // Whether AI config is locked via env vars (proxy mode)
+  let aiEnvLocked = false;
+
+  // Settings — refreshed each time panel opens
+  let assistantName = 'FitBot';
+  let apiKey        = '';
+
+  $: if (panelOpen) {
+    hasUnread     = false;
+    assistantName = $aiAssistantName;
+    apiKey        = $aiApiKey;
+    tick().then(() => _scrollBottom(true));
+  }
+
+  onMount(async () => {
+    // Load history from server; fall back to localStorage for offline / migration
+    try {
+      const rows = await NtApi.get('/api/ai/history');
+      if (rows.length) {
+        messages = rows.map(r => ({ role: r.role, content: r.content, time: _fmtCreatedAt(r.created_at) }));
+        localStorage.removeItem('wl:aiChatHistory'); // clear migrated local copy
+      } else {
+        const saved = localStorage.getItem('wl:aiChatHistory');
+        if (saved) {
+          const local = JSON.parse(saved);
+          if (local.length) {
+            // Migrate localStorage messages to server
+            messages = local;
+            for (const m of local) {
+              await NtApi.post('/api/ai/history', { role: m.role, content: m.content }).catch(() => {});
+            }
+            localStorage.removeItem('wl:aiChatHistory');
+          }
+        }
+      }
+    } catch {
+      try {
+        const saved = localStorage.getItem('wl:aiChatHistory');
+        if (saved) messages = JSON.parse(saved);
+      } catch {}
+    }
+    try {
+      const { isNative, getServerUrl, apiUrl } = await import('../../lib/platform.js');
+      if (!(isNative && !getServerUrl())) {
+        const res = await fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include' });
+        if (res.ok) { const d = await res.json(); aiEnvLocked = !!d.ai; }
+      }
+    } catch {}
+
+    // Unit conversion for tool results — convert before AI sees the data
+    function _convertWellnessUnits(data) {
+      const distUnit = DB.getSetting('distUnit', 'km');
+      const weightUnit = DB.getSetting('weightUnit', 'lb');
+      const tempUnit = DB.getSetting('tempUnit', 'F');
+      const converted = {};
+      for (const [date, metrics] of Object.entries(data)) {
+        const m = { ...metrics };
+        // Distance: km → mi
+        if (m.distance_km != null && distUnit === 'mi') {
+          m.distance_mi = Math.round(m.distance_km * 0.621371 * 100) / 100;
+          delete m.distance_km;
+        }
+        // Weight: kg → lb
+        if (m.weight_kg != null && weightUnit === 'lb') {
+          m.weight_lb = Math.round(m.weight_kg * 2.20462 * 10) / 10;
+          delete m.weight_kg;
+        }
+        if (m.muscle_mass_kg != null && weightUnit === 'lb') {
+          m.muscle_mass_lb = Math.round(m.muscle_mass_kg * 2.20462 * 10) / 10;
+          delete m.muscle_mass_kg;
+        }
+        if (m.bone_mass_kg != null && weightUnit === 'lb') {
+          m.bone_mass_lb = Math.round(m.bone_mass_kg * 2.20462 * 100) / 100;
+          delete m.bone_mass_kg;
+        }
+        if (m.lean_mass_kg != null && weightUnit === 'lb') {
+          m.lean_mass_lb = Math.round(m.lean_mass_kg * 2.20462 * 10) / 10;
+          delete m.lean_mass_kg;
+        }
+        if (m.fat_mass_kg != null && weightUnit === 'lb') {
+          m.fat_mass_lb = Math.round(m.fat_mass_kg * 2.20462 * 10) / 10;
+          delete m.fat_mass_kg;
+        }
+        // Skin temp: °C → °F
+        if (m.skin_temp_variation != null && tempUnit === 'F') {
+          m.skin_temp_variation = Math.round(m.skin_temp_variation * 9 / 5 * 100) / 100;
+        }
+        converted[date] = m;
+      }
+      return converted;
+    }
+
+    // Register tool handler for AI function calling
+    setToolHandler(async (name, args) => {
+      switch (name) {
+        case 'get_wellness_data': {
+          let raw;
+          if (isNative) {
+            try {
+              const { dbGetWellnessGrouped } = await import('../../lib/db-native.js');
+              raw = await dbGetWellnessGrouped(args.from, args.to, null);
+            } catch { raw = {}; }
+          }
+          if (!raw) {
+            const [fitbit, garmin] = await Promise.allSettled([
+              NtApi.get(`/api/wellness/fitbit/data?from=${args.from}&to=${args.to}`),
+              NtApi.get(`/api/wellness/garmin/data?from=${args.from}&to=${args.to}`),
+            ]);
+            const fb = fitbit.status === 'fulfilled' ? fitbit.value : {};
+            const gm = garmin.status === 'fulfilled' ? garmin.value : {};
+            raw = {};
+            for (const [d, v] of Object.entries(gm)) raw[d] = { ...v };
+            for (const [d, v] of Object.entries(fb)) raw[d] = { ...(raw[d] || {}), ...v };
+          }
+          // Convert units to user preferences before sending to AI
+          return _convertWellnessUnits(raw);
+        }
+        case 'get_body_composition': {
+          try {
+            const data = await NtApi.get(`/api/wellness/withings/data?from=${args.from}&to=${args.to}`);
+            return _convertWellnessUnits(data);
+          } catch { return {}; }
+        }
+        case 'get_diary': {
+          try {
+            const entry = await NtApi.getDiaryDate(args.date);
+            if (!entry || !entry.items?.length) return { date: args.date, items: [], totals: null };
+            const totals = Nutrition.sum(entry.items.map(i => Nutrition.calculate(i)));
+            const names = mealNames.get();
+            const meals = {};
+            for (const it of entry.items) {
+              const mIdx = it.meal ?? 0;
+              const mName = names[mIdx] || `Meal ${mIdx + 1}`;
+              (meals[mName] = meals[mName] || []).push({
+                name: it.name, portion: it.portion, unit: it.unit, quantity: it.quantity,
+                calories: Math.round((it.nutrition?.calories || 0) * (it.quantity || 1)),
+              });
+            }
+            return {
+              date: args.date, meals,
+              totals: { calories: Math.round(totals.calories || 0), protein: Math.round(totals.proteins || 0), carbs: Math.round(totals.carbohydrates || 0), fat: Math.round(totals.fat || 0) },
+              body_stats: entry.body_stats || entry.bodyStats || {},
+              water_ml: (entry.water || []).reduce((s, l) => s + (l.amount || 0), 0),
+            };
+          } catch { return { date: args.date, error: 'Could not load diary' }; }
+        }
+        case 'get_workouts': {
+          let workouts;
+          if (isNative) {
+            try {
+              const { dbGetWorkouts } = await import('../../lib/db-native.js');
+              workouts = await dbGetWorkouts(args.from, args.to);
+            } catch {}
+          }
+          if (!workouts) {
+            try { workouts = await NtApi.get(`/api/wellness/fitbit/workouts?from=${args.from}&to=${args.to}`); }
+            catch { workouts = []; }
+          }
+          // Convert distance to user's preferred unit
+          const distUnit = DB.getSetting('distUnit', 'km');
+          if (distUnit === 'mi') {
+            for (const w of workouts) {
+              if (w.distance_km != null) {
+                w.distance_mi = Math.round(w.distance_km * 0.621371 * 100) / 100;
+                delete w.distance_km;
+              }
+            }
+          }
+          return workouts;
+        }
+        case 'get_goals': {
+          const g = goals.get();
+          return g || {};
+        }
+        default:
+          return { error: `Unknown tool: ${name}` };
+      }
+    });
+  });
+
+  function _fmtCreatedAt(iso) {
+    if (!iso) return fmtTime();
+    const d       = new Date(iso + 'Z');
+    const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    // Compare date portion in local time
+    const msgDate = d.toLocaleDateString('sv-SE'); // reliable YYYY-MM-DD in local tz
+    if (msgDate === localDateStr()) return timeStr;
+    // Older message — prefix with date in user's preferred format
+    const fmt = dateFormat.get() || 'ISO';
+    const mo  = String(d.getMonth() + 1).padStart(2, '0');
+    const dy  = String(d.getDate()).padStart(2, '0');
+    const y   = d.getFullYear();
+    const dateLabel = fmt === 'US' ? `${mo}/${dy}` : fmt === 'EU' ? `${dy}/${mo}` : `${y}-${mo}-${dy}`;
+    return `${dateLabel} · ${timeStr}`;
+  }
+
+  // ── Draggable FAB ──────────────────────────────────────────────────────────
+  /** Saved position: { x, y } from top-left, or null → use CSS default (bottom-right) */
+  let fabPos    = (() => {
+    try { return JSON.parse(localStorage.getItem('wl:aiFabPos') || 'null'); } catch { return null; }
+  })();
+  let hasDragged = false;
+
+  $: fabStyle = fabPos
+    ? `left:${fabPos.x}px; top:${fabPos.y}px; right:auto; bottom:auto;`
+    : '';
+
+  // ── Desktop panel positioning — follows the FAB ────────────────────────────
+  // On desktop (>768px), the chat card pops up next to wherever the FAB sits.
+  // Recomputed each time the panel opens or the window resizes.
+  let panelStyle = '';
+  let _isDesktop = false;
+  function _updatePanelPos() {
+    if (typeof window === 'undefined') return;
+    _isDesktop = window.innerWidth > 768;
+    if (!_isDesktop || !panelOpen) { panelStyle = ''; return; }
+
+    const cardW = 420;
+    const cardH = Math.min(640, window.innerHeight * 0.8);
+    const gap = 16;
+    const margin = 16;
+    const FAB_SIZE = 60;
+
+    // FAB rect — derived from saved pos or the CSS default (bottom-right)
+    const fabLeft = fabPos ? fabPos.x : window.innerWidth - 20 - FAB_SIZE;
+    const fabTop  = fabPos ? fabPos.y : window.innerHeight - 96 - FAB_SIZE;
+    const fabRight  = fabLeft + FAB_SIZE;
+    const fabBottom = fabTop + FAB_SIZE;
+    const fabCenterX = fabLeft + FAB_SIZE / 2;
+    const fabCenterY = fabTop  + FAB_SIZE / 2;
+
+    // Quadrant determines where the card grows from
+    const onRight  = fabCenterX > window.innerWidth  / 2;
+    const onBottom = fabCenterY > window.innerHeight / 2;
+
+    // Card top-left
+    let left = onRight ? (fabRight - cardW) : fabLeft;
+    let top  = onBottom ? (fabTop - cardH - gap) : (fabBottom + gap);
+
+    // Clamp inside viewport
+    left = Math.max(margin, Math.min(window.innerWidth  - cardW - margin, left));
+    top  = Math.max(margin, Math.min(window.innerHeight - cardH - margin, top));
+
+    panelStyle = `left:${left}px; top:${top}px; right:auto; bottom:auto;`;
+  }
+  $: { panelOpen, fabPos; _updatePanelPos(); }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', _updatePanelPos);
+  }
+
+  // ── Hold-to-record (Smart Log via FitBot FAB) ──────────────────────────────
+  // Press the FAB and hold for 700ms → robot face morphs to mic, FAB turns
+  // red, beep + haptic fire, native speech recognition starts. Release ends
+  // recording and runs Smart Log. Move finger before 700ms → drag mode
+  // (existing behavior). Slide finger > CANCEL_RADIUS_PX away from the FAB
+  // while recording → cancel preview (FAB greys out). Release in cancel
+  // preview = abort. Release on FAB = commit.
+  let recordingMode = false;       // true while holding past threshold
+  let cancelPreview = false;       // true if finger has slid off the button
+  let recordingStartedAt = 0;
+  const HOLD_THRESHOLD_MS = 700;   // bumped from 400 — well above natural hold-to-drag
+  const CANCEL_RADIUS_PX = 100;    // slide further than this from FAB center to cancel
+  let holdTimer = null;
+  let _fabCenterX = 0;             // captured at pointerdown for cancel-preview math
+  let _fabCenterY = 0;
+  // Smart Log modal state — mounted globally from this component when a hold
+  // recording produces parsed items. Lives here so the gesture works on every
+  // page (not just Diary).
+  let showSmartLog = false;
+  let smartLogPreParsed = null;     // [{ item, candidates, best, source }, ...]
+  let smartLogMeal = null;
+  let smartLogText = '';
+
+  async function _hapticBuzz(style = 'medium') {
+    if (!isNative) return;
+    try {
+      const { Haptics, ImpactStyle } = await import('@capacitor/haptics');
+      const map = { light: ImpactStyle.Light, medium: ImpactStyle.Medium, heavy: ImpactStyle.Heavy };
+      await Haptics.impact({ style: map[style] || ImpactStyle.Medium });
+    } catch {}
+  }
+
+  // ── Web Audio beep generator (gated by barcodeBeep setting) ───────────
+  // Generates a short tone via the AudioContext API — no asset files needed.
+  // Reuses the barcodeBeep setting since it's the same "audio confirmation"
+  // category; users who muted barcode scans usually don't want voice beeps.
+  let _audioCtx = null;
+  function _beep(frequency, durationMs) {
+    try {
+      if (!DB.getSetting('barcodeBeep', true)) return;
+      if (!_audioCtx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        _audioCtx = new Ctx();
+      }
+      const ctx = _audioCtx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = frequency;
+      osc.type = 'sine';
+      // Quick attack/decay envelope to avoid clicks
+      const now = ctx.currentTime;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.18, now + 0.012);
+      gain.gain.linearRampToValueAtTime(0, now + (durationMs / 1000));
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + (durationMs / 1000) + 0.02);
+    } catch {}
+  }
+
+  // Track whether the user actually wants the transcript processed.
+  // _stopRecording sets this to false on cancel; the speech result handlers
+  // check it before running the parser.
+  let _commitNextTranscript = false;
+
+  async function _startRecording() {
+    if (!$quickLogEnabled) return;
+    recordingMode = true;
+    cancelPreview = false;
+    recordingStartedAt = Date.now();
+    _commitNextTranscript = true;
+    _hapticBuzz('medium');
+    _beep(1000, 80); // start beep — high tone
+    if (isNative) {
+      try {
+        const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
+        const perm = await SpeechRecognition.checkPermissions();
+        if (perm.speechRecognition !== 'granted') {
+          const req = await SpeechRecognition.requestPermissions();
+          if (req.speechRecognition !== 'granted') {
+            recordingMode = false;
+            showError('Microphone permission denied — Smart Log voice needs mic access');
+            return;
+          }
+        }
+        // Note: native plugin's start() is blocking until the user stops
+        // speaking OR we call stop(). We don't await it here — we kick it off
+        // and let the pointerup handler stop it and process the result.
+        SpeechRecognition.start({
+          language: navigator.language || 'en-US',
+          maxResults: 1,
+          partialResults: false,
+          popup: false,
+          prompt: 'Tell me what you ate',
+        }).then(async (result) => {
+          // Result returns when stop() is called OR speech ends naturally.
+          // Skip processing if the user cancelled by sliding off the FAB.
+          if (!_commitNextTranscript) return;
+          const transcript = (result?.matches && result.matches[0]) || '';
+          if (transcript) {
+            await _processTranscript(transcript);
+          } else {
+            showError("Didn't catch that — try again");
+          }
+        }).catch((e) => {
+          console.warn('[fitbot-hold] native voice failed:', e?.message);
+          showError('Voice recognition failed: ' + (e?.message || 'unknown error'));
+        });
+      } catch (e) {
+        console.warn('[fitbot-hold] plugin unavailable:', e?.message);
+        recordingMode = false;
+        showError('Voice plugin unavailable');
+      }
+    } else {
+      // PWA: Web Speech API
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        recordingMode = false;
+        showError('Voice input not supported in this browser');
+        return;
+      }
+      try {
+        const rec = new SR();
+        rec.continuous = false;
+        rec.interimResults = false;
+        rec.lang = navigator.language || 'en-US';
+        rec.onresult = async (e) => {
+          if (!_commitNextTranscript) return;
+          const transcript = e.results[0]?.[0]?.transcript || '';
+          if (transcript) {
+            await _processTranscript(transcript);
+          } else {
+            showError("Didn't catch that — try again");
+          }
+        };
+        rec.onerror = (e) => {
+          console.warn('[fitbot-hold] web voice error:', e.error);
+          if (_commitNextTranscript) showError('Voice error: ' + (e.error || 'unknown'));
+        };
+        rec.onend = () => {
+          // Fired even on success — but if we never got a result and
+          // commit was expected, surface the silent failure.
+          if (_commitNextTranscript && !recordingMode) {
+            // recordingMode is already false at this point if user released;
+            // a separate flag would be needed to detect "no result fired"
+            // — leaving this as a hook for future refinement.
+          }
+        };
+        window.__fitbotHoldRec = rec;
+        rec.start();
+      } catch (e) {
+        console.warn('[fitbot-hold] web speech start failed:', e.message);
+        recordingMode = false;
+        showError('Could not start mic: ' + e.message);
+      }
+    }
+  }
+
+  async function _stopRecording(commit) {
+    if (!recordingMode) return;
+    recordingMode = false;
+    cancelPreview = false;
+    // Removed the heldFor < 600ms cancel rule — it was hostile to fast
+    // utterances ("eggs" said in 400ms got dropped). Cancel only if the
+    // user explicitly slid off the FAB before releasing.
+    if (!commit) {
+      _commitNextTranscript = false;
+    }
+    _hapticBuzz('light');
+    _beep(commit ? 600 : 350, 80); // end beep — lower for commit, lowest for cancel
+    if (isNative) {
+      try {
+        const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
+        await SpeechRecognition.stop();
+      } catch {}
+    } else if (window.__fitbotHoldRec) {
+      try { commit ? window.__fitbotHoldRec.stop() : window.__fitbotHoldRec.abort(); } catch {}
+      window.__fitbotHoldRec = null;
+    }
+  }
+
+  async function _processTranscript(text) {
+    if (!text || !text.trim()) {
+      showError("Didn't catch that — try again");
+      return;
+    }
+    smartLogText = text;
+    try {
+      const { parseInput, matchItems } = await import('../../lib/quick-log.js');
+      const userMealNames = (await import('../../stores/settings.js')).mealNames;
+      let names;
+      userMealNames.subscribe(v => names = v)();
+      const parsed = await parseInput(text, names || ['Breakfast','Lunch','Dinner','Snacks']);
+      if (!parsed.items || parsed.items.length === 0) {
+        console.warn('[fitbot-hold] no items parsed from:', text);
+        showError(`Couldn't find any food in "${text}"`);
+        return;
+      }
+      const matches = await matchItems(parsed.items);
+      smartLogPreParsed = matches;
+      smartLogMeal = parsed.meal;
+      showSmartLog = true;
+    } catch (e) {
+      console.error('[fitbot-hold] parse failed:', e);
+      showError('Smart Log parse failed: ' + (e.message || 'unknown error'));
+    }
+  }
+
+  // ── Drag (existing behavior, plus hold detection + slide-off cancel) ──────
+  function startDrag(e) {
+    hasDragged = false;
+    const startX   = e.clientX;
+    const startY   = e.clientY;
+    const baseX = fabPos ? fabPos.x : window.innerWidth  - 76;
+    const baseY = fabPos ? fabPos.y : window.innerHeight - 160;
+
+    // Capture FAB center for cancel-preview math (used when recording).
+    // The current target is the .ai-fab div; getBoundingClientRect gives us
+    // the live rect even if the FAB has moved via drag.
+    const fabEl = e.currentTarget;
+    if (fabEl && fabEl.getBoundingClientRect) {
+      const r = fabEl.getBoundingClientRect();
+      _fabCenterX = r.left + r.width / 2;
+      _fabCenterY = r.top + r.height / 2;
+    }
+
+    // Start hold-to-record timer in parallel with drag detection.
+    // Only if Smart Log is enabled — otherwise the FAB is tap-only + drag.
+    if ($quickLogEnabled && $aiEnabled) {
+      holdTimer = setTimeout(() => {
+        // Threshold passed without significant movement → enter recording mode
+        if (!hasDragged) {
+          _startRecording();
+        }
+      }, HOLD_THRESHOLD_MS);
+    }
+
+    function move(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      // Only enter drag mode if the user moved BEFORE recording started.
+      // Once recording is active, finger movement is for cancel-preview, not drag.
+      if (!recordingMode && !hasDragged && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+        hasDragged = true;
+        // Cancel pending hold-to-record — user is dragging
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      }
+      if (hasDragged) {
+        fabPos = {
+          x: Math.max(8, Math.min(window.innerWidth  - 64, baseX + dx)),
+          y: Math.max(8, Math.min(window.innerHeight - 64, baseY + dy)),
+        };
+        return;
+      }
+      // While recording, check distance from FAB center to detect cancel preview
+      if (recordingMode) {
+        const fdx = ev.clientX - _fabCenterX;
+        const fdy = ev.clientY - _fabCenterY;
+        const dist = Math.sqrt(fdx * fdx + fdy * fdy);
+        const shouldCancel = dist > CANCEL_RADIUS_PX;
+        if (shouldCancel !== cancelPreview) {
+          cancelPreview = shouldCancel;
+          if (shouldCancel) _hapticBuzz('light');
+        }
+      }
+    }
+    function up() {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup',   up);
+      window.removeEventListener('pointercancel', cancel);
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      if (hasDragged) {
+        localStorage.setItem('wl:aiFabPos', JSON.stringify(fabPos));
+      } else if (recordingMode) {
+        // Commit unless the finger is currently in cancel-preview territory
+        _stopRecording(!cancelPreview);
+      }
+    }
+    function cancel() {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup',   up);
+      window.removeEventListener('pointercancel', cancel);
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      if (recordingMode) _stopRecording(false);
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup',   up);
+    window.addEventListener('pointercancel', cancel);
+  }
+
+  function handleFabClick() {
+    // Tap = open chat panel. If a recording fired (hasDragged is false but
+    // recordingMode was true at any point during this gesture), the panel
+    // does NOT open — the click event still fires after pointerup but we
+    // suppress it via recordingMode check at click time.
+    if (hasDragged) return;
+    if (recordingMode) return; // shouldn't happen — recordingMode is reset in _stopRecording
+    panelOpen = !panelOpen;
+  }
+
+  // ── Chat ───────────────────────────────────────────────────────────────────
+  async function buildContext() {
+    const today  = localDateStr();
+    const entry  = await NtApi.getDiaryDate(today).catch(() => null);
+    const g      = goals.get();
+    const mNames = mealNames.get();
+    const eUnit  = energyUnit.get();
+
+    let diaryText = 'No food logged today yet.';
+    if (entry && entry.items?.length) {
+      const tot  = Nutrition.sum(entry.items.map(i => Nutrition.calculate(i)));
+      diaryText  = `Totals: ${Math.round(tot.calories||0)} ${eUnit}, `
+                 + `${Math.round(tot.proteins||0)}g protein, `
+                 + `${Math.round(tot.carbohydrates||0)}g carbs, `
+                 + `${Math.round(tot.fat||0)}g fat.\n`;
+      const byMeal = {};
+      for (const it of entry.items) {
+        const m = it.meal ?? 0;
+        (byMeal[m] = byMeal[m] || []).push(it);
+      }
+      for (const [mIdx, items] of Object.entries(byMeal)) {
+        const mName = mNames[Number(mIdx)] || `Meal ${Number(mIdx)+1}`;
+        diaryText += `${mName}: ${items.map(i => `${i.name} (${i.portion||100}${i.unit||'g'})`).join(', ')}\n`;
+      }
+    }
+
+    const calGoal  = g.calories?.max        ?? g.calories?.min;
+    const proGoal  = g.proteins?.max        ?? g.proteins?.min;
+    const carbGoal = g.carbohydrates?.max   ?? g.carbohydrates?.min;
+    const fatGoal  = g.fat?.max             ?? g.fat?.min;
+    let goalsText  = 'No goals set.';
+    if (calGoal || proGoal || carbGoal || fatGoal) {
+      goalsText = [
+        calGoal  && `Calories: ${calGoal} ${eUnit}`,
+        proGoal  && `Protein: ${proGoal}g`,
+        carbGoal && `Carbs: ${carbGoal}g`,
+        fatGoal  && `Fat: ${fatGoal}g`,
+      ].filter(Boolean).join(', ');
+    }
+
+    let statsText = '';
+    const bs = entry?.bodyStats || entry?.body_stats || {};
+    const bsParts = [];
+    if (bs.weight)   bsParts.push(`Weight: ${bs.weight}`);
+    if (bs.body_fat) bsParts.push(`Body fat: ${bs.body_fat}%`);
+    if (bsParts.length) statsText = bsParts.join(', ');
+
+    // Water intake
+    const waterMl   = (entry?.water || []).reduce((s, l) => s + (l.amount || 0), 0);
+    const waterText  = waterMl > 0 ? `${(waterMl / 1000).toFixed(2)} L (${Math.round(waterMl)} ml)` : 'None logged';
+
+    // Wellness data — Fitbit + Garmin + Withings, best-effort, silent on failure
+    let wellnessText = '';
+    try {
+      const fitbitRes = await NtApi.get(`/api/wellness/fitbit/data?date=${today}`);
+      const fd = fitbitRes[today];
+      if (fd) {
+        const parts = [];
+        if (fd.steps != null)                parts.push(`Steps: ${Math.round(fd.steps).toLocaleString()}`);
+        if (fd.active_minutes != null)        parts.push(`Active minutes: ${Math.round(fd.active_minutes)}`);
+        if (fd.active_zone_minutes != null)   parts.push(`Active zone min: ${Math.round(fd.active_zone_minutes)}`);
+        if (fd.calories_out != null)          parts.push(`Calories burned: ${Math.round(fd.calories_out)}`);
+        if (fd.floors != null)                parts.push(`Floors: ${Math.round(fd.floors)}`);
+        if (fd.distance_km != null) {
+          const _du = DB.getSetting('distUnit', 'km');
+          parts.push(`Distance: ${_du === 'mi' ? (fd.distance_km * 0.621371).toFixed(2) + ' mi' : fd.distance_km.toFixed(2) + ' km'}`);
+        }
+        if (fd.sleep_duration_min != null)    { const h = Math.floor(fd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(fd.sleep_duration_min%60)}m`); }
+        if (fd.sleep_efficiency != null)      parts.push(`Sleep efficiency: ${fd.sleep_efficiency.toFixed(0)}%`);
+        if (fd.sleep_score != null)           parts.push(`Sleep score: ${Math.round(fd.sleep_score)}/100`);
+        if (fd.resting_hr != null)            parts.push(`Resting HR: ${Math.round(fd.resting_hr)} bpm`);
+        if (fd.hrv_daily_rmssd != null)       parts.push(`HRV: ${fd.hrv_daily_rmssd.toFixed(1)} ms`);
+        if (fd.spo2_avg != null)              parts.push(`SpO2: ${fd.spo2_avg.toFixed(1)}%`);
+        if (fd.respiratory_rate != null)      parts.push(`Respiratory rate: ${fd.respiratory_rate.toFixed(1)} brpm`);
+        if (fd.vo2_max != null)               parts.push(`Cardio fitness (VO2 Max): ${fd.vo2_max.toFixed(1)} mL/kg/min`);
+        if (fd.skin_temp_variation != null) {
+          const isFahr = $tempUnit !== 'C';
+          const tv = isFahr ? fd.skin_temp_variation * 9 / 5 : fd.skin_temp_variation;
+          parts.push(`Skin temp variation: ${tv >= 0 ? '+' : ''}${tv.toFixed(2)}${isFahr ? '°F' : '°C'}`);
+        }
+        if (fd.sleep_deep_min != null)       parts.push(`Deep sleep: ${Math.round(fd.sleep_deep_min)} min`);
+        if (fd.sleep_light_min != null)      parts.push(`Light sleep: ${Math.round(fd.sleep_light_min)} min`);
+        if (fd.sleep_rem_min != null)        parts.push(`REM sleep: ${Math.round(fd.sleep_rem_min)} min`);
+        if (fd.sleep_wake_min != null)       parts.push(`Awake: ${Math.round(fd.sleep_wake_min)} min`);
+        if (fd.readiness_score != null)     parts.push(`Daily readiness: ${Math.round(fd.readiness_score)}/100`);
+        if (fd.stress_score != null)        parts.push(`Stress management: ${Math.round(fd.stress_score)}/100`);
+        if (parts.length) wellnessText += `Fitbit: ${parts.join(', ')}`;
+      }
+    } catch {}
+    // Workouts today
+    try {
+      const workouts = await NtApi.get(`/api/wellness/fitbit/workouts?date=${today}`);
+      if (workouts?.length) {
+        const wParts = workouts.map(w => {
+          let s = w.activity_name;
+          const details = [];
+          if (w.duration_ms) details.push(`${Math.round(w.duration_ms/60000)} min`);
+          if (w.distance_km) {
+            const _du = DB.getSetting('distUnit', 'km');
+            details.push(`${_du === 'mi' ? (w.distance_km * 0.621371).toFixed(2) + ' mi' : w.distance_km.toFixed(2) + ' km'}`);
+          }
+          if (w.calories) details.push(`${w.calories} kcal`);
+          if (w.avg_hr) details.push(`avg HR ${w.avg_hr} bpm`);
+          if (w.max_hr) details.push(`max HR ${w.max_hr} bpm`);
+          if (w.steps) details.push(`${w.steps.toLocaleString()} steps`);
+          if (w.has_gps) details.push('GPS route recorded');
+          if (details.length) s += ` (${details.join(', ')})`;
+          return s;
+        });
+        wellnessText += (wellnessText ? '\n' : '') + `Workouts today: ${wParts.join('; ')}`;
+      }
+    } catch {}
+    try {
+      const garminRes = await NtApi.get(`/api/wellness/garmin/data?date=${today}`);
+      const gd = garminRes[today];
+      if (gd) {
+        const parts = [];
+        if (gd.steps != null)                parts.push(`Steps: ${Math.round(gd.steps).toLocaleString()}`);
+        if (gd.active_minutes != null)        parts.push(`Active minutes: ${Math.round(gd.active_minutes)}`);
+        if (gd.calories_out != null)          parts.push(`Calories burned: ${Math.round(gd.calories_out)}`);
+        if (gd.distance_km != null) {
+          const _du = DB.getSetting('distUnit', 'km');
+          parts.push(`Distance: ${_du === 'mi' ? (gd.distance_km * 0.621371).toFixed(2) + ' mi' : gd.distance_km.toFixed(2) + ' km'}`);
+        }
+        if (gd.sleep_duration_min != null)    { const h = Math.floor(gd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(gd.sleep_duration_min%60)}m`); }
+        if (gd.sleep_score != null)           parts.push(`Sleep score: ${Math.round(gd.sleep_score)}/100`);
+        if (gd.resting_hr != null)            parts.push(`Resting HR: ${Math.round(gd.resting_hr)} bpm`);
+        if (gd.hrv_daily_rmssd != null)       parts.push(`HRV: ${gd.hrv_daily_rmssd.toFixed(1)} ms`);
+        if (gd.spo2_avg != null)              parts.push(`SpO2: ${gd.spo2_avg.toFixed(1)}%`);
+        if (gd.body_battery_high != null)     parts.push(`Body battery peak: ${Math.round(gd.body_battery_high)}`);
+        if (gd.body_battery_low != null)      parts.push(`Body battery low: ${Math.round(gd.body_battery_low)}`);
+        if (gd.stress_avg != null)            parts.push(`Avg stress: ${Math.round(gd.stress_avg)}/100`);
+        if (gd.max_hr != null)                parts.push(`Max HR: ${Math.round(gd.max_hr)} bpm`);
+        if (gd.moderate_intensity_min != null) parts.push(`Moderate intensity: ${Math.round(gd.moderate_intensity_min)} min`);
+        if (gd.vigorous_intensity_min != null) parts.push(`Vigorous intensity: ${Math.round(gd.vigorous_intensity_min)} min`);
+        if (gd.sleep_deep_min != null)        parts.push(`Deep sleep: ${Math.round(gd.sleep_deep_min)} min`);
+        if (gd.sleep_rem_min != null)         parts.push(`REM sleep: ${Math.round(gd.sleep_rem_min)} min`);
+        if (gd.respiratory_rate != null)      parts.push(`Respiratory rate: ${gd.respiratory_rate.toFixed(1)} brpm`);
+        if (parts.length) wellnessText += (wellnessText ? '\n' : '') + `Garmin: ${parts.join(', ')}`;
+      }
+    } catch {}
+    try {
+      const withingsRes = await NtApi.get(`/api/wellness/withings/data?date=${today}`);
+      const wd = withingsRes[today];
+      if (wd) {
+        const parts = [];
+        const _wu = DB.getSetting('weightUnit', 'lb');
+        const _wFmt = (kg) => _wu === 'lb' ? (kg * 2.20462).toFixed(1) + ' lbs' : kg.toFixed(1) + ' kg';
+        if (wd.weight_kg?.value != null)      parts.push(`Weight: ${_wFmt(wd.weight_kg.value)}`);
+        if (wd.body_fat_pct?.value != null)    parts.push(`Body fat: ${wd.body_fat_pct.value.toFixed(1)}%`);
+        if (wd.muscle_mass_kg?.value != null)  parts.push(`Muscle mass: ${_wFmt(wd.muscle_mass_kg.value)}`);
+        if (wd.bone_mass_kg?.value != null)    parts.push(`Bone mass: ${_wu === 'lb' ? (wd.bone_mass_kg.value * 2.20462).toFixed(2) + ' lbs' : wd.bone_mass_kg.value.toFixed(2) + ' kg'}`);
+        if (wd.body_water_pct?.value != null)  parts.push(`Body water: ${wd.body_water_pct.value.toFixed(1)}%`);
+        if (wd.visceral_fat?.value != null)    parts.push(`Visceral fat: ${wd.visceral_fat.value.toFixed(1)}`);
+        if (wd.vascular_age?.value != null)    parts.push(`Vascular age: ${Math.round(wd.vascular_age.value)} yrs`);
+        if (wd.metabolic_age?.value != null)   parts.push(`Metabolic age: ${Math.round(wd.metabolic_age.value)} yrs`);
+        if (wd.lean_mass_kg?.value != null)   parts.push(`Lean mass: ${_wFmt(wd.lean_mass_kg.value)}`);
+        if (wd.fat_mass_kg?.value != null)    parts.push(`Fat mass: ${_wFmt(wd.fat_mass_kg.value)}`);
+
+        if (wd.basal_metabolic_rate?.value != null) parts.push(`BMR: ${Math.round(wd.basal_metabolic_rate.value)} kcal/day`);
+        if (wd.nerve_health_score?.value != null) parts.push(`Nerve health: ${Math.round(wd.nerve_health_score.value)}`);
+        if (wd.pulse_wave_velocity?.value != null) parts.push(`Pulse wave velocity: ${wd.pulse_wave_velocity.value.toFixed(1)} m/s`);
+        if (wd.ecg_heart_rate?.value != null)  parts.push(`ECG HR: ${Math.round(wd.ecg_heart_rate.value)} bpm`);
+        if (wd.ecg_afib?.value != null)        parts.push(`AFib: ${wd.ecg_afib.value === 1 ? 'Detected' : 'Normal'}`);
+        if (parts.length) wellnessText += (wellnessText ? '\n' : '') + `Withings: ${parts.join(', ')}`;
+      }
+    } catch {}
+
+    return { today, diaryText, goalsText, statsText, wellnessText, waterText,
+      weightUnit: DB.getSetting('weightUnit', 'lb'),
+      distUnit: DB.getSetting('distUnit', 'km'),
+      heightUnit: DB.getSetting('heightUnit', 'ft'),
+      tempUnit: DB.getSetting('tempUnit', 'F'),
+      energyUnit: DB.getSetting('energyUnit', 'kcal'),
+    };
+  }
+
+  function buildSystemPrompt(ctx) {
+    const name = $aiAssistantName;
+    return `You are ${name}, a friendly and knowledgeable AI nutrition and fitness coach built into NutriTrace.
+
+You have FULL ACCESS to the user's complete health data through tools. ALWAYS use tools to look up data — NEVER guess or make up numbers. Available data:
+- **Food diary**: meals, items, portions, full nutrition (any date)
+- **Wellness metrics**: steps, calories burned, distance, active minutes, sleep (duration, stages, score, efficiency), heart rate (resting HR, HRV, SpO2), respiratory rate, readiness score, stress score, skin temp, VO2 max — from Fitbit, Garmin, Health Connect (any date range)
+- **Body composition**: weight, body fat %, muscle mass, bone mass, body water, lean/fat mass, visceral fat, vascular age, metabolic age, BMR, nerve health, ECG — from Withings (any date range)
+- **Workouts**: recorded exercises with duration, distance, calories, heart rate, steps, GPS (any date range)
+- **Nutrition goals**: calorie and macro targets
+
+When the user asks about their data (steps, sleep, weight, food log, etc.) for ANY date or date range, USE THE APPROPRIATE TOOL to fetch the real data. Do not estimate or hallucinate numbers.
+
+IMPORTANT — User's preferred units (ALWAYS use these when presenting data):
+- Weight: ${ctx.weightUnit === 'lb' ? 'pounds (lbs)' : 'kilograms (kg)'}
+- Distance: ${ctx.distUnit === 'mi' ? 'miles (mi)' : 'kilometers (km)'}
+- Height/length: ${ctx.heightUnit === 'ft' ? 'feet/inches' : 'centimeters'}
+- Temperature: ${ctx.tempUnit === 'F' ? 'Fahrenheit (°F)' : 'Celsius (°C)'}
+- Energy: ${ctx.energyUnit === 'kJ' ? 'kilojoules (kJ)' : 'kilocalories (kcal)'}
+Convert all values to these units before presenting. ONLY show the preferred unit — do NOT show both or include the original metric/imperial value.
+
+Be warm, encouraging, and concise. Give practical, evidence-based advice. Use the data to personalize your responses.
+
+Current date: ${ctx.today}
+
+TODAY'S SUMMARY (for quick reference — use tools for detailed or historical data):
+${ctx.diaryText}
+Goals: ${ctx.goalsText}
+Water: ${ctx.waterText}`
+         + (ctx.statsText    ? `\nBody stats: ${ctx.statsText}` : '')
+         + (ctx.wellnessText ? `\nWellness: ${ctx.wellnessText}` : '');
+  }
+
+  function fmtTime() {
+    return new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  async function send() {
+    const content = input.trim();
+    if (!content && !attachedImage) return;
+    if (loading) return;
+
+    const key      = $aiApiKey;
+    const provider = aiProvider.get() || 'claude';
+    const model    = aiModel.get()    || undefined;
+
+    if (!aiEnvLocked && !key) { showError('Add your API key in Settings → FitBot AI'); return; }
+
+    const image = attachedImage;
+    const userMsg = { role: 'user', content: content || '(image)', time: fmtTime(), image: image?.preview };
+    messages = [...messages, userMsg];
+    input    = '';
+    attachedImage = null;
+    loading  = true;
+    await tick();
+    _scrollBottom();
+
+    // Persist user message to server (best-effort)
+    NtApi.post('/api/ai/history', { role: 'user', content: content || '(image attached)' }).catch(() => {});
+
+    try {
+      const ctx          = await buildContext();
+      const systemPrompt = buildSystemPrompt(ctx);
+      // Build API messages — include image in the last user message if present
+      const apiMessages  = messages
+        .map(m => ({ role: m.role, content: m.content }))
+        .slice(-20);
+      // If image attached, modify the last user message to include it
+      if (image) {
+        const lastIdx = apiMessages.length - 1;
+        apiMessages[lastIdx] = _buildImageMessage(provider, content || 'What is this?', image);
+      }
+      const reply = aiEnvLocked
+        ? await callAIProxy({ messages: apiMessages, systemPrompt })
+        : await callAI({ provider, apiKey: key, model, messages: apiMessages, systemPrompt, tools: TOOLS,
+            onToolCall: (toolName) => { _toolStatus = `Fetching ${toolName.replace(/_/g, ' ')}…`; },
+          });
+      messages = [...messages, { role: 'assistant', content: reply, time: fmtTime() }];
+      // Persist assistant reply to server (best-effort)
+      NtApi.post('/api/ai/history', { role: 'assistant', content: reply }).catch(() => {});
+      if (!panelOpen) hasUnread = true;
+    } catch (e) {
+      showError(e.message || 'AI request failed');
+    } finally {
+      loading = false;
+      _toolStatus = '';
+      await tick();
+      _scrollBottom();
+    }
+  }
+
+  function _buildImageMessage(provider, text, image) {
+    if (provider === 'claude') {
+      return { role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.base64 } },
+        { type: 'text', text },
+      ]};
+    } else if (provider === 'openai') {
+      return { role: 'user', content: [
+        { type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.base64}` } },
+        { type: 'text', text },
+      ]};
+    } else if (provider === 'gemini') {
+      // Gemini handles images differently — pass through and let aiChat.js handle it
+      return { role: 'user', content: text, _image: image };
+    }
+    return { role: 'user', content: text };
+  }
+
+  function _attachImage() {
+    if (isNative) {
+      import('@capacitor/camera').then(({ Camera, CameraResultType, CameraSource }) => {
+        Camera.getPhoto({ quality: 80, resultType: CameraResultType.Base64, source: CameraSource.Prompt, width: 1024 })
+          .then(photo => { attachedImage = { base64: photo.base64String, mimeType: `image/${photo.format || 'jpeg'}`, preview: `data:image/${photo.format || 'jpeg'};base64,${photo.base64String}` }; })
+          .catch(() => {});
+      });
+    } else if (_hasCamera) {
+      _showAttachMenu = !_showAttachMenu;
+    } else {
+      fileInput?.click();
+    }
+  }
+
+  function _attachFromCamera() { _showAttachMenu = false; _cameraInput?.click(); }
+  function _attachFromFile()   { _showAttachMenu = false; fileInput?.click(); }
+
+  function _onFileSelected(e) {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const base64 = dataUrl.split(',')[1];
+      attachedImage = { base64, mimeType: file.type, preview: dataUrl };
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  function _removeImage() { attachedImage = null; }
+
+  function _scrollBottom(instant = false) {
+    messagesEl?.scrollTo({ top: messagesEl.scrollHeight, behavior: instant ? 'instant' : 'smooth' });
+  }
+
+  function onKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  }
+
+  function clearChat() {
+    messages = [];
+    localStorage.removeItem('wl:aiChatHistory');
+    NtApi.del('/api/ai/history').catch(() => {});
+  }
+
+  function quickAsk(q) { input = q; send(); }
+</script>
+
+{#if $aiEnabled}
+  <!-- ── Floating Action Button ─────────────────────────────────────────── -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div
+    class="ai-fab"
+    class:panel-open={panelOpen}
+    class:has-unread={hasUnread}
+    class:recording={recordingMode}
+    class:cancel-preview={cancelPreview}
+    style={fabStyle}
+    on:pointerdown={startDrag}
+    on:click={handleFabClick}
+    on:keydown={e => e.key === 'Enter' && handleFabClick()}
+    role="button"
+    tabindex="0"
+    aria-label={recordingMode ? (cancelPreview ? 'Release to cancel' : 'Recording — release to log') : 'Open AI coach (hold to dictate food)'}
+    title={$quickLogEnabled ? 'Tap to chat · hold to log food by voice' : 'FitBot AI'}
+  >
+    {#if loading}
+      <div class="fab-spinner"></div>
+    {:else if panelOpen}
+      <span class="material-symbols-rounded" style="font-size:26px">close</span>
+    {:else if recordingMode}
+      <span class="material-symbols-rounded fab-mic" style="font-size:30px">mic</span>
+    {:else}
+      <div class="fab-robot-wrap"><FitBotFace size={42} /></div>
+    {/if}
+    {#if hasUnread && !panelOpen}
+      <div class="fab-badge" transition:fade={{ duration: 120 }}></div>
+    {/if}
+  </div>
+
+  <!-- Recording hint tooltip — centered above the FAB while recording.
+       Uses transform: translateX(-50%) so the pill stays centered on the FAB
+       regardless of how wide the text inside is. Position is based on the
+       FAB's center x-coordinate (FAB width = 60px → center = pos.x + 30). -->
+  {#if recordingMode}
+    <div
+      class="fab-record-hint"
+      class:cancel={cancelPreview}
+      style={fabPos ? `left:${fabPos.x + 30}px; top:${fabPos.y - 44}px; right:auto; transform:translateX(-50%);` : ''}
+    >
+      {#if cancelPreview}
+        ✕ Release to cancel
+      {:else}
+        ● Listening… release to log
+      {/if}
+    </div>
+  {/if}
+
+  <!-- ── Panel Backdrop ─────────────────────────────────────────────────── -->
+  {#if panelOpen}
+    <!-- Backdrop only shown on mobile (CSS-gated) for fullscreen bottom-sheet feel.
+         On desktop the panel sits over content like a companion widget. -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div
+      class="ai-backdrop"
+      transition:fade={{ duration: 200 }}
+      on:click={() => panelOpen = false}
+      on:keydown={() => {}}
+    ></div>
+
+    <!-- ── Chat Panel ──────────────────────────────────────────────────── -->
+    <aside
+      class="ai-panel"
+      style={panelStyle}
+      transition:fly={{ y: 600, duration: 320, easing: cubicOut }}
+      aria-label="AI coach chat"
+    >
+      <!-- Drag handle (mobile only) -->
+      <div class="ai-drag-handle" aria-hidden="true"></div>
+      <!-- Header -->
+      <div class="ai-header">
+        <div class="ai-header-brand">
+          <div class="ai-avatar">
+            <FitBotFace size={32} />
+          </div>
+          <div>
+            <div class="ai-header-name">{assistantName}</div>
+            <div class="ai-header-sub">Your AI health & nutrition coach</div>
+          </div>
+        </div>
+        <div class="ai-header-actions">
+          <button class="btn-icon" on:click={clearChat} title="Clear conversation">
+            <span class="material-symbols-rounded">delete_sweep</span>
+          </button>
+          <button class="btn-icon" on:click={() => panelOpen = false} title="Close">
+            <span class="material-symbols-rounded">close</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div class="ai-messages" bind:this={messagesEl}>
+        {#if !apiKey}
+          <!-- Setup needed -->
+          <div class="ai-setup">
+            <span class="material-symbols-rounded ai-setup-icon">key</span>
+            <p class="ai-setup-title">API key required</p>
+            <p class="ai-setup-desc">Add your AI provider key in <strong>Settings → FitBot AI</strong> to start chatting.</p>
+            <p class="ai-setup-desc" style="margin-top:4px">Supports Anthropic Claude, OpenAI, and Google Gemini.</p>
+            <a href="#/settings" class="btn btn-primary" style="margin-top:16px" on:click={() => panelOpen = false}>
+              Open Settings
+            </a>
+          </div>
+
+        {:else if messages.length === 0}
+          <!-- Welcome screen -->
+          <div class="ai-welcome">
+            <div class="ai-welcome-avatar">
+              <FitBotFace size={48} />
+            </div>
+            <p class="ai-welcome-name">Hi, I'm {assistantName}!</p>
+            <p class="ai-welcome-desc">Ask me anything — nutrition, sleep, activity, recovery, hydration, body composition. I have access to all your data from today.</p>
+            <div class="ai-quick-chips">
+              <button class="ai-chip" on:click={() => quickAsk("How am I doing today?")}>
+                How am I doing today?
+              </button>
+              <button class="ai-chip" on:click={() => quickAsk("What should I eat for my next meal?")}>
+                Meal suggestion
+              </button>
+              <button class="ai-chip" on:click={() => quickAsk("How was my sleep and recovery?")}>
+                Sleep & recovery
+              </button>
+              <button class="ai-chip" on:click={() => quickAsk("Am I on track with my goals?")}>
+                Goal progress
+              </button>
+            </div>
+          </div>
+
+        {:else}
+          <!-- Message list -->
+          {#each messages as msg (msg.time + msg.role + msg.content.slice(0,10))}
+            <div class="ai-msg" class:user={msg.role === 'user'}>
+              {#if msg.role === 'assistant'}
+                <div class="ai-msg-avatar">
+                  <FitBotFace size={24} />
+                </div>
+              {/if}
+              <div class="ai-msg-body">
+                {#if msg.image}
+                  <img src={msg.image} alt="Attached" class="ai-msg-image" />
+                {/if}
+                <div class="ai-bubble">{msg.content}</div>
+                {#if msg.time}
+                  <div class="ai-time">{msg.time}</div>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        {/if}
+
+        <!-- Typing indicator -->
+        {#if loading}
+          <div class="ai-msg">
+            <div class="ai-msg-avatar">
+              <FitBotFace size={24} />
+            </div>
+            <div class="ai-msg-body">
+              <div class="ai-bubble ai-typing">
+                {#if _toolStatus}
+                  <span class="material-symbols-rounded" style="font-size:14px;animation:ai-bounce 1s infinite">search</span>
+                  <span style="font-size:12px;color:var(--text-3)">{_toolStatus}</span>
+                {:else}
+                  <span class="ai-dot"></span>
+                  <span class="ai-dot"></span>
+                  <span class="ai-dot"></span>
+                {/if}
+              </div>
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Input bar -->
+      {#if attachedImage}
+        <div class="ai-image-preview">
+          <img src={attachedImage.preview} alt="Attached" />
+          <button class="ai-image-remove" on:click={_removeImage}>
+            <span class="material-symbols-rounded" style="font-size:16px">close</span>
+          </button>
+        </div>
+      {/if}
+      <div class="ai-input-bar">
+        <div style="position:relative">
+          <button class="ai-attach-btn" on:click={_attachImage} disabled={loading} title="Attach image">
+            <span class="material-symbols-rounded">photo_camera</span>
+          </button>
+          {#if _showAttachMenu}
+            <div class="ai-attach-menu">
+              <button class="ai-attach-option" on:click={_attachFromCamera}>
+                <span class="material-symbols-rounded" style="font-size:18px">photo_camera</span> Camera
+              </button>
+              <button class="ai-attach-option" on:click={_attachFromFile}>
+                <span class="material-symbols-rounded" style="font-size:18px">photo_library</span> Gallery
+              </button>
+            </div>
+          {/if}
+        </div>
+        <textarea
+          class="ai-textarea"
+          bind:value={input}
+          placeholder="Ask me anything…"
+          on:keydown={onKey}
+          rows="1"
+          disabled={loading}
+        ></textarea>
+        <button class="ai-send-btn" on:click={send} disabled={loading || (!input.trim() && !attachedImage)}>
+          <span class="material-symbols-rounded">send</span>
+        </button>
+      </div>
+      <input type="file" accept="image/*" bind:this={fileInput} on:change={_onFileSelected} style="display:none" />
+      <input type="file" accept="image/*" capture="environment" bind:this={_cameraInput} on:change={_onFileSelected} style="display:none" />
+    </aside>
+  {/if}
+
+  <!-- ── Smart Log modal — global mount, opens after a hold-to-record gesture ── -->
+  {#if showSmartLog && smartLogPreParsed}
+    <SmartLogModal
+      date={localDateStr()}
+      defaultMealSlot={0}
+      openMode="preParsed"
+      preParsedMatches={smartLogPreParsed}
+      preParsedMeal={smartLogMeal}
+      preParsedSourceText={smartLogText}
+      on:close={() => { showSmartLog = false; smartLogPreParsed = null; }}
+      on:saved={() => { showSmartLog = false; smartLogPreParsed = null; }}
+    />
+  {/if}
+{/if}
+
+<style>
+  /* ── Floating button ──────────────────────────────────────────────────── */
+  .ai-fab {
+    position: fixed;
+    right: 20px;
+    bottom: calc(var(--nav-h) + var(--safe-bottom, 0px) + 20px);
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    /* Glassmorphism with shifting gradient underneath — uses theme accents */
+    background: linear-gradient(135deg, var(--accent), var(--accent-2), var(--accent), var(--accent-2), var(--accent));
+    background-size: 300% 300%;
+    color: var(--accent-text);
+    border: 1px solid rgba(255,255,255,0.25);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    cursor: pointer;
+    z-index: 400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow:
+      0 8px 32px rgba(0,0,0,0.35),
+      inset 0 1px 0 rgba(255,255,255,0.35),
+      inset 0 -2px 6px rgba(0,0,0,0.15);
+    animation:
+      gradient-shift 8s ease-in-out infinite,
+      ring-pulse 2.6s ease-out infinite;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: visible;
+  }
+  /* Inner glass highlight overlay */
+  .ai-fab::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 25%, rgba(255,255,255,0.45), rgba(255,255,255,0) 55%);
+    pointer-events: none;
+  }
+  .ai-fab:hover {
+    transform: scale(1.08);
+    box-shadow:
+      0 12px 36px rgba(0,0,0,0.45),
+      inset 0 1px 0 rgba(255,255,255,0.4),
+      0 0 0 8px var(--accent-dim);
+  }
+  .ai-fab:active    { transform: scale(0.94); }
+  .ai-fab.panel-open {
+    animation: gradient-shift 8s ease-in-out infinite;
+  }
+  /* Recording state — robot face morphs to mic icon. The FAB turns RED
+     (universal "recording" color), gets a strong heartbeat ring, and
+     scales up 8% so the user has unambiguous "live" feedback. */
+  .ai-fab.recording {
+    transform: scale(1.08);
+    background: linear-gradient(135deg, #ef4444, #b91c1c, #ef4444, #dc2626, #ef4444);
+    background-size: 300% 300%;
+    border-color: rgba(255, 200, 200, 0.45);
+    animation:
+      gradient-shift 4s ease-in-out infinite,
+      ring-pulse-record 1.1s ease-out infinite;
+  }
+  /* Cancel-preview state — finger has slid > CANCEL_RADIUS_PX from the FAB.
+     Greys out so the user knows releasing now will abort instead of commit. */
+  .ai-fab.recording.cancel-preview {
+    background: linear-gradient(135deg, #6b7280, #374151);
+    border-color: rgba(255, 255, 255, 0.18);
+    animation: gradient-shift 4s ease-in-out infinite;
+    transform: scale(1.0);
+    opacity: 0.85;
+  }
+  .fab-mic {
+    color: var(--accent-text);
+    position: relative;
+    z-index: 1;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4));
+    animation: mic-pulse 0.9s ease-in-out infinite;
+  }
+  @keyframes mic-pulse {
+    0%, 100% { transform: scale(1); }
+    50%       { transform: scale(1.12); }
+  }
+  @keyframes ring-pulse-strong {
+    0%   { box-shadow:
+             0 8px 32px rgba(0,0,0,0.35),
+             inset 0 1px 0 rgba(255,255,255,0.35),
+             inset 0 -2px 6px rgba(0,0,0,0.15),
+             0 0 0 0   color-mix(in srgb, var(--accent) 60%, transparent); }
+    70%  { box-shadow:
+             0 8px 32px rgba(0,0,0,0.35),
+             inset 0 1px 0 rgba(255,255,255,0.35),
+             inset 0 -2px 6px rgba(0,0,0,0.15),
+             0 0 0 22px transparent; }
+    100% { box-shadow:
+             0 8px 32px rgba(0,0,0,0.35),
+             inset 0 1px 0 rgba(255,255,255,0.35),
+             inset 0 -2px 6px rgba(0,0,0,0.15),
+             0 0 0 0 transparent; }
+  }
+  /* Red recording ring pulse — same heartbeat but red instead of accent */
+  @keyframes ring-pulse-record {
+    0%   { box-shadow:
+             0 8px 32px rgba(0,0,0,0.4),
+             inset 0 1px 0 rgba(255,255,255,0.35),
+             inset 0 -2px 6px rgba(0,0,0,0.2),
+             0 0 0 0 rgba(239, 68, 68, 0.55); }
+    70%  { box-shadow:
+             0 8px 32px rgba(0,0,0,0.4),
+             inset 0 1px 0 rgba(255,255,255,0.35),
+             inset 0 -2px 6px rgba(0,0,0,0.2),
+             0 0 0 22px rgba(239, 68, 68, 0); }
+    100% { box-shadow:
+             0 8px 32px rgba(0,0,0,0.4),
+             inset 0 1px 0 rgba(255,255,255,0.35),
+             inset 0 -2px 6px rgba(0,0,0,0.2),
+             0 0 0 0 rgba(239, 68, 68, 0); }
+  }
+  /* Recording hint tooltip — centered above the FAB during recording.
+     Default position: FAB sits at right:20px width:60px so its center is at
+     50px from the right edge. Pill uses right:50px + translateX(50%) so the
+     pill's own center lines up with the FAB's center. When the user has
+     dragged the FAB, the inline style overrides with absolute left + a
+     translateX(-50%). Padding and line-height tuned so single-line text
+     stays vertically centered without descender clipping. */
+  .fab-record-hint {
+    position: fixed;
+    right: 50px;
+    transform: translateX(50%);
+    bottom: calc(var(--nav-h) + var(--safe-bottom, 0px) + 92px);
+    padding: 8px 16px;
+    border-radius: 16px;
+    background: rgba(0, 0, 0, 0.82);
+    backdrop-filter: blur(10px) saturate(180%);
+    -webkit-backdrop-filter: blur(10px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: #ffffff;
+    z-index: 401;
+    pointer-events: none;
+    white-space: nowrap;
+    text-align: center;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.45);
+    animation: fab-hint-fade 0.18s ease-out;
+  }
+  .fab-record-hint.cancel {
+    color: #fca5a5;
+    border-color: rgba(252, 165, 165, 0.35);
+  }
+  @keyframes fab-hint-fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  @keyframes gradient-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50%       { background-position: 100% 50%; }
+  }
+  /* Concentric ring pulse — heartbeat outward, color from theme */
+  @keyframes ring-pulse {
+    0%   { box-shadow:
+             0 8px 32px rgba(0,0,0,0.35),
+             inset 0 1px 0 rgba(255,255,255,0.35),
+             inset 0 -2px 6px rgba(0,0,0,0.15),
+             0 0 0 0 var(--accent-dim); }
+    70%  { box-shadow:
+             0 8px 32px rgba(0,0,0,0.35),
+             inset 0 1px 0 rgba(255,255,255,0.35),
+             inset 0 -2px 6px rgba(0,0,0,0.15),
+             0 0 0 16px transparent; }
+    100% { box-shadow:
+             0 8px 32px rgba(0,0,0,0.35),
+             inset 0 1px 0 rgba(255,255,255,0.35),
+             inset 0 -2px 6px rgba(0,0,0,0.15),
+             0 0 0 0 transparent; }
+  }
+
+  /* Robot face wrapper inside the FAB — sits above the gradient + glass overlay */
+  .fab-robot-wrap {
+    position: relative;
+    z-index: 1;
+    color: var(--accent-text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Spinner when loading */
+  .fab-spinner {
+    width: 26px; height: 26px;
+    border: 3px solid var(--accent-text);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Unread badge dot */
+  .fab-badge {
+    position: absolute;
+    top: 3px; right: 3px;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: var(--danger);
+    border: 2px solid var(--bg);
+    animation: badge-pulse 2s ease-in-out infinite;
+  }
+  @keyframes badge-pulse {
+    0%, 100% { transform: scale(1); }
+    50%       { transform: scale(1.2); }
+  }
+
+  /* ── Backdrop ─────────────────────────────────────────────────────────── */
+  /* Mobile: dimmed backdrop for full-attention bottom sheet feel.
+     Desktop: hidden — chat is a companion widget over content. */
+  .ai-backdrop {
+    position: fixed; inset: 0;
+    background: var(--overlay);
+    backdrop-filter: var(--backdrop-blur);
+    -webkit-backdrop-filter: var(--backdrop-blur);
+    z-index: 440;
+  }
+  @media (min-width: 769px) {
+    .ai-backdrop { display: none; }
+  }
+
+  /* ── Chat Panel — Mobile (bottom sheet) ────────────────────────────── */
+  .ai-panel {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    top: auto;
+    width: 100%;
+    height: 88vh;
+    max-height: 88vh;
+    background: var(--surface-1);
+    border-top: 1px solid var(--border);
+    border-radius: 20px 20px 0 0;
+    z-index: 450;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 -8px 40px rgba(0,0,0,0.4);
+    padding-bottom: var(--safe-bottom, 0px);
+    overflow: hidden;
+  }
+
+  /* Drag handle indicator (mobile only) */
+  .ai-drag-handle {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--text-3);
+    opacity: 0.4;
+    margin: 8px auto 4px;
+    flex-shrink: 0;
+  }
+
+  /* ── Chat Panel — Desktop (floating card anchored bottom-right) ───── */
+  @media (min-width: 769px) {
+    .ai-panel {
+      left: auto;
+      right: 24px;
+      bottom: calc(var(--nav-h, 0px) + var(--safe-bottom, 0px) + 96px);
+      top: auto;
+      width: 420px;
+      height: min(640px, 80vh);
+      max-height: 80vh;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.45);
+    }
+    .ai-drag-handle { display: none; }
+  }
+
+  /* Header */
+  .ai-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, var(--accent-dim), transparent);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .ai-header-brand { display: flex; align-items: center; gap: 12px; }
+  .ai-avatar {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent-text);
+    flex-shrink: 0;
+  }
+  .ai-header-name { font-size: 15px; font-weight: 700; color: var(--text-1); }
+  .ai-header-sub  { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+  .ai-header-actions { display: flex; gap: 4px; }
+
+  /* Messages area */
+  .ai-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overscroll-behavior: contain;
+  }
+
+  /* Setup screen */
+  .ai-setup {
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; padding: 40px 24px; gap: 8px;
+    margin: auto 0;
+  }
+  .ai-setup-icon { font-size: 48px; color: var(--accent); opacity: 0.6; }
+  .ai-setup-title { font-size: 17px; font-weight: 700; color: var(--text-1); margin-top: 4px; }
+  .ai-setup-desc  { font-size: 13px; color: var(--text-3); line-height: 1.5; }
+
+  /* Welcome screen */
+  .ai-welcome {
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; padding: 32px 24px; gap: 10px;
+    margin: auto 0;
+  }
+  .ai-welcome-avatar {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent-text);
+    margin-bottom: 4px;
+  }
+  .ai-welcome-name { font-size: 18px; font-weight: 700; color: var(--text-1); }
+  .ai-welcome-desc { font-size: 13px; color: var(--text-2); line-height: 1.6; max-width: 280px; }
+  .ai-quick-chips {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    justify-content: center; margin-top: 8px;
+  }
+  .ai-chip {
+    padding: 7px 14px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+    transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+  }
+  .ai-chip:hover {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* Message bubbles */
+  .ai-msg {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: 100%;
+  }
+  .ai-msg.user {
+    flex-direction: row-reverse;
+  }
+  .ai-msg-avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .ai-msg-body {
+    display: flex; flex-direction: column; gap: 3px;
+    max-width: calc(100% - 40px);
+  }
+  .ai-msg.user .ai-msg-body { align-items: flex-end; }
+
+  .ai-bubble {
+    padding: 10px 14px;
+    border-radius: 18px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  /* AI bubble */
+  .ai-msg:not(.user) .ai-bubble {
+    background: var(--surface-2);
+    color: var(--text-1);
+    border-bottom-left-radius: 6px;
+  }
+  /* User bubble */
+  .ai-msg.user .ai-bubble {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: var(--accent-text);
+    border-bottom-right-radius: 6px;
+  }
+
+  .ai-time {
+    font-size: 10px;
+    color: var(--text-3);
+    padding: 0 4px;
+  }
+
+  /* Typing dots */
+  .ai-typing {
+    display: flex; align-items: center; gap: 5px;
+    padding: 12px 16px;
+    min-width: 60px;
+  }
+  .ai-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-3);
+    animation: ai-bounce 1.4s ease-in-out infinite;
+  }
+  .ai-dot:nth-child(2) { animation-delay: 0.2s; }
+  .ai-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes ai-bounce {
+    0%, 60%, 100% { transform: translateY(0);    opacity: 0.4; }
+    30%            { transform: translateY(-6px); opacity: 1;   }
+  }
+
+  /* Input bar */
+  .ai-input-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-1);
+    flex-shrink: 0;
+  }
+  .ai-textarea {
+    flex: 1;
+    resize: none;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--text-1);
+    line-height: 1.5;
+    max-height: 120px;
+    overflow-y: auto;
+    transition: border-color var(--dur-fast);
+  }
+  .ai-textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .ai-textarea::placeholder { color: var(--text-3); }
+
+  .ai-send-btn {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: var(--accent-text);
+    border: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: transform var(--dur-fast), opacity var(--dur-fast);
+  }
+  .ai-send-btn:disabled { opacity: 0.4; cursor: default; }
+  .ai-send-btn:not(:disabled):hover  { transform: scale(1.08); }
+  .ai-send-btn:not(:disabled):active { transform: scale(0.94); }
+  .ai-send-btn .material-symbols-rounded { font-size: 20px; }
+
+  .ai-attach-btn {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: none;
+    color: var(--text-3);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: color var(--dur-fast), border-color var(--dur-fast);
+  }
+  .ai-attach-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .ai-attach-btn:disabled { opacity: 0.4; cursor: default; }
+  .ai-attach-btn .material-symbols-rounded { font-size: 20px; }
+
+  .ai-attach-menu {
+    position: absolute;
+    bottom: 48px;
+    left: 0;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    overflow: hidden;
+    z-index: 10;
+    min-width: 140px;
+  }
+  .ai-attach-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    background: none;
+    border: none;
+    color: var(--text-1);
+    font-size: 14px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .ai-attach-option:hover { background: var(--surface-2); }
+  .ai-attach-option + .ai-attach-option { border-top: 1px solid var(--border); }
+
+  .ai-image-preview {
+    position: relative;
+    padding: 8px 16px 0;
+    flex-shrink: 0;
+  }
+  .ai-image-preview img {
+    max-height: 120px;
+    max-width: 100%;
+    border-radius: var(--radius-lg);
+    object-fit: cover;
+  }
+  .ai-image-remove {
+    position: absolute;
+    top: 4px;
+    right: 12px;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .ai-msg-image {
+    max-width: 200px;
+    max-height: 150px;
+    border-radius: var(--radius-lg);
+    margin-bottom: 4px;
+    object-fit: cover;
+  }
+</style>
