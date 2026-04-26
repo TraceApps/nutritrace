@@ -1,7 +1,7 @@
 # NutriTrace funding sources
 # These appear as the "Sponsor" button on the GitHub repo page.
 
-github: [traceapps]
+# github: [traceapps]   # uncomment when traceapps org GitHub Sponsors profile is approved
 ko_fi: traceapps
 
 # Other options not currently used:
