@@ -377,7 +377,6 @@ If the in-app log viewer doesn't capture what you need:
 
 NutriTrace is free to self-host and always will be. It's built and maintained by one person; donations help cover real costs like an Apple Developer account and Mac/iPhone hardware to enable an iOS port, plus ongoing infrastructure. Donations are appreciated but never required — starring the repo helps with discoverability and costs nothing.
 
-[![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-❤-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/traceapps)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy_me_a_coffee-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/traceapps)
 
 ## Credits
