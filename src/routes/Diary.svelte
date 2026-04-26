@@ -11,18 +11,20 @@
   import Sheet        from '../components/ui/Sheet.svelte';
   import Dialog       from '../components/ui/Dialog.svelte';
   import ActionSheet  from '../components/ui/ActionSheet.svelte';
-  import { showSuccess, showError } from '../stores/toast.js';
+  import { showSuccess, showError, showInfo } from '../stores/toast.js';
   import {
     currentDate, currentEntry, diaryTotals, macroPercents,
     prevDay, nextDay, loadEntry, removeDiaryItem, updateDiaryItem, saveBodyStats,
+    copyMealItems, moveMealItems, clearMealItems, copyMealToDate, saveDiaryNote,
     diaryShowNutritionSummary, diaryShowBodyStats, diaryLoadError
   } from '../stores/diary.js';
   import { mealNames, goals, energyUnit, weightUnit, lengthUnit, navStyle,
            diaryShowBrands, diaryShowThumbnails,
            diaryShowTimestamps, diaryShowMacroSummary, diaryPromptQuantity,
-           diaryShowPortionSize, diaryShowNutritionBar, diaryTotalsMode,
+           diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode,
            diaryShowAllNutrients, diaryShowNutritionUnits, visibleNutriments, hiddenBodyStats,
-           dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners } from '../stores/settings.js';
+           dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners,
+           calorieGoalMode, calorieGoalFactor } from '../stores/settings.js';
   import DiaryBanner  from '../components/banners/DiaryBanner.svelte';
   import WaterBanner  from '../components/banners/WaterBanner.svelte';
   import { editorState } from '../stores/editorState.js';
@@ -112,7 +114,25 @@
     : { items: [], bodyStats: {} };
   $: totals = $diaryTotals || {};
 
-  $: caloriesGoal = ($goals && $goals.calories) ? ($goals.calories.max || $goals.calories.min || 2000) : 2000;
+  // Dynamic calorie goal — fetch yesterday's calories_out when mode = 'dynamic'
+  let _dynamicCaloriesOut = null;   // raw burn from device (yesterday)
+  let _dynamicGoalDate    = null;   // which diary date we fetched for
+  $: _fixedGoal = ($goals && $goals.calories) ? ($goals.calories.max || $goals.calories.min || 2000) : 2000;
+  $: caloriesGoal = ($calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null)
+    ? Math.round(_dynamicCaloriesOut * $calorieGoalFactor)
+    : _fixedGoal;
+  async function _loadDynamicGoal(date) {
+    if ($calorieGoalMode !== 'dynamic') return;
+    if (_dynamicGoalDate === date) return;
+    _dynamicGoalDate = date;
+    try {
+      const r = await NtApi.get(`/api/wellness/calories-out?date=${date}`);
+      _dynamicCaloriesOut = r.calories_out;
+    } catch { _dynamicCaloriesOut = null; }
+  }
+
+  $: if ($calorieGoalMode === 'dynamic' && $currentDate) _loadDynamicGoal($currentDate);
+
   $: _hasBottomNav = $navStyle === 'bottom' || $navStyle === 'both';
   $: barBottom     = _hasBottomNav ? 'calc(var(--nav-h) + env(safe-area-inset-bottom, 0px))' : 'env(safe-area-inset-bottom, 0px)';
 
@@ -225,7 +245,7 @@
     push('/foods?pick=1&meal=' + mealIdx + '&date=' + $currentDate);
   }
 
-  // Smart Log entry point lives on the FitBot FAB (hold-to-record). Diary
+  // Smart Log entry point lives on the assistant FAB (hold-to-record). Diary
   // refreshes automatically via the global 'wl:setting' / sync events when
   // the modal saves new items. No local Smart Log state needed here.
 
@@ -240,6 +260,134 @@
       showSuccess('Item removed');
     }
     pendingDeleteIdx = null;
+  }
+
+  // Daily notes
+  let notesExpanded = false;
+  let _notesText = '';
+  let _notesSaving = false;
+  let _lastLoadedNotes = '';
+  $: if (entry && (entry.notes || '') !== _lastLoadedNotes) {
+    _lastLoadedNotes = entry.notes || '';
+    _notesText = _lastLoadedNotes;
+    // Auto-close when switching to a day with no note; keep open if note exists
+    if (!_lastLoadedNotes) notesExpanded = false;
+  }
+  function toggleNotes() { notesExpanded = !notesExpanded; }
+  async function commitNotes() {
+    if ((_notesText || '') === (entry?.notes || '')) return;
+    _notesSaving = true;
+    try {
+      await saveDiaryNote(_notesText);
+    } catch (e) {
+      showError(e?.message || 'Note save failed');
+    } finally {
+      _notesSaving = false;
+    }
+  }
+
+  // Per-meal nutrition totals popup (tap kcal text to open)
+  let mealTotalsIdx = null;
+  $: _mealTotalsItems = (mealTotalsIdx != null && entry?.items)
+    ? getMealItems(entry.items, mealTotalsIdx) : [];
+  $: _mealTotals = _mealTotalsItems.length
+    ? Nutrition.sum(_mealTotalsItems.map(i => Nutrition.calculate(i)))
+    : {};
+
+  // Meal-level actions (⋮ on meal header)
+  let showMealAction       = false;
+  let actionMealIdx        = null;
+  let mealActionMode       = null;   // 'copy' | 'move' — picks target meal
+  let showMealTargetPicker = false;
+  let showCopyToDateStep1  = false;  // date input
+  let showCopyToDateStep2  = false;  // target meal picker after date chosen
+  let copyToDateValue      = '';
+  let showClearMealDialog  = false;
+  let showSaveAsMeal       = false;
+  let saveAsMealName       = '';
+  let saveAsMealSaving     = false;
+
+  function openMealActionSheet(mealIdx) {
+    actionMealIdx = mealIdx;
+    _lockAndOpen(() => showMealAction = true);
+  }
+
+  function onMealAction(e) {
+    const val = e.detail?.value;
+    if (val === 'copy')      { mealActionMode = 'copy'; _lockAndOpen(() => showMealTargetPicker = true); }
+    else if (val === 'move') { mealActionMode = 'move'; _lockAndOpen(() => showMealTargetPicker = true); }
+    else if (val === 'copy_date') { copyToDateValue = $currentDate; _lockAndOpen(() => showCopyToDateStep1 = true); }
+    else if (val === 'save_meal') {
+      saveAsMealName = meals[actionMealIdx] || '';
+      _lockAndOpen(() => showSaveAsMeal = true);
+    }
+    else if (val === 'clear') { _lockAndOpen(() => showClearMealDialog = true); }
+  }
+
+  async function doSaveAsMeal() {
+    if (actionMealIdx == null) return;
+    const name = (saveAsMealName || '').trim();
+    if (!name) { showError('Please enter a name'); return; }
+    const items = getMealItems(entry.items, actionMealIdx).map(({ _i, ...it }) => it);
+    if (!items.length) { showError('Nothing to save'); return; }
+    saveAsMealSaving = true;
+    try {
+      await NtApi.createMeal({ name, notes: '', categories: [], items, imgUrl: '' });
+      showSuccess(`Saved "${name}" to Meals`);
+      showSaveAsMeal = false;
+    } catch (err) {
+      showError(err?.message || 'Save failed');
+    } finally {
+      saveAsMealSaving = false;
+    }
+  }
+
+  async function onMealTargetPick(e) {
+    const targetIdx = e.detail?.value;
+    const from = actionMealIdx;
+    if (targetIdx == null || from == null) return;
+    try {
+      if (mealActionMode === 'copy') {
+        const n = await copyMealItems(from, targetIdx);
+        if (n) showSuccess(`Copied ${n} item${n === 1 ? '' : 's'} to ${meals[targetIdx]}`);
+      } else if (mealActionMode === 'move') {
+        if (targetIdx === from) { showInfo('Already in that meal'); return; }
+        const n = await moveMealItems(from, targetIdx);
+        if (n) showSuccess(`Moved ${n} item${n === 1 ? '' : 's'} to ${meals[targetIdx]}`);
+      }
+    } catch (err) {
+      showError(err?.message || 'Action failed');
+    }
+  }
+
+  function onCopyToDateNext() {
+    if (!copyToDateValue) return;
+    showCopyToDateStep1 = false;
+    _lockAndOpen(() => showCopyToDateStep2 = true);
+  }
+
+  async function onCopyToDatePick(e) {
+    const targetIdx = e.detail?.value;
+    const from = actionMealIdx;
+    const targetDate = copyToDateValue;
+    if (targetIdx == null || from == null || !targetDate) return;
+    try {
+      const n = await copyMealToDate(from, targetDate, targetIdx);
+      if (n) showSuccess(`Copied ${n} item${n === 1 ? '' : 's'} to ${meals[targetIdx]} on ${targetDate}`);
+      else showInfo('Nothing to copy');
+    } catch (err) {
+      showError(err?.message || 'Copy failed');
+    }
+  }
+
+  async function doClearMeal() {
+    if (actionMealIdx == null) return;
+    try {
+      const n = await clearMealItems(actionMealIdx);
+      if (n) showSuccess(`Cleared ${n} item${n === 1 ? '' : 's'} from ${meals[actionMealIdx]}`);
+    } catch (err) {
+      showError(err?.message || 'Clear failed');
+    }
   }
 
   function getMealTotals(items) {
@@ -457,10 +605,18 @@
   function onItemAction(e) {
     const val = e.detail?.value;
     if (!actionItem) return;
-    if (val === 'edit')   { openEditItem(actionItem); }
-    if (val === 'delete') { confirmDelete(actionItem._i); }
-    if (val === 'move')   { _lockAndOpen(() => showMoveToMeal = true); }
-    if (val === 'select') { enterSelectMode(actionItem); }
+    if (val === 'edit')    { openEditItem(actionItem); }
+    if (val === 'replace') { replaceItem(actionItem); }
+    if (val === 'move')    { _lockAndOpen(() => showMoveToMeal = true); }
+    if (val === 'select')  { enterSelectMode(actionItem); }
+    if (val === 'delete')  { confirmDelete(actionItem._i); }
+  }
+
+  function replaceItem(item) {
+    // Store the item to replace, then navigate to food picker in pick mode
+    const mealSlot = item.meal != null ? Number(item.meal) : 0;
+    sessionStorage.setItem('nt:replaceItem', JSON.stringify({ index: item._i, meal: mealSlot }));
+    push('/foods?pick=1&meal=' + mealSlot);
   }
   async function moveItemToMeal(e) {
     const mealIdx = e.detail?.value;
@@ -528,7 +684,8 @@
     if (!ml || ml <= 0) return;
     let ent = null;
     currentEntry.subscribe(v => ent = v)();
-    const log = { amount: ml, time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) };
+    const _use24 = $timeFormat === '24h';
+    const log = { amount: ml, time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !_use24 }) };
     const updated = { ...ent, water: [...(ent?.water || []), log] };
     await NtApi.saveDiaryDate($currentDate, {
       items: updated.items || [],
@@ -549,7 +706,6 @@
         const goals = DB.getSetting('goals', {});
         if (waterGoal > 0) goals.water_ml = { min: waterGoal };
         const totals = Nutrition.sum((updated.items || []).map(i => Nutrition.calculate(i)));
-        console.log('[diary] water goal check:', { waterTotal, waterGoal, goalsKeys: Object.keys(goals) });
         await checkGoals(goals, { ...totals, water_ml: waterTotal });
       } catch (e) {
         console.error('[diary] goal check error:', e);
@@ -607,6 +763,29 @@
     let storedDate;
     currentDate.subscribe(v => storedDate = v)();
     await loadEntry(storedDate || today);
+
+    // Handle replace flow — food picker added the new item, now delete the old one
+    const replaceData = sessionStorage.getItem('nt:replaceItem');
+    if (replaceData) {
+      sessionStorage.removeItem('nt:replaceItem');
+      try {
+        const { index } = JSON.parse(replaceData);
+        const entry = $currentEntry;
+        if (entry && entry.items && index < entry.items.length) {
+          const updated = { ...entry, items: entry.items.filter((_, i) => i !== index) };
+          await NtApi.saveDiaryDate($currentDate, {
+            items: updated.items,
+            body_stats: updated.bodyStats || updated.body_stats || {},
+            water: updated.water || [],
+          });
+          await loadEntry($currentDate);
+          showSuccess('Item replaced');
+        }
+      } catch (e) {
+        console.warn('[diary] replace cleanup failed:', e.message);
+      }
+    }
+
     window.addEventListener('wl:setting', _reloadWaterSettings);
     // Trigger bar fill-in animation after first paint
     requestAnimationFrame(() => requestAnimationFrame(() => { _barsMounted = true; }));
@@ -669,7 +848,12 @@
       <span class="material-symbols-rounded">chevron_left</span>
     </button>
     <button class="date-btn" on:click={openDatePicker} title="Jump to date">
-      <span class="date-label">{formatDate($currentDate)}</span>
+      <span class="date-label">
+        {formatDate($currentDate)}
+        {#if $diaryShowNotes && (entry?.notes || '').trim()}
+          <span class="material-symbols-rounded date-note-indicator" title="Has notes">edit_note</span>
+        {/if}
+      </span>
       <span class="date-sub">{formatDateSub($currentDate, $dateFormat)}</span>
     </button>
     <button class="btn-icon accent" on:click={nextDay} aria-label="Next day" title="Next day">
@@ -691,21 +875,24 @@
         <div class="meal-header" style="--meal-color:{mealColor(mealIdx)}">
           <span class="meal-type-icon material-symbols-rounded">{mealIcon(meal)}</span>
           <span class="meal-name">{meal}</span>
-          {#if items.length > 0}
+          {#if items.length > 0 && !$diaryShowMacroSummary}
             <span class="meal-kcal text-3 text-sm">
               {items.reduce((s,it) => s + formatKcal(it), 0)} kcal
             </span>
           {/if}
-          <button class="btn-icon accent ml-auto" on:click={() => openAddFood(mealIdx)} aria-label="Add food to {meal}" title="Add food to {meal}">
+          <button class="btn-icon ml-auto meal-menu-btn" on:click={() => openMealActionSheet(mealIdx)} aria-label="Meal actions for {meal}" title="Meal actions">
+            <span class="material-symbols-rounded">more_vert</span>
+          </button>
+          <button class="btn-icon accent" on:click={() => openAddFood(mealIdx)} aria-label="Add food to {meal}" title="Add food to {meal}">
             <span class="material-symbols-rounded">add</span>
           </button>
         </div>
 
         {#if items.length === 0}
-          <div class="meal-empty">
+          <button type="button" class="meal-empty" on:click={() => openAddFood(mealIdx)} aria-label="Add food to {meal}">
             <span class="material-symbols-rounded meal-empty-icon" style="color:{mealColor(mealIdx)}">add_circle</span>
-            <span class="meal-empty-text">Tap + to add food</span>
-          </div>
+            <span class="meal-empty-text">Tap to add food</span>
+          </button>
         {:else}
           <div class="meal-items">
             {#each items as item (item._i)}
@@ -756,19 +943,44 @@
         {#if $diaryShowMacroSummary && items.length > 0}
           {@const mt = getMealTotals(items)}
           {#if mt}
-            <div class="meal-macro-footer">
+            <button type="button" class="meal-macro-footer" on:click={() => mealTotalsIdx = mealIdx}
+              aria-label="Show {meal} nutrition totals" title="Show nutrition totals">
               <div class="meal-macro-bar">
                 <div class="mmb-p" style="width:{mt.p}%" title="Protein {mt.p}%"></div>
                 <div class="mmb-c" style="width:{mt.c}%" title="Carbs {mt.c}%"></div>
                 <div class="mmb-f" style="width:{mt.f}%" title="Fat {mt.f}%"></div>
               </div>
               <span class="meal-macro-text text-3 text-sm"><span style="color:var(--macro-protein)">{mt.p}% P</span> · <span style="color:var(--macro-carbs)">{mt.c}% C</span> · <span style="color:var(--macro-fat)">{mt.f}% F</span> · <span style="color:var(--macro-calories)">{mt.cal} kcal</span></span>
-            </div>
+            </button>
           {/if}
         {/if}
       </section>
     {/each}
 
+    {#if $diaryShowNotes}
+      <section class="diary-notes card" class:expanded={notesExpanded || _notesText}>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="diary-notes-header" on:click={toggleNotes}>
+          <span class="material-symbols-rounded diary-notes-icon">edit_note</span>
+          <span class="diary-notes-label">Day notes</span>
+          {#if _notesText && !notesExpanded}
+            <span class="diary-notes-preview text-3 text-sm truncate">{_notesText}</span>
+          {/if}
+          <span class="material-symbols-rounded diary-notes-chevron">{notesExpanded ? 'expand_less' : 'expand_more'}</span>
+        </div>
+        {#if notesExpanded}
+          <div class="diary-notes-body">
+            <textarea class="diary-notes-textarea" bind:value={_notesText}
+              on:blur={commitNotes}
+              placeholder="How did today feel? Sleep, energy, hunger, cravings…"
+              rows="3"></textarea>
+            <div class="diary-notes-meta">
+              <span class="text-3 text-sm">{_notesSaving ? 'Saving…' : (_notesText ? `${_notesText.length} characters` : '')}</span>
+            </div>
+          </div>
+        {/if}
+      </section>
+    {/if}
 
   </div>
 </div>
@@ -824,10 +1036,10 @@
         <div class="dbb-kcal">
           {#if _totalsMode === 'remaining'}
             <span class="dbb-num">{Math.max(0, caloriesGoal - Math.round($_calTween)).toLocaleString()}</span>
-            <span class="dbb-unit">kcal left</span>
+            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}kcal left</span>
           {:else}
             <span class="dbb-num">{Math.round($_calTween).toLocaleString()}</span>
-            <span class="dbb-unit">kcal eaten</span>
+            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}kcal eaten</span>
           {/if}
         </div>
         <div class="dbb-macros">
@@ -1091,7 +1303,7 @@
   {/if}
 </Sheet>
 
-<!-- Smart Log lives on the FitBot FAB (hold to dictate) — see AIFitBot.svelte -->
+<!-- Smart Log lives on the assistant FAB (hold to dictate) — see Trace.svelte -->
 
 
 <!-- Delete confirm dialog -->
@@ -1119,10 +1331,11 @@
   bind:open={showItemAction}
   title={actionItem?.name || ''}
   actions={[
-    { label: 'Edit',            icon: 'edit',       value: 'edit'   },
-    { label: 'Move to meal',    icon: 'swap_horiz', value: 'move'   },
-    { label: 'Select multiple', icon: 'checklist',  value: 'select' },
-    { label: 'Delete',          icon: 'delete',     value: 'delete', danger: true },
+    { label: 'Edit',            icon: 'edit',          value: 'edit'    },
+    { label: 'Replace',         icon: 'find_replace',  value: 'replace' },
+    { label: 'Move to meal',    icon: 'swap_horiz',    value: 'move'    },
+    { label: 'Select multiple', icon: 'checklist',     value: 'select'  },
+    { label: 'Delete',          icon: 'delete',        value: 'delete', danger: true },
   ]}
   on:select={onItemAction}
 />
@@ -1134,6 +1347,99 @@
   actions={meals.map((m, i) => ({ label: m, icon: mealIcon(m), value: i }))}
   on:select={moveItemToMeal}
 />
+
+<!-- Meal-level action sheet (⋮ on meal header) -->
+{#if actionMealIdx != null}
+  {@const _mealItems = getMealItems(entry.items, actionMealIdx)}
+  {@const _hasItems = _mealItems.length > 0}
+  <ActionSheet
+    bind:open={showMealAction}
+    title={meals[actionMealIdx] + (_hasItems ? ` · ${_mealItems.length} item${_mealItems.length === 1 ? '' : 's'}` : ' · empty')}
+    actions={_hasItems ? [
+      { label: 'Copy items to…',          icon: 'content_copy', value: 'copy'      },
+      { label: 'Move items to…',          icon: 'swap_horiz',   value: 'move'      },
+      { label: 'Copy meal to another date…', icon: 'event_repeat', value: 'copy_date' },
+      { label: 'Save as meal…',           icon: 'bookmark_add', value: 'save_meal' },
+      { label: 'Clear all items',         icon: 'delete_sweep', value: 'clear', danger: true },
+    ] : [
+      { label: 'Add food', icon: 'add', value: 'add' },
+    ]}
+    on:select={(e) => {
+      if (e.detail?.value === 'add') openAddFood(actionMealIdx);
+      else onMealAction(e);
+    }}
+  />
+{/if}
+
+<!-- Meal target picker (for copy/move items to…) -->
+<ActionSheet
+  bind:open={showMealTargetPicker}
+  title={mealActionMode === 'copy' ? 'Copy to meal' : 'Move to meal'}
+  actions={meals.map((m, i) => ({ label: m, icon: mealIcon(m), value: i }))}
+  on:select={onMealTargetPick}
+/>
+
+<!-- Copy meal to another date: step 1 — pick date -->
+{#if showCopyToDateStep1}
+  <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
+    on:click={() => { if (!_sheetLock) showCopyToDateStep1 = false; }} on:keydown={() => {}}>
+    <div class="bs-sheet copy-date-sheet" on:click|stopPropagation on:keydown={() => {}}>
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">Copy {meals[actionMealIdx] || 'meal'} to…</p>
+      <label class="copy-date-label">
+        <span>Target date</span>
+        <input type="date" bind:value={copyToDateValue} class="copy-date-input" />
+      </label>
+      <div class="copy-date-actions">
+        <button class="btn btn-ghost" on:click={() => showCopyToDateStep1 = false}>Cancel</button>
+        <button class="btn btn-primary" on:click={onCopyToDateNext} disabled={!copyToDateValue}>Next</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Copy meal to another date: step 2 — pick target meal -->
+<ActionSheet
+  bind:open={showCopyToDateStep2}
+  title={`Copy to meal on ${copyToDateValue}`}
+  actions={meals.map((m, i) => ({ label: m, icon: mealIcon(m), value: i }))}
+  on:select={onCopyToDatePick}
+/>
+
+<!-- Clear meal confirm -->
+<Dialog
+  bind:open={showClearMealDialog}
+  title="Clear all items from {actionMealIdx != null ? meals[actionMealIdx] : 'meal'}?"
+  message="This will remove every item in this meal from your diary for {$currentDate}. This can't be undone."
+  confirmText="Clear"
+  dangerous
+  on:confirm={doClearMeal}
+/>
+
+<!-- Save as meal sheet -->
+{#if showSaveAsMeal}
+  <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
+    on:click={() => { if (!_sheetLock && !saveAsMealSaving) showSaveAsMeal = false; }} on:keydown={() => {}}>
+    <div class="bs-sheet copy-date-sheet" on:click|stopPropagation on:keydown={() => {}}>
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">Save {actionMealIdx != null ? meals[actionMealIdx] : 'meal'} to library</p>
+      <label class="copy-date-label">
+        <span>Meal name</span>
+        <input type="text" bind:value={saveAsMealName} class="copy-date-input"
+          placeholder="e.g. Usual breakfast" autofocus />
+      </label>
+      <p class="text-3 text-sm" style="margin:8px 0 0">
+        {#if actionMealIdx != null}{getMealItems(entry.items, actionMealIdx).length} item{getMealItems(entry.items, actionMealIdx).length === 1 ? '' : 's'} will be saved{/if}
+      </p>
+      <div class="copy-date-actions">
+        <button class="btn btn-ghost" disabled={saveAsMealSaving}
+          on:click={() => showSaveAsMeal = false}>Cancel</button>
+        <button class="btn btn-primary" disabled={saveAsMealSaving || !saveAsMealName.trim()}
+          on:click={doSaveAsMeal}>{saveAsMealSaving ? 'Saving…' : 'Save'}</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- Date Picker Calendar Sheet -->
 {#if showDatePicker}
@@ -1316,6 +1622,42 @@
   </div>
 {/if}
 
+<!-- Per-meal nutrition totals sheet -->
+<Sheet open={mealTotalsIdx != null} title={mealTotalsIdx != null ? `${meals[mealTotalsIdx]} totals` : ''}
+  on:close={() => mealTotalsIdx = null}>
+  <div class="ns-body">
+    <div class="ns-macros">
+      <div class="ns-macro-pill" style="background:var(--macro-protein-dim)">
+        <span class="ns-macro-val" style="color:var(--macro-protein)">{Math.round(_mealTotals.proteins || 0)}g</span>
+        <span class="ns-macro-lbl">Protein</span>
+      </div>
+      <div class="ns-macro-pill" style="background:var(--macro-carbs-dim)">
+        <span class="ns-macro-val" style="color:var(--macro-carbs)">{Math.round(_mealTotals.carbohydrates || 0)}g</span>
+        <span class="ns-macro-lbl">Carbs</span>
+      </div>
+      <div class="ns-macro-pill" style="background:var(--macro-fat-dim)">
+        <span class="ns-macro-val" style="color:var(--macro-fat)">{Math.round(_mealTotals.fat || 0)}g</span>
+        <span class="ns-macro-lbl">Fat</span>
+      </div>
+      <div class="ns-macro-pill" style="background:var(--macro-calories-dim)">
+        <span class="ns-macro-val" style="color:var(--macro-calories)">{Math.round(_mealTotals.calories || 0).toLocaleString()}</span>
+        <span class="ns-macro-lbl">kcal</span>
+      </div>
+    </div>
+    <div class="ns-rows">
+      {#each NUTRIMENTS.filter(n => ($diaryShowAllNutrients ? true : n.default) && (_mealTotals[n.id] || 0) > 0) as n}
+        <div class="ns-row">
+          <span>{n.label}</span>
+          <span class="font-medium">{(Math.round((_mealTotals[n.id]||0)*10)/10).toLocaleString()} {n.unit}</span>
+        </div>
+      {/each}
+    </div>
+    <div class="text-3 text-sm" style="text-align:center;padding:8px 0 4px">
+      {_mealTotalsItems.length} {_mealTotalsItems.length === 1 ? 'item' : 'items'}
+    </div>
+  </div>
+</Sheet>
+
 
 <style>
   /* Date picker calendar */
@@ -1440,8 +1782,9 @@
     cursor: pointer;
     gap: 1px;
   }
-  .date-label { font-size: 17px; font-weight: 700; color: var(--accent); }
+  .date-label { font-size: 17px; font-weight: 700; color: var(--accent); display: inline-flex; align-items: center; gap: 4px; }
   .date-sub   { font-size: 12px; color: var(--text-3); }
+  .date-note-indicator { font-size: 16px; color: var(--text-3); vertical-align: middle; }
 
   .diary-content { padding-top: 12px; padding-bottom: 16px; gap: 12px; display: flex; flex-direction: column; }
 
@@ -1591,6 +1934,33 @@
   .wc-divider  { height:1px; background:var(--border); margin:0 16px; }
 
 
+  /* Daily notes card */
+  .diary-notes {
+    margin-top: 8px;
+    border-left: 3px solid var(--text-3);
+    transition: border-color var(--dur-fast);
+  }
+  .diary-notes.expanded { border-left-color: var(--accent); }
+  .diary-notes-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; cursor: pointer;
+  }
+  .diary-notes-icon { font-size: 20px; color: var(--text-2); }
+  .diary-notes.expanded .diary-notes-icon { color: var(--accent); }
+  .diary-notes-label { font-size: 14px; font-weight: 600; color: var(--text-1); flex-shrink: 0; }
+  .diary-notes-preview { flex: 1; min-width: 0; font-size: 13px; color: var(--text-3); }
+  .diary-notes-chevron { font-size: 20px; color: var(--text-3); margin-left: auto; flex-shrink: 0; }
+  .diary-notes-body { padding: 0 14px 14px; }
+  .diary-notes-textarea {
+    width: 100%; min-height: 80px; resize: vertical;
+    padding: 10px 12px; border-radius: var(--radius-md);
+    border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text-1); font-size: 14px; line-height: 1.5;
+    font-family: inherit;
+  }
+  .diary-notes-textarea:focus { outline: none; border-color: var(--accent); }
+  .diary-notes-meta { margin-top: 6px; min-height: 16px; text-align: right; }
+
   .meal-group { overflow: visible; border-left: 3px solid var(--meal-color, var(--accent)); }
   .meal-header {
     display: flex;
@@ -1613,6 +1983,22 @@
     align-items: center;
     gap: 10px;
     padding: 16px 16px;
+    width: 100%;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 120ms;
+  }
+  .meal-empty:hover,
+  .meal-empty:active { background: var(--surface-2); }
+  .meal-empty:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: var(--radius-sm, 6px);
   }
   .meal-empty-icon { font-size: 20px; opacity: 0.5; flex-shrink: 0; }
   .meal-empty-text { font-size: 13px; color: var(--text-3); }
@@ -1642,6 +2028,9 @@
     padding: 10px 16px;
     border-bottom: 1px solid var(--border);
     transition: background var(--dur-fast);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
   .diary-item:last-child { border-bottom: none; }
   .diary-item:active { background: var(--surface-2); }
@@ -1753,6 +2142,21 @@
   }
   .bs-sheet-body  { padding: 8px 20px 0; display: flex; flex-direction: column; gap: 12px; }
   .bs-sheet-footer { padding: 16px 20px; }
+
+  /* Meal header ⋮ menu button — quieter than the accent + */
+  .meal-menu-btn { color: var(--text-3); }
+  .meal-menu-btn:active { color: var(--text-1); }
+
+  /* Copy meal to another date sheet */
+  .copy-date-sheet { padding: 0 20px 20px; }
+  .copy-date-sheet .sheet-title { padding: 4px 0 12px; }
+  .copy-date-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-2); }
+  .copy-date-input {
+    padding: 10px 12px; border-radius: var(--radius-md);
+    border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text-1); font-size: 15px;
+  }
+  .copy-date-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
   .bs-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1783,7 +2187,18 @@
   .ns-row:last-child { border-bottom: none; }
 
   /* Meal macro footer */
-  .meal-macro-footer { padding: 8px 16px 10px; border-top: 1px solid var(--border); }
+  .meal-macro-footer {
+    padding: 8px 16px 10px; border-top: 1px solid var(--border);
+    width: 100%; display: block; text-align: left;
+    background: none; cursor: pointer; color: inherit; font: inherit;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 120ms;
+  }
+  .meal-macro-footer:hover, .meal-macro-footer:active { background: var(--surface-2); }
+  .meal-macro-footer:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: -2px;
+    border-radius: var(--radius-sm, 6px);
+  }
   .meal-macro-bar {
     height: 8px; border-radius: 4px;
     background: var(--surface-3); overflow: hidden;

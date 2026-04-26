@@ -8,6 +8,9 @@
  * - Steps, Distance, Calories (active + total)
  * - Heart rate (avg, min, max), Resting heart rate
  * - Sleep sessions
+ *
+ * Verbose Health Connect logs are gated on dev — production users don't need
+ * to see every record body in the console.
  * - Weight
  * - Activity/exercise sessions
  *
@@ -16,6 +19,11 @@
  *
  * EXPERIMENTAL — labeled as such in Settings.
  */
+
+// Gated on dev OR opt-in verbose mode (Settings → Diagnostics → Verbose diagnostic logging).
+const _dlog = import.meta.env.DEV
+  ? console.log
+  : (...a) => { try { if (localStorage.getItem('nt:verboseLogging') === '1') console.log(...a); } catch {} };
 
 import { isNative } from './platform.js';
 import { HealthConnect } from '@devmaxime/capacitor-health-connect';
@@ -114,7 +122,7 @@ export async function readTodayData() {
       start: todayStart, end: todayEnd,
       type: 'Steps', groupBy: 'day',
     });
-    console.log(`[health-connect] Steps aggregates:`, JSON.stringify(aggregates).slice(0, 200));
+    _dlog(`[health-connect] Steps aggregates:`, JSON.stringify(aggregates).slice(0, 200));
     if (aggregates.length > 0) metrics.steps = aggregates[0].value;
   } catch (e) { console.warn('[health-connect] Steps error:', e.message); }
 
@@ -173,26 +181,26 @@ export async function readTodayData() {
       start: todayStart, end: todayEnd,
       type: 'Weight',
     });
-    console.log(`[health-connect] Weight: ${records.length} records`);
+    _dlog(`[health-connect] Weight: ${records.length} records`);
     if (records.length > 0) {
       const latest = records[records.length - 1];
-      console.log(`[health-connect] Weight record type: ${typeof latest}`);
-      console.log(`[health-connect] Weight record FULL:`, JSON.stringify(latest).slice(0, 500));
-      console.log(`[health-connect] Weight record keys:`, typeof latest === 'object' ? Object.keys(latest) : 'N/A');
+      _dlog(`[health-connect] Weight record type: ${typeof latest}`);
+      _dlog(`[health-connect] Weight record FULL:`, JSON.stringify(latest).slice(0, 500));
+      _dlog(`[health-connect] Weight record keys:`, typeof latest === 'object' ? Object.keys(latest) : 'N/A');
       let wkg = 0;
       if (typeof latest === 'string') {
         // Plugin may return Kotlin toString() — parse mass value from it
         const match = latest.match(/value=([\d.]+)/);
         if (match) wkg = parseFloat(match[1]);
-        console.log(`[health-connect] Weight parsed from string: ${wkg}`);
+        _dlog(`[health-connect] Weight parsed from string: ${wkg}`);
       } else {
         // Try every possible property path the plugin might use
         wkg = latest.weight?.inKilograms ?? latest.mass?.inKilograms ?? latest.value ?? 0;
         if (typeof wkg === 'object') wkg = wkg.inKilograms ?? wkg.value ?? 0;
-        console.log(`[health-connect] Weight from object: ${wkg} (weight=${JSON.stringify(latest.weight)}, mass=${JSON.stringify(latest.mass)}, value=${latest.value})`);
+        _dlog(`[health-connect] Weight from object: ${wkg} (weight=${JSON.stringify(latest.weight)}, mass=${JSON.stringify(latest.mass)}, value=${latest.value})`);
       }
       if (wkg > 0) metrics.weight_kg = +wkg.toFixed(1);
-      console.log(`[health-connect] Final weight_kg: ${metrics.weight_kg}`);
+      _dlog(`[health-connect] Final weight_kg: ${metrics.weight_kg}`);
     }
   } catch (e) { console.warn('[health-connect] Weight error:', e.message); }
 
@@ -203,7 +211,7 @@ export async function readTodayData() {
       start: sleepStart, end: todayEnd,
       type: 'SleepSession',
     });
-    console.log(`[health-connect] Sleep: ${records.length} records`);
+    _dlog(`[health-connect] Sleep: ${records.length} records`);
     if (records.length > 0) {
       const sleep = records[records.length - 1]; // Most recent session
       if (sleep.startTime && sleep.endTime) {
@@ -292,7 +300,7 @@ export async function readTodayData() {
     });
     if (records.length > 0) {
       const latest = records[records.length - 1];
-      console.log('[health-connect] BodyFat record:', JSON.stringify(latest).slice(0, 300));
+      _dlog('[health-connect] BodyFat record:', JSON.stringify(latest).slice(0, 300));
       let pct = 0;
       if (typeof latest === 'string') {
         // Plugin returns raw Kotlin toString() — parse percentage from it
@@ -461,7 +469,7 @@ export async function syncHealthConnect(dateStr) {
     }
   }
 
-  console.log(`[health-connect] Synced ${Object.keys(metrics).length} metrics for ${dateStr}`);
+  _dlog(`[health-connect] Synced ${Object.keys(metrics).length} metrics for ${dateStr}`);
   return metrics;
 }
 
@@ -500,6 +508,6 @@ export async function seedTestData() {
     await dbUpsertWellness(today, 'health_connect', type, value);
   }
 
-  console.log(`[health-connect] Seeded ${Object.keys(testData).length} test metrics for ${today}`);
+  _dlog(`[health-connect] Seeded ${Object.keys(testData).length} test metrics for ${today}`);
   return testData;
 }

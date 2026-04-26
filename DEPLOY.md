@@ -75,17 +75,25 @@ services:
 |---|---|---|---|
 | `DB_PATH` | Yes | `./nutritrace.db` | Path to SQLite database file |
 | `UPLOADS_PATH` | Yes | `./uploads` | Path for uploaded food/meal images |
-| `JWT_SECRET` | Yes | `dev-secret` | Secret for signing JWT auth tokens — **change this** |
+| `JWT_SECRET` | Yes (prod) | `dev-secret` | Secret for signing JWT auth tokens — **change this**. Server refuses to start in production with the dev default. |
 | `PORT` | No | `3001` | Internal Express port (map to host in docker-compose) |
+| `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug`. Use `debug` for verbose wellness sync output (Fitbit, Withings, Garmin, Health Connect). |
+| `RECOVERY_TOKEN` | No | — | Lockout-recovery token. Required to use the "Disable user management" recovery option on the login page. Without this, the recovery endpoint is disabled for safety. |
+| `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on JWT + cookie lifetime. The per-user setting in app_config can be lower than this but cannot exceed it. |
+| `INSECURE_COOKIES` | No | `0` | Set `1` only for non-HTTPS deployments. Default uses `secure: true` cookies (HTTPS-only). |
+| `BACKUPS_PATH` | No | Inside uploads dir | Where full ZIP backups are stored |
 | `SMTP_HOST` | No | — | SMTP server hostname |
 | `SMTP_PORT` | No | `587` | SMTP port |
 | `SMTP_SECURE` | No | `false` | `true` for TLS (port 465), `false` for STARTTLS |
 | `SMTP_USER` | No | — | SMTP username |
 | `SMTP_PASS` | No | — | SMTP password |
 | `SMTP_FROM` | No | — | From address, e.g. `"NutriTrace" <noreply@example.com>` |
-| `BACKUPS_PATH` | No | Inside uploads dir | Where full ZIP backups are stored |
+| `AI_PROVIDER` | No | — | `claude` \| `openai` \| `gemini`. If set, AI calls are proxied server-side and the provider/model/key fields are locked in Settings for all users. |
+| `AI_API_KEY` | No | — | API key for the chosen provider. Server-only, never reaches the browser. |
+| `AI_MODEL` | No | provider default | Optional model override (e.g. `claude-haiku-4-5-20251001`). |
+| `AI_ENABLED` | No | — | If `true`, auto-enables the AI Assistant for all users. |
 
-> **Note**: SMTP settings can also be configured in Settings → Email (admin only). Environment variables take priority over the UI.
+> **Note:** SMTP and AI settings can also be configured in **Settings → Email** / **Settings → AI Assistant** (admin only). Environment variables take priority over the UI and lock the corresponding fields when set.
 
 ---
 
@@ -113,7 +121,7 @@ Each user connects their own fitness tracker using their own developer API crede
 5. In NutriTrace → Settings → Wellness → Fitbit, paste the credentials and save.
 6. Click **Connect** — you'll be redirected to Fitbit to authorize, then back to the Wellness page.
 
-**Required OAuth scopes** (automatically requested): `activity`, `heartrate`, `sleep`, `oxygen_saturation`, `respiratory_rate`, `profile`
+**Required OAuth scopes** (automatically requested): `activity`, `heartrate`, `sleep`, `oxygen_saturation`, `respiratory_rate`, `cardio_fitness`, `temperature`, `profile`, `location` (the last one is needed for TCX/GPS route data on workout logs)
 
 ### Withings
 

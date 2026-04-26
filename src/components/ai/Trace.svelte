@@ -1,13 +1,13 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import FitBotFace from './FitBotFace.svelte';
+  import TraceFace from './TraceFace.svelte';
   import { NtApi }     from '../../lib/api.js';
   import { DB, localDateStr } from '../../lib/db.js';
   import { Nutrition } from '../../lib/nutrition.js';
   import { callAI, callAIProxy, TOOLS, setToolHandler } from '../../lib/aiChat.js';
-  import { aiEnabled, aiAssistantName, aiApiKey, aiProvider, aiModel, goals, mealNames, energyUnit, dateFormat, tempUnit, quickLogEnabled } from '../../stores/settings.js';
+  import { aiEnabled, aiAssistantName, aiApiKey, aiProvider, aiModel, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled } from '../../stores/settings.js';
   import SmartLogModal from '../diary/SmartLogModal.svelte';
   import { showError } from '../../stores/toast.js';
   import { isNative } from '../../lib/platform.js';
@@ -37,11 +37,13 @@
   let aiEnvLocked = false;
 
   // Settings — refreshed each time panel opens
-  let assistantName = 'FitBot';
+  let assistantName = 'Trace';
   let apiKey        = '';
 
   $: if (panelOpen) {
     hasUnread     = false;
+    // Mark current message count as seen so remounts don't show false unread dot
+    try { localStorage.setItem('nt:chatSeenCount', String(messages.length)); } catch {}
     assistantName = $aiAssistantName;
     apiKey        = $aiApiKey;
     tick().then(() => _scrollBottom(true));
@@ -53,6 +55,9 @@
       const rows = await NtApi.get('/api/ai/history');
       if (rows.length) {
         messages = rows.map(r => ({ role: r.role, content: r.content, time: _fmtCreatedAt(r.created_at) }));
+        // Sync seen count so remounts don't show false unread dot
+        const seenCount = parseInt(localStorage.getItem('nt:chatSeenCount') || '0');
+        if (messages.length <= seenCount) hasUnread = false;
         localStorage.removeItem('wl:aiChatHistory'); // clear migrated local copy
       } else {
         const saved = localStorage.getItem('wl:aiChatHistory');
@@ -159,25 +164,69 @@
         case 'get_diary': {
           try {
             const entry = await NtApi.getDiaryDate(args.date);
-            if (!entry || !entry.items?.length) return { date: args.date, items: [], totals: null };
-            const totals = Nutrition.sum(entry.items.map(i => Nutrition.calculate(i)));
+            const hasItems = entry?.items?.length > 0;
+            const notes = (entry?.notes || '').trim();
+            if (!hasItems && !notes) return { date: args.date, items: [], totals: null };
+            const totals = hasItems ? Nutrition.sum(entry.items.map(i => Nutrition.calculate(i))) : {};
             const names = mealNames.get();
             const meals = {};
-            for (const it of entry.items) {
-              const mIdx = it.meal ?? 0;
-              const mName = names[mIdx] || `Meal ${mIdx + 1}`;
-              (meals[mName] = meals[mName] || []).push({
-                name: it.name, portion: it.portion, unit: it.unit, quantity: it.quantity,
-                calories: Math.round((it.nutrition?.calories || 0) * (it.quantity || 1)),
-              });
+            if (hasItems) {
+              for (const it of entry.items) {
+                const mIdx = it.meal ?? 0;
+                const mName = names[mIdx] || `Meal ${mIdx + 1}`;
+                const row = {
+                  name: it.name, portion: it.portion, unit: it.unit, quantity: it.quantity,
+                  calories: Math.round((it.nutrition?.calories || 0) * (it.quantity || 1)),
+                };
+                if (it.brand) row.brand = it.brand;
+                if (typeof it.notes === 'string' && it.notes.trim()) row.notes = it.notes.trim();
+                (meals[mName] = meals[mName] || []).push(row);
+              }
             }
-            return {
+            const result = {
               date: args.date, meals,
-              totals: { calories: Math.round(totals.calories || 0), protein: Math.round(totals.proteins || 0), carbs: Math.round(totals.carbohydrates || 0), fat: Math.round(totals.fat || 0) },
-              body_stats: entry.body_stats || entry.bodyStats || {},
-              water_ml: (entry.water || []).reduce((s, l) => s + (l.amount || 0), 0),
+              totals: hasItems ? { calories: Math.round(totals.calories || 0), protein: Math.round(totals.proteins || 0), carbs: Math.round(totals.carbohydrates || 0), fat: Math.round(totals.fat || 0) } : null,
+              body_stats: entry?.body_stats || entry?.bodyStats || {},
+              water_ml: (entry?.water || []).reduce((s, l) => s + (l.amount || 0), 0),
             };
+            if (notes) result.day_notes = notes;
+            return result;
           } catch { return { date: args.date, error: 'Could not load diary' }; }
+        }
+        case 'get_meals': {
+          try {
+            const [rawMeals, rawRecipes] = await Promise.all([
+              NtApi.getMeals().catch(() => []),
+              NtApi.getRecipes().catch(() => []),
+            ]);
+            const shape = (m, kind) => {
+              const items = (m.items || []).map(it => {
+                const r = { name: it.name, portion: it.portion, unit: it.unit, quantity: it.quantity };
+                if (it.brand) r.brand = it.brand;
+                if (typeof it.notes === 'string' && it.notes.trim()) r.notes = it.notes.trim();
+                return r;
+              });
+              const totals = Nutrition.sum(items.map(i => Nutrition.calculate(i)));
+              const out = {
+                id: m.id, name: m.name, kind,
+                item_count: items.length,
+                calories: Math.round(totals.calories || 0),
+                protein_g: Math.round(totals.proteins || 0),
+                carbs_g: Math.round(totals.carbohydrates || 0),
+                fat_g: Math.round(totals.fat || 0),
+                items,
+              };
+              if (typeof m.notes === 'string' && m.notes.trim()) out.notes = m.notes.trim();
+              return out;
+            };
+            const q = (args.query || '').toLowerCase().trim();
+            let list = [
+              ...rawMeals.map(m => shape(m, 'meal')),
+              ...rawRecipes.map(m => shape(m, 'recipe')),
+            ];
+            if (q) list = list.filter(m => m.name?.toLowerCase().includes(q));
+            return { count: list.length, meals: list.slice(0, 50) };
+          } catch { return { error: 'Could not load meals library' }; }
         }
         case 'get_workouts': {
           let workouts;
@@ -207,16 +256,124 @@
           const g = goals.get();
           return g || {};
         }
+        case 'get_diary_averages': {
+          try {
+            const numDays = Math.min(Math.max(parseInt(args.days) || 28, 1), 90);
+            const today   = localDateStr();
+            const sums    = { calories: 0, proteins: 0, carbohydrates: 0, fat: 0, water_ml: 0 };
+            let daysLogged = 0;
+            let firstWeight = null, lastWeight = null;
+            const dates = [];
+            for (let i = numDays; i >= 1; i--) {
+              const d = new Date(); d.setDate(d.getDate() - i);
+              dates.push(d.toISOString().slice(0, 10));
+            }
+            for (const date of dates) {
+              try {
+                const entry = await NtApi.getDiaryDate(date);
+                if (entry?.items?.length) {
+                  daysLogged++;
+                  const tot = Nutrition.sum(entry.items.map(i => Nutrition.calculate(i)));
+                  sums.calories       += tot.calories       || 0;
+                  sums.proteins       += tot.proteins       || 0;
+                  sums.carbohydrates  += tot.carbohydrates  || 0;
+                  sums.fat            += tot.fat            || 0;
+                  sums.water_ml       += (entry.water || []).reduce((s, l) => s + (l.amount || 0), 0);
+                  const bs = entry.body_stats || entry.bodyStats || {};
+                  const w  = bs.weight ?? null;
+                  if (w != null) { if (firstWeight == null) firstWeight = { date, value: w }; lastWeight = { date, value: w }; }
+                }
+              } catch {}
+            }
+            if (daysLogged === 0) return { error: 'No diary data found for this period.' };
+            const avg = k => Math.round(sums[k] / daysLogged);
+            const result = {
+              period_days: numDays,
+              days_logged: daysLogged,
+              consistency_pct: Math.round(daysLogged / numDays * 100),
+              averages: {
+                calories: avg('calories'),
+                protein_g: avg('proteins'),
+                carbs_g: avg('carbohydrates'),
+                fat_g: avg('fat'),
+                water_ml: avg('water_ml'),
+              },
+            };
+            if (firstWeight && lastWeight && firstWeight.date !== lastWeight.date) {
+              const _wu = DB.getSetting('weightUnit', 'lb');
+              const diff = lastWeight.value - firstWeight.value;
+              result.weight_change = {
+                from_date: firstWeight.date,
+                to_date: lastWeight.date,
+                change_kg: Math.round(diff * 100) / 100,
+                change_lbs: Math.round(diff * 2.20462 * 100) / 100,
+                direction: diff < -0.1 ? 'down' : diff > 0.1 ? 'up' : 'stable',
+              };
+            }
+            return result;
+          } catch { return { error: 'Could not compute diary averages.' }; }
+        }
         default:
           return { error: `Unknown tool: ${name}` };
       }
     });
+
+    // ── Cross-device chat sync ──────────────────────────────────────────────
+    // 1. nt:chat-updated — fired by native sync engine after pull, carries new rows
+    // 2. nt:sync-complete — safety net; full refetch catches deletes or missed rows
+    // 3. visibilitychange — PWA refetches when the tab regains focus
+    window.addEventListener('nt:chat-updated',  _onChatUpdated);
+    window.addEventListener('nt:sync-complete', _refetchChatHistory);
+    document.addEventListener('visibilitychange', _onVisible);
   });
+
+  onDestroy(() => {
+    window.removeEventListener('nt:chat-updated',  _onChatUpdated);
+    window.removeEventListener('nt:sync-complete', _refetchChatHistory);
+    document.removeEventListener('visibilitychange', _onVisible);
+  });
+
+  function _onVisible() {
+    if (document.visibilityState === 'visible') _refetchChatHistory();
+  }
+
+  // Merge incoming rows from sync pull; dedupe by role+content+created_at
+  function _onChatUpdated(e) {
+    const rows = e.detail?.messages || [];
+    if (!rows.length) return;
+    const seen = new Set(messages.map(m => `${m.role}|${m.content}|${m.time}`));
+    const toAdd = rows
+      .map(r => ({ role: r.role, content: r.content, time: _fmtCreatedAt(r.created_at) }))
+      .filter(m => !seen.has(`${m.role}|${m.content}|${m.time}`));
+    if (!toAdd.length) return;
+    messages = [...messages, ...toAdd];
+    if (!panelOpen) hasUnread = true;
+    tick().then(() => _scrollBottom(true));
+  }
+
+  async function _refetchChatHistory() {
+    try {
+      const rows = await NtApi.get('/api/ai/history');
+      if (!Array.isArray(rows)) return;
+      const next = rows.map(r => ({ role: r.role, content: r.content, time: _fmtCreatedAt(r.created_at) }));
+      // Only update if the list actually changed (length or last message differs)
+      const changed = next.length !== messages.length
+        || (next.length && messages.length && next[next.length - 1].content !== messages[messages.length - 1].content);
+      if (!changed) return;
+      // Compare against persisted seen count — not in-memory messages.length
+      // (which resets to 0 on component remount, causing false unread dots)
+      const seenCount = parseInt(localStorage.getItem('nt:chatSeenCount') || '0');
+      const hasNew = next.length > seenCount;
+      messages = next;
+      if (hasNew && !panelOpen) hasUnread = true;
+      tick().then(() => _scrollBottom(true));
+    } catch {}
+  }
 
   function _fmtCreatedAt(iso) {
     if (!iso) return fmtTime();
     const d       = new Date(iso + 'Z');
-    const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: $timeFormat !== '24h' });
     // Compare date portion in local time
     const msgDate = d.toLocaleDateString('sv-SE'); // reliable YYYY-MM-DD in local tz
     if (msgDate === localDateStr()) return timeStr;
@@ -231,8 +388,28 @@
 
   // ── Draggable FAB ──────────────────────────────────────────────────────────
   /** Saved position: { x, y } from top-left, or null → use CSS default (bottom-right) */
+  function _clampFabPos(pos) {
+    // Returns null for missing or unrecoverable positions (FAB falls back to CSS
+    // default: bottom-right). Without this, a position saved at a wider viewport
+    // could render off-screen on a smaller monitor and a hard refresh won't help.
+    if (!pos || typeof window === 'undefined') return null;
+    const maxX = window.innerWidth  - 64;
+    const maxY = window.innerHeight - 64;
+    if (maxX < 8 || maxY < 8) return null;
+    return {
+      x: Math.max(8, Math.min(maxX, pos.x)),
+      y: Math.max(8, Math.min(maxY, pos.y)),
+    };
+  }
   let fabPos    = (() => {
-    try { return JSON.parse(localStorage.getItem('wl:aiFabPos') || 'null'); } catch { return null; }
+    try {
+      const saved = JSON.parse(localStorage.getItem('wl:aiFabPos') || 'null');
+      const clamped = _clampFabPos(saved);
+      if (clamped && saved && (clamped.x !== saved.x || clamped.y !== saved.y)) {
+        localStorage.setItem('wl:aiFabPos', JSON.stringify(clamped));
+      }
+      return clamped;
+    } catch { return null; }
   })();
   let hasDragged = false;
 
@@ -247,6 +424,19 @@
   let _isDesktop = false;
   function _updatePanelPos() {
     if (typeof window === 'undefined') return;
+    // Re-clamp the FAB on resize — keeps it visible when the viewport shrinks
+    // (window resize, monitor swap). Persist the clamped value so the next load
+    // doesn't have to re-clamp from the same stale data.
+    if (fabPos) {
+      const clamped = _clampFabPos(fabPos);
+      if (!clamped || clamped.x !== fabPos.x || clamped.y !== fabPos.y) {
+        fabPos = clamped;
+        try {
+          if (clamped) localStorage.setItem('wl:aiFabPos', JSON.stringify(clamped));
+          else localStorage.removeItem('wl:aiFabPos');
+        } catch {}
+      }
+    }
     _isDesktop = window.innerWidth > 768;
     if (!_isDesktop || !panelOpen) { panelStyle = ''; return; }
 
@@ -283,7 +473,7 @@
     window.addEventListener('resize', _updatePanelPos);
   }
 
-  // ── Hold-to-record (Smart Log via FitBot FAB) ──────────────────────────────
+  // ── Hold-to-record (Smart Log via Trace FAB) ───────────────────────────────
   // Press the FAB and hold for 700ms → robot face morphs to mic, FAB turns
   // red, beep + haptic fire, native speech recognition starts. Release ends
   // recording and runs Smart Log. Move finger before 700ms → drag mode
@@ -390,11 +580,11 @@
             showError("Didn't catch that — try again");
           }
         }).catch((e) => {
-          console.warn('[fitbot-hold] native voice failed:', e?.message);
+          console.warn('[trace-hold] native voice failed:', e?.message);
           showError('Voice recognition failed: ' + (e?.message || 'unknown error'));
         });
       } catch (e) {
-        console.warn('[fitbot-hold] plugin unavailable:', e?.message);
+        console.warn('[trace-hold] plugin unavailable:', e?.message);
         recordingMode = false;
         showError('Voice plugin unavailable');
       }
@@ -421,7 +611,7 @@
           }
         };
         rec.onerror = (e) => {
-          console.warn('[fitbot-hold] web voice error:', e.error);
+          console.warn('[trace-hold] web voice error:', e.error);
           if (_commitNextTranscript) showError('Voice error: ' + (e.error || 'unknown'));
         };
         rec.onend = () => {
@@ -433,10 +623,10 @@
             // — leaving this as a hook for future refinement.
           }
         };
-        window.__fitbotHoldRec = rec;
+        window.__traceHoldRec = rec;
         rec.start();
       } catch (e) {
-        console.warn('[fitbot-hold] web speech start failed:', e.message);
+        console.warn('[trace-hold] web speech start failed:', e.message);
         recordingMode = false;
         showError('Could not start mic: ' + e.message);
       }
@@ -460,9 +650,9 @@
         const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
         await SpeechRecognition.stop();
       } catch {}
-    } else if (window.__fitbotHoldRec) {
-      try { commit ? window.__fitbotHoldRec.stop() : window.__fitbotHoldRec.abort(); } catch {}
-      window.__fitbotHoldRec = null;
+    } else if (window.__traceHoldRec) {
+      try { commit ? window.__traceHoldRec.stop() : window.__traceHoldRec.abort(); } catch {}
+      window.__traceHoldRec = null;
     }
   }
 
@@ -479,7 +669,7 @@
       userMealNames.subscribe(v => names = v)();
       const parsed = await parseInput(text, names || ['Breakfast','Lunch','Dinner','Snacks']);
       if (!parsed.items || parsed.items.length === 0) {
-        console.warn('[fitbot-hold] no items parsed from:', text);
+        console.warn('[trace-hold] no items parsed from:', text);
         showError(`Couldn't find any food in "${text}"`);
         return;
       }
@@ -488,7 +678,7 @@
       smartLogMeal = parsed.meal;
       showSmartLog = true;
     } catch (e) {
-      console.error('[fitbot-hold] parse failed:', e);
+      console.error('[trace-hold] parse failed:', e);
       showError('Smart Log parse failed: ' + (e.message || 'unknown error'));
     }
   }
@@ -752,6 +942,30 @@
         if (parts.length) wellnessText += (wellnessText ? '\n' : '') + `Withings: ${parts.join(', ')}`;
       }
     } catch {}
+    // Health Connect (Android local mode)
+    try {
+      if ($healthConnectEnabled && isNative) {
+        const { dbGetWellnessByDate } = await import('../../lib/db-native.js');
+        const hcData = await dbGetWellnessByDate(today, 'health_connect').catch(() => null);
+        if (hcData && Object.keys(hcData).length) {
+          const parts = [];
+          const _du = DB.getSetting('distUnit', 'km');
+          if (hcData.steps != null)          parts.push(`Steps: ${Math.round(hcData.steps).toLocaleString()}`);
+          if (hcData.calories_out != null)   parts.push(`Calories burned: ${Math.round(hcData.calories_out)}`);
+          if (hcData.active_calories != null) parts.push(`Active calories: ${Math.round(hcData.active_calories)}`);
+          if (hcData.distance_km != null)    parts.push(`Distance: ${_du === 'mi' ? (hcData.distance_km * 0.621371).toFixed(2) + ' mi' : hcData.distance_km.toFixed(2) + ' km'}`);
+          if (hcData.sleep_duration_min != null) { const h = Math.floor(hcData.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(hcData.sleep_duration_min%60)}m`); }
+          if (hcData.resting_hr != null)     parts.push(`Resting HR: ${Math.round(hcData.resting_hr)} bpm`);
+          if (hcData.avg_heart_rate != null) parts.push(`Avg HR: ${Math.round(hcData.avg_heart_rate)} bpm`);
+          if (hcData.hrv_rmssd != null)      parts.push(`HRV: ${hcData.hrv_rmssd.toFixed(1)} ms`);
+          if (hcData.weight_kg != null) {
+            const _wu = DB.getSetting('weightUnit', 'lb');
+            parts.push(`Weight: ${_wu === 'lb' ? (hcData.weight_kg * 2.20462).toFixed(1) + ' lbs' : hcData.weight_kg.toFixed(1) + ' kg'}`);
+          }
+          if (parts.length) wellnessText += (wellnessText ? '\n' : '') + `Health Connect: ${parts.join(', ')}`;
+        }
+      }
+    } catch {}
 
     return { today, diaryText, goalsText, statsText, wellnessText, waterText,
       weightUnit: DB.getSetting('weightUnit', 'lb'),
@@ -767,13 +981,25 @@
     return `You are ${name}, a friendly and knowledgeable AI nutrition and fitness coach built into NutriTrace.
 
 You have FULL ACCESS to the user's complete health data through tools. ALWAYS use tools to look up data — NEVER guess or make up numbers. Available data:
-- **Food diary**: meals, items, portions, full nutrition (any date)
-- **Wellness metrics**: steps, calories burned, distance, active minutes, sleep (duration, stages, score, efficiency), heart rate (resting HR, HRV, SpO2), respiratory rate, readiness score, stress score, skin temp, VO2 max — from Fitbit, Garmin, Health Connect (any date range)
-- **Body composition**: weight, body fat %, muscle mass, bone mass, body water, lean/fat mass, visceral fat, vascular age, metabolic age, BMR, nerve health, ECG — from Withings (any date range)
-- **Workouts**: recorded exercises with duration, distance, calories, heart rate, steps, GPS (any date range)
-- **Nutrition goals**: calorie and macro targets
+- **Food diary**: meals, items, portions, full nutrition, plus per-item notes (prep/serving info) and free-text "day notes" the user writes about how they felt, slept, cravings, etc. (any date) — use get_diary
+- **Diary averages**: average daily intake over any period + logging consistency + weight trend — use get_diary_averages
+- **Saved meals & recipes**: the user's library of reusable meals/recipes with items, notes, and totals — use get_meals (supports a name filter)
+- **Wellness metrics**: steps, calories burned, distance, active minutes, sleep (duration, stages, score, efficiency), heart rate (resting HR, HRV, SpO2), respiratory rate, readiness score, stress score, skin temp, VO2 max — from Fitbit, Garmin, Health Connect (any date range) — use get_wellness_data
+- **Body composition**: weight, body fat %, muscle mass, bone mass, body water, lean/fat mass, visceral fat, vascular age, metabolic age, BMR, nerve health, ECG — from Withings (any date range) — use get_body_composition
+- **Workouts**: recorded exercises with duration, distance, calories, heart rate, steps, GPS (any date range) — use get_workouts
+- **Nutrition goals**: calorie and macro targets — use get_goals
 
-When the user asks about their data (steps, sleep, weight, food log, etc.) for ANY date or date range, USE THE APPROPRIATE TOOL to fetch the real data. Do not estimate or hallucinate numbers.
+When the user asks about their data (steps, sleep, weight, food log, etc.) for ANY date or date range, USE THE APPROPRIATE TOOL to fetch the real data. Do not estimate or hallucinate numbers.`
+         + ($aiGoalInsights ? `
+
+GOAL INSIGHTS MODE IS ENABLED. You have permission to proactively analyze the user's actual intake vs their goals and offer evidence-based suggestions. When relevant:
+- Use get_diary_averages (28 days is a good default) + get_goals to compare actual vs target
+- If intake consistently differs from goals by >10% for 2+ weeks, mention it and offer to suggest an adjustment
+- Consider weight trends from get_body_composition or diary body stats when making calorie goal suggestions
+- Be specific: "You've averaged 1,840 kcal over 28 days vs your 2,100 goal — that's a 260 kcal gap. Want me to suggest a revised goal?"
+- Always ask before changing anything — never modify goals without explicit user confirmation
+- Cover all dimensions: calories, protein, carbs, fat, water — not just calories` : ''
+         ) + `
 
 IMPORTANT — User's preferred units (ALWAYS use these when presenting data):
 - Weight: ${ctx.weightUnit === 'lb' ? 'pounds (lbs)' : 'kilograms (kg)'}
@@ -796,7 +1022,7 @@ Water: ${ctx.waterText}`
   }
 
   function fmtTime() {
-    return new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: $timeFormat !== '24h' });
   }
 
   async function send() {
@@ -808,7 +1034,7 @@ Water: ${ctx.waterText}`
     const provider = aiProvider.get() || 'claude';
     const model    = aiModel.get()    || undefined;
 
-    if (!aiEnvLocked && !key) { showError('Add your API key in Settings → FitBot AI'); return; }
+    if (!aiEnvLocked && !key) { showError('Add your API key in Settings → AI Assistant'); return; }
 
     const image = attachedImage;
     const userMsg = { role: 'user', content: content || '(image)', time: fmtTime(), image: image?.preview };
@@ -936,7 +1162,7 @@ Water: ${ctx.waterText}`
     role="button"
     tabindex="0"
     aria-label={recordingMode ? (cancelPreview ? 'Release to cancel' : 'Recording — release to log') : 'Open AI coach (hold to dictate food)'}
-    title={$quickLogEnabled ? 'Tap to chat · hold to log food by voice' : 'FitBot AI'}
+    title={$quickLogEnabled ? 'Tap to chat · hold to log food by voice' : 'AI Assistant'}
   >
     {#if loading}
       <div class="fab-spinner"></div>
@@ -945,7 +1171,7 @@ Water: ${ctx.waterText}`
     {:else if recordingMode}
       <span class="material-symbols-rounded fab-mic" style="font-size:30px">mic</span>
     {:else}
-      <div class="fab-robot-wrap"><FitBotFace size={42} /></div>
+      <div class="fab-robot-wrap"><TraceFace size={42} /></div>
     {/if}
     {#if hasUnread && !panelOpen}
       <div class="fab-badge" transition:fade={{ duration: 120 }}></div>
@@ -995,7 +1221,7 @@ Water: ${ctx.waterText}`
       <div class="ai-header">
         <div class="ai-header-brand">
           <div class="ai-avatar">
-            <FitBotFace size={32} />
+            <TraceFace size={32} />
           </div>
           <div>
             <div class="ai-header-name">{assistantName}</div>
@@ -1019,7 +1245,7 @@ Water: ${ctx.waterText}`
           <div class="ai-setup">
             <span class="material-symbols-rounded ai-setup-icon">key</span>
             <p class="ai-setup-title">API key required</p>
-            <p class="ai-setup-desc">Add your AI provider key in <strong>Settings → FitBot AI</strong> to start chatting.</p>
+            <p class="ai-setup-desc">Add your AI provider key in <strong>Settings → AI Assistant</strong> to start chatting.</p>
             <p class="ai-setup-desc" style="margin-top:4px">Supports Anthropic Claude, OpenAI, and Google Gemini.</p>
             <a href="#/settings" class="btn btn-primary" style="margin-top:16px" on:click={() => panelOpen = false}>
               Open Settings
@@ -1030,7 +1256,7 @@ Water: ${ctx.waterText}`
           <!-- Welcome screen -->
           <div class="ai-welcome">
             <div class="ai-welcome-avatar">
-              <FitBotFace size={48} />
+              <TraceFace size={48} />
             </div>
             <p class="ai-welcome-name">Hi, I'm {assistantName}!</p>
             <p class="ai-welcome-desc">Ask me anything — nutrition, sleep, activity, recovery, hydration, body composition. I have access to all your data from today.</p>
@@ -1056,7 +1282,7 @@ Water: ${ctx.waterText}`
             <div class="ai-msg" class:user={msg.role === 'user'}>
               {#if msg.role === 'assistant'}
                 <div class="ai-msg-avatar">
-                  <FitBotFace size={24} />
+                  <TraceFace size={24} />
                 </div>
               {/if}
               <div class="ai-msg-body">
@@ -1076,7 +1302,7 @@ Water: ${ctx.waterText}`
         {#if loading}
           <div class="ai-msg">
             <div class="ai-msg-avatar">
-              <FitBotFace size={24} />
+              <TraceFace size={24} />
             </div>
             <div class="ai-msg-body">
               <div class="ai-bubble ai-typing">

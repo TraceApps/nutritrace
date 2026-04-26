@@ -39,8 +39,12 @@ function _userCfg(key, userId) {
   return row?.value || '';
 }
 
+import { encrypt, decrypt } from '../lib/token-crypto.js';
+
 function _getTokens(userId) {
-  return db.prepare('SELECT * FROM fitbit_tokens WHERE user_id = ?').get(userId);
+  const row = db.prepare('SELECT * FROM fitbit_tokens WHERE user_id = ?').get(userId);
+  if (!row) return row;
+  return { ...row, access_token: decrypt(row.access_token), refresh_token: decrypt(row.refresh_token) };
 }
 
 async function _refresh(userId) {
@@ -65,7 +69,7 @@ async function _refresh(userId) {
   const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
   db.prepare(`
     UPDATE fitbit_tokens SET access_token=?, refresh_token=?, expires_at=? WHERE user_id=?
-  `).run(data.access_token, data.refresh_token, expiresAt, userId);
+  `).run(encrypt(data.access_token), encrypt(data.refresh_token), expiresAt, userId);
   return data.access_token;
 }
 
@@ -219,7 +223,7 @@ router.get('/callback', wrap(async (req, res) => {
       refresh_token  = excluded.refresh_token,
       expires_at     = excluded.expires_at,
       fitbit_user_id = excluded.fitbit_user_id
-  `).run(pkce.userId, td.access_token, td.refresh_token, expiresAt, td.user_id || null);
+  `).run(pkce.userId, encrypt(td.access_token), encrypt(td.refresh_token), expiresAt, td.user_id || null);
 
   res.redirect(_redir('/?fitbit=connected#/wellness'));
 }));
@@ -333,9 +337,9 @@ async function _syncDate(u, dateStr) {
     const durPts     = Math.min(30, (dur / 440) * 30);
     const deepRemPct = dur > 0 ? (deep + rem) / dur : 0;
     const qualPts    = Math.min(40, deepRemPct / 0.25 * 40);
-    const qualBonus  = Math.min(8, Math.max(0, (deepRemPct - 0.35) / 0.15 * 8));
+    const qualBonus  = Math.min(6, Math.max(0, (deepRemPct - 0.35) / 0.15 * 6));
     const spo2Pts    = spo2 != null ? Math.min(15, Math.max(0, (spo2 - 87) / 9 * 15)) : 11;
-    const hrvPts     = hrv  != null ? Math.min(15, Math.max(0, (hrv  -  5) / 45 * 15)) : 10;
+    const hrvPts     = hrv  != null ? Math.min(12, Math.max(0, (hrv  -  5) / 45 * 12)) : 8;
     const effPts     = eff  != null ? Math.min(3, Math.max(0, (eff - 85) * 0.3)) : 0;
     metrics.sleep_score = Math.min(100, Math.round(durPts + qualPts + qualBonus + spo2Pts + hrvPts + effPts));
     logger.debug(`[fitbit] sleep_score ${dateStr}: dur=${dur}m deep=${deep}m rem=${rem}m spo2=${spo2} hrv=${hrv} eff=${eff} → ${durPts.toFixed(1)}+${qualPts.toFixed(1)}+${qualBonus.toFixed(1)}+${spo2Pts.toFixed(1)}+${hrvPts.toFixed(1)}+${effPts.toFixed(1)}=${metrics.sleep_score}`);
@@ -548,7 +552,13 @@ router.post('/recalculate', wrap(async (req, res) => {
   res.json({ ok: true, date: today, ...result });
 }));
 
-// ── POST /seed-scores — override scores with exact Fitbit values for calibration ──
+// ── POST /seed-scores — store actual Fitbit values for calibration ──
+// Writes to *_actual metric_types (not the calculated *_score) so that
+// routine syncs don't overwrite them. The Wellness UI prefers *_actual
+// for display when present, and the stress/readiness chains prefer them
+// for history. Once the formulas are dialed in and seeding stops, the
+// *_actual rows roll off the 30-day stress window naturally and the
+// system transitions to using calc only — no flag flip needed.
 router.post('/seed-scores', wrap(async (req, res) => {
   const u = uid(req);
   const { date, sleep_score, readiness_score, stress_score } = req.body;
@@ -561,12 +571,12 @@ router.post('/seed-scores', wrap(async (req, res) => {
       value = excluded.value, synced_at = excluded.synced_at
   `);
   db.transaction(() => {
-    if (sleep_score != null) upsert.run(u, date, 'sleep_score', sleep_score);
-    if (readiness_score != null) upsert.run(u, date, 'readiness_score', readiness_score);
-    if (stress_score != null) upsert.run(u, date, 'stress_score', stress_score);
+    if (sleep_score != null)     upsert.run(u, date, 'sleep_score_actual',     sleep_score);
+    if (readiness_score != null) upsert.run(u, date, 'readiness_score_actual', readiness_score);
+    if (stress_score != null)    upsert.run(u, date, 'stress_score_actual',    stress_score);
   })();
 
-  logger.info(`[fitbit] seeded scores for ${date}: sleep=${sleep_score} readiness=${readiness_score} stress=${stress_score}`);
+  logger.info(`[fitbit] seeded actual scores for ${date}: sleep=${sleep_score} readiness=${readiness_score} stress=${stress_score}`);
   res.json({ ok: true, date, sleep_score, readiness_score, stress_score });
 }));
 
@@ -624,19 +634,44 @@ router.get('/workouts/:id', wrap((req, res) => {
   res.json({ ...row, gps_data: row.gps_data ? JSON.parse(row.gps_data) : null, has_gps: !!row.has_gps });
 }));
 
-// ── POST /workouts/sync — fetch activity logs from Fitbit API ─────────────────
-router.post('/workouts/sync', wrap(async (req, res) => {
-  const u = uid(req);
-  const { from, to } = req.body;
+// ── Workout sync (shared by route handler + scheduler) ────────────────────────
+async function _syncWorkouts(userId, from, to) {
   const afterDate = from || new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
   const beforeDate = to || new Date().toISOString().slice(0, 10);
+  const u = userId;
 
-  // Fetch activity log list
+  // Fetch activity log list — use raw text parsing to preserve logId precision
+  // (Fitbit logIds exceed Number.MAX_SAFE_INTEGER, JSON.parse loses last digits)
   logger.info(`[fitbit] fetching activity logs for user ${u}: ${afterDate} → ${beforeDate}`);
-  const data = await _get(u, `/1/user/-/activities/list.json?afterDate=${afterDate}&sort=asc&offset=0&limit=100`);
+  let tok = await _token(u);
+  let actRes = await fetch(`https://api.fitbit.com/1/user/-/activities/list.json?afterDate=${afterDate}&sort=asc&offset=0&limit=100`, {
+    headers: { Authorization: `Bearer ${tok}` },
+  });
+  if (actRes.status === 401) {
+    tok = await _refresh(u);
+    actRes = await fetch(`https://api.fitbit.com/1/user/-/activities/list.json?afterDate=${afterDate}&sort=asc&offset=0&limit=100`, {
+      headers: { Authorization: `Bearer ${tok}` },
+    });
+  }
+  if (!actRes.ok) throw new Error(`Fitbit activity list ${actRes.status}`);
+  const rawText = await actRes.text();
+  // Extract logId values as strings BEFORE JSON.parse corrupts them
+  const logIdMap = {};
+  for (const m of rawText.matchAll(/"logId"\s*:\s*(\d+)/g)) {
+    logIdMap[m[1]] = m[1]; // store exact string
+  }
+  const data = JSON.parse(rawText);
+  // Restore precise logId strings (JSON.parse rounded them)
+  for (const a of (data.activities || [])) {
+    const imprecise = String(a.logId);
+    // Find the original logId that rounds to this value
+    for (const exact of Object.keys(logIdMap)) {
+      if (String(Number(exact)) === imprecise) { a._exactLogId = exact; break; }
+    }
+  }
   logger.info(`[fitbit] Fitbit returned ${(data.activities || []).length} activities`);
   if ((data.activities || []).length > 0) {
-    logger.debug(`[fitbit] first activity: ${JSON.stringify(data.activities[0]).slice(0, 300)}`);
+    logger.debug(`[fitbit] first activity logId: parsed=${data.activities[0].logId} exact=${data.activities[0]._exactLogId}`);
   }
   const activities = (data.activities || []).filter(a => {
     const d = (a.startDate || a.originalStartTime?.slice(0, 10) || '');
@@ -651,7 +686,7 @@ router.post('/workouts/sync', wrap(async (req, res) => {
       start_time=excluded.start_time, duration_ms=excluded.duration_ms,
       distance_km=excluded.distance_km, calories=excluded.calories,
       avg_hr=excluded.avg_hr, max_hr=excluded.max_hr, steps=excluded.steps,
-      has_gps=excluded.has_gps, updated_at=excluded.updated_at
+      has_gps=MAX(has_gps, excluded.has_gps), updated_at=excluded.updated_at
   `);
 
   // First pass: upsert workouts with placeholder max_hr, then fetch actual peak HR
@@ -659,7 +694,7 @@ router.post('/workouts/sync', wrap(async (req, res) => {
   let synced = 0;
   db.transaction(() => {
     for (const a of activities) {
-      const logId = String(a.logId);
+      const logId = a._exactLogId || String(a.logId);
       const date = a.startDate || a.originalStartTime?.slice(0, 10) || '';
       const activityName = a.activityName || a.name || 'Unknown';
       const activityType = (a.activityTypeId || '').toString();
@@ -710,6 +745,42 @@ router.post('/workouts/sync', wrap(async (req, res) => {
     }
   }
 
+  // Clean up duplicate workouts from logId precision issue — keep the entry with
+  // the correct (exact) source_id, delete any older entries with the same
+  // date+start_time+activity that have a different (imprecise) source_id.
+  try {
+    const dupes = db.prepare(`
+      SELECT w1.id FROM workouts w1
+      INNER JOIN workouts w2 ON w1.user_id = w2.user_id AND w1.source = w2.source
+        AND w1.date = w2.date AND w1.start_time = w2.start_time
+        AND w1.activity_name = w2.activity_name AND w1.id != w2.id
+        AND w1.source_id != w2.source_id
+      WHERE w1.user_id = ? AND w1.gps_data IS NULL AND w2.gps_data IS NOT NULL
+    `).all(u);
+    if (dupes.length === 0) {
+      // No GPS-based distinction — just keep the newer one (higher id)
+      const dupes2 = db.prepare(`
+        SELECT w1.id FROM workouts w1
+        INNER JOIN workouts w2 ON w1.user_id = w2.user_id AND w1.source = w2.source
+          AND w1.date = w2.date AND w1.start_time = w2.start_time
+          AND w1.activity_name = w2.activity_name AND w1.id < w2.id
+          AND w1.source_id != w2.source_id
+        WHERE w1.user_id = ?
+      `).all(u);
+      if (dupes2.length > 0) {
+        const del = db.prepare('DELETE FROM workouts WHERE id = ?');
+        for (const d of dupes2) del.run(d.id);
+        logger.info(`[fitbit] cleaned up ${dupes2.length} duplicate workouts (logId precision fix)`);
+      }
+    } else {
+      const del = db.prepare('DELETE FROM workouts WHERE id = ?');
+      for (const d of dupes) del.run(d.id);
+      logger.info(`[fitbit] cleaned up ${dupes.length} duplicate workouts (kept entries with GPS data)`);
+    }
+  } catch (e) {
+    logger.debug(`[fitbit] duplicate cleanup skipped: ${e.message}`);
+  }
+
   logger.info(`[fitbit] synced ${synced} workouts for user ${u} (${afterDate} → ${beforeDate})`);
 
   // Gotify: workout summary for newly synced workouts
@@ -726,7 +797,12 @@ router.post('/workouts/sync', wrap(async (req, res) => {
     } catch {}
   }
 
-  res.json({ ok: true, synced, total: activities.length });
+  return { ok: true, synced, total: activities.length };
+}
+
+router.post('/workouts/sync', wrap(async (req, res) => {
+  const result = await _syncWorkouts(uid(req), req.body.from, req.body.to);
+  res.json(result);
 }));
 
 // ── POST /workouts/:sourceId/gps — fetch TCX GPS data for a specific workout ──
@@ -799,5 +875,5 @@ router.delete('/disconnect', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
-export { _syncDate as syncDate };
+export { _syncDate as syncDate, _syncWorkouts as syncWorkouts, _checkWellnessAlerts };
 export default router;

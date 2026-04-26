@@ -5,14 +5,19 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { Nutrition } from '../lib/nutrition.js';
   import { mealNames, energyUnit, goals, weightUnit, heightUnit, bulkSet } from '../stores/settings.js';
-  import { currentUser, userMgmtActive, loadAuthState } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from '../stores/auth.js';
+  import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { showError } from '../stores/toast.js';
   import { isNative, getServerUrl } from '../lib/platform.js';
+  import Toggle from '../components/settings/Toggle.svelte';
 
   // In native local mode, skip user management step (single user, no server)
   const _isNativeLocal = isNative && !getServerUrl();
+  // PWA: account creation is mandatory (server must have at least one user)
+  const _isPwa = !isNative;
+  const _forceAccountCreation = _isPwa && $setupRequired;
 
-  // Steps: usermgmt (optional), welcome, units, gender, dob, height, weight, target, activity, integrations, summary
+  // Steps: usermgmt (optional on native, mandatory on PWA), welcome, units, ...
   const BASE_STEPS = ['welcome','units','gender','dob','height','weight','target','activity','integrations','notifications','summary'];
   const ALL_STEPS  = _isNativeLocal ? BASE_STEPS : ['usermgmt', ...BASE_STEPS];
 
@@ -20,7 +25,8 @@
   let dir  = 1;
 
   // ── User management step ─────────────────────────────────────────────────
-  let enableUserMgmt  = false;
+  // On PWA with no users: force account creation (no toggle, can't skip)
+  let enableUserMgmt  = _forceAccountCreation ? true : false;
   let adminUsername   = '';
   let adminPassword   = '';
   let adminConfirm    = '';
@@ -73,6 +79,7 @@
 
   // Which cards are collapsed/skipped
   let intSkipped = { off: false, usda: false, mealie: false, ai: false };
+  let skipSetupConfirm = false; // confirmation modal for "I'll do this later"
 
   // ── Notifications step ────────────────────────────────────────────────────
   let notifEnabled   = false;
@@ -168,10 +175,8 @@
       if (enableUserMgmt) {
         umError = '';
         if (!adminUsername.trim()) { umError = 'Username is required'; return; }
-        if (adminPassword.length < 8) { umError = 'Password must be at least 8 characters'; return; }
-        if (!/[a-z]/.test(adminPassword) || !/[A-Z]/.test(adminPassword) || !/[0-9]/.test(adminPassword) || !/[^a-zA-Z0-9]/.test(adminPassword)) {
-          umError = 'Password needs uppercase, lowercase, number, and special character'; return;
-        }
+        const pwErr = validatePassword(adminPassword);
+        if (pwErr) { umError = pwErr; return; }
         if (adminPassword !== adminConfirm) { umError = 'Passwords do not match'; return; }
         // Register the admin account
         umLoading = true;
@@ -231,6 +236,8 @@
   }
 
   function skip() {
+    // Don't allow skip until account is created when forced
+    if (_forceAccountCreation && !$userMgmtActive) return;
     bulkSet({ setupComplete: true });
     push('/');
   }
@@ -334,7 +341,7 @@
 <div class="wizard-shell">
   <!-- Skip button -->
   <div class="wizard-topbar">
-    {#if step > 0 && step < ALL_STEPS.length - 1}
+    {#if step > 0 && step < ALL_STEPS.length - 1 && !(_forceAccountCreation && !$userMgmtActive)}
       <button class="btn btn-ghost wizard-skip" on:click={skip}>Skip</button>
     {:else}
       <div></div>
@@ -355,21 +362,27 @@
 
       <!-- ── User Management ── -->
       {#if currentStepName === 'usermgmt'}
-        <div class="step-hero compact">
-          <span class="material-symbols-rounded hero-icon">group</span>
-          <h1 class="step-title">Multi-User Support</h1>
-          <p class="step-desc">NutriTrace can run in single-user mode (default) or multi-user mode with separate logins and password resets. You can always enable this later in Settings.</p>
-        </div>
+        {#if _forceAccountCreation}
+          <div class="step-hero compact">
+            <span class="material-symbols-rounded hero-icon">person_add</span>
+            <h1 class="step-title">Create Your Account</h1>
+            <p class="step-desc">Set up your admin account to secure your NutriTrace instance. You can invite other users later from Settings.</p>
+          </div>
+        {:else}
+          <div class="step-hero compact">
+            <span class="material-symbols-rounded hero-icon">group</span>
+            <h1 class="step-title">Multi-User Support</h1>
+            <p class="step-desc">NutriTrace can run in single-user mode (default) or multi-user mode with separate logins and password resets. You can always enable this later in Settings.</p>
+          </div>
 
-        <div class="toggle-row" on:click={() => enableUserMgmt = !enableUserMgmt} role="button" tabindex="0">
-          <div>
-            <div class="toggle-label">Enable user accounts</div>
-            <div class="toggle-hint">Each user gets their own food diary, settings, and profile</div>
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Enable user accounts</div>
+              <div class="toggle-hint">Each user gets their own food diary, settings, and profile</div>
+            </div>
+            <Toggle checked={enableUserMgmt} on:change={e => enableUserMgmt = e.detail} />
           </div>
-          <div class="fake-toggle" class:on={enableUserMgmt}>
-            <div class="fake-thumb"></div>
-          </div>
-        </div>
+        {/if}
 
         {#if enableUserMgmt}
           <div class="um-form" transition:fly={{ y: 10, duration: 200 }}>
@@ -418,11 +431,21 @@
             <div class="form-row-2">
               <div class="form-group">
                 <label class="form-label">Password *</label>
-                <input class="input" type="password" bind:value={adminPassword} autocomplete="new-password" />
+                <input class="input" type="password" bind:value={adminPassword} autocomplete="new-password" placeholder="8+ chars, upper, lower, number, symbol" />
+                {#if adminPassword}
+                  {@const pwScore = passwordStrength(adminPassword)}
+                  <div class="pw-strength" class:s-0={pwScore.score === 0} class:s-1={pwScore.score === 1} class:s-2={pwScore.score === 2} class:s-3={pwScore.score === 3} class:s-4={pwScore.score === 4}>
+                    <div class="pw-bar"><div class="pw-fill" style:width={`${(pwScore.score / 4) * 100}%`}></div></div>
+                    <span class="pw-label">{pwScore.label}</span>
+                  </div>
+                {/if}
               </div>
               <div class="form-group">
                 <label class="form-label">Confirm *</label>
                 <input class="input" type="password" bind:value={adminConfirm} autocomplete="new-password" />
+                {#if adminConfirm && adminPassword !== adminConfirm}
+                  <p class="pw-mismatch">Passwords don't match</p>
+                {/if}
               </div>
             </div>
 
@@ -438,6 +461,11 @@
           <div class="logo-icon">🥗</div>
           <h1 class="step-title">Welcome to NutriTrace</h1>
           <p class="step-desc">Your personal nutrition tracker. Let's get you set up in about a minute.</p>
+          {#if !(_forceAccountCreation && !$userMgmtActive)}
+            <button type="button" class="skip-setup-link" on:click={() => skipSetupConfirm = true}>
+              I'll do this later
+            </button>
+          {/if}
         </div>
 
       <!-- ── Units ── -->
@@ -660,6 +688,31 @@
 
         </div>
 
+        <!-- Integration summary: shows what's configured vs. skipped -->
+        {@const _intCfg = [
+          { k: 'off',    label: 'Open Food Facts', on: !intSkipped.off    && !!(intOFFUser.trim() || intOFFPass.trim()) },
+          { k: 'usda',   label: 'USDA',            on: !intSkipped.usda   && !!intUSDARKey.trim() },
+          { k: 'mealie', label: 'Mealie',          on: !intSkipped.mealie && !!(intMealieUrl.trim() || intMealieToken.trim()) },
+          { k: 'ai',     label: 'AI Assistant',    on: !intSkipped.ai     && (intAILocked || !!intAIKey.trim()) },
+        ]}
+        {@const _configured = _intCfg.filter(x => x.on).map(x => x.label)}
+        {@const _skipped    = _intCfg.filter(x => !x.on).map(x => x.label)}
+        <div class="int-summary">
+          {#if _configured.length > 0}
+            <div class="int-summary-row">
+              <span class="material-symbols-rounded" style="font-size:16px;color:var(--accent)">check_circle</span>
+              <span>Configured: <strong>{_configured.join(', ')}</strong></span>
+            </div>
+          {/if}
+          {#if _skipped.length > 0}
+            <div class="int-summary-row int-summary-skip">
+              <span class="material-symbols-rounded" style="font-size:16px">remove_circle</span>
+              <span>Skipped: {_skipped.join(', ')}</span>
+            </div>
+          {/if}
+          <div class="int-summary-hint">You can change these anytime in Settings.</div>
+        </div>
+
       <!-- ── Notifications ── -->
       {:else if currentStepName === 'notifications'}
         <div class="step-hero compact">
@@ -676,8 +729,7 @@
                 <div class="int-card-title">Enable Notifications</div>
                 <div class="int-card-sub">Reminders, goal celebrations, and health alerts</div>
               </div>
-              <button class="int-skip-btn" style="background:{notifEnabled ? 'var(--accent)' : 'var(--surface-2)'};color:{notifEnabled ? 'var(--accent-text)' : 'var(--text-3)'}"
-                on:click={() => notifEnabled = !notifEnabled}>{notifEnabled ? 'On' : 'Off'}</button>
+              <Toggle checked={notifEnabled} on:change={e => notifEnabled = e.detail} />
             </div>
           </div>
 
@@ -689,8 +741,7 @@
                   <div class="int-card-title">Hydration Reminders</div>
                   <div class="int-card-sub">Periodic reminders to drink water (8am–10pm)</div>
                 </div>
-                <button class="int-skip-btn" style="background:{notifWater ? 'var(--accent)' : 'var(--surface-2)'};color:{notifWater ? 'var(--accent-text)' : 'var(--text-3)'}"
-                  on:click={() => notifWater = !notifWater}>{notifWater ? 'On' : 'Off'}</button>
+                <Toggle checked={notifWater} on:change={e => notifWater = e.detail} />
               </div>
             </div>
 
@@ -701,8 +752,7 @@
                   <div class="int-card-title">Meal Reminders</div>
                   <div class="int-card-sub">Daily reminders to log breakfast, lunch, and dinner</div>
                 </div>
-                <button class="int-skip-btn" style="background:{notifMeals ? 'var(--accent)' : 'var(--surface-2)'};color:{notifMeals ? 'var(--accent-text)' : 'var(--text-3)'}"
-                  on:click={() => notifMeals = !notifMeals}>{notifMeals ? 'On' : 'Off'}</button>
+                <Toggle checked={notifMeals} on:change={e => notifMeals = e.detail} />
               </div>
             </div>
 
@@ -713,8 +763,7 @@
                   <div class="int-card-title">Goal Celebrations</div>
                   <div class="int-card-sub">Celebrate when you hit your daily nutrition, water, or step goals</div>
                 </div>
-                <button class="int-skip-btn" style="background:{notifGoals ? 'var(--accent)' : 'var(--surface-2)'};color:{notifGoals ? 'var(--accent-text)' : 'var(--text-3)'}"
-                  on:click={() => notifGoals = !notifGoals}>{notifGoals ? 'On' : 'Off'}</button>
+                <Toggle checked={notifGoals} on:change={e => notifGoals = e.detail} />
               </div>
             </div>
 
@@ -725,8 +774,7 @@
                   <div class="int-card-title">Wellness Alerts</div>
                   <div class="int-card-sub">Alerts when HRV drops, sleep declines, or heart rate spikes</div>
                 </div>
-                <button class="int-skip-btn" style="background:{notifWellness ? 'var(--accent)' : 'var(--surface-2)'};color:{notifWellness ? 'var(--accent-text)' : 'var(--text-3)'}"
-                  on:click={() => notifWellness = !notifWellness}>{notifWellness ? 'On' : 'Off'}</button>
+                <Toggle checked={notifWellness} on:change={e => notifWellness = e.detail} />
               </div>
             </div>
           {/if}
@@ -791,6 +839,21 @@
   </div>
 </div>
 
+{#if skipSetupConfirm}
+  <div class="skip-modal-backdrop" on:click|self={() => skipSetupConfirm = false}>
+    <div class="skip-modal" on:click|stopPropagation>
+      <h3 class="skip-modal-title">Skip setup?</h3>
+      <p class="skip-modal-desc">
+        You can set up your goals, units, and integrations any time from <strong>Settings</strong>. Until then, calorie targets won't be calculated automatically.
+      </p>
+      <div class="skip-modal-actions">
+        <button class="btn btn-secondary" on:click={() => skipSetupConfirm = false}>Continue setup</button>
+        <button class="btn btn-primary" on:click={() => { skipSetupConfirm = false; skip(); }}>Skip for now</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .wizard-shell {
     min-height: 100dvh;
@@ -825,6 +888,30 @@
   .step-title { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
   .step-desc  { font-size: 16px; color: var(--text-2); line-height: 1.6; max-width: 320px; }
 
+  .skip-setup-link {
+    margin-top: 24px;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-3); font-size: 14px; text-decoration: underline;
+    padding: 8px 16px;
+  }
+  .skip-setup-link:hover { color: var(--text-2); }
+
+  .skip-modal-backdrop {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.5); display: flex;
+    align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .skip-modal {
+    background: var(--surface-1); border-radius: var(--radius-lg);
+    padding: 24px; max-width: 360px; width: 100%;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .skip-modal-title { font-size: 18px; font-weight: 600; margin: 0; }
+  .skip-modal-desc  { font-size: 14px; color: var(--text-2); line-height: 1.5; margin: 0; }
+  .skip-modal-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .skip-modal-actions .btn { flex: 1; }
+
   /* User management toggle */
   .toggle-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -834,18 +921,6 @@
   }
   .toggle-label { font-size: 15px; font-weight: 600; }
   .toggle-hint  { font-size: 12px; color: var(--text-3); margin-top: 2px; }
-  .fake-toggle {
-    width: 44px; height: 26px; border-radius: 13px;
-    background: var(--surface-3); position: relative; flex-shrink: 0;
-    transition: background var(--dur-fast);
-  }
-  .fake-toggle.on { background: var(--accent); }
-  .fake-thumb {
-    position: absolute; top: 3px; left: 3px;
-    width: 20px; height: 20px; border-radius: 50%;
-    background: white; transition: transform var(--dur-fast);
-  }
-  .fake-toggle.on .fake-thumb { transform: translateX(18px); }
 
   /* User mgmt form */
   .um-form { display: flex; flex-direction: column; gap: 12px; }
@@ -861,6 +936,18 @@
     background: rgba(255,107,107,0.1); border-radius: var(--radius-sm);
     padding: 8px 12px;
   }
+  /* Password strength indicator */
+  .pw-strength { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .pw-bar { flex: 1; height: 4px; background: var(--surface-2); border-radius: var(--radius-full); overflow: hidden; }
+  .pw-fill { height: 100%; border-radius: var(--radius-full); transition: width var(--dur-base), background var(--dur-fast); }
+  .pw-strength.s-0 .pw-fill, .pw-strength.s-1 .pw-fill { background: var(--danger, #ef4444); }
+  .pw-strength.s-2 .pw-fill { background: #f59e0b; }
+  .pw-strength.s-3 .pw-fill { background: var(--accent); }
+  .pw-strength.s-4 .pw-fill { background: var(--success, #22c55e); }
+  .pw-label { font-size: 11px; font-weight: 600; color: var(--text-3); min-width: 64px; text-align: right; }
+  .pw-strength.s-4 .pw-label { color: var(--success, #22c55e); }
+  .pw-strength.s-0 .pw-label, .pw-strength.s-1 .pw-label { color: var(--danger, #ef4444); }
+  .pw-mismatch { color: var(--danger, #ef4444); font-size: 11px; margin: 4px 0 0; }
 
   /* Gender cards */
   .gender-cards { display: flex; gap: 16px; margin-top: 16px; }
@@ -918,6 +1005,19 @@
     display: flex; flex-direction: column; gap: 10px;
     overflow-y: auto; flex: 1;
   }
+  .int-summary {
+    margin-top: 12px; padding: 12px 14px;
+    background: var(--surface-2); border-radius: var(--radius-md);
+    display: flex; flex-direction: column; gap: 6px;
+    font-size: 13px;
+  }
+  .int-summary-row {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--text-1);
+  }
+  .int-summary-row.int-summary-skip { color: var(--text-3); }
+  .int-summary-row.int-summary-skip .material-symbols-rounded { color: var(--text-3); }
+  .int-summary-hint { font-size: 11px; color: var(--text-3); margin-top: 2px; }
   .int-card {
     background: var(--surface-1); border: 1.5px solid var(--border);
     border-radius: var(--radius-lg); overflow: hidden;

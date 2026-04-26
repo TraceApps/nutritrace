@@ -43,8 +43,8 @@ router.post('/import', wrap((req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const insDiary = db.prepare(
-    `INSERT OR REPLACE INTO diary (user_id, date, items, body_stats, water)
-     VALUES (?, ?, ?, ?, ?)`
+    `INSERT OR REPLACE INTO diary (user_id, date, items, body_stats, water, notes)
+     VALUES (?, ?, ?, ?, ?, ?)`
   );
 
   const run = db.transaction(() => {
@@ -75,7 +75,8 @@ router.post('/import', wrap((req, res) => {
         u, e.date,
         JSON.stringify(e.items || []),
         JSON.stringify(e.bodyStats || e.body_stats || {}),
-        JSON.stringify(e.water || [])
+        JSON.stringify(e.water || []),
+        (typeof e.notes === 'string' && e.notes.trim()) ? e.notes : null
       );
     }
   });

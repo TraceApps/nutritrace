@@ -60,6 +60,7 @@ db.exec(`
     items      TEXT DEFAULT '[]',
     body_stats TEXT DEFAULT '{}',
     water      TEXT DEFAULT '[]',
+    notes      TEXT DEFAULT NULL,
     updated_at TEXT DEFAULT (datetime('now')),
     UNIQUE(date, user_id)
   );
@@ -294,6 +295,9 @@ if (!columnExists('meals', 'deleted_at')) {
 }
 if (!columnExists('diary', 'deleted_at')) {
   db.exec(`ALTER TABLE diary ADD COLUMN deleted_at TEXT DEFAULT NULL`);
+}
+if (!columnExists('diary', 'notes')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN notes TEXT DEFAULT NULL`);
 }
 if (!columnExists('user_settings', 'deleted_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN deleted_at TEXT DEFAULT NULL`);

@@ -1,5 +1,5 @@
 <!--
-  FitBotFace — animated robot face SVG used everywhere FitBot is represented
+  TraceFace — animated robot face SVG used everywhere Trace is represented
   visually (FAB, header avatar, welcome screen, message avatars, typing).
 
   Update this single file to change the look in all 4+ places at once.
@@ -10,7 +10,7 @@
   export let size = 42; // pixels — used for both width/height
 </script>
 
-<svg class="fitbot-face" viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg" style="width:{size}px;height:{size}px">
+<svg class="trace-face" viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg" style="width:{size}px;height:{size}px">
   <!-- Antenna -->
   <line class="bot-antenna" x1="28" y1="10" x2="28" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
   <circle class="bot-antenna-dot" cx="28" cy="9" r="2" fill="currentColor"/>
@@ -29,7 +29,7 @@
 </svg>
 
 <style>
-  .fitbot-face {
+  .trace-face {
     color: currentColor;
     filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
     flex-shrink: 0;

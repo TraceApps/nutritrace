@@ -16,7 +16,9 @@
   import { API, USDA, NtApi } from '../lib/api.js';
   import { Nutrition } from '../lib/nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
-  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, foodCategories, foodsShowYesterdayMeals, mealNames, usdaEnabled, usdaApiKey, catName as _catName, catDisplay as _catDisplay, pageBanners } from '../stores/settings.js';
+  import { resolveAssetUrl } from '../lib/platform.js';
+  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, catName as _catName, catDisplay as _catDisplay, pageBanners } from '../stores/settings.js';
+  import { mealIcon } from '../lib/mealIcon.js';
   import FoodsBanner from '../components/banners/FoodsBanner.svelte';
 
   // Query string params
@@ -43,12 +45,34 @@
   $: if (activeTab !== _prevTab) {
     _prevTab = activeTab;
     activeCategoryFilter = '';
-    // Non-foods tabs only support local + shared
+    // Non-foods tabs only support local + shared — reset & notify if source was external
+    const _prevSrc = searchSource;
     if (activeTab !== 0 && searchSource !== 'local' && searchSource !== 'shared') searchSource = 'local';
     if (searchSource === 'shared' && !_tabHasShared) searchSource = 'local';
+    if (_prevSrc !== searchSource) {
+      import('../stores/toast.js').then(({ showInfo }) => showInfo('Source reset to Local — external sources only work for Foods')).catch(() => {});
+    }
+  }
+
+  // Reset scroll so the new tab starts from the top.
+  // Click handler runs BEFORE bind propagation, so first reset happens before
+  // reactive blocks/DOM updates fire. rAF pass catches any restore after layout.
+  function onTabChange() {
+    const reset = () => {
+      const sc = document.querySelector('.page-transition') || document.scrollingElement || document.documentElement;
+      if (sc) sc.scrollTop = 0;
+      window.scrollTo(0, 0);
+    };
+    reset();
+    requestAnimationFrame(reset);
   }
   $: _tabIcon = activeTab === 0 ? 'restaurant' : activeTab === 1 ? 'dinner_dining' : 'menu_book';
   $: { if (pickMode) loadYesterdayMeals(); }
+  // Saved-meals collapse only kicks in when the SAVED MEALS header is actually rendered
+  // (Meals tab + pick mode + yesterday section visible + not searching). Otherwise the
+  // header isn't shown and the user has no way to toggle it back, so the list must render.
+  $: _savedMealsHeaderVisible = pickMode && activeTab === 1 && yesterdayMeals.length > 0 && !search;
+  $: _hideSavedMealsList = _savedMealsHeaderVisible && $foodsSavedCollapsed;
 
   let search = '';
   let searchSource = 'local';
@@ -115,6 +139,8 @@
   let promptUnit = 'g';
   let activeCategoryFilter = ''; // '' = all
   let yesterdayMeals = []; // { mealIdx, mealName, items, totalKcal } — only in pick mode
+  let yesterdayInfoGroup = null; // group whose detail sheet is currently open
+  let _yesterdayImgFailed = new Set(); // items whose thumbnail failed to load — fall back to placeholder
 
   // Multi-select (pick mode only)
   let selectedFoods = new Set();      // Set<food object reference>
@@ -138,10 +164,37 @@
   $: _groupList = activeTab === 0 ? groupFoods : activeTab === 1 ? groupMeals : groupRecipes;
   $: displayList = searchSource === 'shared' ? _groupList : _ownList;
   $: { if (searchSource === 'shared' && _tabHasShared && !groupFoods.length && !groupMeals.length && !groupRecipes.length) loadGroupCatalogue(); }
+  function _editDist(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 99;
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++)
+      for (let j = 1; j <= n; j++)
+        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    return dp[m][n];
+  }
+
+  function _fuzzyMatch(food, q) {
+    const name  = (food.name  || '').toLowerCase();
+    const brand = (food.brand || '').toLowerCase();
+    const combined = name + (brand ? ' ' + brand : '');
+    const qLow = q.toLowerCase().trim();
+    if (!qLow) return true;
+    // 1. Exact substring (current behavior)
+    if (combined.includes(qLow)) return true;
+    // 2. All query words appear somewhere
+    const qWords = qLow.split(/\s+/);
+    if (qWords.length > 1 && qWords.every(w => combined.includes(w))) return true;
+    // 3. Fuzzy per-word: each query word matches a target word within edit distance 1
+    const tWords = combined.split(/\s+/);
+    return qWords.every(qw =>
+      qw.length >= 4 && tWords.some(tw => tw.length >= 3 && _editDist(qw, tw) <= 1)
+    );
+  }
+
   $: filteredBySearch = search
-    ? displayList.filter(f =>
-        (f.name||'').toLowerCase().includes(search.toLowerCase()) ||
-        (f.brand||'').toLowerCase().includes(search.toLowerCase()))
+    ? displayList.filter(f => _fuzzyMatch(f, search))
     : displayList;
   $: filteredList = activeCategoryFilter
     ? filteredBySearch.filter(f => (f.categories||[]).includes(activeCategoryFilter))
@@ -495,13 +548,14 @@
       activeTab = editorState.foodsActiveTab;
       editorState.foodsActiveTab = null;
     }
-    try {
-      const s = await NtApi.getSharingStatus();
-      sharingEnabled = s.sharing_enabled === true;
-      sharedCounts = { foods: s.foods || 0, meals: s.meals || 0, recipes: s.recipes || 0 };
-    } catch {}
+    // Load local data FIRST — don't block on server calls
     await load();
     await loadYesterdayMeals();
+    // Sharing status from server — non-blocking, updates UI when ready
+    NtApi.getSharingStatus().then(s => {
+      sharingEnabled = s.sharing_enabled === true;
+      sharedCounts = { foods: s.foods || 0, meals: s.meals || 0, recipes: s.recipes || 0 };
+    }).catch(() => {});
     // Restore scroll position after Svelte has flushed the list to the DOM
     if (editorState.foodsScrollY != null) {
       const sy = editorState.foodsScrollY;
@@ -518,11 +572,13 @@
     {#if $pageBanners}<FoodsBanner />{/if}
     {#if pickMode && selectedFoods.size > 0}
       <h1 class="pick-count-title">{selectedFoods.size} selected</h1>
-      <button class="btn-icon accent" on:click={confirmMultiAdd} disabled={multiAdding} aria-label="Add selected to diary" title="Add selected to diary">
+      <button class="btn btn-primary pick-confirm-btn" on:click={confirmMultiAdd} disabled={multiAdding} aria-label="Add selected to diary">
         {#if multiAdding}
-          <span class="material-symbols-rounded spin">refresh</span>
+          <span class="material-symbols-rounded spin" style="font-size:16px">refresh</span>
+          <span>Adding…</span>
         {:else}
-          <span class="material-symbols-rounded">check</span>
+          <span class="material-symbols-rounded" style="font-size:16px">check</span>
+          <span>Add {selectedFoods.size}</span>
         {/if}
       </button>
     {:else}
@@ -540,7 +596,7 @@
   <!-- Tabs + Search (sticky below header) -->
   <div class="foods-sticky-bar">
   <div class="foods-tabs">
-    <Tabs tabs={TABS} bind:active={activeTab} />
+    <Tabs tabs={TABS} bind:active={activeTab} on:change={onTabChange} />
   </div>
 
   <div class="foods-search">
@@ -585,22 +641,50 @@
 
   <!-- Yesterday's meals (pick mode only) -->
   {#if pickMode && yesterdayMeals.length > 0 && !search && activeTab === 1}
-    <p class="section-title" style="padding-bottom:4px">Yesterday's Meals</p>
+    <button class="meal-section-header" type="button"
+      on:click={() => foodsYesterdayCollapsed.set(!$foodsYesterdayCollapsed)}
+      aria-expanded={!$foodsYesterdayCollapsed}>
+      <span class="meal-section-label">Yesterday's Meals</span>
+      <span class="material-symbols-rounded meal-section-chevron"
+        class:meal-section-chevron-collapsed={$foodsYesterdayCollapsed}>expand_more</span>
+    </button>
+    {#if !$foodsYesterdayCollapsed}
     <div class="card" style="margin-bottom:12px">
       {#each yesterdayMeals as group, gi}
         {#if gi > 0}<div style="height:1px;background:var(--border);margin:0 16px"></div>{/if}
-        <button class="food-item-btn" style="padding:12px 14px" on:click={() => addYesterdayMeal(group)}>
-          <div class="ing-thumb-placeholder" style="width:52px;height:52px;border-radius:var(--radius-sm);background:var(--accent-dim);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <span class="material-symbols-rounded" style="color:var(--accent);font-size:20px">restaurant</span>
-          </div>
-          <div class="food-info">
-            <span class="food-name">{group.mealName}</span>
-            <span class="food-kcal text-sm">{group.items.length} items · {group.totalKcal} kcal</span>
-          </div>
-          <span class="material-symbols-rounded" style="font-size:18px;flex-shrink:0;color:var(--accent)">add_circle</span>
-        </button>
+        <div style="display:flex;align-items:center;padding-right:8px">
+          <button class="food-item-btn" style="padding:12px 14px;flex:1" on:click={() => addYesterdayMeal(group)}>
+            <div class="ing-thumb-placeholder" style="width:52px;height:52px;border-radius:var(--radius-sm);background:var(--accent-dim);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <span class="material-symbols-rounded" style="color:var(--accent);font-size:20px">{mealIcon(group.mealName)}</span>
+            </div>
+            <div class="food-info">
+              <span class="food-name">{group.mealName}</span>
+              <span class="food-kcal text-sm">{group.items.length} items · {group.totalKcal} kcal</span>
+            </div>
+          </button>
+          <button class="btn-icon" on:click|stopPropagation={() => yesterdayInfoGroup = group}
+            aria-label="Show items in {group.mealName}" title="Show items">
+            <span class="material-symbols-rounded">info</span>
+          </button>
+          <button class="btn-icon accent" on:click|stopPropagation={() => addYesterdayMeal(group)}
+            aria-label="Add {group.mealName} to today" title="Add to today">
+            <span class="material-symbols-rounded">add_circle</span>
+          </button>
+        </div>
       {/each}
     </div>
+    {/if}
+    <!-- Sibling header for the saved meals list — only render when both sections coexist
+         (yesterday is showing AND there are saved meals to display) so it acts as a divider. -->
+    {#if filteredList.length > 0}
+      <button class="meal-section-header" type="button"
+        on:click={() => foodsSavedCollapsed.set(!$foodsSavedCollapsed)}
+        aria-expanded={!$foodsSavedCollapsed}>
+        <span class="meal-section-label">Saved Meals</span>
+        <span class="material-symbols-rounded meal-section-chevron"
+          class:meal-section-chevron-collapsed={$foodsSavedCollapsed}>expand_more</span>
+      </button>
+    {/if}
   {/if}
 
   {#if loadError}
@@ -626,7 +710,15 @@
             Add {TABS[activeTab].label.slice(0,-1)}
           </button>
         </div>
-      {:else}
+      {:else if filteredList.length === 0 && search}
+        <div class="empty-state">
+          <span class="material-symbols-rounded empty-icon">search_off</span>
+          <p>No matches for "{search}"</p>
+          {#if activeTab === 0}
+            <p class="empty-state-hint">Try searching Open Food Facts or USDA above</p>
+          {/if}
+        </div>
+      {:else if !_hideSavedMealsList}
         <ul class="food-list">
           {#each filteredList as food (food.id)}
             {@const _sel = selectedFoods.has(food)}
@@ -758,6 +850,12 @@
       {#if i > 0}<div style="height:1px;background:var(--border);margin:12px 0"></div>{/if}
       <div style="display:flex;flex-direction:column;gap:10px">
         <span style="font-size:13px;font-weight:600;color:var(--text-1)">{item.food.name}</span>
+        {#if (item.food.notes || '').trim()}
+          <div class="qty-notes qty-notes-compact">
+            <span class="material-symbols-rounded qty-notes-icon">sticky_note_2</span>
+            <span class="qty-notes-text">{item.food.notes}</span>
+          </div>
+        {/if}
         <div style="display:flex;gap:10px">
           <div style="flex:1">
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Serving Size</label>
@@ -792,6 +890,12 @@
 <!-- Quantity prompt sheet -->
 <Sheet bind:open={showQtyPrompt} title={promptFood ? promptFood.name : 'Add to Diary'}>
   <div style="display:flex;flex-direction:column;gap:16px;padding-top:8px">
+    {#if promptFood && (promptFood.notes || '').trim()}
+      <div class="qty-notes">
+        <span class="material-symbols-rounded qty-notes-icon">sticky_note_2</span>
+        <span class="qty-notes-text">{promptFood.notes}</span>
+      </div>
+    {/if}
     <div style="display:flex;gap:12px">
       <div style="flex:1">
         <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:6px">Serving Size</label>
@@ -818,6 +922,47 @@
     </div>
     <button class="btn btn-primary w-full" on:click={confirmQtyPrompt}>Add to Diary</button>
   </div>
+</Sheet>
+
+<!-- Yesterday's meal info sheet — list of items in that meal group -->
+<Sheet open={yesterdayInfoGroup != null}
+  title={yesterdayInfoGroup ? `${yesterdayInfoGroup.mealName} — yesterday` : ''}
+  on:close={() => yesterdayInfoGroup = null}>
+  {#if yesterdayInfoGroup}
+    <div style="padding:0 4px 8px">
+      {#each yesterdayInfoGroup.items as it}
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)">
+          {#if it.imgUrl && !_yesterdayImgFailed.has(it)}
+            <img src={resolveAssetUrl(it.imgUrl)} alt="" loading="lazy" referrerpolicy="no-referrer"
+              style="width:40px;height:40px;border-radius:var(--radius-sm,6px);object-fit:cover;flex-shrink:0"
+              on:error={() => { _yesterdayImgFailed.add(it); _yesterdayImgFailed = _yesterdayImgFailed; }} />
+          {:else}
+            <div style="width:40px;height:40px;border-radius:var(--radius-sm,6px);background:var(--surface-3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <span class="material-symbols-rounded" style="color:var(--text-3);font-size:18px">restaurant</span>
+            </div>
+          {/if}
+          <div style="display:flex;flex-direction:column;min-width:0;flex:1">
+            <span style="font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{it.name || 'Unnamed'}</span>
+            {#if it.brand}<span class="text-3 text-sm">{it.brand}</span>{/if}
+            <span class="text-3 text-sm">
+              {it.quantity ? `${it.quantity} × ` : ''}{it.portion || 100}{it.unit || 'g'}
+            </span>
+          </div>
+          <span class="text-2 text-sm" style="font-variant-numeric:tabular-nums;margin-left:8px;flex-shrink:0">
+            {Math.round((it.nutrition?.calories || it.calories || 0) * (it.quantity || 1))} kcal
+          </span>
+        </div>
+      {/each}
+      <div style="display:flex;justify-content:space-between;padding:12px;font-weight:600">
+        <span>Total</span>
+        <span>{yesterdayInfoGroup.totalKcal} kcal</span>
+      </div>
+      <button class="btn btn-primary w-full" style="margin-top:8px"
+        on:click={() => { const g = yesterdayInfoGroup; yesterdayInfoGroup = null; addYesterdayMeal(g); }}>
+        Add this meal
+      </button>
+    </div>
+  {/if}
 </Sheet>
 
 <BarcodeScanner bind:open={scannerOpen} on:scan={handleScan} on:close={() => scannerOpen = false} />
@@ -847,6 +992,62 @@
 />
 
 <style>
+  /* Meals tab section headers ("Yesterday's Meals" / "Saved Meals") — small uppercase
+     label matching .section-title style, but as a clickable button with a chevron so
+     users can collapse each section independently. */
+  .meal-section-header {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: var(--space-4) var(--page-px) var(--space-2);
+    cursor: pointer;
+    text-align: left;
+    color: var(--text-3);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .meal-section-header:active { color: var(--text-2); }
+  .meal-section-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    flex: 1;
+  }
+  .meal-section-chevron {
+    font-size: 20px;
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+  .meal-section-chevron-collapsed { transform: rotate(-90deg); }
+
+  /* Notes display in quick-add sheets */
+  .qty-notes {
+    display: flex; gap: 8px; align-items: flex-start;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+  }
+  .qty-notes.qty-notes-compact { padding: 8px 10px; }
+  .qty-notes-icon {
+    font-size: 16px; color: var(--accent);
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .qty-notes-text {
+    font-size: 13px; line-height: 1.5;
+    color: var(--text-2);
+    white-space: pre-wrap; word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    line-clamp: 5;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   .foods-sticky-bar {
     position: sticky;
     /* page-top + 10 + 48 (--hamburger-row) + 40 (h1) + 12 (padding-bottom) = +110 */
@@ -913,6 +1114,9 @@
     text-align: left;
     transition: background var(--dur-fast);
     color: var(--text-1);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
   .food-item-btn:active { background: var(--surface-2); }
   .food-thumb {
@@ -965,6 +1169,7 @@
     color: var(--text-2);
   }
   .empty-icon { font-size: 48px; color: var(--accent); opacity: 0.6; }
+  .empty-state-hint { font-size: 12px; color: var(--text-3, #888); margin-top: -8px; }
 
   .loading-row {
     display: flex;
@@ -1028,6 +1233,10 @@
   .food-item.food-selected { background: var(--accent-dim); }
 
   .pick-count-title { color: var(--accent); }
+  .pick-confirm-btn {
+    display: flex; align-items: center; gap: 6px;
+    height: 36px; padding: 0 14px; font-size: 13px; font-weight: 600;
+  }
 
   .source-chip-row::-webkit-scrollbar { display: none; }
   .source-chip {

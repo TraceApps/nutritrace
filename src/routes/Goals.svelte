@@ -3,7 +3,7 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { portal } from '../lib/portal.js';
-  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, wellnessEnabled, fitbitEnabled, garminEnabled } from '../stores/settings.js';
+  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, wellnessEnabled, fitbitEnabled, garminEnabled, calorieGoalMode, calorieGoalFactor, healthConnectEnabled } from '../stores/settings.js';
   import GoalsBanner from '../components/banners/GoalsBanner.svelte';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { loadEntry } from '../stores/diary.js';
@@ -116,6 +116,14 @@
   let todayWellness    = {}; // merged fitbit + garmin for today
   let _wellnessLoaded  = false;
 
+  // Dynamic calorie goal support
+  let _dynamicCaloriesOut = null;
+  $: _hasDevice = $fitbitEnabled || $garminEnabled || $healthConnectEnabled;
+  $: _fixedGoal = $goals.calories?.max ?? $goals.calories?.min ?? 2000;
+  $: _effectiveCalGoal = ($calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null)
+    ? Math.round(_dynamicCaloriesOut * $calorieGoalFactor)
+    : _fixedGoal;
+
   async function loadWellnessToday() {
     _wellnessLoaded = true;
     let fitbit = {}, garmin = {};
@@ -129,11 +137,18 @@
   $: if (($fitbitEnabled || $garminEnabled) && !_wellnessLoaded) loadWellnessToday();
 
   onMount(async () => {
+    // Load diary data first — don't block on server calls
     const entry = await NtApi.getDiaryDate(today).catch(() => null);
     if (entry) {
       todayBodyStats = entry.body_stats || entry.bodyStats || {};
       todayTotals = Nutrition.sum((entry.items || []).map(i => Nutrition.calculate(i)));
       todayWaterMl = (entry.water || []).reduce((s, l) => s + (l.amount || 0), 0);
+    }
+    // Dynamic goal from server — non-blocking
+    if ($calorieGoalMode === 'dynamic') {
+      NtApi.get(`/api/wellness/calories-out?date=${today}`)
+        .then(r => { _dynamicCaloriesOut = r.calories_out; })
+        .catch(() => { _dynamicCaloriesOut = null; });
     }
   });
 
@@ -353,11 +368,11 @@
               {#if i > 0}<div class="divider"></div>{/if}
               <button class="goal-row" on:click={() => openEdit(stat)}>
                 <div class="goal-info">
-                  <span class="font-medium">{stat.label}</span>
+                  <span class="font-medium">{stat.label}{#if stat.id === 'calories' && $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null} ⚡{/if}</span>
                   {#if getTarget(stat) != null}
-                    {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
-                    {@const tgt = getTarget(stat)}
+                    {@const tgt = stat.id === 'calories' && $calorieGoalMode === 'dynamic' ? _effectiveCalGoal : getTarget(stat)}
                     {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                    {@const pct = tgt > 0 ? Math.min(100, Math.round((cur ?? 0) / tgt * 100)) : 0}
                     {@const isMin = $goals[stat.id]?.isMin}
                     {@const bad = cur != null && tgt != null && (isMin ? cur < tgt : cur > tgt)}
                     <div class="goal-progress-bar">
@@ -570,59 +585,76 @@
       </div>
       <div class="sheet-body">
 
-        <!-- Options -->
+        <!-- Display options -->
         {#if !editStat?.isWellness}
-        <div class="toggle-row">
-          <label class="toggle-label">Show in Diary</label>
-          <label class="toggle-switch">
-            <input type="checkbox" bind:checked={editShowDiary} />
-            <span class="toggle-track"></span>
-          </label>
-        </div>
-        <div class="toggle-row">
-          <label class="toggle-label">Show in Statistics</label>
-          <label class="toggle-switch">
-            <input type="checkbox" bind:checked={editShowStats} />
-            <span class="toggle-track"></span>
-          </label>
-        </div>
+          <p class="goal-section-label">Display</p>
+          <div class="toggle-row">
+            <label class="toggle-label">Show in Diary</label>
+            <label class="toggle-switch">
+              <input type="checkbox" bind:checked={editShowDiary} />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle-label">Show in Statistics</label>
+            <label class="toggle-switch">
+              <input type="checkbox" bind:checked={editShowStats} />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
         {/if}
+
+        <!-- Goal behavior -->
+        <p class="goal-section-label">Goal Behavior</p>
         <div class="toggle-row">
-          <label class="toggle-label">Same goal every day</label>
+          <div class="toggle-label-wrap">
+            <label class="toggle-label">Same goal every day</label>
+            <span class="toggle-hint">{editShared ? 'One target for every day' : 'Different target per weekday'}</span>
+          </div>
           <label class="toggle-switch">
             <input type="checkbox" bind:checked={editShared} />
             <span class="toggle-track"></span>
           </label>
         </div>
         <div class="toggle-row">
-          <label class="toggle-label">Minimum goal (must reach target)</label>
+          <div class="toggle-label-wrap">
+            <label class="toggle-label">Minimum goal</label>
+            <span class="toggle-hint">{editIsMin ? 'Must reach at least this value' : 'Must not exceed this value'}</span>
+          </div>
           <label class="toggle-switch">
             <input type="checkbox" bind:checked={editIsMin} />
             <span class="toggle-track"></span>
           </label>
         </div>
         {#if isPercentEligible(editStat)}
-        <div class="toggle-row">
-          <label class="toggle-label">Goal as % of calories</label>
-          <label class="toggle-switch">
-            <input type="checkbox" bind:checked={editIsPercent} />
-            <span class="toggle-track"></span>
-          </label>
-        </div>
+          <div class="toggle-row">
+            <div class="toggle-label-wrap">
+              <label class="toggle-label">Goal as % of calories</label>
+              <span class="toggle-hint">Target scales with your calorie goal</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" bind:checked={editIsPercent} />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
         {/if}
         <div class="toggle-row">
-          <label class="toggle-label">Auto-adjust to activity</label>
+          <div class="toggle-label-wrap">
+            <label class="toggle-label">Auto-adjust to activity</label>
+            <span class="toggle-hint">Adjusts based on calories burned from wearables</span>
+          </div>
           <label class="toggle-switch">
             <input type="checkbox" bind:checked={editAutoAdjust} />
             <span class="toggle-track"></span>
           </label>
         </div>
 
-        <div class="divider" style="margin:8px 0"></div>
+        <div class="divider" style="margin:12px 0 8px"></div>
 
         <!-- Goal value(s) -->
+        <p class="goal-section-label">Target{editShared ? '' : 's per day'}</p>
         {#if editShared}
-          <label class="form-label">Target ({editIsPercent ? '% of calories' : (editStat.unit || '')})</label>
+          <label class="form-label">Value ({editIsPercent ? '% of calories' : (editStat.unit || '')})</label>
           <input class="input" type="number" min="0" step="any"
             placeholder="0" bind:value={editVal0} />
         {:else}
@@ -744,7 +776,6 @@
     transition: width var(--dur-base) var(--ease-inout);
   }
   .goal-progress-fill.over { background: var(--red, #f44336); }
-
   .empty-state {
     display: flex; flex-direction: column; align-items: center;
     gap: 8px; padding: 48px 16px; text-align: center;
@@ -786,10 +817,28 @@
   .sheet-body   { flex: 1; overflow-y: auto; padding: 8px 20px 0; display: flex; flex-direction: column; gap: 8px; }
   .sheet-footer { padding: 16px 20px; }
 
+  /* Section labels */
+  .goal-section-label {
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-2, #999);
+    margin: 10px 0 2px;
+  }
+  .goal-section-label:first-child { margin-top: 2px; }
+
   /* Toggle rows */
   .toggle-row {
     display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
     padding: 6px 0;
+  }
+  .toggle-label-wrap {
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 0; flex: 1;
+  }
+  .toggle-hint {
+    font-size: 12px; color: var(--text-2, #999);
+    line-height: 1.3;
   }
   .toggle-label { font-size: 14px; }
   .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; }

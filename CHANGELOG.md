@@ -5,6 +5,594 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.1] — 2026-04-26 — First public release candidate
+
+After many months of development as the v0.x-beta series, NutriTrace is going public for wider testing. This release candidate is a snapshot of the v0.39.x line that has been running stably in single-user and multi-user setups, with all major feature work complete. The full beta history is preserved below.
+
+### What's in v1.0.0-rc.1
+
+Aggregate feature surface (everything below is shipped):
+
+- **Diary** — configurable meals, multi-ingredient meals + recipes, body stats, water tracking, day-level free-text notes, per-meal ⋮ menu (copy / move / save-as-meal / clear / copy-to-date), long-press item actions
+- **Foods & Meals** — personal food database with photos, barcodes, categories; barcode scanner; meal/recipe builder; OFF + USDA + Mealie import; fuzzy search
+- **Statistics** — charts for any tracked metric, average / trend / goal overlays, dynamic-goal "Base Goal" line
+- **Goals** — calorie + nutrient goals with templates, Wizard TDEE calculation, optional Dynamic Calorie Goal (Experimental)
+- **AI Assistant (Trace)** — Claude / OpenAI / Gemini, tool use across all providers (real diary + meals + wellness + workouts + goals queries), Smart Log voice food entry (hold-to-record), Goal Insights (Experimental)
+- **Wellness Integrations** — Fitbit, Withings, Garmin, Health Connect (Android). Computed Trace Sleep / Readiness / Stress scores prioritizing day-to-day consistency
+- **Notifications** — device notifications + push services (Apprise / Gotify / ntfy), water / meal / weigh-in / bedtime / wellness alerts / weekly summary
+- **Backup & Restore** — full ZIP backup, JSON export/import, CSV diary export, Waistline import
+- **Multi-user + sharing** — optional account system, food sharing with private / group / specific visibility
+- **Self-hosted** — single Docker container, AGPL-3.0, no telemetry, no cloud sync, all data on your hardware
+- **PWA** — works offline-first in any modern browser, installable to home screen on Android
+
+### Distribution
+
+- Source: [github.com/traceapps/nutritrace](https://github.com/traceapps/nutritrace) (AGPL-3.0)
+- Docker image: `ghcr.io/traceapps/nutritrace:1.0.0-rc.1` and `:latest`
+
+### Known limitations (post-1.0 work — see FUTURE.md)
+
+- **Native Android app** — in development and testing, public release planned during the v1.x cycle. Android users can install the PWA via Chrome's "Add to Home Screen" today.
+- **Public demo instance** — coming post-1.0 on existing infrastructure
+- **Local / self-hosted LLM support** — high-priority post-1.0 (Ollama, LocalAI, LM Studio, vLLM via OpenAI-compatible adapter)
+- **iOS** — pending hardware + Apple Developer account access
+
+### Reporting bugs
+
+`Settings → Diagnostics → View logs` → Copy / Share → attach to a [GitHub issue](https://github.com/traceapps/nutritrace/issues). Templates provided for bugs, feature requests, and wellness integration test reports.
+
+---
+
+## [0.39.36-beta] — 2026-04-26 — Trace FAB self-heals off-screen positions
+
+### Fixed
+- **Trace FAB invisible on desktop PWA after viewport changes.** The FAB position is persisted in `localStorage` (`wl:aiFabPos`), but clamping was only applied during a drag — never on load or window resize. A position dragged on a wider monitor (or saved at a different viewport size) could end up off-screen on a smaller one, with no way to recover short of clearing localStorage. Mobile devices weren't affected because they have separate localStorage origins. Fix: added `_clampFabPos()` helper that clamps to current viewport bounds; runs on mount (writes back the corrected value) and inside `_updatePanelPos` on every resize. LiftTrace already had this guard — NutriTrace was the lone outlier.
+
+
+
+### Added
+- **Collapsible "Yesterday's Meals" + "Saved Meals" sections** in Foods → Meals tab. Each section header is now a clickable row with a chevron; collapse state persists per-section (`foodsYesterdayCollapsed`, `foodsSavedCollapsed`, both default expanded). The new "Saved Meals" header only renders when "Yesterday's Meals" is also visible — acts as a divider between the two parallel sections rather than a redundant label on a single tab. Search behavior unchanged: typing hides both headers and results take over; user-set collapse state preserved across search clears.
+
+### Fixed
+- **Yesterday-meal info-sheet thumbnails missing on Android.** The `<img>` tag passed `it.imgUrl` raw, so external food images (Open Food Facts, USDA, Mealie) were blocked by the WebView. Wrapped with `resolveAssetUrl()` so external URLs route through `/api/proxy` in native server mode (matches Diary's existing pattern). Also fixed the load-error fallback: a broken image now swaps to the placeholder glyph instead of leaving a blank slot. PWA was unaffected — same-origin browser fetch wasn't blocked.
+- **Long-press selecting surrounding text.** Diary items and Foods rows opened the action sheet but also visually selected nearby words. Added `user-select: none`, `-webkit-user-select: none`, `-webkit-touch-callout: none` to `.diary-item` and `.food-item-btn` so the long-press gesture only triggers the menu — no text selection, no copy/paste callout.
+
+### Changed
+- **Component + symbol rename completes the FitBot → Trace work** from v0.39.34. User-facing strings were already done; this bump aligns the internals so the codebase reads consistently and matches LiftTrace's `Trace.svelte` / `TraceFace.svelte` / `SettingsTrace.svelte` layout. No behavior change.
+  - Files: `AIFitBot.svelte` → `Trace.svelte`, `FitBotFace.svelte` → `TraceFace.svelte`, `SettingsAI.svelte` → `SettingsTrace.svelte` (renamed via `git mv`, history preserved).
+  - Symbols + tags: `<AIFitBot />` → `<Trace />`, `<FitBotFace />` → `<TraceFace />`, `<SettingsAI />` → `<SettingsTrace />`.
+  - CSS class `.fitbot-face` → `.trace-face`. Global `window.__fitbotHoldRec` → `__traceHoldRec`. Console tags `[fitbot-hold]` → `[trace-hold]`. Settings search keyword `'fitbot'` → `'trace'`.
+  - Migration code at `App.svelte` and `stores/settings.js` still references the literal `'FitBot'` — required so existing installs detect the legacy name and bump it to `'Trace'`.
+- **LiftTrace label parity** (cross-app cohesion, applied in LiftTrace v0.10.0-beta.3): both apps now share the exact same AI Assistant section UX — section label "AI Assistant", toggle "Enable AI Assistant", description "Adds a floating chat button to all pages". The brand name "Trace" appears only as the default value of the user-customizable assistant-name field, so renaming the assistant doesn't leave stale labels around the rest of the UI.
+
+---
+
+## [0.39.34-beta] — 2026-04-26 — AI Assistant rename + Wizard skip + diagnostic logs Share
+
+### Changed
+- **AI Assistant default name "FitBot" → "Trace"** — ties to the broader brand (TraceApps + NutriTrace + "Trace Every Bite") and drops the dated "[X]Bot" pattern. Existing users on the literal default ("FitBot") get auto-migrated to "Trace" in `App.svelte`. Users who picked their own custom name keep it. The setting label is "Assistant name" — change to anything you like in Settings → AI Assistant.
+- **Wizard "I'll do this later" skip link** added to the welcome step. Confirmation modal explains "calorie targets won't be calculated automatically" and that Settings can finish setup any time. Link is hidden when forced account creation is required (multi-user mode setup).
+- **Bedtime reminder sub-controls now slide in/out** when toggled — was abrupt show/hide. Wrapped the `_notifBedtime` and `_notifBedtimeWindDown` conditional bodies in `transition:slide` divs.
+- **Diagnostic logs viewer adds a Share button** next to Copy/Clear (borrowed from LiftTrace). On native uses `@capacitor/share` to open the Android share sheet (Gmail, Files, Drive, etc.); on PWA uses Web Share API; falls back to clipboard. Lets users send logs straight from the app to their email or a GitHub issue without manual paste-juggling.
+
+### Notes
+- All user-facing "FitBot" strings in source + docs are now "Trace" or "AI Assistant" depending on context. Internal symbol rename followed in v0.39.35-beta.
+
+---
+
+## [0.39.33-beta] — 2026-04-26 — Settings audit cleanup (round 2)
+
+### Removed (legacy)
+- **Legacy shared `wellnessSync*` keys** — `wellnessSyncMode`, `wellnessSyncSchedule`, `wellnessSyncTime` were the original sync-config trio before per-source settings landed in v0.30. They've been kept around as fallback seeds for the per-source values; with no public installs predating per-source, they're now safe to remove. Per-source defaults are now standalone (`'auto'` mode, daily interval). `wellnessSyncRange` stays — it's still the active shared range setting.
+- Server scheduler's `wellnessSyncMode` fallback path also removed.
+
+### Changed
+- **Wizard now uses the shared `<Toggle>` component** for all on/off switches (user-management opt-in step + 5 notification step toggles). Removed the bespoke `.fake-toggle` and the on/off-pill styled buttons. One toggle visual across the whole app.
+
+---
+
+## [0.39.32-beta] — 2026-04-26 — Settings audit cleanup
+
+### Fixed
+- **Wizard-collected user profile fields now sync across devices** — `gender`, `dob`, `height_cm`, `weight_kg`, `target_weight`, `activity`, and `tdee` were being written to localStorage but weren't in `USER_PREFS`, so multi-device users lost their profile after the wizard. Added to USER_PREFS.
+- **`barcodeFlashlight` toggle visibility was inverted** — was hidden on native (where it's actually useful) and shown on PWA (where there's no flashlight). Flipped.
+- **Goals section disabled-state message** pointed to "Connected Services" — wellness trackers actually live in **Wellness**. Fixed.
+
+### Added
+- **Statistics → Include today in trends setting** (`statsIncludeToday`, default off) — persisted version of the inline checkbox already on the Statistics page. The inline checkbox now updates this setting directly, so per-session and persistent choices share state.
+- **Diary toggle descriptions** — every toggle in Settings → Diary now has a one-line description explaining what it controls. Same for Foods.
+- **Search keywords** for Help Improve section + "reset / defaults / clear settings" added to Backup so users can find the existing Danger Zone reset.
+
+### Changed
+- **"Celebrate goals" → "Goal pulse animation"** — was easily confused with the Notifications "Goal Celebrations" toggle (different feature). Description clarifies the distinction.
+
+### Removed (dead code)
+- `notifCalorieGoal`, `withingsDataPriority`, `loopBannerAnimations` — settings that existed in the store but had zero read sites anywhere in the codebase.
+- `goalsShowCalories`, `goalsShowWeight` local lets in Settings.svelte that were read but never rendered.
+- `diaryTotalsMode` import in Settings.svelte (still used in Diary.svelte; just not exposed in Settings UI).
+
+---
+
+## [0.39.31-beta] — 2026-04-26 — In-app diagnostic logs
+
+### Added
+- **In-app log capture** — `src/lib/log-capture.js` wraps `console.{log,info,warn,error,debug}` into a 500-line in-memory ring buffer, captured from app boot. Includes uncaught errors and unhandled promise rejections automatically.
+- **Settings → Help Improve NutriTrace → View diagnostic logs** — opens a sheet with the buffer contents, plus Copy and Clear buttons. User pastes into a GitHub issue when filing a bug. Nothing leaves the device automatically.
+- **Verbose diagnostic logging toggle** in the same Settings section — turns ON the high-detail `_dlog` calls in `sync.js`, `notifications.js`, `health-connect.js`, and the settings store (these were dev-build-only before). Off by default. Ideal flow: turn on → reproduce the bug → View logs → Copy → file issue → turn off.
+
+### Changed
+- The dev-only `_dlog` helpers across the client now also activate when `localStorage.nt:verboseLogging === '1'` in production builds. Same gating, just adds an opt-in path.
+
+---
+
+## [0.39.30-beta] — 2026-04-26
+
+### Added
+- **Statistics: today excluded from cumulative-metric trends by default** — calories, protein/carbs/fat, water, steps, active minutes, and other accumulating metrics no longer include today's partial-day value in the chart or summary stats. A small "Include today (partial day)" checkbox above the chart lets users opt back in. Point-in-time metrics (sleep score, weight, HRV, RHR, SpO2, body composition) are unaffected and always include today. Eliminates the "today looks like a dip" distortion that affected average/trend lines.
+- **Yesterday's meal info sheet now shows item thumbnails** — each food item gets its image (with placeholder icon if none), matching the visual pattern used elsewhere in the app.
+
+### Changed
+- **Yesterday's meals card layout** — info icon moved before the add button so the primary action (add) sits at the rightmost position per Material Design convention. Generic "restaurant" icon replaced with `mealIcon()` so each meal type (Breakfast, Lunch, Dinner, Snacks, custom names) gets its own glyph.
+
+---
+
+## [0.39.29-beta] — 2026-04-26 — Pre-RC1 polish
+
+### Added
+- **Yesterday's meal info button** in the Foods picker — tap the (i) icon next to a yesterday's-meal card to open a sheet listing every item in that meal (name, brand, quantity, kcal each). The "Add this meal" button at the bottom is the same action as the main row tap.
+- **Calibration data export** in Settings → Help Improve NutriTrace — generates an anonymized JSON of the last 30 days of Fitbit/Garmin readings (no user ID, no exact dates — just day-of-week and offset). User reviews the JSON before sharing in GitHub Discussions to help tune the score formulas.
+- **GitHub issue templates** — `bug_report.md`, `feature_request.md`, and `integration_test_report.md` (the last specifically for community-tested wearables/scales/Health Connect setups). Each includes log location guidance and a redaction reminder.
+- **README** — new "Principles", "Roadmap", "Help us test", and "Troubleshooting" sections. Sets the values story up front, names the testing gaps honestly, and gives contributors a clear on-ramp.
+
+### Deferred to FUTURE.md
+- Per-meal totals popup nutrient filter — should it always show all nutrients (vs respecting the day-summary's `diaryShowAllNutrients` toggle)? Defer the call until we have user feedback on what they reach for.
+
+---
+
+## [0.39.28-beta] — 2026-04-26 — Weigh-in reminder false-positive fix
+
+### Fixed
+- **Device-side weigh-in reminder no longer fires when weight is already logged** — the WorkManager periodic check runs every 15 min and was firing on early ticks within the reminder window before today's Withings/HC sync brought the weight into the local cache. Once the weight arrived, later ticks correctly identified it but the original notification stayed in the tray. Three-part fix in `ReminderWorker.java`:
+  1. **Self-heal**: when a tick finds the weight, cancel any previously-posted notification with the same ID. The notification disappears from the tray once data syncs.
+  2. **Once-per-day dedup**: track "fired today" in SharedPreferences. Prevents the multi-fire-then-Android-mute pattern.
+  3. **Staleness gate**: if `sync_meta.last_sync_at` is older than 1 hour on a server-connected device, defer to the server scheduler's push reminder instead of firing locally on stale data. Local-only devices (no `last_sync_at` row) are unaffected.
+
+---
+
+## [0.39.27-beta] — 2026-04-26
+
+### Changed
+- **Meal header kcal hidden when macro footer is on** — the macro summary footer at the bottom of each meal already shows kcal at the end of `... · N kcal`, so showing it in the header too was redundant. Now it only appears in the header when `diaryShowMacroSummary` is off (in which case the header is the only place to see the meal total).
+
+---
+
+## [0.39.26-beta] — 2026-04-26
+
+### Changed
+- **Per-meal totals popup tap target** — moved from the kcal text on the meal header to the **macro footer at the bottom of each meal** (the P/C/F bar + percentages). That's the real "summary at a glance" element, so making it the tap target for the detailed breakdown is the natural fit.
+
+---
+
+## [0.39.25-beta] — 2026-04-26
+
+### Added
+- **Per-meal nutrition totals popup** — tap the kcal text on any meal header in Diary to open a bottom sheet with the full nutrient breakdown for that meal: 4 macro pills (Protein/Carbs/Fat/kcal) + every visible nutriment with a value, plus item count. Mirrors the day-level Nutrition Summary but scoped to one meal. Respects the user's "Show all nutrients" toggle.
+
+---
+
+## [0.39.24-beta] — 2026-04-25 — Bulletproof DB-open recovery
+
+### Fixed
+- v0.39.23 cleanup of leftover encryption state was conditional on localStorage markers — but on at least one device the markers were absent while the DB file was still encrypted from a prior install, so the cleanup didn't run and the open failed with SQLITE_NOTADB.
+- New behavior: try-then-wipe-then-retry pattern. Always attempt to open first. If it fails (any reason), unconditionally wipe the DB file (via plugin's `deleteDatabase` AND a Filesystem fallback, in case the plugin call silently no-ops on an encrypted file it can't open) and try again. Server-connected devices re-sync from the server; clean unencrypted DBs from v0.39.19 or earlier are unaffected because the first open succeeds.
+
+---
+
+## [0.39.23-beta] — 2026-04-25 — Roll back native SQLite encryption
+
+### Changed
+- **Reverted SQLCipher encryption from v0.39.20** — `@capacitor-community/sqlite` v8's secret-store semantics are unreliable in practice. The error sequence we hit:
+  1. v0.39.20: `setEncryptionSecret` called every launch → "file is not a database (26)" on second launch (passphrase rebinding bug)
+  2. v0.39.22: switched to `isSecretStored` gating → "setEncryptionSecret: state for nutritrace_localSQLdb not correct" (plugin requires no connections, but state tracking is fragile)
+- Modern Android encrypts the entire app data directory at the OS level (file-based encryption, default since Android 7), so the local SQLite is not in cleartext on a locked device anyway. SQLCipher was a defense-in-depth layer; losing it doesn't materially change the threat model for normal users.
+- New behavior in `db-native.js`: one-shot cleanup on first launch — clears the encrypted DB file, secure-store secret, and `nt:db_*` localStorage markers from any prior v0.39.20–22 install. Then opens unencrypted as before. Server-connected devices re-sync from the server (your phone will see a brief empty state then everything flows back).
+- `capacitor.config.ts`: `iosIsEncryption`/`androidIsEncryption` back to `false`.
+- FUTURE.md updated: native SQLite encryption deferred to v1.1, with a note to investigate alternatives (Android Keystore + per-row JS encryption, different plugin, or simply rely on Android's OS-level FBE).
+
+### What this means for you
+- Your phone will run the cleanup on first launch (delete the broken encrypted DB), then re-sync from the server. No data loss because the server is the source of truth for everything.
+- If you were on v0.39.19 or earlier and never installed v0.39.20–22, this is just a normal update with no migration.
+
+---
+
+## [0.39.22-beta] — 2026-04-25 — Encryption open auto-recovery
+
+### Fixed
+- **SQLCipher decrypt failure auto-recovery** — v0.39.20 called `setEncryptionSecret` on every launch. The plugin's secure-store semantics in @capacitor-community/sqlite v8 don't reliably re-bind the passphrase to existing encrypted files when called twice; some devices got "file is not a database (26)" on the second launch.
+- New behavior:
+  1. Use `isSecretStored()` to check if the plugin secure store already has a passphrase. Only call `setEncryptionSecret` on first setup. Eliminates the re-binding bug.
+  2. If the encrypted open still fails (e.g., the secret in the secure store and localStorage have drifted on an older install), auto-recover on **server-connected** devices: clear secret + DB, re-derive a fresh passphrase, recreate the DB, let server sync repopulate. **Local-only** devices fail loudly with a recovery message instead of wiping data.
+- New `_emergencyResetDb()` helper for the recovery path; calls `clearEncryptionSecret()` + `deleteDatabase()` + clears localStorage markers.
+
+---
+
+## [0.39.21-beta] — 2026-04-25 — Final audit cleanup
+
+### Security
+- **Push-test SSRF fixed** — `/api/settings/push-test` (gotify branch) was accepting `body.url` and `body.token` and proxying to whatever the caller supplied, then falling back to saved settings. The client never sends those body fields anyway, so removing them eliminates an authed-user SSRF without changing any user-visible behavior. ntfy and Apprise paths already only used saved settings.
+- **AI chat payload caps** — `/api/ai/chat` now rejects `messages.length > 60` and `messages + systemPrompt > 200 KB`. Bounds the worst case for a misbehaving client (or compromised account) burning the admin's AI budget.
+- **Backup file extension guard** — `/api/full-backup/:name/{download,delete}` now require the requested filename to end in `.zip`. Without this, an admin could request any file that happened to live in `BACKUPS_DIR` (which is under `UPLOADS_DIR` by default).
+
+This brings the audit punch list to **complete** except for two intentionally-deferred items already in FUTURE.md (Android cleartext lockdown — right before Play Store; dep major bumps `better-sqlite3 9→11` + `multer 1→2` — v1.1 with full regression testing).
+
+---
+
+## [0.39.20-beta] — 2026-04-25 — Capacitor SQLite encryption (SQLCipher)
+
+### Security
+- **Native SQLite is now encrypted at rest** — `androidIsEncryption: true` (and iOS) flips on SQLCipher in the Capacitor build. Per-device passphrase is generated on first launch (32 random bytes via `crypto.getRandomValues`) and stored in localStorage. Defense-in-depth on top of Android's existing file-based app-data encryption.
+
+### Migration (automatic, two paths)
+- **Server-connected devices** (your Pixel falls here): on first launch after the update, `db-native.js` detects the unencrypted DB, deletes it, creates a fresh encrypted DB, and the next sync repopulates from the server. **Zero data loss** because the local DB is just a cache of authoritative server data. You may briefly see an empty diary while the first sync completes.
+- **Local-only devices**: migration is **deferred**, not silent — wiping local SQLite without a server safety net would lose data. The DB stays unencrypted; a `nt:db_encryption_pending=1` flag is set in localStorage. Users explicitly trigger the upgrade after exporting a Local Full Backup. UI for that lives in the next release (already exported the helpers `runLocalEncryptionUpgrade()` + `isEncryptionPending()` from `db-native.js`).
+
+### What this protects against
+- Lost/stolen rooted device (where Android's OS-level encryption can be bypassed)
+- File-system-level backups that include the DB file
+- Future zero-day exploits against Android's data-directory encryption
+
+### What this does NOT change
+- The encryption secret lives in localStorage in the same app data directory as the DB. An attacker who can read one can read the other. This is a defense-in-depth layer, not an air-gap. Android Keystore-backed key would require a custom plugin.
+
+### Notes for self-hosters / developers
+- If you uninstall + reinstall the app, the localStorage secret is wiped along with everything else — the encrypted DB file becomes unrecoverable. Same outcome as `Clear Storage` in Android Settings. Re-install pulls from the server (server-connected mode) or starts fresh (local-only).
+
+---
+
+## [0.39.19-beta] — 2026-04-25 — Upload magic-byte validation
+
+### Security
+- **`/api/upload` now magic-byte validates** — was trusting the client-supplied `Content-Type`. After multer writes the file, the first bytes are inspected against known image signatures (JPEG, PNG, WebP, GIF, HEIC/HEIF, AVIF, BMP). Files that don't match are deleted from disk and the request is rejected with 400. SVG is intentionally NOT supported (script-execution risk; food/avatar uploads never need it).
+- New module: `server/lib/image-magic.js` — pure-stdlib magic-byte detector with both file-path and in-memory-buffer entry points.
+
+---
+
+## [0.39.18-beta] — 2026-04-25 — Docker image org rename
+
+### Changed
+- **Docker image canonical path is now `ghcr.io/traceapps/nutritrace`** — `docker-compose.yml`, `README.md`, and `DEPLOY.md` all reference the new path.
+- **CI dual-publishes for one transition window** — `.github/workflows/docker.yml` pushes to BOTH `ghcr.io/traceapps/nutritrace` and `ghcr.io/traceapps/nutritrace` so existing users on the old path keep getting updates. The old path will be dropped after v1.0 once docs are widely propagated.
+- **FUTURE.md repo-split notes updated** to reflect actual current structure (`traceapps/nutritrace-dev` private monorepo, `traceapps/nutritrace` public-on-1.0, `traceapps/nutritrace-android` standalone).
+
+### Migration for self-hosters on the old image path
+No action required. Both `ghcr.io/traceapps/nutritrace:latest` and `ghcr.io/traceapps/nutritrace:latest` will keep getting builds for at least the next few releases. When you next update your `docker-compose.yml`, switch the image path to `ghcr.io/traceapps/nutritrace:latest`.
+
+---
+
+## [0.39.17-beta] — 2026-04-25 — Pre-1.0 security hardening (Phase 2)
+
+### Security
+- **OAuth tokens encrypted at rest** — Fitbit, Withings, and Garmin access/refresh tokens are now encrypted with AES-256-GCM using a key derived (HKDF-SHA256) from `JWT_SECRET` (override with `TOKEN_ENC_KEY`). A leaked database file or backup no longer hands out long-lived wearable-API credentials. New module: `server/lib/token-crypto.js`. Migration is **lazy**: existing plaintext tokens continue to work and are re-written encrypted on the next refresh cycle. Rotating `JWT_SECRET` invalidates both sessions and stored OAuth tokens — users will have to reconnect their wearables; document this if you ever rotate.
+- **Mealie proxy SSRF fixed** — `/api/mealie/proxy` now requires `baseUrl` to match the user's saved `mealieBaseUrl` setting (multi-user). An authed user can no longer use the server as an open proxy to probe internal hosts or cloud-metadata endpoints. Single-user mode unchanged (no auth boundary to defend in that mode).
+- **Image-localizer SSRF fixed** — `POST /api/foods` and `/api/meals` (which run `localizeImage`) now refuse URLs whose hostname resolves to private/loopback/link-local IP ranges (10.x, 127.x, 172.16-31.x, 192.168.x, 169.254.x including cloud metadata, IPv6 ULA + loopback). Non-http(s) protocols also rejected.
+- **Auth cookie secure-by-default** — `secure: true` is the new default (was tied to `NODE_ENV=production` which most self-hosters never set). Set `INSECURE_COOKIES=1` to opt out for plain-HTTP LAN deploys (logged as a warning at startup).
+- **Body parser tightened** — global JSON limit lowered from 50 MB to 1 MB. The two endpoints that legitimately handle large payloads (`/api/data/import`, `/api/sync/push`) get per-route 25 MB limits. Caps memory abuse from a single authed user.
+- **Backup upload limit reduced** — 2 GB → 512 MB by default (override with `BACKUP_UPLOAD_MAX_MB`). Bounds disk-fill abuse from repeated half-finished uploads.
+- **Session duration capped at 1 year** — previously `session_hours = 0` meant 100 years. Override with `MAX_SESSION_HOURS` env var if you really want longer.
+
+### Notes for self-hosters
+- **HTTPS is now expected by default.** If your server is on plain HTTP (LAN, dev), set `INSECURE_COOKIES=1` in your `.env` or auth cookies will be rejected by the browser.
+- **OAuth tokens migrate transparently** on next sync — no admin action required.
+- **`JWT_SECRET` is now load-bearing for OAuth too.** If you ever rotate it, users must reconnect Fitbit/Withings/Garmin. Set a separate `TOKEN_ENC_KEY` if you want independent rotation.
+
+---
+
+## [0.39.16-beta] — 2026-04-25 — Pre-1.0 security & polish (Phase 1)
+
+### Security
+- **CSRF exemption narrowed** — was skipping ALL `/api/wellness/*` POSTs (sync, recalculate, seed-scores, disconnect). Now only OAuth `/callback` paths are exempt; everything else requires the X-CSRF-Token header for cookie sessions.
+- **JWT_SECRET refuse-to-start in production** — server now exits with a clear error if `NODE_ENV=production` and `JWT_SECRET` isn't set, instead of silently using the dev default.
+- **Per-username brute-force throttle** — login + recover + forgot-password add a per-username bucket (5/15min) on top of the existing per-IP bucket (10/15min). NAT users behind one IP no longer share an account-lockout pool.
+- **Recovery token now uses constant-time compare** — was vulnerable to timing-attack guessing.
+- **`/api/auth/users/list` gated behind sharing_enabled** — was exposing every account's display name + username to every authenticated user. Now returns `[]` unless food/meal sharing is on.
+- **`/api/auth/forgot-password` is constant-time + always returns 200** — was leaking SMTP-not-configured state and email existence via timing.
+- **CSRF token rotated on password change** — old sessions on other devices stop working after a password change.
+- **bcrypt cost factor bumped 10 → 12** — current best practice. Existing hashes remain valid (bcrypt verifies regardless of cost).
+- **Image proxy hostname allowlist** — replaced `.includes()` with strict suffix match. `i.imgur.com.evil.tld` no longer slips through. Also rejects non-http(s) protocols.
+- **Backup restore zip-slip + zip-bomb defense** — image extraction now rejects `..`, absolute paths, and any path that resolves outside `UPLOADS_DIR`. Hard cap of 10,000 entries and 5 GB total uncompressed.
+- **Celebration key validation** — `/api/settings/claim-celebration` now requires keys match `/^[a-z_][a-z0-9_-]{0,39}$/`. Stops a misbehaving client spamming arbitrary keys into `app_config`.
+- **Rate limits added** — new `server/middleware/rate-limit.js` token-bucket limiter applied to: `/api/ai/chat` (30/min/user), `/api/upload` (60/min/user), `/api/proxy` (60/min/IP), and `/api/wellness/*/callback` (10/min/IP).
+
+### Changed
+- **Console log noise cut** — `src/lib/sync.js`, `src/lib/notifications.js`, `src/lib/health-connect.js`, `src/stores/settings.js` — verbose `console.log` calls now gated on `import.meta.env.DEV`. Wellness readiness/stress debug calibration logs untouched (intentional).
+- **Sponsor button URLs fixed** — were placeholder `YOUR_GITHUB_USERNAME` / `YOUR_KOFI_USERNAME`; now `sponsors/traceapps` and `ko-fi.com/thebigjoe1`.
+- **About panel + Smart Log README link** point at `traceapps/nutritrace` (was `thebigjoe1/nutritrace`).
+
+### Performance
+- **Barcode scanner libs lazy-loaded** — zxing + html5-qrcode + quagga2 (~870 KB combined) were loaded on every page; now loaded on first scanner open and cached for subsequent opens. Removes ~870 KB from PWA cold-start payload.
+- **Logo file size** — `public/icons/logo.png` was 1,147 KB rendered at 32-56px in 6 places; replaced with the existing 47 KB icon-192. Saves ~1.1 MB on cold load.
+
+### Repo
+- **CONTRIBUTING.md added** — short guide for issues + PRs.
+- **`.dockerignore` excludes `android/`, `*.apk`, `*.aab`, `*.keystore`** — speeds Docker build context.
+- **FUTURE.md** — Health Connect moved from "needs testing" to done.
+
+### Notes for self-hosters
+- After this version, set `JWT_SECRET` in your `.env` (generate with `openssl rand -base64 48`) — the server will refuse to start in production without it.
+- The new `RECOVERY_TOKEN`, `JWT_SECRET`, and CSRF behaviors are documented in DEPLOY.md.
+
+---
+
+## [0.39.15-beta] — 2026-04-25
+
+### Fixed
+- **Calibration seeds no longer overwritten by Fitbit sync** — `/api/wellness/fitbit/seed-scores` now writes to dedicated `*_actual` metric_types (`sleep_score_actual`, `readiness_score_actual`, `stress_score_actual`) instead of overwriting the calculated `*_score` values. Previously every Fitbit sync recomputed `sleep_score` from raw inputs and silently blew away seeded actuals — the stress chain has been using stale calculated values for weeks.
+- **Wellness UI prefers actuals when present** — sleep/readiness/stress display, the readiness card, the stress card, and the stress 30-day history chain all now prefer `*_actual` over `*_score`. When no actual is seeded, behavior is unchanged (live calc).
+- **Self-retiring design** — once formulas are dialed in and seeding stops, `*_actual` rows naturally roll off the 30-day stress window and the system transitions to using calc only. No flag flip, no migration step.
+
+---
+
+## [0.39.14-beta] — 2026-04-24
+
+### Fixed
+- **Weigh-in reminder now fires correctly** — server scheduler's `wellness_data` skip query was using strict `user_id = ?` (missing the NULL-fallback that the diary query uses). If the user was multi-user but their wellness_data rows had NULL user_id (older installs, or synced-from-Fitbit/Withings rows), the skip check missed the weight and fired the reminder anyway.
+- **Water reminder multi-user fallback** — water goal skip check now also falls back to NULL user_id rows (matches meal + weigh-in pattern).
+- **Weigh-in logging** (server + Android) — both checks now log what they found: `skipping weigh-in for user=X — diary.body_stats.weight=Y` or `firing weigh-in — no weight found`. Makes future diagnosis immediate instead of silent.
+
+---
+
+## [0.39.13-beta] — 2026-04-21
+
+### Changed
+- **Empty meal slots are now tappable** — when a meal has no items, the "Tap to add food" row itself opens the food picker. Previously the row was passive and users had to hunt for the + button. Label updated from "Tap + to add food" to "Tap to add food"; the + button still works as before.
+
+---
+
+## [0.39.12-beta] — 2026-04-21
+
+### Added
+- **Stress Management driver chips** — the Stress card in Wellness → Heart now shows the three contributing factors (HRV / Resting HR / Sleep) with color-coded values, matching the pattern used by Daily Readiness. Easier to see why stress is where it is on any given day.
+
+### Removed
+- **Readiness "Locked at sync" debug strip + refresh button** — was a dev/calibration tool used while tuning formulas. Regular users never needed it. The `/api/wellness/fitbit/recalculate` endpoint remains for DevTools use during future tuning.
+
+---
+
+## [0.39.11-beta] — 2026-04-19
+
+### Added
+- **Fuzzy food search** — local food/meal/recipe search now handles typos and partial matches (e.g. "chiken" finds "Chicken Breast"). Uses word-by-word matching first, then edit-distance tolerance for queries ≥ 4 chars. External source search (OFF/USDA) unchanged. No toggle — degrades silently to exact match when fuzzy adds nothing.
+- **Search empty state in Foods** — when a local search returns no results, shows "No matches for '…'" with a hint to try Open Food Facts/USDA. Previously the list was silently empty.
+- **Statistics empty state context** — "No data" message on the chart now includes a contextual hint: nutrition metrics suggest logging food, wellness metrics suggest connecting a tracker, body stats suggest a different date range.
+- **Statistics dynamic goal line label** — when Dynamic Calorie Goal is active, the calorie goal line on the Statistics chart is now labeled "Base Goal" instead of "Goal" to clarify that the actual daily goal varies.
+
+### Changed
+- **Bundle code splitting** — chart.js, jszip, and emoji-picker-element are now split into separate async chunks. Cuts initial JS parse time on first load; chunks are loaded on demand.
+
+### Fixed
+- Settings split (background task — SettingsNotifications, SettingsBackup, SettingsUserManagement, SettingsAI sub-components)
+
+---
+
+## [0.39.10-beta] — 2026-04-19
+
+### Fixed
+- **Foods tab switch scroll position (take 2)** — previous fix (0.39.9) reset scroll in a reactive block, which ran AFTER Svelte painted the new tab at the old offset, causing a visible jump. Now the reset is wired to the Tabs `change` event so it fires synchronously on click (before the bind propagates) with a `requestAnimationFrame` follow-up. Result: the new tab renders starting at top with no perceptible jump.
+
+---
+
+## [0.39.9-beta] — 2026-04-19
+
+### Removed
+- **Foods picker "Recently Added" section** — removed (was added in 0.39.7). Didn't feel useful in practice.
+
+### Fixed
+- **Foods/Meals/Recipes tab switch** — when a tab was scrolled down and you switched to another, the new tab started at the same scroll offset instead of at the top. Now jumps to top on switch (no animation).
+
+---
+
+## [0.39.8-beta] — 2026-04-19
+
+### Added
+- **Notes shown in quick-add card** — when a food, recipe, or item with saved notes (e.g. "1 serving = 150g cooked") is added via the portion/quantity prompt, its notes appear above the inputs. Auto-hidden when empty — no setting needed. Same treatment in the multi-add portion sheet.
+- **FitBot — new `get_meals` tool** — lets the assistant look up the user's saved Meals and Recipes (with items, totals, and notes). Supports an optional name filter so queries like "what's in my 'Usual breakfast'" work reliably.
+
+### Changed
+- **FitBot `get_diary` now returns day notes + per-item notes + brand** — so when the user asks "why did I eat badly yesterday?" the assistant can read their own context back to them.
+- **Full backup + JSON import** now round-trip the new `diary.notes` column. Previous backups (without notes) still restore fine.
+
+### Fixed
+- Client-side local-backup flow always included notes via `NtApi.getAllDiary()`; the matching server import paths were missing `notes` in their INSERT statements — restoring a backup with notes used to silently drop them. Fixed in both `/api/data/import` and `/api/full-backup/restore`.
+
+---
+
+## [0.39.7-beta] — 2026-04-19
+
+### Added
+- **Recently Added foods** — when picking food for a meal (Foods tab, empty search), a "Recently Added" section appears above results showing the 10 most recent unique items you've logged. One tap adds it to the target meal.
+- **Save meal to library** — new action in the meal `⋮` sheet: "Save as meal…" — converts a diary meal into a reusable Meal entry with a name you choose.
+- **Day notes** — per-day free-text notes on the diary (e.g. "felt bloated after lunch"). Collapsible card at the bottom of the diary; a small pencil indicator appears next to the date when a note exists. Toggleable in Settings → Diary display → "Show daily notes" (default on). Notes sync across devices like the rest of diary data.
+
+### Changed
+- Diary table gains a `notes` column (auto-migration on server + native Android).
+
+---
+
+## [0.39.6-beta] — 2026-04-19
+
+### Added
+- **Meal-level actions** — new `⋮` button on each meal header opens an action sheet:
+  - **Copy items to…** — duplicate all items from one meal into another on the same day.
+  - **Move items to…** — transfer all items from one meal to another on the same day.
+  - **Copy meal to another date…** — pick a date + target meal; items are appended there (source day unchanged).
+  - **Clear all items** — with confirm dialog, removes every item in the meal for the current day.
+  - Empty meals open to a single "Add food" shortcut so the entry point is always consistent.
+
+---
+
+## [0.39.5-beta] — 2026-04-19
+
+### Added
+- **Password strength indicator** — real-time weak/fair/strong bar on AcceptInvite, ResetPassword, Profile change-password, and Wizard admin account forms. Shared `src/lib/validation.js` mirrors LiftTrace.
+- **Wizard integration step summary** — shows which services (Open Food Facts, USDA, Mealie, FitBot AI) are configured vs skipped.
+- **MealEditor inline Add Ingredient button** — always visible at the bottom of the ingredient list with running totals (kcal · N items).
+- **Foods source filter reset toast** — subtle info toast when switching tabs silently resets the source back to Local.
+- **Foods pick-mode confirm label** — button now reads "Add N" (was just a checkmark) so users know exactly how many items they're adding.
+- **Statistics quick-select chips** — Last 7d / 30d / 90d / This month / Last month / YTD on the custom date range.
+- **Goal editor section hierarchy** — sheet now grouped into Display / Goal Behavior / Target sections with hint subtitles under each toggle explaining what it does.
+
+### Changed
+- `showInfo()` toast helper added to `src/stores/toast.js` for subtle info messages.
+
+---
+
+## [0.39.4-beta] — 2026-04-19
+
+### Changed
+- **Sleep score formula tuned** (19-day calibration) — reduced quality bonus ceiling (8→6) and HRV component ceiling (15→12, null default 10→8). Targets the "great night" overshoot pattern where the formula was giving 95-100 for nights Fitbit scored 81-89. Sleep MAE 2.16→1.74, max gap 11→9. Indirectly improves stress accuracy since sleep is 60% of the stress formula.
+
+---
+
+## [0.39.3-beta] — 2026-04-18
+
+### Added
+- **Bedtime reminder** — new notification type for sleep. Evening nudge at user-set time (default 22:30) with optional wind-down pre-reminder (15/30/45/60/90 min before). Smart message toggle adjusts the text based on last night's sleep vs goal (e.g., "You slept 5h last night — prioritize an earlier bedtime"). Fires on server scheduler (push) and native Android worker (local).
+
+### Fixed
+- **Weigh-in reminder skips if already weighed in** — previously fired at the scheduled time regardless. Now checks both `diary.body_stats.weight` (manual entry) and `wellness_data` with `metric_type='weight_kg'` (Withings, Health Connect sync). Fixed on both server scheduler and native Android worker.
+
+---
+
+## [0.39.2-beta] — 2026-04-17
+
+### Changed
+- **Sleep stages mobile layout** — on narrow screens (under 500px), sleep stage breakdown now renders as a vertical list (colored dot + label + duration + %) instead of floating labels that overlap when segments are small. Tablet/desktop (≥500px) layout unchanged — stacked bar with midpoint-positioned labels. Responsive across phones, foldables (closed/open), and phone landscape.
+
+---
+
+## [0.39.1-beta] — 2026-04-16
+
+### Added
+- **Scheduled syncs now include workouts** — Fitbit workout activity logs sync alongside metrics on every scheduled cycle (when workoutsEnabled is true).
+- **Full sync range** — all scheduled device syncs (Fitbit, Garmin, Withings) now sync the user's full configured sync range, not just today.
+- **Health Connect goal checks** — HC manual sync triggers step + wellness goal celebrations. Works in local mode (no server needed).
+- **GPS Retry button** — "No GPS data available" placeholder now includes a Retry button.
+- **Device-agnostic goal alerts** — step goal and wellness alerts fire once from merged data across ALL sources after all device syncs complete.
+
+### Fixed
+- **Fitbit logId precision** — logIds exceeding JavaScript's MAX_SAFE_INTEGER were silently rounded by JSON.parse, causing GPS/TCX fetches to fail with wrong IDs. Now extracted as strings from raw JSON before parsing.
+- **GPS flag protection** — `has_gps` can only go 0→1 on re-sync (MAX), never downgrade. Prevents scheduled re-syncs from hiding GPS data when Fitbit API inconsistently returns hasGps:false.
+- **Workout deduplication** — cleans up duplicate workout entries created by logId precision fix (keeps entry with GPS data or newer one).
+- **Step goal notification spam** — three independent paths were firing step notifications with different dedup keys. Unified all paths to use `_celeb_` prefix with matching key names. Steps removed from generic `checkGoals()` to prevent double-fire.
+- **Unified notification dedup** — server push-notify.js and client notifications.js now share the same dedup keys in app_config via `/api/settings/claim-celebration` endpoint. All goal types covered: steps, calories, water, wellness alerts, workouts, sync failures. Works cross-device.
+
+---
+
+## [0.39.0-beta] — 2026-04-12
+
+### Added
+- **Self-service account deletion** — users can delete their own account and all associated data from Settings → Data & Privacy → Danger Zone. Cascades all foods, meals, diary, settings, wellness data, chat history. Prevents the last admin from deleting themselves.
+- **Per-device sync scheduling** — each connected service (Fitbit, Garmin, Withings, Health Connect) now has independent sync controls: mode (auto/scheduled/manual), interval (30min to daily), and active window. Daily interval shows a "Sync At" time picker; sub-daily shows start/end active window. Falls back to legacy shared settings for existing users.
+- **Diary item Replace action** — long-press a diary item → Replace opens the food picker in the same meal slot. Picks a new food, deletes the old one. Context menu reordered: Edit, Replace, Move to meal, Select multiple, Delete.
+- **Mandatory account creation on PWA** — server blocks all data APIs (503) when no users exist. First visit forces account creation via the wizard. Android local mode unchanged.
+
+### Changed
+- **Email templates polished** — added greeting lines, hidden preheader text for inbox previews, unified accent green (#00C47A), section headers via helper, stat row units dimmed, unsubscribe moved to footer slot. Optimized email logo from 1.1MB to 19KB (120x120 retina).
+- **Wellness tab renamed** — "Movement" → "Activity" (matches Fitbit, Garmin, Apple Health conventions).
+- **Recipe portion sheet unified** — now uses the shared Sheet component matching the diary food picker layout (side-by-side serving size + unit, total amount summary bar).
+- **Notifications badge removed** — "Experimental" label removed from Notifications section header.
+- **Time format respected everywhere** — TimePicker, water logs, workout times, FitBot chat timestamps all honor the 12h/24h setting. TimePicker shows 24h grid (00-23) when configured.
+- **Readiness/stress formulas tuned** (6-day calibration) — readiness: HRV concave power curve (pow 0.7, gain 80), weights 0.75/0.05/0.12+4, MAE 7.3→4.5. Stress: sleep weight 0.60, HRV gain 40, smoothing 0.40/0.60, MAE 6.0→3.17.
+
+### Fixed
+- **PWA stale cache** — replaced NavigateFallback with NetworkFirst for navigation. Deploys are picked up on next page load; no more manual cache clears.
+- **FitBot false unread dot** — persisted seen count in localStorage so component remounts don't show phantom notifications.
+- **Recipe portion sheet backdrop** — clicking outside no longer cancels ingredient input; only the X button dismisses.
+- **Scheduler dedup persistent** — all notification timestamps stored in app_config DB (survives container restarts). Weekly summary dedup check moved after day/hour gate so timestamp only burns on actual send.
+- **Sync timeout** — POST/PUT/DELETE pass-through uses 30s timeout (was 3s, causing Fitbit/Garmin/Withings sync failures on Android).
+
+---
+
+## [0.38.9-beta] — 2026-04-11
+
+### Fixed
+- **Smart Log: food swap now recalculates portion size** — switching to an alternate food match was keeping the original food's serving size in grams. Now recalculates based on the new food's base portion, so nutrition values display and save correctly.
+- **Android: instant local data loading when server is down** — Foods page was blocking on a `getSharingStatus()` server call before loading local data. Moved server calls to non-blocking background. Goals page had the same issue with dynamic calorie goal fetch. Both pages now render cached data instantly.
+- **Android: image map loaded before app renders** — moved `loadImageMap()` from App.svelte `onMount` (runs after first render) to main.js boot sequence (runs before App mounts). Diary food images now display on first paint instead of after a delay.
+- **Faster server-down detection** — reduced all network timeouts from 5-8s to 3s. `checkOnline()` now short-circuits for 15s after a failed check, so repeated sync cycles don't stack timeouts.
+- **Settings search: added missing keywords** — Smart Log, Voice, Quick Log, Goal Insights now searchable in AI section. Weekly Summary, Email Summary added to Notifications. Health Connect added to Wellness.
+
+---
+
+## [0.38.8-beta] — 2026-04-10
+
+### Fixed
+- **Android: app now works correctly when server is unreachable but phone has internet** — previously the background auth refresh could clear the cached user on server error (e.g., 502 from Cloudflare tunnel), causing the app to show a login screen and preventing cached data from loading. The native auth refresh now never clears `currentUser`; it only updates on a valid server response.
+- **API pass-through timeout** — `NtApiCached` pass-through methods (`get`, `post`, `put`, `del`) now use an 8-second timeout so they fail fast instead of hanging when the server is unreachable.
+
+---
+
+## [0.38.7-beta] — 2026-04-09
+
+### Added
+- **Cross-device chat sync** — FitBot chat history is now part of the differential sync pull. Messages sent from one device show up on another on the next sync cycle (30s on native, visibilitychange on PWA). No more refresh-to-see.
+  - Server: `/api/sync/pull` now returns `chat_history` rows newer than `since`.
+  - Client sync engine dispatches `nt:chat-updated` after pulling new rows.
+  - `AIFitBot` listens for `nt:chat-updated`, `nt:sync-complete`, and `visibilitychange` — merging new messages in place (deduped by role+content+time) and surfacing an unread dot if the panel is closed.
+
+### Changed
+- **Sync bar trimmed to errors only** — removed "Syncing…", "Synced", and "Offline — changes saved locally" states. The bar now only appears when there's a real sync error worth the user's attention. Removes the every-30s flash that added visual noise without actionable information.
+- **Connection badge — offline-only** — the cloud badge on the menu button no longer shows a green "online" state. It only surfaces when offline (red `cloud_off`). Follows the "errors are interesting, success is boring" principle; matches conventions used by Gmail, Slack, etc.
+
+---
+
+## [0.38.6-beta] — 2026-04-09
+
+### Changed
+- **Settings UX polish** — Goals section is now always visible; when no device is connected, the Dynamic Calorie Goal toggle is shown in a disabled state with an explanation ("Connect a device in Connected Services to enable"). Previously the entire Goals section was hidden.
+- **Toggle component** — now accepts a `disabled` prop; disabled toggles are visually dimmed and non-interactive.
+- **Notifications descriptions clarified** — "Device Notifications" now reads "Alerts delivered directly to this device — native on Android, browser pop-ups on desktop/PWA"; "Push Service" now reads "Server-relayed alerts via Apprise, Gotify, or ntfy — useful for PWA users or Home Assistant".
+- **Smart Log setting description** — shortened to one line; expanded "Quick start" hint trimmed to trigger words only (removed duplicate how-to text).
+- **Goal Insights description** — shortened from two sentences to one.
+
+### Removed
+- `isAndroid`, `isIos` exports from `platform.js` — were never imported anywhere in the codebase.
+- `isServerConnected()` export from `platform.js` — was never called anywhere in the codebase.
+- `setImageMap` from the import statement in `sync.js` — was imported but never used in that file.
+
+---
+
+## [0.38.5-beta] — 2026-04-09
+
+### Added
+- **Weekly Summary Email** — optional digest delivered by both push notification and email (if SMTP is configured). Covers: avg daily calories vs goal, goal hit rate, avg protein/carbs/fat, avg water, avg steps, avg calories burned, avg sleep, avg resting HR, avg readiness/stress scores, and weight change for the week.
+- **User-configurable delivery day and time** — choose any day of the week and exact time in Settings → Notifications → Weekly Summary. Previously hardcoded to Sunday 9am.
+- Settings: `weeklySummaryDay` (0=Sun…6=Sat, default Sun) and `weeklySummaryTime` (HH:MM, default 09:00).
+
+---
+
+## [0.38.4-beta] — 2026-04-09
+
+### Added
+- **FitBot Goal Insights** (Experimental) — new `get_diary_averages` tool gives FitBot access to your average daily intake over any period (calories, protein, carbs, fat, water), logging consistency %, and weight trend. When **Goal Insights** is enabled in Settings → AI Assistant, FitBot proactively compares your actual averages against your goals and offers evidence-based adjustments when patterns are consistent (>10% gap, 2+ weeks). Always asks before suggesting changes.
+- **Health Connect in FitBot context** — today's Health Connect data (steps, calories, sleep, HR, HRV, weight) now included in FitBot's daily summary alongside Fitbit/Garmin/Withings.
+- **FitBot tool descriptions improved** — each tool now explicitly states what data it provides and when to use it, reducing hallucination on borderline queries.
+
+---
+
+## [0.38.3-beta] — 2026-04-09
+
+### Added
+- **Dynamic Calorie Goal** (Experimental) — adjusts your daily calorie goal based on yesterday's calories burned from a connected device (Fitbit, Garmin, or Health Connect). Enable in **Settings → Goals**.
+  - Three goal factors: Lose (−20%), Maintain (×1.0), Gain (+20%) applied to yesterday's TDEE.
+  - Falls back to your fixed calorie goal if no device data is available for the prior day.
+  - Diary bottom bar shows a "⚡ Dynamic · X kcal goal" pill when active.
+  - Goals page shows a "⚡ Dynamic" badge on the calories row and the effective goal with "based on X burned" annotation.
+  - New server endpoint `/api/wellness/calories-out` merges calories_out across all sources (priority: Garmin > Health Connect > Fitbit).
+  - Settings section hidden unless at least one device (Fitbit, Garmin, Health Connect) is connected.
+
+---
+
 ## [0.38.2-beta] — 2026-04-08
 
 ### Smart Log — water logging

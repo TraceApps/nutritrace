@@ -17,32 +17,55 @@ function validatePassword(pw) {
   return null;
 }
 
-// Simple in-memory rate limiter for auth endpoints (no external dependency)
-const _loginAttempts = new Map(); // ip → { count, resetAt }
-function rateLimitLogin(req, res, next) {
-  const ip = req.ip || req.connection.remoteAddress;
+// In-memory rate limiters for auth endpoints. Two independent buckets so an
+// attacker behind multiple IPs can't get unlimited tries against one username,
+// and a shared NAT can't lock everyone out of one account.
+const _ipAttempts   = new Map(); // ip → { count, resetAt }
+const _userAttempts = new Map(); // username → { count, resetAt }
+const WINDOW_MS = 15 * 60 * 1000; // 15-min window
+const IP_MAX    = 10;
+const USER_MAX  = 5;
+
+function _bumpBucket(map, key, max) {
   const now = Date.now();
-  const entry = _loginAttempts.get(ip);
+  const entry = map.get(key);
   if (entry && now < entry.resetAt) {
     entry.count++;
-    if (entry.count > 10) { // 10 attempts per 15-min window
-      return res.status(429).json({ error: 'Too many login attempts. Try again in a few minutes.' });
-    }
+    if (entry.count > max) return false;
   } else {
-    _loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    map.set(key, { count: 1, resetAt: now + WINDOW_MS });
   }
-  // Cleanup stale entries periodically
-  if (_loginAttempts.size > 1000) {
-    for (const [k, v] of _loginAttempts) { if (now > v.resetAt) _loginAttempts.delete(k); }
+  if (map.size > 1000) {
+    for (const [k, v] of map) { if (now > v.resetAt) map.delete(k); }
+  }
+  return true;
+}
+
+function rateLimitLogin(req, res, next) {
+  const ip = req.ip || req.connection.remoteAddress;
+  const username = (req.body?.username || '').trim().toLowerCase();
+  if (!_bumpBucket(_ipAttempts, ip, IP_MAX)) {
+    return res.status(429).json({ error: 'Too many login attempts. Try again in a few minutes.' });
+  }
+  if (username && !_bumpBucket(_userAttempts, username, USER_MAX)) {
+    return res.status(429).json({ error: 'Too many login attempts for this account. Try again later.' });
   }
   next();
 }
 
+// Default to secure cookies (HTTPS-only) since most production deploys are
+// behind a reverse proxy or Cloudflare Tunnel. Self-hosters running on plain
+// HTTP (LAN, dev) can opt out with INSECURE_COOKIES=1 — they should be aware
+// that auth cookies will be sent in cleartext.
+const _insecureCookies = process.env.INSECURE_COOKIES === '1' || process.env.INSECURE_COOKIES === 'true';
+if (_insecureCookies) {
+  console.warn('[WARN] INSECURE_COOKIES=1 — auth cookies will be sent over plain HTTP. Only use this on a trusted LAN.');
+}
 const COOKIE_OPTS = {
   httpOnly: true,
   sameSite: 'lax',
   maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days
-  secure:   process.env.NODE_ENV === 'production',
+  secure:   !_insecureCookies,
 };
 
 function safeUser(u) {
@@ -52,7 +75,8 @@ function safeUser(u) {
 
 // ── Status: is user management active? ────────────────────────────────────
 router.get('/status', wrap((req, res) => {
-  res.json({ active: userMgmtActive() });
+  const active = userMgmtActive();
+  res.json({ active, setup_required: !active });
 }));
 
 // ── Who am I? ─────────────────────────────────────────────────────────────
@@ -97,7 +121,7 @@ router.post('/register', wrap((req, res) => {
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
   { const pwErr = validatePassword(password); if (pwErr) return res.status(400).json({ error: pwErr }); }
 
-  const hash = bcrypt.hashSync(password, 10);
+  const hash = bcrypt.hashSync(password, 12);
   const assignedRole = isFirst ? 'admin' : (role === 'admin' ? 'admin' : 'user');
 
   const result = db.prepare(
@@ -145,12 +169,19 @@ router.put('/password', requireAuth, wrap((req, res) => {
     return res.status(401).json({ error: 'Current password is incorrect' });
   }
 
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 10), req.user.id);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 12), req.user.id);
+  // Rotate JWT (and its CSRF token) so existing sessions on other devices stop working.
+  const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  res.cookie('nt_token', signToken(updated), { ...COOKIE_OPTS, maxAge: sessionMaxAge() });
   res.json({ ok: true });
 }));
 
-// ── Any user: list peers (id + display name) for sharing picker ───────────
+// ── List peers for the sharing picker ─────────────────────────────────────
+// Only exposed when sharing is enabled — otherwise instance-wide user enumeration
+// is unnecessary and leaks membership to every account.
 router.get('/users/list', requireAuth, wrap((req, res) => {
+  const cfg = db.prepare("SELECT value FROM app_config WHERE key = 'sharing_enabled'").get();
+  if (cfg?.value !== 'true' && cfg?.value !== '1') return res.json([]);
   const peers = db.prepare('SELECT id, full_name, username FROM users WHERE id != ? ORDER BY full_name, username').all(req.user.id);
   res.json(peers.map(u => ({ id: u.id, name: u.full_name || u.username })));
 }));
@@ -159,6 +190,21 @@ router.get('/users/list', requireAuth, wrap((req, res) => {
 router.get('/users', requireAuth, requireAdmin, wrap((req, res) => {
   const users = db.prepare('SELECT * FROM users ORDER BY created_at').all().map(safeUser);
   res.json(users);
+}));
+
+// ── Self-service: delete own account ───────────────────────────────────────
+router.delete('/me', requireAuth, wrap((req, res) => {
+  const userId = req.user.id;
+  // Prevent the last admin from deleting themselves (would lock out the instance)
+  const admins = db.prepare(`SELECT COUNT(*) as count FROM users WHERE role = 'admin'`).get();
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(userId);
+  if (user?.role === 'admin' && admins.count <= 1) {
+    return res.status(400).json({ error: 'Cannot delete the only admin account. Transfer admin to another user first.' });
+  }
+  // CASCADE handles foods, meals, diary, settings, wellness_data, ai_chat_history, etc.
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  res.clearCookie('nt_token');
+  res.json({ ok: true });
 }));
 
 // ── Admin: delete user ─────────────────────────────────────────────────────
@@ -174,7 +220,7 @@ router.put('/users/:id/password', requireAuth, requireAdmin, wrap((req, res) => 
   const id = parseInt(req.params.id);
   const { new_password } = req.body;
   { const pwErr = validatePassword(new_password); if (pwErr) return res.status(400).json({ error: pwErr }); }
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 10), id);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 12), id);
   res.json({ ok: true });
 }));
 
@@ -191,21 +237,36 @@ router.post('/recover', rateLimitLogin, wrap((req, res) => {
   if (req.user) return res.status(400).json({ error: 'You are already signed in. Use Settings to disable user management.' });
   const token = process.env.RECOVERY_TOKEN;
   if (!token) return res.status(503).json({ error: 'Recovery not available. Set RECOVERY_TOKEN environment variable.' });
-  if (req.body?.token !== token) return res.status(403).json({ error: 'Invalid recovery token.' });
+  // Constant-time comparison to defeat timing-attack guesses against the token.
+  const provided = req.body?.token || '';
+  const a = Buffer.from(token, 'utf8');
+  const b = Buffer.from(provided, 'utf8');
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return res.status(403).json({ error: 'Invalid recovery token.' });
+  }
   db.prepare('DELETE FROM users').run();
   res.clearCookie('nt_token');
   res.json({ ok: true });
 }));
 
 // ── Forgot password ────────────────────────────────────────────────────────
+// Always returns 200 (after a small constant delay) so an unauthenticated caller
+// can't enumerate users, fingerprint instances by their SMTP-configured state,
+// or learn anything about whether the email exists by timing the response.
 router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
+  const startedAt = Date.now();
   const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email required' });
-  if (!isEmailConfigured()) return res.status(503).json({ error: 'Email not configured on this server. Contact your administrator.' });
+  const respondOk = async () => {
+    // Pad to ~400ms so DB-lookup and email-send timing don't leak existence.
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < 400) await new Promise(r => setTimeout(r, 400 - elapsed));
+    res.json({ ok: true });
+  };
+  if (!email) return respondOk();
+  if (!isEmailConfigured()) return respondOk();
 
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.trim().toLowerCase());
-  // Always return success to avoid leaking whether the email exists
-  if (!user) return res.json({ ok: true });
+  if (!user) return respondOk();
 
   // Invalidate any existing tokens for this user
   db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ?').run(user.id);
@@ -215,8 +276,13 @@ router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
   db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);
 
   const baseUrl = `${req.protocol}://${req.get('host')}`;
-  await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
-  res.json({ ok: true });
+  try {
+    await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
+  } catch (e) {
+    // Don't surface email-send errors to the client — it would leak existence.
+    // The token is still issued; the admin can investigate the email backend.
+  }
+  return respondOk();
 }));
 
 // ── Reset password (via token) ─────────────────────────────────────────────
@@ -229,7 +295,7 @@ router.post('/reset-password', wrap((req, res) => {
   if (!row || row.used) return res.status(400).json({ error: 'Invalid or expired reset link' });
   if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: 'Reset link has expired' });
 
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(password, 10), row.user_id);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(password, 12), row.user_id);
   db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token = ?').run(token);
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);
@@ -269,7 +335,7 @@ router.post('/accept-invite', wrap((req, res) => {
   if (!invite || invite.used) return res.status(400).json({ error: 'Invalid or already used invite link' });
   if (new Date(invite.expires_at) < new Date()) return res.status(400).json({ error: 'Invite link has expired' });
 
-  const hash = bcrypt.hashSync(password, 10);
+  const hash = bcrypt.hashSync(password, 12);
   const result = db.prepare(
     `INSERT INTO users (username, password_hash, full_name, role, email)
      VALUES (?, ?, ?, ?, ?)`

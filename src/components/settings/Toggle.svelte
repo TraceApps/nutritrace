@@ -1,9 +1,11 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   export let checked = false;
+  export let disabled = false;
   const dispatch = createEventDispatcher();
 
   function toggle() {
+    if (disabled) return;
     checked = !checked;
     dispatch('change', checked);
   }
@@ -12,8 +14,10 @@
 <button
   class="toggle"
   class:checked
+  class:disabled
   role="switch"
   aria-checked={checked}
+  aria-disabled={disabled}
   on:click={toggle}
   type="button"
 >
@@ -55,5 +59,9 @@
   .checked .thumb {
     transform: translateX(20px);
     background: var(--accent-text);
+  }
+  .disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 </style>

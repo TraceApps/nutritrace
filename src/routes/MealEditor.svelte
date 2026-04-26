@@ -5,6 +5,7 @@
   import { takePhoto } from '../lib/camera.js';
   import { isNative, resolveAssetUrl } from '../lib/platform.js';
   import { portal } from '../lib/portal.js';
+  import Sheet from '../components/ui/Sheet.svelte';
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearMealEditorState } from '../stores/editorState.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
@@ -563,6 +564,14 @@
             </div>
           {/each}
         </div>
+        <!-- Running total + inline "add another" so users don't scroll back up -->
+        <div class="ingredient-list-footer">
+          <span class="ingredient-list-total">{Math.round(totals.calories||0).toLocaleString()} kcal · {meal.items.length} {meal.items.length === 1 ? 'item' : 'items'}</span>
+          <button class="ingredient-add-row" on:click={openPicker}>
+            <span class="material-symbols-rounded">add</span>
+            <span>Add ingredient</span>
+          </button>
+        </div>
       {/if}
     </div>
 
@@ -655,76 +664,65 @@
 {/if}
 
 <!-- ── Portion picker sheet ── -->
-{#if portionSheet && portionFood}
-  <div use:portal class="overlay-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_meLock) { portionSheet = false; editingIndex = null; } }} on:keydown={() => {}}>
-    <div class="portion-sheet" on:click|stopPropagation on:keydown={() => {}}>
-      <div class="portion-header">
-        <span style="font-weight:600">{portionFood.name}</span>
-        <button class="btn-icon" on:click={() => { portionSheet = false; editingIndex = null; }} title="Close">
-          <span class="material-symbols-rounded">close</span>
-        </button>
+<Sheet bind:open={portionSheet} title={portionFood ? portionFood.name : 'Set Portion'}
+  on:close={() => { editingIndex = null; }}>
+  <div style="display:flex;flex-direction:column;gap:16px;padding-top:8px">
+    <div style="display:flex;gap:12px">
+      <div style="flex:1">
+        <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:6px">Serving Size</label>
+        <input class="input" type="number" min="0.1" step="0.1" bind:value={portionAmount}
+          style="font-size:16px;width:100%" />
       </div>
-      <div class="portion-body">
-        <label class="form-label">Amount</label>
-        <input class="input" type="number" min="0.1" step="any" bind:value={portionAmount} />
-        <label class="form-label" style="margin-top:12px">Unit</label>
-        <select class="input" bind:value={portionUnit}>
+      <div style="width:80px">
+        <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:6px">Unit</label>
+        <select class="select" bind:value={portionUnit} style="width:100%">
           {#each UNITS as u}<option value={u}>{u}</option>{/each}
         </select>
-        <label class="form-label" style="margin-top:12px">Quantity</label>
-        <input class="input" type="number" min="0.01" step="any" bind:value={portionQty} />
-      </div>
-      <div style="padding:16px;flex-shrink:0">
-        <button class="btn btn-primary w-full" on:click={confirmPortion}>{editingIndex !== null ? 'Save Changes' : 'Add Ingredient'}</button>
       </div>
     </div>
+    <div>
+      <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:6px">Quantity</label>
+      <input class="input" type="number" min="0.01" step="0.1" bind:value={portionQty}
+        style="font-size:16px;width:100%" />
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface-2);border-radius:var(--radius-md)">
+      <span style="font-size:13px;color:var(--text-3)">Total Amount</span>
+      <span style="font-size:14px;font-weight:500">{Math.round((parseFloat(portionAmount) || 100) * (parseFloat(portionQty) || 1) * 10) / 10}{portionUnit || 'g'}</span>
+    </div>
+    <button class="btn btn-primary w-full" on:click={confirmPortion}>{editingIndex !== null ? 'Save Changes' : 'Add Ingredient'}</button>
   </div>
-{/if}
+</Sheet>
 
 <!-- ── Multi-ingredient portion sheet ── -->
-{#if showMultiPortionSheet}
-  <div use:portal class="overlay-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { showMultiPortionSheet = false; }} on:keydown={() => {}}>
-    <div class="portion-sheet" style="max-height:80vh;display:flex;flex-direction:column" on:click|stopPropagation on:keydown={() => {}}>
-      <div class="portion-header">
-        <span style="font-weight:600">Set Portions ({multiPortionItems.length} items)</span>
-        <button class="btn-icon" on:click={() => { showMultiPortionSheet = false; }} title="Close">
-          <span class="material-symbols-rounded">close</span>
-        </button>
-      </div>
-      <div class="portion-body" style="flex:1;overflow-y:auto">
-        {#each multiPortionItems as item, i}
-          {#if i > 0}<div style="height:1px;background:var(--border);margin:12px 0"></div>{/if}
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <span style="font-size:13px;font-weight:600;color:var(--text-1)">{item.food.name}</span>
-            <div style="display:flex;gap:10px">
-              <div style="flex:1">
-                <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Amount</label>
-                <input class="input" type="number" min="0.1" step="any" bind:value={item.portion} style="width:100%" />
-              </div>
-              <div style="width:80px">
-                <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Unit</label>
-                <select class="input" bind:value={item.unit} style="width:100%">
-                  {#each UNITS as u}<option value={u}>{u}</option>{/each}
-                </select>
-              </div>
-              <div style="width:60px">
-                <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Qty</label>
-                <input class="input" type="number" min="0.01" step="any" bind:value={item.qty} style="width:100%" />
-              </div>
-            </div>
+<Sheet bind:open={showMultiPortionSheet} title="Set Portions ({multiPortionItems.length} items)">
+  <div style="display:flex;flex-direction:column;gap:16px;padding-top:8px">
+    {#each multiPortionItems as item, i}
+      {#if i > 0}<div style="height:1px;background:var(--border);margin:4px 0"></div>{/if}
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <span style="font-size:13px;font-weight:600;color:var(--text-1)">{item.food.name}</span>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Serving Size</label>
+            <input class="input" type="number" min="0.1" step="0.1" bind:value={item.portion} style="width:100%;font-size:16px" />
           </div>
-        {/each}
+          <div style="width:80px">
+            <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Unit</label>
+            <select class="select" bind:value={item.unit} style="width:100%">
+              {#each UNITS as u}<option value={u}>{u}</option>{/each}
+            </select>
+          </div>
+          <div style="width:60px">
+            <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Qty</label>
+            <input class="input" type="number" min="0.01" step="0.1" bind:value={item.qty} style="width:100%;font-size:16px" />
+          </div>
+        </div>
       </div>
-      <div style="padding:16px;flex-shrink:0">
-        <button class="btn btn-primary w-full" on:click={confirmMultiPortion}>
-          Add {multiPortionItems.length} Ingredient{multiPortionItems.length > 1 ? 's' : ''}
-        </button>
-      </div>
-    </div>
+    {/each}
+    <button class="btn btn-primary w-full" on:click={confirmMultiPortion}>
+      Add {multiPortionItems.length} Ingredient{multiPortionItems.length > 1 ? 's' : ''}
+    </button>
   </div>
-{/if}
+</Sheet>
 
 <!-- ── Camera overlay ── -->
 {#if cameraOpen}
@@ -818,6 +816,24 @@
 
   /* Ingredient rows */
   .ingredient-list { display: flex; flex-direction: column; touch-action: none; }
+  .ingredient-add-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 10px; padding: 10px 12px;
+    background: var(--surface-2); border: 1px dashed var(--border);
+    border-radius: var(--radius-md); color: var(--accent);
+    font-size: 13px; font-weight: 500; width: 100%;
+    cursor: pointer; transition: background var(--dur-fast);
+  }
+  .ingredient-add-row:hover { background: var(--surface-3); }
+  .ingredient-add-row .material-symbols-rounded { font-size: 18px; }
+  .ingredient-list-footer {
+    display: flex; flex-direction: column; gap: 8px; margin-top: 10px;
+  }
+  .ingredient-list-total {
+    font-size: 12px; color: var(--text-3); text-align: right;
+    font-weight: 500;
+  }
+  .ingredient-list-footer .ingredient-add-row { margin-top: 0; }
   .ingredient-row {
     display: flex; align-items: center; gap: 10px;
     padding: 6px 0; border-bottom: 1px solid var(--border);
@@ -905,26 +921,6 @@
   }
   .picker-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .picker-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-  /* Portion sheet */
-  :global(.overlay-backdrop) {
-    position: fixed; inset: 0; z-index: 200;
-    background: rgba(0,0,0,0.5);
-    display: flex; align-items: flex-end;
-  }
-  .portion-sheet {
-    background: var(--surface-1);
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-    width: 100%; max-width: 600px; margin: 0 auto;
-    padding-bottom: var(--safe-bottom);
-    max-height: 85dvh; overflow: hidden;
-    display: flex; flex-direction: column;
-  }
-  .portion-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 16px 8px; flex-shrink: 0;
-  }
-  .portion-body { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; }
 
   /* Camera / Crop overlays — shared styles live in FoodEditor's :global CSS */
   :global(.crop-box) {

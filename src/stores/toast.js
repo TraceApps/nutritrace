@@ -14,3 +14,4 @@ export function showToast(message, duration = 3000, type = 'default') {
 
 export function showSuccess(msg) { showToast(msg, 2500, 'success'); }
 export function showError(msg)   { showToast(msg, 4000, 'error'); }
+export function showInfo(msg)    { showToast(msg, 3000, 'info'); }

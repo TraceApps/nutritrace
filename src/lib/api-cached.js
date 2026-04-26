@@ -28,13 +28,14 @@ function _base() {
   return getServerUrl() || '';
 }
 
-async function _serverFetch(method, path, body) {
+async function _serverFetch(method, path, body, timeoutMs = 3000) {
   const res = await fetch(_base() + path, {
     method,
     headers: _headers(),
     credentials: 'include',
     cache: 'no-store',
     body: body != null ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
@@ -241,9 +242,11 @@ export const NtApiCached = {
   },
 
   // ── Pass-through for NtApi.post/get/put/del ───────────────────────────
+  // GET: 3s (status checks, data reads — fail fast when server is down)
+  // POST/PUT/PATCH/DELETE: 30s (sync operations call external APIs and can take time)
   get(path)           { return _serverFetch('GET', path); },
-  post(path, body)    { return _serverFetch('POST', path, body); },
-  put(path, body)     { return _serverFetch('PUT', path, body); },
-  patch(path, body)   { return _serverFetch('PATCH', path, body); },
-  del(path)           { return _serverFetch('DELETE', path); },
+  post(path, body)    { return _serverFetch('POST', path, body, 30000); },
+  put(path, body)     { return _serverFetch('PUT', path, body, 30000); },
+  patch(path, body)   { return _serverFetch('PATCH', path, body, 30000); },
+  del(path)           { return _serverFetch('DELETE', path, 30000); },
 };

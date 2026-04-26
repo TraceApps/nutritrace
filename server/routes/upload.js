@@ -3,6 +3,10 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { requireAuth } from '../middleware/auth.js';
+import { makeRateLimiter } from '../middleware/rate-limit.js';
+import { detectImageType } from '../lib/image-magic.js';
+
+const uploadLimit = makeRateLimiter({ max: 60, windowMs: 60_000, label: 'upload' });
 
 
 const uploadsPath = process.env.UPLOADS_PATH || './uploads';
@@ -28,10 +32,25 @@ const upload = multer({
 const router = Router();
 router.use(requireAuth);
 
-router.post('/', (req, res, next) => {
-  upload.single('file')(req, res, (err) => {
+router.post('/', uploadLimit, (req, res, next) => {
+  upload.single('file')(req, res, async (err) => {
     if (err) return next(err);
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    // Magic-byte validation. The MIME-type fileFilter above is client-controlled
+    // and trivially spoofable — actually inspect the bytes we just wrote.
+    let detected = null;
+    try {
+      detected = await detectImageType(req.file.path);
+    } catch (e) {
+      // Fall through to the rejection branch below.
+    }
+    if (!detected) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({
+        error: 'File is not a supported image (JPEG, PNG, WebP, GIF, HEIC, AVIF, BMP).',
+      });
+    }
     res.json({ url: `/uploads/${req.file.filename}` });
   });
 });

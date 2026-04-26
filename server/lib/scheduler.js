@@ -12,12 +12,36 @@
 import db from '../db.js';
 import { logger } from '../logger.js';
 
-const _lastRun = {}; // userId_task → timestamp (dedup within window)
-
 function _getUserSetting(userId, key) {
   const row = db.prepare('SELECT value FROM user_settings WHERE user_id = ? AND key = ?').get(userId, key);
   if (!row?.value) return null;
   try { return JSON.parse(row.value); } catch { return row.value; }
+}
+
+// Persistent dedup — survives server restarts (stored in app_config)
+const _dedupCache = {}; // in-memory cache to avoid DB reads on every tick
+function _ranRecently(userId, task, windowMs = 14 * 60 * 1000) {
+  const key = `_sched_${userId}_${task}`;
+  // Check in-memory cache first
+  if (_dedupCache[key] && Date.now() - _dedupCache[key] < windowMs) {
+    logger.debug(`[scheduler] dedup HIT (memory) for ${key}, last=${new Date(_dedupCache[key]).toISOString()}`);
+    return true;
+  }
+  // Check DB (cold start after restart)
+  const row = db.prepare('SELECT value FROM app_config WHERE key = ?').get(key);
+  const last = row?.value ? parseInt(row.value) : 0;
+  if (last && Date.now() - last < windowMs) {
+    logger.debug(`[scheduler] dedup HIT (db) for ${key}, last=${new Date(last).toISOString()}, age=${Math.round((Date.now()-last)/60000)}min`);
+    _dedupCache[key] = last;
+    return true;
+  }
+  // Not recent — mark as run
+  const now = Date.now();
+  _dedupCache[key] = now;
+  db.prepare('INSERT INTO app_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(key, String(now));
+  logger.info(`[scheduler] dedup MISS for ${key}, marking run at ${new Date(now).toISOString()}${last ? ', prev=' + new Date(last).toISOString() + ' age=' + Math.round((now-last)/3600000) + 'h' : ' (first run)'}`);
+  return false;
 }
 
 /** Get current time in the user's timezone */
@@ -57,90 +81,173 @@ function _isEnabled(userId, key) {
   return val === true || val === 'true';
 }
 
-function _dedupKey(userId, task) { return `${userId}_${task}`; }
 
-function _ranRecently(userId, task, windowMs = 14 * 60 * 1000) {
-  const key = _dedupKey(userId, task);
-  const last = _lastRun[key];
-  if (last && Date.now() - last < windowMs) return true;
-  _lastRun[key] = Date.now();
-  return false;
+// ── Scheduled wellness sync (per-device) ────────────────────────────────────
+
+/** Check if a device should sync now based on its per-device settings */
+function _shouldDeviceSync(userId, deviceKey, local) {
+  const mode = _getUserSetting(userId, `${deviceKey}SyncMode`);
+  if (mode !== 'scheduled') return false;
+
+  const winStart = _getUserSetting(userId, `${deviceKey}SyncWindowStart`);
+  const winEnd   = _getUserSetting(userId, `${deviceKey}SyncWindowEnd`);
+  const interval = _getUserSetting(userId, `${deviceKey}SyncInterval`) ?? 1440;
+  const curMin   = local.hour * 60 + local.minute;
+
+  // Daily "Sync At" mode: windowStart set, windowEnd null → sync at a specific time
+  if (interval >= 1440 && winStart && !winEnd) {
+    const [sh, sm] = winStart.split(':').map(Number);
+    const targetMin = sh * 60 + sm;
+    const diff = curMin - targetMin;
+    return diff >= 0 && diff < 15; // within 15-min window of target time
+  }
+
+  // Active window check — skip if outside the configured hours
+  if (winStart && winEnd) {
+    const [sh, sm] = winStart.split(':').map(Number);
+    const [eh, em] = winEnd.split(':').map(Number);
+    const startMin = sh * 60 + sm;
+    const endMin   = eh * 60 + em;
+    // Handle overnight windows (e.g., 22:00–06:00)
+    if (startMin < endMin) {
+      if (curMin < startMin || curMin >= endMin) return false;
+    } else {
+      if (curMin < startMin && curMin >= endMin) return false;
+    }
+  }
+
+  // Interval-based: the dedup window handles timing — if we're in the active window
+  // and haven't synced within the interval, sync now.
+  return true;
 }
 
-// ── Scheduled wellness sync ─────────────────────────────────────────────────
+/** Dedup window = device's sync interval (in ms). Falls back to legacy schedule or 24h. */
+function _dedupWindow(userId, deviceKey) {
+  // Per-device interval in minutes
+  const interval = _getUserSetting(userId, `${deviceKey}SyncInterval`);
+  if (interval && interval > 0) return (interval - 5) * 60 * 1000; // subtract 5min buffer
+
+  // Legacy fallback
+  const schedule = _getUserSetting(userId, 'wellnessSyncSchedule') ?? 'daily';
+  if (schedule === 'every6h')  return 5   * 60 * 60 * 1000;
+  if (schedule === 'every12h') return 11  * 60 * 60 * 1000;
+  return 23 * 60 * 60 * 1000;
+}
 
 async function _syncWellness(userId) {
-  const syncMode = _getUserSetting(userId, 'wellnessSyncMode');
-  if (syncMode !== 'scheduled') return;
-
-  const schedule = _getUserSetting(userId, 'wellnessSyncSchedule') || 'daily';
-  const syncTime = _getUserSetting(userId, 'wellnessSyncTime') || '14:00';
-  const [h, m] = syncTime.split(':').map(Number);
   const local = _getUserLocalTime(userId);
+  const today = local.dateStr;
 
-  // Check if we're within the 15-minute window of the scheduled time (in USER's timezone)
-  const scheduledMin = h * 60 + m;
-  const currentMin = local.hour * 60 + local.minute;
-  const diff = currentMin - scheduledMin;
+  /** Compute the sync "from" date using the user's configured sync range for a device */
+  function _fromDate(deviceKey) {
+    const range = _getUserSetting(userId, `${deviceKey}SyncRange`) ?? _getUserSetting(userId, 'wellnessSyncRange') ?? 7;
+    const d = new Date(); d.setDate(d.getDate() - (range - 1));
+    return d.toISOString().slice(0, 10);
+  }
 
-  let shouldSync = false;
-  if (schedule === 'daily' && diff >= 0 && diff < 15) shouldSync = true;
-  if (schedule === 'every6h' && local.hour % 6 === h % 6 && local.minute < 15) shouldSync = true;
-  if (schedule === 'every12h' && local.hour % 12 === h % 12 && local.minute < 15) shouldSync = true;
-  if (schedule === 'weekly' && local.dayOfWeek === 0 && diff >= 0 && diff < 15) shouldSync = true;
+  // Fitbit
+  const hasFitbit = db.prepare('SELECT 1 FROM fitbit_tokens WHERE user_id=?').get(userId);
+  if (hasFitbit && _shouldDeviceSync(userId, 'fitbit', local)
+      && !_ranRecently(userId, 'fitbit_sync', _dedupWindow(userId, 'fitbit'))) {
+    const from = _fromDate('wellness'); // Fitbit uses shared wellnessSyncRange
+    try {
+      const { syncDate, syncWorkouts } = await import('../routes/fitbit.js');
+      logger.info(`[scheduler] Fitbit sync for user ${userId}: ${from} → ${today}`);
+      const start = new Date(from + 'T12:00:00');
+      const end   = new Date(today + 'T12:00:00');
+      let totalMetrics = 0, totalErrors = 0;
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().slice(0, 10);
+        try {
+          const { metrics, errors } = await syncDate(userId, dateStr);
+          totalMetrics += Object.keys(metrics || {}).length;
+          totalErrors += (errors?.length || 0);
+        } catch (e) {
+          if (e.message?.includes('429')) { logger.warn(`[scheduler] Fitbit rate limited at ${dateStr}`); break; }
+          totalErrors++;
+        }
+        if (d < end) await new Promise(r => setTimeout(r, 250));
+      }
+      logger.info(`[scheduler] Fitbit sync done: ${totalMetrics} metrics across ${from}→${today}, ${totalErrors} errors`);
+      if (_getUserSetting(userId, 'workoutsEnabled')) {
+        try {
+          const wResult = await syncWorkouts(userId, from, today);
+          logger.info(`[scheduler] Fitbit workouts synced: ${wResult?.synced || 0}`);
+        } catch (we) {
+          logger.debug(`[scheduler] Fitbit workout sync skipped: ${we.message}`);
+        }
+      }
+    } catch (e) {
+      logger.warn(`[scheduler] Fitbit sync error for user ${userId}: ${e.message}`);
+      try { const { alertSyncFailure } = await import('./push-notify.js'); alertSyncFailure(userId, `Scheduled Fitbit sync failed: ${e.message}`); } catch {}
+    }
+  }
 
-  if (!shouldSync) return;
-  if (_ranRecently(userId, 'wellness_sync', 5 * 60 * 60 * 1000)) return; // 5h dedup for daily
+  // Withings
+  const hasWithings = db.prepare('SELECT 1 FROM withings_tokens WHERE user_id=?').get(userId);
+  if (hasWithings && _shouldDeviceSync(userId, 'withings', local)
+      && !_ranRecently(userId, 'withings_sync', _dedupWindow(userId, 'withings'))) {
+    const from = _fromDate('withings');
+    try {
+      const { syncRange } = await import('../routes/withings.js');
+      logger.info(`[scheduler] Withings sync for user ${userId}: ${from} → ${today}`);
+      const result = await syncRange(userId, from, today);
+      logger.info(`[scheduler] Withings sync done: ${result?.dates || 0} dates`);
+    } catch (e) {
+      logger.warn(`[scheduler] Withings sync error for user ${userId}: ${e.message}`);
+      try { const { alertSyncFailure } = await import('./push-notify.js'); alertSyncFailure(userId, `Scheduled Withings sync failed: ${e.message}`); } catch {}
+    }
+  }
 
-  logger.info(`[scheduler] running scheduled wellness sync for user ${userId}`);
+  // Garmin
+  const hasGarmin = db.prepare('SELECT 1 FROM garmin_tokens WHERE user_id=?').get(userId);
+  if (hasGarmin && _shouldDeviceSync(userId, 'garmin', local)
+      && !_ranRecently(userId, 'garmin_sync', _dedupWindow(userId, 'garmin'))) {
+    const from = _fromDate('garmin');
+    try {
+      const { syncRange } = await import('../routes/garmin.js');
+      logger.info(`[scheduler] Garmin sync for user ${userId}: ${from} → ${today}`);
+      const result = await syncRange(userId, from, today);
+      logger.info(`[scheduler] Garmin sync done: ${result?.synced || 0} synced`);
+    } catch (e) {
+      logger.warn(`[scheduler] Garmin sync error for user ${userId}: ${e.message}`);
+      try { const { alertSyncFailure } = await import('./push-notify.js'); alertSyncFailure(userId, `Scheduled Garmin sync failed: ${e.message}`); } catch {}
+    }
+  }
 
-  // Import and run Fitbit sync
+  // ── Post-sync: goal + wellness alert checks (device-agnostic) ──────────
+  // Read today's merged data from ALL sources and fire alerts/celebrations once.
   try {
-    const today = local.dateStr;
+    const todayMetrics = {};
+    const rows = db.prepare(
+      `SELECT metric_type, value FROM wellness_data WHERE user_id = ? AND date = ? ORDER BY source`
+    ).all(userId, today);
+    for (const r of rows) todayMetrics[r.metric_type] = r.value; // last source wins
 
-    // Fitbit sync
-    const hasFitbit = db.prepare('SELECT 1 FROM fitbit_tokens WHERE user_id=?').get(userId);
-    if (hasFitbit) {
-      try {
-        const { syncDate } = await import('../routes/fitbit.js');
-        logger.info(`[scheduler] Fitbit sync for user ${userId} date ${today}`);
-        const { metrics, errors } = await syncDate(userId, today);
-        logger.info(`[scheduler] Fitbit sync done: ${Object.keys(metrics || {}).length} metrics, ${errors?.length || 0} errors`);
-      } catch (e) {
-        logger.warn(`[scheduler] Fitbit sync error for user ${userId}: ${e.message}`);
-        try { const { alertSyncFailure } = await import('./push-notify.js'); alertSyncFailure(userId, `Scheduled Fitbit sync failed: ${e.message}`); } catch {}
+    // Step goal
+    if (todayMetrics.steps) {
+      const goalRow = db.prepare('SELECT value FROM user_settings WHERE user_id=? AND key=?').get(userId, 'goals');
+      if (goalRow?.value) {
+        try {
+          const goals = JSON.parse(goalRow.value);
+          const stepGoal = goals.steps?.min || goals.steps?.max;
+          if (stepGoal) {
+            const { notifyStepGoal } = await import('./push-notify.js');
+            notifyStepGoal(userId, todayMetrics.steps, stepGoal);
+          }
+        } catch {}
       }
     }
 
-    // Withings sync
-    const hasWithings = db.prepare('SELECT 1 FROM withings_tokens WHERE user_id=?').get(userId);
-    if (hasWithings) {
+    // Wellness alerts (HRV drop, sleep decline, RHR spike)
+    if (todayMetrics.hrv_daily_rmssd || todayMetrics.sleep_score || todayMetrics.resting_hr) {
       try {
-        const { syncRange } = await import('../routes/withings.js');
-        logger.info(`[scheduler] Withings sync for user ${userId} date ${today}`);
-        const result = await syncRange(userId, today, today);
-        logger.info(`[scheduler] Withings sync done: ${result?.dates || 0} dates`);
-      } catch (e) {
-        logger.warn(`[scheduler] Withings sync error for user ${userId}: ${e.message}`);
-        try { const { alertSyncFailure } = await import('./push-notify.js'); alertSyncFailure(userId, `Scheduled Withings sync failed: ${e.message}`); } catch {}
-      }
-    }
-
-    // Garmin sync
-    const hasGarmin = db.prepare('SELECT 1 FROM garmin_tokens WHERE user_id=?').get(userId);
-    if (hasGarmin) {
-      try {
-        const { syncRange } = await import('../routes/garmin.js');
-        logger.info(`[scheduler] Garmin sync for user ${userId} date ${today}`);
-        const result = await syncRange(userId, today, today);
-        logger.info(`[scheduler] Garmin sync done: ${result?.synced || 0} synced`);
-      } catch (e) {
-        logger.warn(`[scheduler] Garmin sync error for user ${userId}: ${e.message}`);
-        try { const { alertSyncFailure } = await import('./push-notify.js'); alertSyncFailure(userId, `Scheduled Garmin sync failed: ${e.message}`); } catch {}
-      }
+        const { _checkWellnessAlerts } = await import('../routes/fitbit.js');
+        if (_checkWellnessAlerts) await _checkWellnessAlerts(userId, todayMetrics);
+      } catch {}
     }
   } catch (e) {
-    logger.warn(`[scheduler] wellness sync failed for user ${userId}: ${e.message}`);
+    logger.debug(`[scheduler] post-sync alert check failed: ${e.message}`);
   }
 }
 
@@ -169,7 +276,11 @@ async function _pushReminders(userId) {
             const today = local.dateStr;
             const uCond = userId === 0 ? '(user_id IS NULL OR user_id = 0)' : 'user_id = ?';
             const uArgs = userId === 0 ? [today] : [today, userId];
-            const row = db.prepare(`SELECT water FROM diary WHERE date = ? AND ${uCond} AND deleted_at IS NULL`).get(...uArgs);
+            let row = db.prepare(`SELECT water FROM diary WHERE date = ? AND ${uCond} AND deleted_at IS NULL`).get(...uArgs);
+            // Multi-user fallback: also check NULL user_id (pre-auth diary rows)
+            if (!row && userId !== 0) {
+              row = db.prepare(`SELECT water FROM diary WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL`).get(today);
+            }
             if (row?.water) {
               const waterTotal = JSON.parse(row.water).reduce((s, l) => s + (l.amount || 0), 0);
               if (waterTotal >= waterGoal) skipWater = true;
@@ -229,20 +340,129 @@ async function _pushReminders(userId) {
    } // end if (times && times.length > 0)
   }
 
-  // Weigh-in reminder
+  // Weigh-in reminder — skip if already weighed in today (diary.body_stats OR wellness_data)
   if (_isEnabled(userId, 'notifWeighIn')) {
     const time = _getUserSetting(userId, 'notifWeighInTime') || '07:00';
     const [th, tm] = time.split(':').map(Number);
     const targetMin = th * 60 + tm;
     if (currentMin >= targetMin && currentMin < targetMin + 15 && !_ranRecently(userId, 'weighin')) {
-      await pushNotify(userId, 'notifWeighIn', '⚖️ Weigh-in Reminder', 'Time to step on the scale!', 4);
+      // Check if weight already logged today (either manual diary entry or synced from scale)
+      const today = local.dateStr;
+      let alreadyWeighed = false;
+      let checkInfo = 'no match';
+      try {
+        // Manual diary entry — handle user_id match + NULL fallback (pre-auth rows)
+        const uCond = userId === 0 ? '(user_id IS NULL OR user_id = 0)' : 'user_id = ?';
+        const uArgs = userId === 0 ? [today] : [today, userId];
+        let diaryRow = db.prepare(`SELECT body_stats FROM diary WHERE date = ? AND ${uCond} AND deleted_at IS NULL`).get(...uArgs);
+        if (!diaryRow && userId !== 0) {
+          diaryRow = db.prepare(`SELECT body_stats FROM diary WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL`).get(today);
+        }
+        if (diaryRow?.body_stats) {
+          const bs = JSON.parse(diaryRow.body_stats);
+          if (bs.weight != null && bs.weight > 0) { alreadyWeighed = true; checkInfo = `diary.body_stats.weight=${bs.weight}`; }
+        }
+        // Synced from scale (Withings, Health Connect, etc.) — same user_id handling as diary
+        if (!alreadyWeighed) {
+          let wRow = db.prepare(`SELECT value FROM wellness_data WHERE date = ? AND ${uCond} AND metric_type = 'weight_kg' AND value > 0 LIMIT 1`).get(...uArgs);
+          if (!wRow && userId !== 0) {
+            wRow = db.prepare(`SELECT value FROM wellness_data WHERE date = ? AND user_id IS NULL AND metric_type = 'weight_kg' AND value > 0 LIMIT 1`).get(today);
+          }
+          if (wRow) { alreadyWeighed = true; checkInfo = `wellness_data.weight_kg=${wRow.value}`; }
+        }
+      } catch (e) { logger.debug(`[scheduler] weigh-in check error: ${e.message}`); }
+
+      if (alreadyWeighed) {
+        logger.info(`[scheduler] skipping weigh-in reminder for user=${userId} date=${today} — ${checkInfo}`);
+      } else {
+        logger.info(`[scheduler] firing weigh-in reminder for user=${userId} date=${today} — no weight found`);
+        await pushNotify(userId, 'notifWeighIn', '⚖️ Weigh-in Reminder', 'Time to step on the scale!', 4);
+      }
     }
   }
 
-  // Weekly summary (Sunday)
-  if (_isEnabled(userId, 'notifWeeklySummary') && local.dayOfWeek === 0 && local.hour >= 9 && local.hour < 10 && !_ranRecently(userId, 'weekly', 6 * 24 * 60 * 60 * 1000)) {
-    const { sendWeeklySummary } = await import('./push-notify.js');
-    await sendWeeklySummary(userId);
+  // Bedtime reminder (+ optional wind-down pre-reminder)
+  if (_isEnabled(userId, 'notifBedtime')) {
+    const bedtime = _getUserSetting(userId, 'notifBedtimeTime') || '22:30';
+    const [bh, bm] = bedtime.split(':').map(Number);
+    const bedtimeMin = bh * 60 + bm;
+    const windDownEnabled = _isEnabled(userId, 'notifBedtimeWindDown');
+    const windDownMin = _getUserSetting(userId, 'notifBedtimeWindDownMin') || 30;
+    const smart = _getUserSetting(userId, 'notifBedtimeSmart') !== false;
+    const sleepGoalMinutes = (() => {
+      const goalRow = db.prepare('SELECT value FROM user_settings WHERE user_id=? AND key=?').get(userId, 'goals');
+      if (goalRow?.value) {
+        try {
+          const g = JSON.parse(goalRow.value);
+          return g.sleep_duration_min?.min || g.sleep_duration_min?.max || 480;
+        } catch { return 480; }
+      }
+      return 480;
+    })();
+    const goalHours = Math.round(sleepGoalMinutes / 60 * 10) / 10;
+
+    // Build the reminder message (smart variant looks at last night's sleep)
+    let msg = `Aim for ${goalHours}h tonight — time to wind down.`;
+    if (smart) {
+      try {
+        const yesterday = (() => {
+          const d = new Date(local.dateStr + 'T12:00:00');
+          d.setDate(d.getDate() - 1);
+          return d.toISOString().slice(0, 10);
+        })();
+        const row = db.prepare(
+          `SELECT value FROM wellness_data WHERE user_id=? AND date=? AND metric_type='sleep_duration_min' ORDER BY source LIMIT 1`
+        ).get(userId, yesterday);
+        if (row?.value) {
+          const lastH = Math.round(row.value / 60 * 10) / 10;
+          if (row.value < sleepGoalMinutes - 60) {
+            msg = `You slept ${lastH}h last night — prioritize an earlier bedtime tonight.`;
+          } else if (row.value >= sleepGoalMinutes) {
+            msg = `Great ${lastH}h last night — keep it up with another ${goalHours}h tonight.`;
+          }
+        }
+      } catch {}
+    }
+
+    // Main bedtime reminder
+    if (currentMin >= bedtimeMin && currentMin < bedtimeMin + 15 && !_ranRecently(userId, 'bedtime')) {
+      await pushNotify(userId, 'notifBedtime', '🌙 Bedtime Reminder', msg, 4);
+    }
+
+    // Wind-down pre-reminder
+    if (windDownEnabled) {
+      const windDownTarget = bedtimeMin - windDownMin;
+      if (windDownTarget >= 0 && currentMin >= windDownTarget && currentMin < windDownTarget + 15
+          && !_ranRecently(userId, 'bedtime_winddown')) {
+        await pushNotify(userId, 'notifBedtime', '🌙 Wind Down',
+          `Bedtime in ${windDownMin} min — start winding down. ${msg}`, 4);
+      }
+    }
+  }
+
+  // Weekly summary — user-configurable day + time
+  // Dedup check is AFTER the day/hour gate so the timestamp only burns when we actually send
+  if (_isEnabled(userId, 'notifWeeklySummary')) {
+    const summaryDay  = _getUserSetting(userId, 'weeklySummaryDay')  ?? 0;    // 0=Sun default
+    const summaryTime = _getUserSetting(userId, 'weeklySummaryTime') ?? '09:00';
+    const [targetHour] = summaryTime.split(':').map(Number);
+    logger.debug(`[scheduler] weekly check: user=${userId} dow=${local.dayOfWeek} target=${summaryDay} hour=${local.hour} targetHour=${targetHour}`);
+    if (local.dayOfWeek === summaryDay && local.hour >= targetHour && local.hour < targetHour + 1
+        && !_ranRecently(userId, 'weekly', 6 * 24 * 60 * 60 * 1000)) {
+      logger.info(`[scheduler] SENDING weekly summary for user ${userId}`);
+      // Push notification
+      const { sendWeeklySummary } = await import('./push-notify.js');
+      await sendWeeklySummary(userId);
+      // Email digest (if SMTP configured + user has an email on file)
+      try {
+        const { sendWeeklySummaryEmail } = await import('../email.js');
+        const origin = db.prepare(`SELECT value FROM app_config WHERE key='app_url'`).get()?.value
+          || 'http://localhost:3001';
+        await sendWeeklySummaryEmail(userId, origin);
+      } catch (e) {
+        logger.debug(`[scheduler] weekly email skipped for user ${userId}: ${e.message}`);
+      }
+    }
   }
 }
 

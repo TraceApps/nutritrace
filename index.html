@@ -52,10 +52,8 @@
     })();
   </script>
 
-  <!-- Barcode scanner libraries (globals: ZXing, Html5Qrcode, Quagga) -->
-  <script src="/vendor/zxing.min.js"></script>
-  <script src="/vendor/html5-qrcode.min.js"></script>
-  <script src="/vendor/quagga2.min.js"></script>
+  <!-- Barcode scanner libraries (~870 KB) lazy-loaded on first scanner open
+       by src/components/foods/BarcodeScanner.svelte → _loadBarcodeLibs(). -->
 </head>
 <body>
   <div id="app"></div>

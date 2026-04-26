@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
-  import { wellnessMetrics, wellnessSyncMode, wellnessSyncRange, distUnit, tempUnit, pageBanners, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations } from '../stores/settings.js';
+  import { wellnessMetrics, wellnessSyncRange, distUnit, tempUnit, pageBanners, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations,
+    fitbitSyncMode, withingsSyncMode, garminSyncMode, healthConnectSyncMode, timeFormat } from '../stores/settings.js';
   import Chart from 'chart.js/auto';
   import WellnessBanner from '../components/banners/WellnessBanner.svelte';
   import { showSuccess, showError } from '../stores/toast.js';
@@ -17,17 +18,17 @@
   // sources: which integrations can supply this metric. Used to hide metrics
   // when their only source integration is disabled.
   const ALL_METRICS = [
-    // Movement — both Fitbit and Garmin
-    { id: 'steps',            label: 'Steps',             unit: 'steps', group: 'movement', icon: 'directions_walk',       fmt: v => Math.round(v).toLocaleString(),  sources: ['fitbit','garmin'], desc: 'Total steps taken today.' },
-    { id: 'distance_km',      label: 'Distance',          unit: '',      group: 'movement', icon: 'straighten',            fmt: null,                                  sources: ['fitbit','garmin'], desc: 'Total distance covered today.' },
-    { id: 'floors',           label: 'Floors Climbed',    unit: 'floors',group: 'movement', icon: 'stairs',                fmt: v => Math.round(v),                   sources: ['fitbit','garmin'], desc: 'Floors climbed based on elevation gain detected by your device.' },
-    { id: 'active_minutes',   label: 'Active Minutes',    unit: 'min',   group: 'movement', icon: 'timer',                 fmt: v => Math.round(v),                   sources: ['fitbit','garmin'], desc: 'Time spent at a moderate or higher activity level.' },
-    { id: 'calories_out',     label: 'Calories Burned',   unit: 'kcal',  group: 'movement', icon: 'local_fire_department', fmt: v => Math.round(v).toLocaleString(),  sources: ['fitbit','garmin'], desc: 'Total calories burned including your resting metabolic rate.' },
-    // Movement — Fitbit only
-    { id: 'active_zone_minutes', label: 'Active Zone Min', unit: 'min',  group: 'movement', icon: 'local_fire_department', fmt: v => Math.round(v), sources: ['fitbit'], desc: 'Minutes spent in Fat Burn, Cardio, or Peak heart rate zones — counts double for Cardio and Peak.' },
-    // Movement — Garmin only
-    { id: 'moderate_intensity_min', label: 'Moderate Intensity', unit: 'min', group: 'movement', icon: 'directions_run', fmt: v => Math.round(v), sources: ['garmin'], desc: 'Time at moderate intensity (brisk walking, light cycling). WHO recommends 150–300 min/week.' },
-    { id: 'vigorous_intensity_min', label: 'Vigorous Intensity', unit: 'min', group: 'movement', icon: 'sprint',         fmt: v => Math.round(v), sources: ['garmin'], desc: 'Time at high intensity (running, hard effort). Counts double toward weekly activity targets.' },
+    // Activity — both Fitbit and Garmin
+    { id: 'steps',            label: 'Steps',             unit: 'steps', group: 'activity', icon: 'directions_walk',       fmt: v => Math.round(v).toLocaleString(),  sources: ['fitbit','garmin'], desc: 'Total steps taken today.' },
+    { id: 'distance_km',      label: 'Distance',          unit: '',      group: 'activity', icon: 'straighten',            fmt: null,                                  sources: ['fitbit','garmin'], desc: 'Total distance covered today.' },
+    { id: 'floors',           label: 'Floors Climbed',    unit: 'floors',group: 'activity', icon: 'stairs',                fmt: v => Math.round(v),                   sources: ['fitbit','garmin'], desc: 'Floors climbed based on elevation gain detected by your device.' },
+    { id: 'active_minutes',   label: 'Active Minutes',    unit: 'min',   group: 'activity', icon: 'timer',                 fmt: v => Math.round(v),                   sources: ['fitbit','garmin'], desc: 'Time spent at a moderate or higher activity level.' },
+    { id: 'calories_out',     label: 'Calories Burned',   unit: 'kcal',  group: 'activity', icon: 'local_fire_department', fmt: v => Math.round(v).toLocaleString(),  sources: ['fitbit','garmin'], desc: 'Total calories burned including your resting metabolic rate.' },
+    // Activity — Fitbit only
+    { id: 'active_zone_minutes', label: 'Active Zone Min', unit: 'min',  group: 'activity', icon: 'local_fire_department', fmt: v => Math.round(v), sources: ['fitbit'], desc: 'Minutes spent in Fat Burn, Cardio, or Peak heart rate zones — counts double for Cardio and Peak.' },
+    // Activity — Garmin only
+    { id: 'moderate_intensity_min', label: 'Moderate Intensity', unit: 'min', group: 'activity', icon: 'directions_run', fmt: v => Math.round(v), sources: ['garmin'], desc: 'Time at moderate intensity (brisk walking, light cycling). WHO recommends 150–300 min/week.' },
+    { id: 'vigorous_intensity_min', label: 'Vigorous Intensity', unit: 'min', group: 'activity', icon: 'sprint',         fmt: v => Math.round(v), sources: ['garmin'], desc: 'Time at high intensity (running, hard effort). Counts double toward weekly activity targets.' },
     // Sleep — both
     { id: 'sleep_duration_min', label: 'Sleep Duration', unit: '',     group: 'sleep', icon: 'bedtime',               fmt: null,               sources: ['fitbit','garmin'], desc: 'Total time asleep last night. Adults generally need 7–9 hours.' },
     { id: 'sleep_deep_min',     label: 'Deep Sleep',     unit: 'min',  group: 'sleep', icon: 'nights_stay',           fmt: v => Math.round(v), sources: ['fitbit','garmin'], desc: 'Deep (slow-wave) sleep — the most restorative stage. Critical for physical recovery and immune function.' },
@@ -100,7 +101,7 @@
   }
 
   // ── State ──────────────────────────────────────────────────────────────────
-  let activeTab   = 'movement';
+  let activeTab   = 'activity';
   let dateStr     = localDateStr();
   let status      = null; // { connected, configured, fitbitUserId, expiresAt }
   let data        = {}; // { [metricId]: value }
@@ -422,6 +423,23 @@
       if (isNative) await loadLocalWellnessData();
       console.log('[wellness] HC sync done, data keys:', Object.keys(data), '_hasLocalData:', _hasLocalData, 'displayData keys:', Object.keys(displayData));
       showSuccess('Health Connect synced');
+      // Check step + wellness goals after HC sync (works in local mode too)
+      if (dateStr === localDateStr()) {
+        try {
+          const { dbGetWellnessByDate } = await import('../lib/db-native.js');
+          const todayData = await dbGetWellnessByDate(dateStr);
+          const metrics = todayData[dateStr] || {};
+          const { checkStepGoal, checkGoals } = await import('../lib/notifications.js');
+          const goalsObj = DB.getSetting('goals', {});
+          const stepGoal = goalsObj.steps?.min || goalsObj.steps?.max;
+          if (metrics.steps && stepGoal) await checkStepGoal(metrics.steps, stepGoal);
+          const wellnessValues = {};
+          if (metrics.sleep_duration_min) wellnessValues.sleep_duration_min = metrics.sleep_duration_min;
+          if (metrics.active_minutes) wellnessValues.active_minutes = metrics.active_minutes;
+          if (metrics.calories_out) wellnessValues.calories_out = metrics.calories_out;
+          if (Object.keys(wellnessValues).length) await checkGoals(goalsObj, wellnessValues);
+        } catch {}
+      }
     } catch (e) {
       showError('Health Connect sync failed: ' + (e.message || ''));
     }
@@ -616,17 +634,16 @@
     const rhrVals     = [...history30d.map(d => d.resting_hr).filter(v => v != null), ...(todayRhr != null ? [todayRhr] : [])];
     const rhrBaseline = rhrVals.length >= 3 ? mean(rhrVals) : null;
 
-    // HRV score (60% weight) — calibrated from ground-truth data.
-    // Below-baseline penalty 250 — Fitbit penalizes even small HRV dips aggressively,
-    // especially for low-HRV users where the ratio swings are small in absolute terms.
+    // HRV score (75% weight) — calibrated from ground-truth data (6 days, MAE 4.5).
+    // Above baseline: concave power curve (pow 0.7) — fast initial gain, gentle top.
+    // Below baseline: sqrt penalty — gentler on big dips, steeper on small ones.
     const hrvRatio = todayHrv / hrvBaseline;
-    // Square-root penalty curve — gentler on big HRV dips, steeper on small ones
     let hrv_score  = hrvRatio >= 1.0
-      ? 65 + (hrvRatio - 1.0) * 100
+      ? 65 + Math.pow(hrvRatio - 1.0, 0.7) * 80
       : 65 - Math.sqrt(1.0 - hrvRatio) * 55;
     hrv_score = _clamp(hrv_score, 0, 100);
 
-    // RHR score (22% weight) — inverse: lower today is better. Neutral at 59.
+    // RHR score (5% weight) — inverse: lower today is better. Neutral at 59.
     let rhr_score = 59; // neutral if no baseline
     if (rhrBaseline != null && todayRhr != null) {
       const rhrRatio = rhrBaseline / todayRhr;
@@ -658,7 +675,7 @@
       activity_penalty = _clamp(activity_penalty, 0, 20);
     }
 
-    let score = (0.58 * hrv_score) + (0.22 * rhr_score) + (0.12 * sleepBase) - activity_penalty - interaction_penalty;
+    let score = (0.75 * hrv_score) + (0.05 * rhr_score) + (0.12 * sleepBase) + 4 - activity_penalty - interaction_penalty;
     score     = Math.min(_clamp(Math.round(score), 1, 100), sleep_cap);
 
     const label = score >= 80 ? 'Optimal' : score >= 65 ? 'Good' : score >= 50 ? 'Fair' : score >= 35 ? 'Low' : 'Poor';
@@ -668,7 +685,7 @@
       inputs: { todayHrv, todayRhr, todaySleepScore, todayCalories, historyDays: history30d.length },
       baselines: { hrvBaseline: Math.round(hrvBaseline * 100) / 100, rhrBaseline: rhrBaseline != null ? Math.round(rhrBaseline * 10) / 10 : null },
       components: { hrvRatio: Math.round(hrvRatio * 1000) / 1000, hrv_score: Math.round(hrv_score * 10) / 10, rhr_score: Math.round(rhr_score * 10) / 10, sleepBase, activity_penalty: Math.round(activity_penalty * 10) / 10, interaction_penalty: Math.round(interaction_penalty * 10) / 10 },
-      formula: `(0.58×${Math.round(hrv_score*10)/10}) + (0.22×${Math.round(rhr_score*10)/10}) + (0.12×${sleepBase}) - ${Math.round(activity_penalty*10)/10} - ${Math.round(interaction_penalty*10)/10} = ${score}`,
+      formula: `(0.75×${Math.round(hrv_score*10)/10}) + (0.05×${Math.round(rhr_score*10)/10}) + (0.12×${sleepBase}) + 4 - ${Math.round(activity_penalty*10)/10} - ${Math.round(interaction_penalty*10)/10} = ${score}`,
     }, null, 2));
 
     return {
@@ -682,19 +699,6 @@
       rhr_baseline:         rhrBaseline != null ? Math.round(rhrBaseline) : null,
       data_days:            totalHrvCount,
     };
-  }
-
-  async function recalculateScores() {
-    try {
-      const result = await NtApi.post('/api/wellness/fitbit/recalculate', {});
-      showSuccess(`Recalculated: readiness=${result.readiness_score}, stress=${result.stress_score}`);
-      // Reload data to pick up new scores
-      _readinessLoaded = false;
-      _stressLoaded = false;
-      loadData();
-    } catch (e) {
-      showError('Recalculate failed: ' + (e.message || ''));
-    }
   }
 
   async function loadReadiness() {
@@ -732,7 +736,8 @@
 
     // Past days: use server-stored snapshot (locked in at sync time).
     // Today: always calculate live so score updates as data arrives.
-    // Always compute the breakdown for display
+    // Always compute the breakdown for display.
+    // displayData.sleep_score is already overridden with sleep_score_actual when seeded.
     readiness = _calcReadiness(
       displayData.hrv_daily_rmssd,
       displayData.resting_hr,
@@ -740,7 +745,7 @@
       yesterdayCalories,
       history
     );
-    // If a stored (locked-in) score exists, use it as the displayed score
+    // displayData.readiness_score is already overridden with readiness_score_actual when seeded.
     if (displayData.readiness_score != null) {
       const s = Math.round(displayData.readiness_score);
       readiness = { ...readiness, score: s, stored: true };
@@ -763,9 +768,9 @@
 
   function _rawStressScore(hrv, rhr, sleepScore, hrvBaseline, rhrBaseline) {
     if (hrv == null) return null;
-    // HRV component — symmetric, gentler than readiness (±120 per ratio unit vs ±220/80)
+    // HRV component — very gentle (±40 per ratio unit). Stress is dominated by sleep.
     const hrvRatio = hrv / hrvBaseline;
-    let hrv_s = 75 + (hrvRatio - 1.0) * 120;
+    let hrv_s = 75 + (hrvRatio - 1.0) * 40;
     hrv_s = _clamp(hrv_s, 0, 100);
     // RHR component — mild modifier
     let rhr_s = 75;
@@ -773,9 +778,10 @@
       rhr_s = 75 + (rhrBaseline / rhr - 1.0) * 80;
       rhr_s = _clamp(rhr_s, 0, 100);
     }
-    // Sleep component — stronger weight than readiness (35% vs 15%)
+    // Sleep component — dominant weight (60%). Fitbit stress mgmt correlates heavily with sleep.
     const sleep_s = sleepScore != null ? sleepScore : 75;
-    return (0.35 * hrv_s) + (0.40 * sleep_s) + (0.15 * rhr_s) + 4; // offset 4 — tuned with 11 days of data
+    const raw = (0.15 * hrv_s) + (0.60 * sleep_s) + (0.10 * rhr_s) + 14; // tuned with 6 days of data, MAE 3.17
+    return { raw, hrv_s: Math.round(hrv_s), rhr_s: Math.round(rhr_s), sleep_s: Math.round(sleep_s) };
   }
 
   function _calcStressScore(todayHrv, todayRhr, todaySleepScore, history30d) {
@@ -796,16 +802,17 @@
     // Seed from first day with enough data — no stored scores needed.
     let smoothed = null;
     for (const d of history30d) {
-      const raw = _rawStressScore(d.hrv_daily_rmssd, d.resting_hr, d.sleep_score, hrvBaseline, rhrBaseline);
-      if (raw == null) continue;
-      smoothed = smoothed == null ? raw : 0.50 * smoothed + 0.50 * raw;
+      const r = _rawStressScore(d.hrv_daily_rmssd, d.resting_hr, d.sleep_score, hrvBaseline, rhrBaseline);
+      if (r == null) continue;
+      smoothed = smoothed == null ? r.raw : 0.40 * smoothed + 0.60 * r.raw;
     }
 
-    // Today's score
-    const todayRaw = _rawStressScore(todayHrv, todayRhr, todaySleepScore, hrvBaseline, rhrBaseline);
-    if (todayRaw == null) return null;
+    // Today's score — more responsive to today's raw (60% today, 40% history)
+    const today = _rawStressScore(todayHrv, todayRhr, todaySleepScore, hrvBaseline, rhrBaseline);
+    if (today == null) return null;
+    const todayRaw = today.raw;
     const score = Math.round(_clamp(
-      smoothed != null ? 0.50 * smoothed + 0.50 * todayRaw : todayRaw,
+      smoothed != null ? 0.40 * smoothed + 0.60 * todayRaw : todayRaw,
       1, 100
     ));
 
@@ -818,11 +825,14 @@
       baselines: { hrvBaseline: Math.round(hrvBaseline * 100) / 100, rhrBaseline: rhrBaseline != null ? Math.round(rhrBaseline * 10) / 10 : null },
       todayRaw: Math.round(todayRaw * 10) / 10,
       smoothedHistory: smoothed != null ? Math.round(smoothed * 10) / 10 : null,
-      formula: smoothed != null ? `0.50×${Math.round(smoothed*10)/10} + 0.50×${Math.round(todayRaw*10)/10} = ${score}` : `raw=${Math.round(todayRaw*10)/10} → ${score}`,
+      formula: smoothed != null ? `0.40×${Math.round(smoothed*10)/10} + 0.60×${Math.round(todayRaw*10)/10} = ${score}` : `raw=${Math.round(todayRaw*10)/10} → ${score}`,
     }, null, 2));
 
     return {
       score, label, color,
+      hrv_score:  today.hrv_s,
+      rhr_score:  today.rhr_s,
+      sleep_score_used: today.sleep_s,
       hrv_baseline: Math.round(hrvBaseline * 10) / 10,
       rhr_baseline: rhrBaseline != null ? Math.round(rhrBaseline) : null,
       data_days:    totalHrvCount,
@@ -850,7 +860,8 @@
       return {
         hrv_daily_rmssd: g.hrv_daily_rmssd ?? f.hrv_daily_rmssd ?? null,
         resting_hr:      g.resting_hr      ?? f.resting_hr      ?? null,
-        sleep_score:     g.sleep_score     ?? f.sleep_score     ?? null,
+        // Prefer actual sleep when seeded for calibration; fall back to device-measured
+        sleep_score:     f.sleep_score_actual ?? g.sleep_score ?? f.sleep_score ?? null,
       };
     });
 
@@ -860,6 +871,7 @@
       displayData.sleep_score,
       history
     );
+    // displayData.stress_score is already overridden with stress_score_actual when seeded.
     if (displayData.stress_score != null) {
       const s = Math.round(displayData.stress_score);
       stressScore = { ...stressScore, score: s, stored: true };
@@ -926,9 +938,9 @@
   $: anyAvailable      = fitbitAvailable || withingsAvailable || garminAvailable || healthConnectAvailable;
 
   // Sliding pill: ordered list of visible tabs + active index
-  // Garmin contributes to movement/sleep/heart tabs alongside Fitbit
+  // Garmin contributes to activity/sleep/heart tabs alongside Fitbit
   $: _wlTabList = [
-    ...(fitbitAvailable || garminAvailable || healthConnectAvailable ? ['movement', 'sleep', 'heart'] : []),
+    ...(fitbitAvailable || garminAvailable || healthConnectAvailable ? ['activity', 'sleep', 'heart'] : []),
     ...(withingsAvailable ? ['body'] : []),
   ];
   $: _wlActiveIdx  = Math.max(0, _wlTabList.indexOf(activeTab));
@@ -951,9 +963,9 @@
 
   // Auto-correct activeTab when an integration's availability changes
   $: if (status !== null && withingsStatus !== null && garminStatus !== null) {
-    const isActivityTab = activeTab === 'movement' || activeTab === 'sleep' || activeTab === 'heart';
-    if (isActivityTab && !fitbitAvailable && !garminAvailable && !healthConnectAvailable) activeTab = withingsAvailable ? 'body' : 'movement';
-    if (activeTab === 'body' && !withingsAvailable && !healthConnectAvailable) activeTab = (fitbitAvailable || garminAvailable || healthConnectAvailable) ? 'movement' : 'body';
+    const isActivityTab = activeTab === 'activity' || activeTab === 'sleep' || activeTab === 'heart';
+    if (isActivityTab && !fitbitAvailable && !garminAvailable && !healthConnectAvailable) activeTab = withingsAvailable ? 'body' : 'activity';
+    if (activeTab === 'body' && !withingsAvailable && !healthConnectAvailable) activeTab = (fitbitAvailable || garminAvailable || healthConnectAvailable) ? 'activity' : 'body';
   }
 
   // ── Date navigation ────────────────────────────────────────────────────────
@@ -1088,13 +1100,17 @@
 
     if (status.connected || garminStatus?.connected) {
       await loadData(); // loadData already calls loadWorkouts()
-      if ($wellnessSyncMode === 'auto' && isToday) {
+      if (isToday) {
         const key = `wl_wellness_lastSync_${dateStr}`;
         const last = localStorage.getItem(key);
         const cooldownMs = 15 * 60 * 1000;
         if (!last || Date.now() - Number(last) > cooldownMs) {
-          if (status.connected)       { await sync(true); syncWorkouts(); }
-          if (garminStatus?.connected) await syncGarmin(true);
+          const fitbitMode  = $fitbitSyncMode ;
+          const garminMode_ = $garminSyncMode ;
+          const hcMode_     = $healthConnectSyncMode;
+          if (status.connected && fitbitMode === 'auto')        { await sync(true); syncWorkouts(); }
+          if (garminStatus?.connected && garminMode_ === 'auto') await syncGarmin(true);
+          if ($healthConnectEnabled && hcMode_ === 'auto')       syncHealthConnectManual();
         }
       }
     } else {
@@ -1114,15 +1130,18 @@
       garminStatus = await NtApi.get('/api/wellness/garmin/status');
     } catch { garminStatus = { connected: false, configured: false }; }
 
-    // Auto-sync if connected and due
-    const anyConnected = status.connected || garminStatus?.connected;
-    if (anyConnected && $wellnessSyncMode === 'auto' && isToday) {
+    // Auto-sync if connected and due (per-device mode, fallback to legacy)
+    if (isToday) {
       const key = `wl_wellness_lastSync_${dateStr}`;
       const last = localStorage.getItem(key);
       const cooldownMs = 15 * 60 * 1000;
       if (!last || Date.now() - Number(last) > cooldownMs) {
-        if (status.connected)       await sync(true);
-        if (garminStatus?.connected) await syncGarmin(true);
+        const fitbitMode  = $fitbitSyncMode ;
+        const garminMode_ = $garminSyncMode ;
+        const hcMode_     = $healthConnectSyncMode;
+        if (status.connected && fitbitMode === 'auto')        await sync(true);
+        if (garminStatus?.connected && garminMode_ === 'auto') await syncGarmin(true);
+        if ($healthConnectEnabled && hcMode_ === 'auto')       syncHealthConnectManual();
       }
     }
   }
@@ -1348,6 +1367,12 @@
         }
       }
     }
+    // Calibration overrides — when actual Fitbit values are seeded, they take
+    // precedence over our calculated/locked-in values. Keep the *_actual keys
+    // intact so consumers can still distinguish actual vs calc if needed.
+    if (merged.sleep_score_actual     != null) merged.sleep_score     = merged.sleep_score_actual;
+    if (merged.readiness_score_actual != null) merged.readiness_score = merged.readiness_score_actual;
+    if (merged.stress_score_actual    != null) merged.stress_score    = merged.stress_score_actual;
     return merged;
   })();
 
@@ -1464,8 +1489,8 @@
       <div class="tab-bar" bind:this={_tabBarEl}>
         <div class="tab-pill" style="left:{_wlPillLeft};width:{_wlPillWidth}"></div>
         {#if fitbitAvailable || garminAvailable || healthConnectAvailable}
-          <button class="tab-btn" class:active={activeTab === 'movement'} on:click={() => activeTab = 'movement'}>
-            <span class="material-symbols-rounded tab-icon">directions_walk</span> Movement
+          <button class="tab-btn" class:active={activeTab === 'activity'} on:click={() => activeTab = 'activity'}>
+            <span class="material-symbols-rounded tab-icon">directions_walk</span> Activity
           </button>
           <button class="tab-btn" class:active={activeTab === 'sleep'} on:click={() => activeTab = 'sleep'}>
             <span class="material-symbols-rounded tab-icon">bedtime</span> Sleep
@@ -1483,8 +1508,8 @@
       </div>
       <div style="height:12px"></div>
 
-      <!-- ── Fitbit tabs (Movement / Sleep / Heart) ── -->
-      {#if activeTab === 'movement' || activeTab === 'sleep' || activeTab === 'heart'}
+      <!-- ── Fitbit tabs (Activity / Sleep / Heart) ── -->
+      {#if activeTab === 'activity' || activeTab === 'sleep' || activeTab === 'heart'}
 
         {#if !status.connected && !garminStatus?.connected && !withingsStatus?.connected && !$healthConnectEnabled && !(isNative && _hasLocalData)}
           <!-- Fitbit configured but not yet connected -->
@@ -1535,10 +1560,10 @@
         {:else}
           <!-- Fitbit connected — metric content -->
 
-          <!-- ── Movement tab ── -->
-          {#if activeTab === 'movement'}
+          <!-- ── Activity tab ── -->
+          {#if activeTab === 'activity'}
             <div class="metric-grid">
-              {#each ALL_METRICS.filter(m => m.group === 'movement' && isVisible(m.id) && isSourceEnabled(m)) as m}
+              {#each ALL_METRICS.filter(m => m.group === 'activity' && isVisible(m.id) && isSourceEnabled(m)) as m}
                 {@const fmt = fmtMetric(m, displayData[m.id])}
                 {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
                 <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
@@ -1564,7 +1589,7 @@
               {/each}
             </div>
 
-            <!-- ── Workouts section (within Movement tab) ── -->
+            <!-- ── Workouts section (within Activity tab) ── -->
             {#if $workoutsEnabled && _workouts.length > 0}
               <div class="section-title" style="margin-top:20px">
                 <span class="material-symbols-rounded" style="font-size:18px;vertical-align:middle;margin-right:4px">fitness_center</span>
@@ -1624,14 +1649,29 @@
                       {/if}
                     {/each}
                   </div>
-                  <!-- Legend: each label floats at its segment's midpoint -->
-                  <div class="stage-legend-bar">
+                  <!-- Wide-screen legend: labels float at segment midpoints -->
+                  <div class="stage-legend-bar stage-legend-wide">
                     {#each sleepStages as stage}
                       {@const pct = sleepTotal > 0 ? ((displayData[stage.key] || 0) / sleepTotal * 100) : 0}
                       {#if pct >= 3}
                         <div class="stage-leg-seg" style="width:{pct.toFixed(1)}%">
                           <span class="stage-leg-label" style="color:{stage.color}">{stage.label}</span>
                           <span class="stage-leg-val">{fmtSleepStr(displayData[stage.key])}</span>
+                        </div>
+                      {/if}
+                    {/each}
+                  </div>
+                  <!-- Narrow-screen legend: vertical list with dots + labels + values + % -->
+                  <div class="stage-legend-list">
+                    {#each sleepStages as stage}
+                      {@const val = displayData[stage.key] || 0}
+                      {@const pct = sleepTotal > 0 ? (val / sleepTotal * 100) : 0}
+                      {#if val > 0}
+                        <div class="stage-list-row">
+                          <span class="stage-list-dot" style="background:{stage.color}"></span>
+                          <span class="stage-list-label">{stage.label}</span>
+                          <span class="stage-list-val">{fmtSleepStr(val)}</span>
+                          <span class="stage-list-pct">{Math.round(pct)}%</span>
                         </div>
                       {/if}
                     {/each}
@@ -1826,15 +1866,6 @@
                       Based on {readiness.data_days} days — accuracy improves as more data is collected.
                     </div>
                   {/if}
-                  {#if readiness.stored}
-                    <div class="score-debug-info">
-                      <span class="material-symbols-rounded" style="font-size:14px;color:var(--text-3)">lock</span>
-                      <span>Locked at sync · Calculated: {readiness.hrv_score != null ? Math.round((0.65 * readiness.hrv_score) + (0.20 * readiness.rhr_score) + (0.10 * (readiness.sleep_score_used || 75))) : '—'}</span>
-                      <button class="btn-recalc" on:click={recalculateScores} title="Force recalculate">
-                        <span class="material-symbols-rounded" style="font-size:16px">refresh</span>
-                      </button>
-                    </div>
-                  {/if}
                 {/if}
               </div>
             {/if}
@@ -1867,7 +1898,20 @@
                       <span class="readiness-label" style="color:{stressScore.color}">{stressScore.label}</span>
                     </div>
                   </div>
-                  <p class="si-desc" style="margin-top:6px;margin-bottom:0">Higher = nervous system is well balanced. Driven by HRV, sleep quality, and resting HR compared to your personal baselines. Moves gradually — reflects multi-day trends, not just today.</p>
+                  <div class="readiness-drivers">
+                    <div class="readiness-driver">
+                      <span class="rd-label">HRV</span>
+                      <span class="rd-val" style="color:{stressScore.hrv_score >= 65 ? 'var(--accent)' : stressScore.hrv_score >= 50 ? '#f59e0b' : '#ef4444'}">{stressScore.hrv_score}</span>
+                    </div>
+                    <div class="readiness-driver">
+                      <span class="rd-label">Resting HR</span>
+                      <span class="rd-val" style="color:{stressScore.rhr_score >= 65 ? 'var(--accent)' : stressScore.rhr_score >= 50 ? '#f59e0b' : '#ef4444'}">{stressScore.rhr_score}</span>
+                    </div>
+                    <div class="readiness-driver">
+                      <span class="rd-label">Sleep</span>
+                      <span class="rd-val" style="color:{stressScore.sleep_score_used >= 65 ? 'var(--accent)' : stressScore.sleep_score_used >= 50 ? '#f59e0b' : '#ef4444'}">{stressScore.sleep_score_used}</span>
+                    </div>
+                  </div>
                   {#if stressScore.data_days < 30}
                     <div class="si-calibration-note">
                       <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
@@ -2093,7 +2137,7 @@
           <div>
             <h3 style="margin:0;font-size:16px;font-weight:600">{w.activity_name}</h3>
             <span class="text-3 text-sm">
-              {w.start_time ? new Date(w.start_time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : dateStr}
+              {w.start_time ? new Date(w.start_time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: $timeFormat !== '24h' }) : dateStr}
             </span>
           </div>
         </div>
@@ -2144,6 +2188,9 @@
         <div class="workout-map-placeholder">
           <span class="material-symbols-rounded">map</span>
           <span>No GPS data available</span>
+          <button class="btn btn-ghost" style="margin-top:8px;font-size:13px" on:click={() => _loadGpsData(w)}>
+            <span class="material-symbols-rounded" style="font-size:16px">refresh</span> Retry
+          </button>
         </div>
       {/if}
 
@@ -2613,6 +2660,47 @@
     text-overflow: ellipsis;
     max-width: 100%;
   }
+  /* Narrow-screen legend — vertical list */
+  .stage-legend-list {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .stage-list-row {
+    display: grid;
+    grid-template-columns: 10px 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .stage-list-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .stage-list-label {
+    color: var(--text-2);
+    font-weight: 500;
+  }
+  .stage-list-val {
+    color: var(--text-1);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .stage-list-pct {
+    color: var(--text-3);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    min-width: 32px;
+    text-align: right;
+  }
+  /* Swap between floating labels (wide) and vertical list (narrow) at 500px */
+  @media (max-width: 500px) {
+    .stage-legend-wide { display: none; }
+    .stage-legend-list { display: flex; }
+  }
 
   /* Empty state */
   .empty-state {
@@ -2716,29 +2804,6 @@
     border-radius: var(--radius-sm, 6px);
     line-height: 1.4;
   }
-  .score-debug-info {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    color: var(--text-3);
-    margin-top: 8px;
-    padding: 6px 10px;
-    background: var(--surface-2);
-    border-radius: var(--radius-sm, 6px);
-  }
-  .btn-recalc {
-    margin-left: auto;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm, 6px);
-    cursor: pointer;
-    color: var(--text-3);
-    padding: 2px 6px;
-    display: flex;
-    align-items: center;
-  }
-  .btn-recalc:hover { color: var(--accent); border-color: var(--accent); }
   .si-range-chips {
     display: flex;
     gap: 6px;

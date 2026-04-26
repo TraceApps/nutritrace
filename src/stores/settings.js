@@ -1,6 +1,12 @@
 import { writable, get } from 'svelte/store';
 import { DB } from '../lib/db.js';
 
+// Verbose settings sync logs gated on dev OR opt-in verbose mode
+// (Settings → Diagnostics → Verbose diagnostic logging).
+const _dlog = import.meta.env.DEV
+  ? console.log
+  : (...a) => { try { if (localStorage.getItem('nt:verboseLogging') === '1') console.log(...a); } catch {} };
+
 // ── Settings categorization ────────────────────────────────────────────────
 //
 // USER_PREFS — synced to server, travel with the user across devices.
@@ -15,38 +21,47 @@ import { DB } from '../lib/db.js';
 //   server/lib/server-only-keys.js). OAuth app credentials etc.
 //
 export const USER_PREFS = new Set([
-  'energyUnit','mealNames','goals','goalTemplates',
+  'energyUnit','mealNames','goals','goalTemplates','calorieGoalMode','calorieGoalFactor',
   'visibleNutriments','nutrimentsOrder','customNutriments',
   'bodyStatsOrder','hiddenBodyStats','foodCategories',
   'diaryShowNutritionBar','diaryTotalsMode',
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
-  'diaryPromptQuantity','diaryShowPortionSize',
+  'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes',
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
-  'foodsShowYesterdayMeals','foodsSort',
+  'foodsShowYesterdayMeals','foodsYesterdayCollapsed','foodsSavedCollapsed','foodsSort',
   'barcodeBeep','cropPhotos',
   'offSearchLanguage','offSearchCountry','offUploadCountry',
   'weightUnit','heightUnit','lengthUnit','distUnit','tempUnit',
   'waterGoalMl','waterUnit','waterContainers','waterShowInStats','waterShowInDiary',
   'dateFormat','timeFormat','timezone',
-  'statsChartType','statsYZero','statsAvgLine','statsGoalLine','statsTrendLine',
-  'aiEnabled','aiProvider','aiApiKey','aiModel','aiAssistantName','quickLogEnabled',
+  'statsChartType','statsYZero','statsAvgLine','statsGoalLine','statsTrendLine','statsIncludeToday',
+  // User profile (collected by Wizard, used for goal calculation; sync so multi-device
+  // users see the same body profile)
+  'gender','dob','height_cm','weight_kg','target_weight','activity','tdee',
+  'aiEnabled','aiProvider','aiApiKey','aiModel','aiAssistantName','quickLogEnabled','aiGoalInsights',
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'wellnessEnabled','fitbitEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
-  'wellnessSyncMode','wellnessSyncSchedule','wellnessSyncTime','wellnessSyncRange',
-  'withingsEnabled','withingsSyncRange','withingsDataPriority',
+  'wellnessSyncRange',
+  'fitbitSyncMode','fitbitSyncInterval','fitbitSyncWindowStart','fitbitSyncWindowEnd',
+  'withingsEnabled','withingsSyncRange',
+  'withingsSyncMode','withingsSyncInterval','withingsSyncWindowStart','withingsSyncWindowEnd',
   'garminEnabled','garminSyncRange',
+  'garminSyncMode','garminSyncInterval','garminSyncWindowStart','garminSyncWindowEnd',
+  'healthConnectSyncMode','healthConnectSyncInterval','healthConnectSyncWindowStart','healthConnectSyncWindowEnd',
   'defaultFoodVisibility',
   // Notifications
   'notifLocalEnabled','notifPushService',
   'notifWaterReminders','notifWaterInterval','notifMealReminders','notifMealTimes',
-  'notifGoalCelebrations','notifCalorieGoal','notifStepGoal',
-  'notifWeighIn','notifWeighInTime','notifWeeklySummary',
+  'notifGoalCelebrations','notifStepGoal',
+  'notifWeighIn','notifWeighInTime',
+  'notifBedtime','notifBedtimeTime','notifBedtimeWindDown','notifBedtimeWindDownMin','notifBedtimeSmart',
+  'notifWeeklySummary','weeklySummaryDay','weeklySummaryTime',
   'notifWellnessAlerts','notifWorkoutSummary','notifSyncFailures',
   'appriseUrl','appriseTag','gotifyUrl','gotifyToken','ntfyUrl','ntfyTopic','ntfyToken',
   // UI behavior prefs that should match across devices
-  'accentColor','startPage','goalCelebrations','pageBanners','loopBannerAnimations',
+  'accentColor','startPage','goalCelebrations','pageBanners',
 ]);
 
 // DEVICE_PREFS — local-only, never synced.
@@ -105,7 +120,7 @@ export function scheduleSave(key, value) {
     if (!_shouldSyncToServer()) return;
     try {
       const url = _settingsUrl();
-      console.log(`[settings] pushing ${key}=${JSON.stringify(value)} to ${url}`);
+      _dlog(`[settings] pushing ${key}=${JSON.stringify(value)} to ${url}`);
       const res = await fetch(url, {
         method: 'PUT',
         credentials: 'include',
@@ -114,7 +129,7 @@ export function scheduleSave(key, value) {
         signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
-      console.log(`[settings] pushed ${key} to server OK`);
+      _dlog(`[settings] pushed ${key} to server OK`);
       // If direct push succeeded on native, mark as synced so differential sync skips it
       if (isNative) {
         try {
@@ -181,7 +196,7 @@ export async function bulkSet(settingsObj) {
   try {
     const url = _settingsUrl() + '/bulk';
     const bulkObj = Object.fromEntries(userPrefEntries);
-    console.log(`[settings] bulk pushing ${userPrefEntries.length} keys`);
+    _dlog(`[settings] bulk pushing ${userPrefEntries.length} keys`);
     const res = await fetch(url, {
       method: 'PUT',
       credentials: 'include',
@@ -190,7 +205,7 @@ export async function bulkSet(settingsObj) {
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw new Error(`Server responded ${res.status}`);
-    console.log(`[settings] bulk pushed ${userPrefEntries.length} keys OK`);
+    _dlog(`[settings] bulk pushed ${userPrefEntries.length} keys OK`);
     // Mark all keys as synced in native SQLite
     if (isNative) {
       try {
@@ -322,6 +337,8 @@ export const energyUnit        = createSettingStore('energyUnit',       'kcal');
 export const mealNames         = createSettingStore('mealNames',        ['Breakfast','Lunch','Dinner','Snacks']);
 export const goals             = createSettingStore('goals',            {});
 export const goalTemplates     = createSettingStore('goalTemplates',    []);
+export const calorieGoalMode   = createSettingStore('calorieGoalMode',   'fixed');  // 'fixed' | 'dynamic'
+export const calorieGoalFactor = createSettingStore('calorieGoalFactor', 1.0);      // 0.80 | 1.00 | 1.20
 export const visibleNutriments = createSettingStore('visibleNutriments', null);
 export const nutrimentsOrder   = createSettingStore('nutrimentsOrder',  []);
 export const customNutriments  = createSettingStore('customNutriments', []);
@@ -340,12 +357,17 @@ export const diaryShowNutritionUnits= createSettingStore('diaryShowNutritionUnit
 export const diaryShowMacroSummary  = createSettingStore('diaryShowMacroSummary',   true);
 export const diaryPromptQuantity    = createSettingStore('diaryPromptQuantity',     true);
 export const diaryShowPortionSize   = createSettingStore('diaryShowPortionSize',    false);
+export const diaryShowNotes         = createSettingStore('diaryShowNotes',          true);
 
 export const foodsShowCategories    = createSettingStore('foodsShowCategories',    true);
 export const foodsShowLabels        = createSettingStore('foodsShowLabels',        true);
 export const foodsShowNotes         = createSettingStore('foodsShowNotes',         true);
 export const foodsShowThumbnails    = createSettingStore('foodsShowThumbnails',    true);
 export const foodsShowYesterdayMeals= createSettingStore('foodsShowYesterdayMeals',true);
+// Foods → Meals tab: per-section collapse state (only takes effect when both Yesterday and Saved
+// sections are visible — i.e. yesterday has items + user is in pick mode). Default expanded.
+export const foodsYesterdayCollapsed= createSettingStore('foodsYesterdayCollapsed',false);
+export const foodsSavedCollapsed    = createSettingStore('foodsSavedCollapsed',    false);
 export const foodsSort              = createSettingStore('foodsSort',              'alpha');
 
 export const barcodeBeep            = createSettingStore('barcodeBeep',            false);
@@ -410,6 +432,7 @@ export const statsYZero     = createSettingStore('statsYZero',     true);
 export const statsAvgLine   = createSettingStore('statsAvgLine',   true);
 export const statsGoalLine  = createSettingStore('statsGoalLine',  true);
 export const statsTrendLine = createSettingStore('statsTrendLine', true);
+export const statsIncludeToday = createSettingStore('statsIncludeToday', false);
 
 // Units
 export const weightUnit = createSettingStore('weightUnit', 'lb');
@@ -442,7 +465,6 @@ export const catDisplay = c => { const l = catLabel(c); return l ? `${l} ${catNa
 
 // Page banners
 export const pageBanners          = createSettingStore('pageBanners',          true);
-export const loopBannerAnimations = createSettingStore('loopBannerAnimations', true);
 
 // Wellness (Activity Tracking)
 export const wellnessEnabled    = createSettingStore('wellnessEnabled',    false);
@@ -450,34 +472,64 @@ export const fitbitEnabled      = createSettingStore('fitbitEnabled',      false
 export const healthConnectEnabled = createSettingStore('healthConnectEnabled', false);
 export const wellnessMetrics    = createSettingStore('wellnessMetrics',    null); // null = all visible
 export const workoutsEnabled   = createSettingStore('workoutsEnabled',   false); // show workout history + GPS maps in Movement tab
-export const wellnessSyncMode     = createSettingStore('wellnessSyncMode',     'auto'); // 'auto' | 'manual' | 'scheduled'
-export const wellnessSyncSchedule = createSettingStore('wellnessSyncSchedule', 'daily'); // 'every6h' | 'every12h' | 'daily' | 'weekly'
-export const wellnessSyncTime     = createSettingStore('wellnessSyncTime',     '14:00'); // HH:MM for scheduled sync
-export const wellnessSyncRange    = createSettingStore('wellnessSyncRange',    7);    // days: 1|7|30|90|365
+// Legacy shared sync settings (kept for backward compat — new code uses per-device below)
+// wellnessSyncRange remains as the shared "how many days back" setting
+// across all wellness sources. Per-source sync mode/interval moved to
+// fitbitSync*/withingsSync*/garminSync*/healthConnectSync* in v0.30+.
+export const wellnessSyncRange    = createSettingStore('wellnessSyncRange',    7);
+
+// Per-device sync settings:
+//   mode: 'auto' | 'scheduled' | 'manual'
+//   interval: minutes between syncs (30, 60, 120, 180, 360, 720, 1440)
+//   windowStart / windowEnd: 'HH:MM' — active sync window (null = all day)
+// null values = fall back to legacy wellnessSync* (migration path for existing users)
+export const fitbitSyncMode         = createSettingStore('fitbitSyncMode',         null);
+export const fitbitSyncInterval     = createSettingStore('fitbitSyncInterval',     null); // minutes
+export const fitbitSyncWindowStart  = createSettingStore('fitbitSyncWindowStart',  null); // 'HH:MM' or null
+export const fitbitSyncWindowEnd    = createSettingStore('fitbitSyncWindowEnd',    null);
 
 export const withingsEnabled      = createSettingStore('withingsEnabled',      false);
 export const withingsSyncRange    = createSettingStore('withingsSyncRange',    7);
-export const withingsDataPriority = createSettingStore('withingsDataPriority', {
-  activity: 'fitbit',  // 'fitbit' | 'withings'
-  sleep:    'fitbit',
-  heart:    'fitbit',
-});
+export const withingsSyncMode         = createSettingStore('withingsSyncMode',         null);
+export const withingsSyncInterval     = createSettingStore('withingsSyncInterval',     null);
+export const withingsSyncWindowStart  = createSettingStore('withingsSyncWindowStart',  null);
+export const withingsSyncWindowEnd    = createSettingStore('withingsSyncWindowEnd',    null);
 
 export const garminEnabled   = createSettingStore('garminEnabled',   false);
 export const garminSyncRange = createSettingStore('garminSyncRange', 7);
+export const garminSyncMode         = createSettingStore('garminSyncMode',         null);
+export const garminSyncInterval     = createSettingStore('garminSyncInterval',     null);
+export const garminSyncWindowStart  = createSettingStore('garminSyncWindowStart',  null);
+export const garminSyncWindowEnd    = createSettingStore('garminSyncWindowEnd',    null);
+
+export const healthConnectSyncMode         = createSettingStore('healthConnectSyncMode',         null);
+export const healthConnectSyncInterval     = createSettingStore('healthConnectSyncInterval',     null);
+export const healthConnectSyncWindowStart  = createSettingStore('healthConnectSyncWindowStart',  null);
+export const healthConnectSyncWindowEnd    = createSettingStore('healthConnectSyncWindowEnd',    null);
 
 // Sharing
 export const defaultFoodVisibility = createSettingStore('defaultFoodVisibility', 'private'); // 'private' | 'group' | 'specific'
 
-// FitBot AI
+// AI Assistant (Trace)
 export const aiEnabled       = createSettingStore('aiEnabled',       false);
 export const aiProvider      = createSettingStore('aiProvider',      'claude');
 export const aiApiKey        = createSettingStore('aiApiKey',        '');
 export const aiModel         = createSettingStore('aiModel',         '');
-export const aiAssistantName = createSettingStore('aiAssistantName', 'FitBot');
-// Quick Log — natural-language food entry powered by FitBot's AI provider.
+export const aiAssistantName = createSettingStore('aiAssistantName', 'Trace');
+
+// One-time migration: existing installs that never customized the assistant
+// name end up with 'FitBot' (the old default). Bump those to 'Trace' so the
+// rename is visible without manual action. Users who picked their own name
+// (anything other than literal 'FitBot') are left alone.
+try {
+  if (DB.getSetting('aiAssistantName', null) === 'FitBot') {
+    DB.setSetting('aiAssistantName', 'Trace');
+  }
+} catch {}
+// Quick Log — natural-language food entry powered by the assistant's AI provider.
 // Off by default (experimental). Only usable when aiEnabled is true.
-export const quickLogEnabled = createSettingStore('quickLogEnabled', false);
+export const quickLogEnabled  = createSettingStore('quickLogEnabled',  false);
+export const aiGoalInsights   = createSettingStore('aiGoalInsights',   false);
 
 // Notifications
 export const notifLocalEnabled     = createSettingStore('notifLocalEnabled',     true);
@@ -487,11 +539,17 @@ export const notifWaterInterval   = createSettingStore('notifWaterInterval',   1
 export const notifMealReminders   = createSettingStore('notifMealReminders',   false);
 export const notifMealTimes       = createSettingStore('notifMealTimes',       ['08:00','12:00','18:00']); // HH:MM
 export const notifGoalCelebrations = createSettingStore('notifGoalCelebrations', false);
-export const notifCalorieGoal     = createSettingStore('notifCalorieGoal',     false);
 export const notifStepGoal        = createSettingStore('notifStepGoal',        false);
 export const notifWeighIn         = createSettingStore('notifWeighIn',         false);
 export const notifWeighInTime     = createSettingStore('notifWeighInTime',     '07:00');
+export const notifBedtime         = createSettingStore('notifBedtime',         false);
+export const notifBedtimeTime     = createSettingStore('notifBedtimeTime',     '22:30');
+export const notifBedtimeWindDown    = createSettingStore('notifBedtimeWindDown',    false);
+export const notifBedtimeWindDownMin = createSettingStore('notifBedtimeWindDownMin', 30); // minutes before bedtime
+export const notifBedtimeSmart    = createSettingStore('notifBedtimeSmart',    true);  // use last night's sleep to tailor message
 export const notifWeeklySummary   = createSettingStore('notifWeeklySummary',   false);
+export const weeklySummaryDay     = createSettingStore('weeklySummaryDay',     0);      // 0=Sun … 6=Sat
+export const weeklySummaryTime    = createSettingStore('weeklySummaryTime',    '09:00');
 export const notifWellnessAlerts  = createSettingStore('notifWellnessAlerts',  false);
 export const notifWorkoutSummary  = createSettingStore('notifWorkoutSummary',  false);
 export const notifSyncFailures    = createSettingStore('notifSyncFailures',    false);

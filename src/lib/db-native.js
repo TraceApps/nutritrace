@@ -67,6 +67,7 @@ const SCHEMA = `
     items       TEXT DEFAULT '[]',
     body_stats  TEXT DEFAULT '{}',
     water       TEXT DEFAULT '[]',
+    notes       TEXT DEFAULT NULL,
     updated_at  TEXT DEFAULT (datetime('now')),
     deleted_at  TEXT DEFAULT NULL,
     sync_status TEXT DEFAULT 'synced',
@@ -148,22 +149,80 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_diary_sync ON diary(sync_status);
 `;
 
+// ── DB encryption (disabled in v0.39.23+) ─────────────────────────────────
+//
+// Native SQLite encryption via @capacitor-community/sqlite v8 had brittle
+// secret-store semantics — calling setEncryptionSecret on subsequent launches
+// produced "state not correct" / SQLITE_NOTADB failures that broke sync.
+// Reverted to plain SQLite for now. Modern Android still encrypts the app
+// data directory at the OS level, so the local DB is not in cleartext on a
+// locked device. SQLCipher integration deferred to v1.1 with a different
+// approach (likely Android Keystore + per-page encryption). See FUTURE.md.
+
+async function _applySchema(db) {
+  await db.execute(SCHEMA);
+  // Migrations: add columns that may be missing from existing installs
+  try {
+    const info = await db.query(`PRAGMA table_info(diary)`);
+    const cols = (info?.values || []).map(r => r.name);
+    if (!cols.includes('notes')) {
+      await db.execute(`ALTER TABLE diary ADD COLUMN notes TEXT DEFAULT NULL`);
+    }
+  } catch (e) {
+    console.debug('[db-native] diary.notes migration skipped:', e?.message);
+  }
+}
+
+async function _closeAny() {
+  await sqlite.checkConnectionsConsistency().catch(() => {});
+  try { await sqlite.closeConnection(DB_NAME, true);  } catch {}
+  try { await sqlite.closeConnection(DB_NAME, false); } catch {}
+}
+
+async function _openUnencrypted() {
+  await _closeAny();
+  const db = await sqlite.createConnection(DB_NAME, false, 'no-encryption', DB_VERSION, false);
+  await db.open();
+  await _applySchema(db);
+  return db;
+}
+
 async function _open() {
   console.log('[db-native] Opening SQLite database...');
   try {
-    // Clean up stale JS-side connection references from previous page loads
-    await sqlite.checkConnectionsConsistency().catch(() => {});
+    // Always clear any leftover encryption state from prior installs (v0.39.20–22)
+    // — these are no-ops on devices that never ran those versions.
+    try { await CapacitorSQLite.clearEncryptionSecret(); } catch {}
+    localStorage.removeItem('nt:db_encrypted');
+    localStorage.removeItem('nt:db_secret');
+    localStorage.removeItem('nt:db_encryption_pending');
 
-    // Close any lingering connection to this DB (safe to call even if none exists)
-    try { await sqlite.closeConnection(DB_NAME, false); } catch {}
-
-    // Create a fresh connection
-    const db = await sqlite.createConnection(DB_NAME, false, 'no-encryption', DB_VERSION, false);
-    await db.open();
-    // Skip PRAGMAs — WAL is default on Android, foreign keys not needed for local-only schema
-    await db.execute(SCHEMA);
-    console.log('[db-native] SQLite database ready');
-    return db;
+    // Try to open the existing DB. If it succeeds, we're done. If it fails
+    // (most commonly SQLITE_NOTADB from a leftover encrypted file we can't
+    // decrypt without the prior plugin's secret), wipe the file and recreate.
+    try {
+      const db = await _openUnencrypted();
+      console.log('[db-native] SQLite ready');
+      return db;
+    } catch (firstErr) {
+      console.warn('[db-native] First open failed — wiping and retrying:', firstErr?.message);
+      await _closeAny();
+      try { await sqlite.deleteDatabase(DB_NAME); } catch (e) {
+        console.warn('[db-native] sqlite.deleteDatabase failed:', e?.message);
+      }
+      // Belt-and-suspenders: also try Capacitor Filesystem to hard-delete the
+      // file in case the plugin's deleteDatabase silently no-op'd.
+      try {
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        await Filesystem.deleteFile({
+          path: `databases/${DB_NAME}SQLite.db`,
+          directory: Directory.Data,
+        });
+      } catch {}
+      const db = await _openUnencrypted();
+      console.log('[db-native] SQLite ready (after wipe — server sync will repopulate)');
+      return db;
+    }
   } catch (e) {
     console.error('[db-native] Failed to open SQLite database:', e);
     throw e;
@@ -371,6 +430,7 @@ export async function dbGetDiaryDate(date) {
     items:      _parseJson(row.items, []),
     body_stats: _parseJson(row.body_stats, {}),
     water:      _parseJson(row.water, []),
+    notes:      row.notes || '',
   };
 }
 
@@ -379,13 +439,14 @@ export async function dbSaveDiaryDate(date, data) {
   const items      = JSON.stringify(data.items || []);
   const body_stats = JSON.stringify(data.body_stats || {});
   const water      = JSON.stringify(data.water || []);
+  const notes      = (typeof data.notes === 'string' && data.notes.trim()) ? data.notes : null;
   await db.run(
-    `INSERT INTO diary (user_id, date, items, body_stats, water, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending')
+    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
      ON CONFLICT(date, user_id) DO UPDATE SET
        items=excluded.items, body_stats=excluded.body_stats, water=excluded.water,
-       updated_at=excluded.updated_at, sync_status='pending'`,
-    [LOCAL_USER_ID, date, items, body_stats, water, _now()]
+       notes=excluded.notes, updated_at=excluded.updated_at, sync_status='pending'`,
+    [LOCAL_USER_ID, date, items, body_stats, water, notes, _now()]
   );
   return dbGetDiaryDate(date);
 }
@@ -401,6 +462,7 @@ export async function dbGetAllDiary() {
     items:      _parseJson(row.items, []),
     body_stats: _parseJson(row.body_stats, {}),
     water:      _parseJson(row.water, []),
+    notes:      row.notes || '',
   }));
 }
 
@@ -443,6 +505,7 @@ export async function dbGetPendingChanges() {
       items:      _parseJson(row.items, []),
       body_stats: _parseJson(row.body_stats, {}),
       water:      _parseJson(row.water, []),
+      notes:      row.notes || '',
     })),
   };
 }
@@ -543,7 +606,7 @@ export async function dbUpsertFromServer(table, serverRecord) {
 // Upsert diary from server pull (keyed by date)
 export async function dbUpsertDiaryFromServer(serverRecord) {
   const db = await getDb();
-  const { id: serverId, deleted_at, date, items, body_stats, water, updated_at } = serverRecord;
+  const { id: serverId, deleted_at, date, items, body_stats, water, notes, updated_at } = serverRecord;
 
   if (deleted_at) {
     await db.run(`DELETE FROM diary WHERE server_id = ? OR date = ?`, [serverId, date]);
@@ -563,15 +626,16 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
   }
 
   await db.run(
-    `INSERT INTO diary (server_id, user_id, date, items, body_stats, water, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'synced')
+    `INSERT INTO diary (server_id, user_id, date, items, body_stats, water, notes, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')
      ON CONFLICT(date, user_id) DO UPDATE SET
        server_id=excluded.server_id, items=excluded.items, body_stats=excluded.body_stats,
-       water=excluded.water, updated_at=excluded.updated_at, sync_status='synced'`,
+       water=excluded.water, notes=excluded.notes, updated_at=excluded.updated_at, sync_status='synced'`,
     [serverId, LOCAL_USER_ID, date,
      typeof items === 'string' ? items : JSON.stringify(items || []),
      typeof body_stats === 'string' ? body_stats : JSON.stringify(body_stats || {}),
      typeof water === 'string' ? water : JSON.stringify(water || []),
+     (typeof notes === 'string' && notes.trim()) ? notes : null,
      updated_at]
   );
 }

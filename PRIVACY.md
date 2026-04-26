@@ -1,6 +1,6 @@
 # Privacy Policy — NutriTrace
 
-**Last updated:** April 5, 2026
+**Last updated:** April 26, 2026
 
 ## Overview
 
@@ -9,12 +9,12 @@ NutriTrace is a self-hosted nutrition and wellness tracker. Your data is stored 
 ## Data Collection
 
 ### What NutriTrace stores on YOUR server:
-- Food diary entries, meals, recipes
+- Food diary entries, meals, recipes (including free-text notes on foods, meals, and per-day diary notes)
 - Nutrition goals and body stats
 - Water intake logs
 - Wellness data from connected devices (Fitbit, Garmin, Withings, Health Connect)
 - Workout activity logs and GPS route data
-- AI chat history (if FitBot is enabled)
+- AI chat history (if Trace is enabled)
 - User account information (username, email, avatar)
 - App settings and preferences
 
@@ -35,7 +35,7 @@ NutriTrace connects to the following external services **only when you explicitl
 - **Withings** — Body composition data via OAuth. Subject to [Withings privacy policy](https://www.withings.com/privacy).
 - **Garmin** — Activity data via OAuth. Subject to [Garmin privacy policy](https://www.garmin.com/privacy).
 - **Health Connect (Android)** — On-device health data. Data stays on your device.
-- **AI Providers (Claude/OpenAI/Gemini)** — If FitBot AI is enabled, your conversation and relevant health context is sent to the AI provider you choose. Subject to their respective privacy policies. Your API key is stored on your server, not ours.
+- **AI Providers (Claude/OpenAI/Gemini)** — If the AI Assistant (Trace) is enabled, your conversation and relevant health context is sent to the AI provider you choose. Subject to their respective privacy policies. Your API key is stored on your server, not ours.
 - **Push notification services (Gotify/ntfy/Apprise)** — If configured, notification content is sent to your self-hosted push server.
 
 ## Data Retention
@@ -49,7 +49,7 @@ Your data is retained on your server until you delete it. You can:
 ## Android App
 
 The NutriTrace Android app stores data locally on your device in an encrypted SQLite database. When connected to a server, data syncs bidirectionally. The app requests the following permissions:
-- **Camera** — Food photos, barcode scanning, FitBot image attachments
+- **Camera** — Food photos, barcode scanning, Trace image attachments
 - **Internet** — Server sync, food database lookups, AI chat
 - **Notifications** — Meal reminders, hydration reminders, goal celebrations
 - **Health Connect** — Read steps, sleep, heart rate, weight, exercise (optional)

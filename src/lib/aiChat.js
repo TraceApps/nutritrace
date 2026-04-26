@@ -37,13 +37,23 @@ export const TOOLS = [
   },
   {
     name: 'get_diary',
-    description: 'Get food diary for a specific date. Returns all meals with food items, portions, quantities, and full nutrition breakdown (calories, protein, carbs, fat, and micronutrients). Also returns body stats and water intake for that date.',
+    description: 'Get food diary for a specific date. Returns all meals with food items (portions, quantities, brand, per-item notes like prep/serving info) and nutrition breakdown (calories, protein, carbs, fat). Also returns body stats, water intake, and any free-text "day notes" the user wrote (e.g. how they felt, sleep, cravings, context for why they ate what they ate).',
     parameters: {
       type: 'object',
       properties: {
         date: { type: 'string', description: 'Date (YYYY-MM-DD)' },
       },
       required: ['date'],
+    },
+  },
+  {
+    name: 'get_meals',
+    description: 'Get the user\'s saved Meals and Recipes from their library. Returns each one with its items (portions, quantities, per-item notes), totals (calories, macros), and any meal-level notes. Useful when the user refers to a saved meal by name ("my usual breakfast") or wants ideas based on meals they\'ve logged before.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Optional case-insensitive name filter. Omit to return all (capped at 50).' },
+      },
     },
   },
   {
@@ -63,12 +73,23 @@ export const TOOLS = [
     description: 'Get the user\'s nutrition and wellness goals. Returns calorie, macro, and other nutrient targets.',
     parameters: { type: 'object', properties: {} },
   },
+  {
+    name: 'get_diary_averages',
+    description: 'Get the user\'s average daily nutrition intake over the last N days, plus logging consistency. Returns average calories, protein, carbs, fat, water, and other nutrients. Also returns how many days were logged vs total days (consistency %), and weight change over the period if available. Use this to compare actual intake against goals and offer evidence-based goal adjustment suggestions.',
+    parameters: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'Number of days to average over (7, 14, 28, or 42 recommended)' },
+      },
+      required: ['days'],
+    },
+  },
 ];
 
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall }) {
-  if (!apiKey) throw new Error('No API key configured. Add one in Settings → FitBot AI.');
+  if (!apiKey) throw new Error('No API key configured. Add one in Settings → AI Assistant.');
   switch (provider) {
     case 'claude':  return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
     case 'openai':  return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
@@ -300,7 +321,7 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
 
 let _toolHandler = null;
 
-/** Register the tool handler (called from AIFitBot.svelte) */
+/** Register the tool handler (called from Trace.svelte) */
 export function setToolHandler(handler) { _toolHandler = handler; }
 
 async function _executeTool(name, args) {

@@ -2,9 +2,13 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import db from '../db.js';
 
+// In production, refuse to start without an explicit JWT_SECRET — silently falling
+// back to a known default would mean every deploy ships forgeable tokens.
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  console.error('[FATAL] JWT_SECRET is required in production. Generate one with: openssl rand -base64 48');
+  process.exit(1);
+}
 export const JWT_SECRET = process.env.JWT_SECRET || 'nutritrace-dev-secret-change-in-production';
-
-// Warn at startup if using the default dev secret
 if (!process.env.JWT_SECRET) {
   console.warn('[WARN] JWT_SECRET not set — using insecure dev default. Set JWT_SECRET in your environment for production.');
 }
@@ -26,11 +30,13 @@ export function signToken(user) {
   );
 }
 
-/** Read session maxAge for cookies (in ms). 0 = no expiry → 10 years. */
+/** Read session maxAge for cookies (in ms). 0 = max-allowed (default 1 year). */
+const MAX_SESSION_HOURS = parseInt(process.env.MAX_SESSION_HOURS || '8760'); // 1 year default cap
 export function sessionMaxAge() {
   const cfg = db.prepare("SELECT value FROM app_config WHERE key = 'session_hours'").get();
-  const hours = cfg?.value != null && cfg.value !== '' ? parseInt(cfg.value) : 720;
-  return hours > 0 ? hours * 60 * 60 * 1000 : 100 * 365 * 24 * 60 * 60 * 1000;
+  const raw = cfg?.value != null && cfg.value !== '' ? parseInt(cfg.value) : 720;
+  const hours = raw > 0 ? Math.min(raw, MAX_SESSION_HOURS) : MAX_SESSION_HOURS;
+  return hours * 60 * 60 * 1000;
 }
 
 /** Attach req.user if a valid JWT cookie is present (non-blocking) */

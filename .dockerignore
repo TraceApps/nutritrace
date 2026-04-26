@@ -4,3 +4,7 @@ dist
 .backup-polish
 *.log
 .env*
+android
+*.apk
+*.aab
+*.keystore

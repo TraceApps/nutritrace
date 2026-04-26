@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { logger } from '../logger.js';
+import { makeRateLimiter } from '../middleware/rate-limit.js';
 
 const router = Router();
+const proxyLimit = makeRateLimiter({ max: 60, windowMs: 60_000, label: 'proxy' });
+router.use(proxyLimit);
 
 // Whitelist: hosts allowed for API proxy (JSON responses)
 const API_ALLOWED = ['world.openfoodfacts.org', 'search.openfoodfacts.org', 'api.nal.usda.gov'];
@@ -10,13 +13,21 @@ const API_ALLOWED = ['world.openfoodfacts.org', 'search.openfoodfacts.org', 'api
 const IMG_ALLOWED = ['external-content.duckduckgo.com', 'i5.walmartimages.com', 'images.openfoodfacts.org',
   'i.imgur.com', 'upload.wikimedia.org', 'www.kroger.com', 'target.scene7.com'];
 
+// Strict host match: equal OR proper subdomain. Rejects 'i.imgur.com.evil.tld'.
+function _hostMatches(hostname, allowed) {
+  return hostname === allowed || hostname.endsWith('.' + allowed);
+}
+
 router.get('/', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url required' });
   try {
     const parsed = new URL(url);
-    const isApiHost = API_ALLOWED.includes(parsed.hostname);
-    const isImgHost = IMG_ALLOWED.some(h => parsed.hostname.includes(h));
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return res.status(403).json({ error: 'Protocol not allowed' });
+    }
+    const isApiHost = API_ALLOWED.some(h => _hostMatches(parsed.hostname, h));
+    const isImgHost = IMG_ALLOWED.some(h => _hostMatches(parsed.hostname, h));
 
     if (!isApiHost && !isImgHost) {
       return res.status(403).json({ error: 'Domain not allowed' });

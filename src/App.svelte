@@ -9,28 +9,13 @@
   import Toast     from './components/ui/Toast.svelte';
   import { DB }    from './lib/db.js';
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent } from './stores/settings.js';
-  import { currentUser, userMgmtActive, loadAuthState } from './stores/auth.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl } from './lib/platform.js';
   import { writable } from 'svelte/store';
 
   // Sync state — mirrored from the real sync store (dynamically imported)
   const syncState = writable({ syncing: false, phase: '', progress: '', lastSync: null, error: null, online: true });
-  $: _showSyncBar = isNative && getNativeMode() === 'server';
-  let _syncJustFinished = false;
-  let _syncHideTimer = null;
-  let _wasSyncing = false;
-  // Only show "Synced" when transitioning from syncing → done (not on cold start)
-  $: {
-    if ($syncState.syncing) {
-      _wasSyncing = true;
-      _syncJustFinished = false;
-    } else if (_wasSyncing && $syncState.lastSync) {
-      _wasSyncing = false;
-      _syncJustFinished = true;
-      clearTimeout(_syncHideTimer);
-      _syncHideTimer = setTimeout(() => { _syncJustFinished = false; }, 3000);
-    }
-  }
+  $: _syncModeActive = isNative && getNativeMode() === 'server';
   import NativeSetup from './routes/NativeSetup.svelte';
 
   // Show native setup wizard before anything else on first Android launch
@@ -49,7 +34,7 @@
   import ForgotPassword from './routes/ForgotPassword.svelte';
   import ResetPassword  from './routes/ResetPassword.svelte';
   import AcceptInvite   from './routes/AcceptInvite.svelte';
-  import AIFitBot   from './components/ai/AIFitBot.svelte';
+  import Trace      from './components/ai/Trace.svelte';
   import Wellness   from './routes/Wellness.svelte';
 
   const routes = {
@@ -199,17 +184,15 @@
     // Show wizard on first launch:
     // - Native server mode: NEVER show wizard (server is already configured)
     // - Native local mode: show wizard for goals/units/profile setup
+    // - Web + setup_required: force wizard (must create admin account first)
     // - Web: show wizard if no user logged in and no user management
     const _isNativeServer = isNative && getNativeMode() === 'server';
     const _isNativeLocal = isNative && getNativeMode() === 'local';
-    if (!_isNativeServer && !DB.getSetting('setupComplete', false) && (!$currentUser || _isNativeLocal) && !$userMgmtActive) {
+    if (!isNative && $setupRequired) {
+      // PWA: server has no users — force wizard with mandatory account creation
       window.location.hash = '#/wizard';
-    }
-
-    // Load cached image map BEFORE any data renders (must await, not fire-and-forget)
-    if (isNative) {
-      const { loadImageMap } = await import('./lib/platform.js');
-      await loadImageMap();
+    } else if (!_isNativeServer && !DB.getSetting('setupComplete', false) && (!$currentUser || _isNativeLocal) && !$userMgmtActive) {
+      window.location.hash = '#/wizard';
     }
 
     // Start sync engine in native server-connected mode
@@ -270,9 +253,13 @@
       setInterval(_refreshSettings, 30000); // every 30 seconds
     }
 
-    // Migrate assistant name: 'Buddy' → 'FitBot'
-    if (DB.getSetting('aiAssistantName', null) === 'Buddy') {
-      DB.setSetting('aiAssistantName', 'FitBot');
+    // Migrate assistant name: legacy 'Buddy' / 'FitBot' defaults → 'Trace'.
+    // Users who set their own custom name keep it.
+    {
+      const _curName = DB.getSetting('aiAssistantName', null);
+      if (_curName === 'Buddy' || _curName === 'FitBot') {
+        DB.setSetting('aiAssistantName', 'Trace');
+      }
     }
 
     // Migrate water containers: replace old defaults with current ones
@@ -313,9 +300,9 @@
       aria-label="Open menu"
     >
       <span class="material-symbols-rounded">menu</span>
-      {#if _showSyncBar}
-        <span class="conn-badge" class:conn-online={$syncState.online} class:conn-offline={!$syncState.online}>
-          <span class="material-symbols-rounded" style="font-size:10px">{$syncState.online ? 'cloud_done' : 'cloud_off'}</span>
+      {#if _syncModeActive && !$syncState.online}
+        <span class="conn-badge conn-offline">
+          <span class="material-symbols-rounded" style="font-size:10px">cloud_off</span>
         </span>
       {/if}
     </button>
@@ -323,23 +310,12 @@
   </header>
 {/if}
 
-<!-- Sync status bar (native server mode only) -->
-{#if _showSyncBar && !needsLogin && ($syncState.syncing || !$syncState.online || $syncState.error || _syncJustFinished)}
-  <div class="sync-bar" class:sync-bar-error={$syncState.error} class:sync-bar-offline={!$syncState.online}
+<!-- Sync error bar (native server mode only — only surfaces real problems) -->
+{#if _syncModeActive && !needsLogin && $syncState.error}
+  <div class="sync-bar sync-bar-error"
     use:portal transition:slide={{ duration: 200 }}>
-    {#if $syncState.syncing}
-      <span class="material-symbols-rounded sync-bar-icon sync-spin">sync</span>
-      <span>{$syncState.progress || 'Syncing…'}</span>
-    {:else if !$syncState.online}
-      <span class="material-symbols-rounded sync-bar-icon">cloud_off</span>
-      <span>Offline — changes saved locally</span>
-    {:else if $syncState.error}
-      <span class="material-symbols-rounded sync-bar-icon">error</span>
-      <span>Sync error</span>
-    {:else if _syncJustFinished}
-      <span class="material-symbols-rounded sync-bar-icon">cloud_done</span>
-      <span>Synced</span>
-    {/if}
+    <span class="material-symbols-rounded sync-bar-icon">error</span>
+    <span>Sync error</span>
   </div>
 {/if}
 
@@ -359,7 +335,7 @@
 {/if}
 
 <Toast />
-<AIFitBot />
+<Trace />
 
 {/if}
 
@@ -441,10 +417,6 @@
     border: 2px solid var(--surface-1);
     transition: background 0.3s;
   }
-  .conn-online {
-    background: var(--success, #22c55e);
-    color: #fff;
-  }
   .conn-offline {
     background: var(--error, #ef4444);
     color: #fff;
@@ -469,17 +441,10 @@
     border-bottom: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
     transition: background 0.3s, color 0.3s;
   }
-  .sync-bar-offline {
-    color: var(--text-3);
-    background: color-mix(in srgb, var(--text-3) 8%, transparent);
-    border-color: color-mix(in srgb, var(--text-3) 15%, transparent);
-  }
   .sync-bar-error {
     color: var(--error, #f87171);
     background: color-mix(in srgb, var(--error, #f87171) 8%, transparent);
     border-color: color-mix(in srgb, var(--error, #f87171) 15%, transparent);
   }
   .sync-bar-icon { font-size: 16px; }
-  @keyframes sync-spin { to { transform: rotate(360deg); } }
-  .sync-spin { animation: sync-spin 1.2s linear infinite; }
 </style>

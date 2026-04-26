@@ -66,6 +66,27 @@ router.delete('/', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
+// POST /api/settings/claim-celebration — atomically claim a goal celebration for today
+// Returns { fired: true } if this caller is the first to fire it, false if already fired.
+// Prevents duplicate celebrations across multiple devices (phone + PWA).
+router.post('/claim-celebration', wrap((req, res) => {
+  const { key } = req.body;
+  if (!key || typeof key !== 'string') return res.status(400).json({ error: 'key required' });
+  // Validate format: lowercase + digits + underscore + hyphen, max 40 chars.
+  // Covers all nutrient IDs (saturated-fat, vitamin-d) plus underscore-style keys
+  // (cal_max, steps_hit). Prevents a misbehaving client from spamming arbitrary
+  // keys into app_config.
+  if (!/^[a-z_][a-z0-9_-]{0,39}$/.test(key)) return res.status(400).json({ error: 'invalid key format' });
+  const userId = req.user?.id ?? 0;
+  const today = new Date().toISOString().slice(0, 10);
+  const dbKey = `_celeb_${userId}_${key}_${today}`;
+  const row = db.prepare('SELECT value FROM app_config WHERE key = ?').get(dbKey);
+  if (row?.value) return res.json({ fired: false });
+  db.prepare('INSERT INTO app_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(dbKey, '1');
+  res.json({ fired: true });
+}));
+
 // POST /api/settings/gotify-test — legacy alias
 router.post('/gotify-test', wrap(async (req, res) => {
   req.body.service = 'gotify';
@@ -89,9 +110,12 @@ async function _pushTestHandler(req, res) {
   try {
     let resp;
     if (svc === 'gotify') {
-      const url = req.body.url || _s('gotifyUrl');
-      const token = req.body.token || _s('gotifyToken');
-      if (!url || !token) return res.status(400).json({ error: 'Gotify URL and token required' });
+      // SSRF guard: only ever proxy to the URL the user has saved. Body-supplied
+      // url/token are intentionally ignored — the client always saves before
+      // calling test, so saved values reflect what the user typed.
+      const url = _s('gotifyUrl');
+      const token = _s('gotifyToken');
+      if (!url || !token) return res.status(400).json({ error: 'Gotify URL and token required — save settings first' });
       resp = await fetch(`${url.replace(/\/+$/, '')}/message?token=${encodeURIComponent(token)}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: title || 'NutriTrace', message: message || 'Test notification — connected!', priority: priority || 5 }),

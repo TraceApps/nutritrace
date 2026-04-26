@@ -32,8 +32,12 @@ function _userCfg(key, userId) {
   return row?.value || '';
 }
 
+import { encrypt, decrypt } from '../lib/token-crypto.js';
+
 function _getTokens(userId) {
-  return db.prepare('SELECT * FROM garmin_tokens WHERE user_id = ?').get(userId);
+  const row = db.prepare('SELECT * FROM garmin_tokens WHERE user_id = ?').get(userId);
+  if (!row) return row;
+  return { ...row, access_token: decrypt(row.access_token), access_secret: decrypt(row.access_secret) };
 }
 
 // ── OAuth 1.0a signing ────────────────────────────────────────────────────────
@@ -222,7 +226,7 @@ router.get('/callback', wrap(async (req, res) => {
       access_token   = excluded.access_token,
       access_secret  = excluded.access_secret,
       garmin_user_id = excluded.garmin_user_id
-  `).run(u, accessToken, accessSecret, qs.userId || null);
+  `).run(u, encrypt(accessToken), encrypt(accessSecret), qs.userId || null);
 
   res.redirect(_redir('/?garmin=connected#/wellness'));
 }));

@@ -13,15 +13,6 @@ import { Capacitor } from '@capacitor/core';
  */
 export const isNative = Capacitor.isNativePlatform();
 
-/**
- * True when running on Android specifically.
- */
-export const isAndroid = isNative && Capacitor.getPlatform() === 'android';
-
-/**
- * True when running on iOS specifically.
- */
-export const isIos = isNative && Capacitor.getPlatform() === 'ios';
 
 /**
  * Native setup mode: 'local' | 'server' | null (not yet chosen).
@@ -66,13 +57,6 @@ export function setServerUrl(url) {
   }
 }
 
-/**
- * True when in native mode AND a server URL has been configured.
- * In this mode NtApi routes calls to the remote server + queues sync.
- */
-export function isServerConnected() {
-  return isNative && !!getServerUrl();
-}
 
 /**
  * True when running native but setup hasn't been completed yet.

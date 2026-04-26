@@ -6,15 +6,34 @@ NutriTrace runs entirely in a single Docker container on your own hardware. No a
 
 ---
 
+## Principles
+
+- **Self-hosting is and will remain free.** The server, PWA, and source code will never be paywalled.
+- **No trackers, no analytics, no telemetry.** NutriTrace doesn't phone home — your usage is invisible to anyone but you.
+- **Your data stays on your hardware.** No central server, no cloud sync that can read it; nothing leaves your network unless you opt into a third-party integration (OFF, USDA, Fitbit, etc.).
+- **Open source under AGPL-3.0.** Every line that touches your data is readable.
+
+---
+
+![NutriTrace diary view — a full day of food logging with macro bar, per-meal breakdowns, and water tracking](docs/screenshots/01-diary.png)
+
+---
+
 ## Features
 
 ### Diary
 - Daily food diary with configurable meals (Breakfast, Lunch, Dinner, Snacks, or fully custom)
-- Quick-add foods, meals, and recipes with portion scaling
+- Quick-add foods, meals, and recipes with portion scaling — food notes (e.g. "1 serving = 150g cooked") are surfaced at add time
 - Nutrition bar with macro summary and per-meal breakdowns
 - Body stats tracking (weight, measurements, and more) with customizable fields
 - Water intake tracking with configurable containers and daily goal
-- Long-press (mobile) or right-click (desktop) for edit/move/delete actions
+- Long-press (mobile) or right-click (desktop) for item edit/move/delete actions
+- Per-meal ⋮ menu: copy or move all items to another meal, copy the meal to another date, save the meal to your library, or clear it
+- Per-day free-text notes (e.g. "felt bloated after lunch", "post-workout") — toggleable, with an indicator on dates that have a note
+
+<p align="center">
+  <img src="docs/screenshots/06-diary-mobile.png" alt="NutriTrace diary on Android — same diary view, mobile layout" width="320">
+</p>
 
 ### Foods & Meals
 - Personal food database with photos, barcodes, categories, and custom labels
@@ -27,6 +46,8 @@ NutriTrace runs entirely in a single Docker container on your own hardware. No a
 - Charts for any tracked nutrient or body stat over time
 - Bar and line chart modes; average, trend, and goal overlay lines
 - Configurable date ranges
+
+![NutriTrace statistics — calorie trend over time with average, goal, and trend overlays](docs/screenshots/02-statistics.png)
 
 ### Goals
 - Calorie and nutrient goals with template support
@@ -47,10 +68,13 @@ NutriTrace runs entirely in a single Docker container on your own hardware. No a
 - All data is scoped per user
 - Configurable session timeout
 
-### AI Assistant (FitBot)
+### AI Assistant (Trace)
 - Optional AI chat assistant for nutrition questions and logging help
-- Supports Claude (Anthropic), OpenAI, and OpenRouter
-- Bring your own API key
+- Supports Claude (Anthropic), OpenAI, and Google Gemini — bring your own API key
+- Tool use across all providers: Trace can query your real diary (with day notes + per-item notes), saved meals/recipes library, wellness metrics, body composition, workouts, and goals — no hallucinated numbers
+- Optional Goal Insights mode: proactive analysis of actual intake vs targets with evidence-based suggestions
+
+![Trace AI Assistant chat — answering a nutrition question by querying real diary data](docs/screenshots/04-ai-assistant.png)
 
 ### Backup & Restore
 - Full backup: ZIP archive of all database tables + uploaded images, stored on the server
@@ -65,15 +89,19 @@ NutriTrace runs entirely in a single Docker container on your own hardware. No a
 
 ## Smart Log — voice + AI food logging
 
-Smart Log is an experimental feature that lets you log food by **pressing and holding the FitBot button** on any page and saying what you ate. The AI parses your sentence and matches each item against your saved foods, meals, recipes, or yesterday's diary.
+Smart Log is an experimental feature that lets you log food by **pressing and holding the Trace button** on any page and saying what you ate. The AI parses your sentence and matches each item against your saved foods, meals, recipes, or yesterday's diary.
+
+<p align="center">
+  <img src="docs/screenshots/05-smart-log.png" alt="Smart Log review modal — voice input parsed into matched food items, edit before adding to diary" width="320">
+</p>
 
 ### Setup
-1. Settings → AI Assistant → enable **FitBot AI** and configure a provider key (Claude, OpenAI, or Gemini).
+1. Settings → AI Assistant → enable the assistant and configure a provider key (Claude, OpenAI, or Gemini).
 2. In the same section, enable the **Smart Log** toggle (Experimental).
 3. Grant microphone permission the first time you use it.
 
 ### How to use it
-- **Press and hold** the FitBot floating button (any page) for ~½ second.
+- **Press and hold** the Trace floating button (any page) for ~½ second.
 - The robot face morphs to a microphone, the FAB turns red, you'll hear a short beep and feel a haptic buzz.
 - **Speak** what you ate.
 - **Release** the button to commit. Slide your finger off the FAB before releasing to **cancel**.
@@ -197,17 +225,17 @@ On first launch, a setup wizard walks you through enabling user management and c
 | `DATA_UPLOADS_PATH` | Yes | — | Host path for uploaded images and backups |
 | `JWT_SECRET` | If using users | — | Secret key for signing auth tokens. Use a long random string. |
 | `RECOVERY_TOKEN` | No | — | Passphrase required to disable user management from the login page (lockout recovery). Without this the recovery endpoint is disabled. |
-| `LOG_LEVEL` | No | `info` | Log verbosity: `error` \| `warn` \| `info` \| `debug`. Use `debug` for detailed Fitbit/Withings sync output. |
+| `LOG_LEVEL` | No | `info` | Log verbosity: `error` \| `warn` \| `info` \| `debug`. Use `debug` for detailed wellness sync output (Fitbit, Withings, Garmin, Health Connect). |
 | `SMTP_HOST` | No | — | SMTP server hostname (for password reset & invites) |
 | `SMTP_PORT` | No | `587` | SMTP port |
 | `SMTP_SECURE` | No | `false` | `true` for SSL (port 465), `false` for STARTTLS |
 | `SMTP_USER` | No | — | SMTP username |
 | `SMTP_PASS` | No | — | SMTP password |
 | `SMTP_FROM` | No | — | From address, e.g. `NutriTrace <noreply@example.com>` |
-| `AI_PROVIDER` | No | — | Lock FitBot to a specific provider for all users: `claude` \| `openai` \| `gemini` |
+| `AI_PROVIDER` | No | — | Lock Trace to a specific provider for all users: `claude` \| `openai` \| `gemini` |
 | `AI_API_KEY` | No | — | Shared AI API key. Key is server-side only — never sent to the browser. |
 | `AI_MODEL` | No | provider default | Override the AI model (e.g. `claude-haiku-4-5-20251001`) |
-| `AI_ENABLED` | No | — | Set to `true` to auto-enable FitBot for all users |
+| `AI_ENABLED` | No | — | Set to `true` to auto-enable Trace for all users |
 
 SMTP and AI settings can also be configured in the Settings UI. Environment variables take priority over UI values and lock those fields for all users.
 
@@ -249,7 +277,9 @@ The database schema migrates automatically on startup.
 
 ## Wellness Integrations
 
-NutriTrace can sync data from Fitbit, Withings, and Garmin. Each requires registering a free OAuth application with the respective service and entering the credentials in **Settings → Wellness**.
+NutriTrace can sync data from Fitbit, Withings, Garmin, and Android Health Connect. Each cloud provider (Fitbit/Withings/Garmin) requires registering a free OAuth application with the respective service and entering the credentials in **Settings → Wellness**. Health Connect is on-device and needs no developer setup.
+
+![NutriTrace Wellness page — sleep, HRV, readiness, stress, and activity sparklines from connected devices](docs/screenshots/03-wellness.png)
 
 ### Fitbit
 1. Go to [dev.fitbit.com](https://dev.fitbit.com) → **Register an App**
@@ -266,7 +296,10 @@ NutriTrace can sync data from Fitbit, Withings, and Garmin. Each requires regist
 ### Garmin
 Garmin Health API requires a partnership approval (not a free developer program). If you have access, set the callback URL to `https://your-nutritrace-domain.com/api/wellness/garmin/callback`.
 
-> **Note:** The callback URLs must use your public domain (not `localhost`). Both Fitbit and Withings require HTTPS.
+### Health Connect (Android)
+Reads steps, sleep, heart rate, weight, and exercise directly from the Android Health Connect API. Works in the NutriTrace Android app without any server setup — useful for users running fully local/offline. Enable in **Settings → Wellness → Health Connect** on the Android app and grant the requested permissions.
+
+> **Note:** The callback URLs for Fitbit/Withings/Garmin must use your public domain (not `localhost`). All three require HTTPS.
 
 ---
 
@@ -280,15 +313,82 @@ All external API calls are proxied server-side — no keys are exposed to the br
 
 ---
 
+## Roadmap
+
+**Coming soon:**
+- **Android app** — works server-connected or fully local/offline, with Health Connect support. Currently in development and testing; public release planned during the v1.x cycle. Distribution channels will be announced before public release.
+- **Adaptive TDEE** — learn your true energy expenditure from intake + weight trend over time
+
+**Future:**
+- **iOS app** — pending hardware and Apple Developer account access (see Support).
+
+---
+
+## Wellness scores — how they're computed
+
+NutriTrace surfaces three derived wellness scores. Where the source device exposes its own value via API, that value is used directly. Where it doesn't, NutriTrace computes one. The computed scores are prefixed **Trace** in this section to make the distinction explicit.
+
+| Score | Fitbit | Garmin | Withings | Health Connect |
+|---|---|---|---|---|
+| Sleep | **Trace Sleep Score** (computed — Fitbit API doesn't expose its own) | Native `overallSleepScore` | Native sleep score when present | **Trace Sleep Score** |
+| Daily Readiness | **Trace Readiness** (computed) | **Trace Readiness** (computed) | **Trace Readiness** (computed) | **Trace Readiness** (computed) |
+| Stress | **Trace Stress** (computed) | Garmin's native `stress_avg` is stored separately; **Trace Stress** is also computed | **Trace Stress** (computed) | **Trace Stress** (computed) |
+
+**Trace Sleep Score** combines sleep duration, deep / REM percentages, SpO₂, HRV, and efficiency into a single 0–100 value (formula in `server/routes/fitbit.js`). **Trace Readiness** weighs HRV against a 30-day baseline plus resting HR and last night's sleep, with an activity-spike penalty. **Trace Stress** is a 7-day-smoothed inverse of HRV + RHR + sleep (formula in `server/lib/wellness-scores.js`).
+
+These scores prioritize day-to-day consistency across whatever data sources you've connected. They're not intended to match what each device's own app shows — readings may differ from device-native scores.
+
+If a wellness integration on your device behaves wrong (missing data, weird numbers), file an [Integration Test report](https://github.com/traceapps/nutritrace/issues/new?template=integration_test_report.md) — the more devices reported, the easier it is to spot integration-specific quirks.
+
+## Experimental features
+
+Features marked **Experimental** in Settings (Smart Log, Goal Insights, Food Sharing, Dynamic Calorie Goal, Garmin integration) work but haven't been hammered enough to drop the label. Real-world bug reports help promote them to stable. The badge comes off when edge-case handling is solid, not on a calendar.
+
+---
+
+## Troubleshooting
+
+If you're filing a bug, logs make it 10× faster to fix. Easiest path first:
+
+**In-app logs** (PWA + Android — recommended):
+**Settings → Diagnostics → View logs.** A 500-line in-memory ring buffer captures `console.log/info/warn/error/debug` plus uncaught errors. Toggle **Verbose** to capture extra sync / DB / notification detail. The viewer has Copy / Share / Clear — Share opens the system share sheet (Gmail, Drive, Files) on Android, Web Share API on PWA. No USB cable, no DevTools needed.
+
+**Server logs** (Docker):
+```bash
+docker logs nutritrace --tail 200
+```
+For deeper diagnosis, set `LOG_LEVEL=debug` in your `.env` and restart. **Note:** debug logs contain personal health data (HRV, RHR, sleep duration, calorie counts). Redact these before posting publicly.
+
+**Browser DevTools** (PWA, advanced):
+F12 → Console tab. Filter by `[wellness]`, `[sync]`, `[diary]`, etc. depending on the area.
+
+**Android via chrome://inspect** (advanced fallback):
+If the in-app log viewer doesn't capture what you need:
+1. Connect the device to a computer via USB
+2. Visit `chrome://inspect/#devices` in Chrome
+3. Click "inspect" on the NutriTrace WebView
+4. Console tab → reproduce the issue → screenshot or copy the output
+
+**Where to file:** [github.com/traceapps/nutritrace/issues](https://github.com/traceapps/nutritrace/issues). Templates are provided for bug reports, feature requests, and integration test reports.
+
+---
+
 ## Support
 
-NutriTrace is free to self-host and always will be. If it's been useful to you and you'd like to support continued development:
+NutriTrace is free to self-host and always will be. It's built and maintained by one person; donations help cover real costs like an Apple Developer account and Mac/iPhone hardware to enable an iOS port, plus ongoing infrastructure. Donations are appreciated but never required — starring the repo helps with discoverability and costs nothing.
 
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-❤-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/traceapps)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy_me_a_coffee-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/thebigjoe1)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy_me_a_coffee-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/traceapps)
 
-Or just star the repo — that helps with discoverability and costs nothing.
+## Credits
+
+NutriTrace was inspired by two excellent self-hosted nutrition trackers:
+
+- **[Waistline](https://github.com/davidhealey/waistline)** by David Healey — a privacy-focused Android nutrition diary that proved a great open-source nutrition tracker is possible.
+- **[SparkyFitness](https://github.com/CodeWithCJ/SparkyFitness)** by CodeWithCJ — a self-hosted fitness and nutrition tracker that influenced the wellness integrations and goal-tracking approach.
+
+Thanks to both projects for showing what's possible.
 
 ## License
 
-[AGPL-3.0](LICENSE) — server and PWA. The Android app is distributed separately as a paid release on the Play Store.
+[AGPL-3.0](LICENSE) — entire codebase including the Android app source.

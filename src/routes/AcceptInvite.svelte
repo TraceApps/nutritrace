@@ -3,6 +3,9 @@
   import { push, querystring } from 'svelte-spa-router';
   import { currentUser } from '../stores/auth.js';
   import { loadServerSettings } from '../stores/settings.js';
+  import { validatePassword, passwordStrength } from '../lib/validation.js';
+
+  $: pwScore = passwordStrength(password);
 
   let token      = '';
   let prefillEmail = '';
@@ -32,8 +35,9 @@
   async function submit() {
     if (!username.trim()) { error = 'Username is required'; return; }
     if (!password) { error = 'Password is required'; return; }
+    const pwErr = validatePassword(password);
+    if (pwErr) { error = pwErr; return; }
     if (password !== confirm) { error = 'Passwords do not match'; return; }
-    if (password.length < 4) { error = 'Password must be at least 4 characters'; return; }
     loading = true; error = '';
     try {
       const res  = await fetch('/api/auth/accept-invite', {
@@ -104,12 +108,21 @@
       <div class="form-group">
         <label class="form-label">Password *</label>
         <input class="input" type="password" autocomplete="new-password"
-          bind:value={password} placeholder="At least 4 characters" />
+          bind:value={password} placeholder="8+ chars, upper, lower, number, symbol" />
+        {#if password}
+          <div class="pw-strength" class:s-0={pwScore.score === 0} class:s-1={pwScore.score === 1} class:s-2={pwScore.score === 2} class:s-3={pwScore.score === 3} class:s-4={pwScore.score === 4}>
+            <div class="pw-bar"><div class="pw-fill" style:width={`${(pwScore.score / 4) * 100}%`}></div></div>
+            <span class="pw-label">{pwScore.label}</span>
+          </div>
+        {/if}
       </div>
       <div class="form-group">
         <label class="form-label">Confirm password *</label>
         <input class="input" type="password" autocomplete="new-password"
           bind:value={confirm} on:keydown={e => e.key === 'Enter' && submit()} />
+        {#if confirm && password !== confirm}
+          <p class="pw-mismatch">Passwords don't match</p>
+        {/if}
       </div>
 
       {#if error}
@@ -141,4 +154,17 @@
   .logo-img { width: 56px; height: 56px; border-radius: 14px; object-fit: cover; }
   .login-title { font-size: 1.4rem; font-weight: 700; margin: 0; }
   .error-msg { color: var(--danger); font-size: 13px; margin: 0; }
+
+  /* Password strength indicator — shared pattern across auth pages */
+  .pw-strength { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .pw-bar { flex: 1; height: 4px; background: var(--surface-2); border-radius: var(--radius-full); overflow: hidden; }
+  .pw-fill { height: 100%; border-radius: var(--radius-full); transition: width var(--dur-base), background var(--dur-fast); }
+  .pw-strength.s-0 .pw-fill, .pw-strength.s-1 .pw-fill { background: var(--danger, #ef4444); }
+  .pw-strength.s-2 .pw-fill { background: #f59e0b; }
+  .pw-strength.s-3 .pw-fill { background: var(--accent); }
+  .pw-strength.s-4 .pw-fill { background: var(--success, #22c55e); }
+  .pw-label { font-size: 11px; font-weight: 600; color: var(--text-3); min-width: 64px; text-align: right; }
+  .pw-strength.s-4 .pw-label { color: var(--success, #22c55e); }
+  .pw-strength.s-0 .pw-label, .pw-strength.s-1 .pw-label { color: var(--danger, #ef4444); }
+  .pw-mismatch { color: var(--danger, #ef4444); font-size: 11px; margin: 4px 0 0; }
 </style>

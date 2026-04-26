@@ -1,9 +1,11 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { portal } from '../../lib/portal.js';
+  import { timeFormat } from '../../stores/settings.js';
 
-  export let value = '12:00'; // HH:MM (24h)
+  export let value = '12:00'; // HH:MM (24h internal)
   export let label = '';
+  export let placeholder = '';
 
   const dispatch = createEventDispatcher();
 
@@ -12,22 +14,33 @@
   let selMinute = 0;
   let selAmPm = 'AM';
 
+  $: is24 = $timeFormat === '24h';
+
   // Parse value into hour/minute/ampm
   function _parse(v) {
     const [h, m] = (v || '12:00').split(':').map(Number);
     selMinute = m || 0;
-    if (h === 0) { selHour = 12; selAmPm = 'AM'; }
-    else if (h === 12) { selHour = 12; selAmPm = 'PM'; }
-    else if (h > 12) { selHour = h - 12; selAmPm = 'PM'; }
-    else { selHour = h; selAmPm = 'AM'; }
+    if (is24) {
+      selHour = h;
+    } else {
+      if (h === 0) { selHour = 12; selAmPm = 'AM'; }
+      else if (h === 12) { selHour = 12; selAmPm = 'PM'; }
+      else if (h > 12) { selHour = h - 12; selAmPm = 'PM'; }
+      else { selHour = h; selAmPm = 'AM'; }
+    }
   }
 
   $: _parse(value);
 
   function _to24() {
-    let h = selHour;
-    if (selAmPm === 'AM' && h === 12) h = 0;
-    else if (selAmPm === 'PM' && h !== 12) h += 12;
+    let h;
+    if (is24) {
+      h = selHour;
+    } else {
+      h = selHour;
+      if (selAmPm === 'AM' && h === 12) h = 0;
+      else if (selAmPm === 'PM' && h !== 12) h += 12;
+    }
     return `${String(h).padStart(2, '0')}:${String(selMinute).padStart(2, '0')}`;
   }
 
@@ -38,19 +51,23 @@
   }
 
   function _display(v) {
+    if (!v && placeholder) return placeholder;
     const [h, m] = (v || '12:00').split(':').map(Number);
+    if (is24) return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     const ampm = h >= 12 ? 'PM' : 'AM';
     const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
     return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
   }
 
-  const HOURS = [1,2,3,4,5,6,7,8,9,10,11,12];
+  $: HOURS = is24
+    ? Array.from({ length: 24 }, (_, i) => i)
+    : [1,2,3,4,5,6,7,8,9,10,11,12];
   const MINUTES = [0,5,10,15,20,25,30,35,40,45,50,55];
 </script>
 
 <button class="tp-trigger" on:click={() => { _parse(value); open = true; }}>
   {#if label}<span class="tp-label">{label}</span>{/if}
-  <span class="tp-value">{_display(value)}</span>
+  <span class="tp-value" class:tp-placeholder={!value && placeholder}>{_display(value)}</span>
   <span class="material-symbols-rounded" style="font-size:18px;color:var(--text-3)">schedule</span>
 </button>
 
@@ -62,16 +79,22 @@
 
       <!-- Preview -->
       <div class="tp-preview">
-        {selHour}:{String(selMinute).padStart(2, '0')} {selAmPm}
+        {#if is24}
+          {String(selHour).padStart(2, '0')}:{String(selMinute).padStart(2, '0')}
+        {:else}
+          {selHour}:{String(selMinute).padStart(2, '0')} {selAmPm}
+        {/if}
       </div>
 
       <!-- Hour / Minute / AM-PM columns -->
       <div class="tp-columns">
         <div class="tp-col">
           <div class="tp-col-label">Hour</div>
-          <div class="tp-grid tp-grid-4">
+          <div class="tp-grid" class:tp-grid-4={!is24} class:tp-grid-6={is24}>
             {#each HOURS as h}
-              <button class="tp-cell" class:tp-sel={selHour === h} on:click={() => selHour = h}>{h}</button>
+              <button class="tp-cell" class:tp-sel={selHour === h} on:click={() => selHour = h}>
+                {is24 ? String(h).padStart(2, '0') : h}
+              </button>
             {/each}
           </div>
         </div>
@@ -85,13 +108,15 @@
           </div>
         </div>
 
-        <div class="tp-col tp-col-ampm">
-          <div class="tp-col-label">&nbsp;</div>
-          <div class="tp-ampm">
-            <button class="tp-cell tp-cell-ampm" class:tp-sel={selAmPm === 'AM'} on:click={() => selAmPm = 'AM'}>AM</button>
-            <button class="tp-cell tp-cell-ampm" class:tp-sel={selAmPm === 'PM'} on:click={() => selAmPm = 'PM'}>PM</button>
+        {#if !is24}
+          <div class="tp-col tp-col-ampm">
+            <div class="tp-col-label">&nbsp;</div>
+            <div class="tp-ampm">
+              <button class="tp-cell tp-cell-ampm" class:tp-sel={selAmPm === 'AM'} on:click={() => selAmPm = 'AM'}>AM</button>
+              <button class="tp-cell tp-cell-ampm" class:tp-sel={selAmPm === 'PM'} on:click={() => selAmPm = 'PM'}>PM</button>
+            </div>
           </div>
-        </div>
+        {/if}
       </div>
 
       <!-- Actions -->
@@ -114,6 +139,7 @@
   .tp-trigger:hover { border-color: var(--accent); }
   .tp-label { font-size: 12px; color: var(--text-3); }
   .tp-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tp-placeholder { color: var(--text-3); font-weight: 400; }
 
   .tp-backdrop {
     position: fixed; inset: 0; z-index: 9999;
@@ -141,6 +167,7 @@
 
   .tp-grid { display: grid; gap: 4px; }
   .tp-grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .tp-grid-6 { grid-template-columns: repeat(6, 1fr); }
 
   .tp-cell {
     padding: 8px 4px; border-radius: var(--radius-md);

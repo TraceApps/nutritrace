@@ -22,6 +22,9 @@ export const currentUser = writable(null);
 /** Whether user management is enabled on the server */
 export const userMgmtActive = writable(false);
 
+/** True when the server has no users yet — PWA must show setup screen */
+export const setupRequired = writable(false);
+
 // Synthetic local user for native standalone mode (no server configured)
 const LOCAL_USER = {
   id:        1,
@@ -73,10 +76,11 @@ async function _fetchAuthFromServer() {
       fetch(_apiUrl('/api/auth/status'), { credentials: 'include', headers: _authHeaders(), signal: AbortSignal.timeout(8000) }),
       fetch(_apiUrl('/api/auth/me'),     { credentials: 'include', headers: _authHeaders(), signal: AbortSignal.timeout(8000) }),
     ]);
-    const { active } = await statusRes.json();
+    const statusData = await statusRes.json();
     const meData     = await meRes.json();
     const user       = meData.user || null;
-    userMgmtActive.set(!!active);
+    userMgmtActive.set(!!statusData.active);
+    setupRequired.set(!!statusData.setup_required);
     currentUser.set(user);
     if (user) localStorage.setItem('wl:userId', String(user.id));
     else       localStorage.removeItem('wl:userId');
@@ -105,8 +109,30 @@ async function _fetchAuthFromServer() {
   }
 }
 
-/** Background refresh — updates cached auth if server is reachable */
+/** Background refresh — updates cached auth if server is reachable.
+ *  On native, never clear currentUser — keep cached auth if server is unreachable. */
 async function _refreshAuthFromServer() {
+  if (isNative) {
+    try {
+      const [statusRes, meRes] = await Promise.all([
+        fetch(_apiUrl('/api/auth/status'), { credentials: 'include', headers: _authHeaders(), signal: AbortSignal.timeout(3000) }),
+        fetch(_apiUrl('/api/auth/me'),     { credentials: 'include', headers: _authHeaders(), signal: AbortSignal.timeout(3000) }),
+      ]);
+      if (!statusRes.ok || !meRes.ok) return; // server error — keep cached auth
+      const { active } = await statusRes.json();
+      const meData     = await meRes.json();
+      const user       = meData.user || null;
+      if (!user) return; // don't clear auth on native — keep cached user
+      userMgmtActive.set(!!active);
+      currentUser.set(user);
+      localStorage.setItem('wl:userId', String(user.id));
+      localStorage.setItem('nt:cachedUser', JSON.stringify(user));
+      localStorage.setItem('nt:cachedUserMgmt', active ? '1' : '0');
+      if (meData.csrf) localStorage.setItem('nt:csrf', meData.csrf);
+      await loadServerSettings();
+    } catch {} // server unreachable — silently keep cached auth
+    return;
+  }
   try {
     await _fetchAuthFromServer();
   } catch {}

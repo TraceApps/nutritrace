@@ -2,9 +2,11 @@ import { Router } from 'express';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { wrap } from '../logger.js';
 import { getAiConfig } from '../ai.js';
+import { makeRateLimiter } from '../middleware/rate-limit.js';
 import db from '../db.js';
 
 const router = Router();
+const aiChatLimit = makeRateLimiter({ max: 30, windowMs: 60_000, label: 'ai' });
 
 const uid = req => userMgmtActive() ? req.user.id : null;
 const MAX_HISTORY = 200; // rows kept per user
@@ -57,9 +59,21 @@ const AI_DEFAULT_MODELS = {
  * Server-side proxy for AI calls — used when AI config is env-locked.
  * The API key never leaves the server; clients send only messages + systemPrompt.
  */
-router.post('/chat', requireAuth, wrap(async (req, res) => {
+// Payload caps to bound a misbehaving client (or compromised account) from
+// burning through the admin's AI API budget with one giant request.
+const AI_MAX_MESSAGES   = 60;
+const AI_MAX_BYTES      = 200_000; // ~200 KB combined messages + system prompt
+
+router.post('/chat', requireAuth, aiChatLimit, wrap(async (req, res) => {
   const { messages, systemPrompt } = req.body;
   if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages array required' });
+  if (messages.length > AI_MAX_MESSAGES) {
+    return res.status(413).json({ error: `Too many messages (max ${AI_MAX_MESSAGES})` });
+  }
+  const payloadBytes = JSON.stringify(messages).length + (typeof systemPrompt === 'string' ? systemPrompt.length : 0);
+  if (payloadBytes > AI_MAX_BYTES) {
+    return res.status(413).json({ error: `Payload too large (${payloadBytes} bytes; max ${AI_MAX_BYTES})` });
+  }
 
   const cfg = getAiConfig();
   if (!cfg.ai_api_key) return res.status(503).json({ error: 'AI not configured on server. Set AI_API_KEY in environment.' });

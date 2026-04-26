@@ -20,10 +20,14 @@ const BACKUPS_DIR = process.env.BACKUPS_PATH  || path.join(UPLOADS_DIR, 'backups
 
 fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 
-// Multer: stream to disk (temp dir) so large ZIPs don't OOM the container
+// Multer: stream to disk (temp dir) so large ZIPs don't OOM the container.
+// 512 MB cap is generous for a full backup (DB + photos) but bounds disk-fill
+// abuse from repeated half-finished uploads. Override with BACKUP_UPLOAD_MAX_MB
+// if you legitimately need a larger limit.
+const _backupMaxMb = parseInt(process.env.BACKUP_UPLOAD_MAX_MB || '512');
 const upload = multer({
   storage: multer.diskStorage({ destination: (req, file, cb) => cb(null, os.tmpdir()) }),
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2 GB
+  limits: { fileSize: _backupMaxMb * 1024 * 1024 },
 });
 
 function restoreFromZip(zip) {
@@ -66,10 +70,10 @@ function restoreFromZip(zip) {
     for (const ms of data.meal_shares || []) insMealShare.run(ms);
 
     const insDiary = db.prepare(`
-      INSERT OR IGNORE INTO diary (id, user_id, date, items, body_stats, water, updated_at, deleted_at)
-      VALUES (@id, @user_id, @date, @items, @body_stats, @water, @updated_at, @deleted_at)
+      INSERT OR IGNORE INTO diary (id, user_id, date, items, body_stats, water, notes, updated_at, deleted_at)
+      VALUES (@id, @user_id, @date, @items, @body_stats, @water, @notes, @updated_at, @deleted_at)
     `);
-    for (const d of data.diary || []) insDiary.run({ deleted_at: null, ...d });
+    for (const d of data.diary || []) insDiary.run({ notes: null, deleted_at: null, ...d });
 
     const insSettings = db.prepare(`
       INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at, deleted_at) VALUES (@user_id, @key, @value, @updated_at, @deleted_at)
@@ -103,14 +107,30 @@ function restoreFromZip(zip) {
     for (const w of data.workouts || []) insWorkout.run(w);
   })();
 
-  // Restore images
+  // Restore images — guard against zip-slip and zip-bomb attacks
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  const uploadsResolved = path.resolve(UPLOADS_DIR);
+  const MAX_ENTRIES = 10_000;
+  const MAX_BYTES   = 5 * 1024 * 1024 * 1024; // 5 GB total uncompressed
+  let extracted = 0;
+  let totalBytes = 0;
   for (const entry of zip.getEntries()) {
     if (!entry.entryName.startsWith('images/') || entry.isDirectory) continue;
+    if (++extracted > MAX_ENTRIES) throw new Error(`Backup contains too many image entries (>${MAX_ENTRIES})`);
     const rel  = entry.entryName.slice('images/'.length);
-    const dest = path.join(UPLOADS_DIR, rel);
+    // Reject any path that escapes UPLOADS_DIR via .. or absolute path components.
+    if (!rel || rel.includes('..') || path.isAbsolute(rel)) {
+      throw new Error(`Refusing unsafe path in backup: ${entry.entryName}`);
+    }
+    const dest = path.resolve(UPLOADS_DIR, rel);
+    if (!dest.startsWith(uploadsResolved + path.sep)) {
+      throw new Error(`Refusing path traversal in backup: ${entry.entryName}`);
+    }
+    const data = entry.getData();
+    totalBytes += data.length;
+    if (totalBytes > MAX_BYTES) throw new Error(`Backup uncompressed size exceeds ${MAX_BYTES} bytes (zip-bomb defense)`);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.writeFileSync(dest, entry.getData());
+    fs.writeFileSync(dest, data);
   }
 
   // Re-apply env-var config so lock flags always reflect the current environment,
@@ -193,6 +213,12 @@ router.get('/', requireAdmin, (req, res) => {
 // ── GET /api/full-backup/:name/download ───────────────────────────────────
 router.get('/:name/download', requireAdmin, (req, res) => {
   const filename = path.basename(req.params.name); // prevent path traversal
+  // Only serve files that look like backups — the BACKUPS_DIR is under
+  // UPLOADS_DIR, so without this guard an admin could grab arbitrary uploaded
+  // images by name.
+  if (!filename.toLowerCase().endsWith('.zip')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
   const filePath = path.join(BACKUPS_DIR, filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   res.download(filePath, filename);
@@ -201,6 +227,9 @@ router.get('/:name/download', requireAdmin, (req, res) => {
 // ── DELETE /api/full-backup/:name ─────────────────────────────────────────
 router.delete('/:name', requireAdmin, (req, res) => {
   const filename = path.basename(req.params.name);
+  if (!filename.toLowerCase().endsWith('.zip')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
   const filePath = path.join(BACKUPS_DIR, filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   fs.unlinkSync(filePath);

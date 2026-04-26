@@ -21,8 +21,9 @@ import withingsRoutes   from './routes/withings.js';
 import garminRoutes     from './routes/garmin.js';
 import syncRoutes       from './routes/sync.js';
 import { logger }   from './logger.js';
-import { authenticate } from './middleware/auth.js';
+import { authenticate, userMgmtActive } from './middleware/auth.js';
 import { csrfProtect } from './middleware/csrf.js';
+import { makeRateLimiter } from './middleware/rate-limit.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv } from './ai.js';
 
@@ -37,7 +38,15 @@ const app  = express();
 const PORT = process.env.PORT || 3001;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-app.use(express.json({ limit: '50mb' }));
+// Per-route JSON limits for endpoints that legitimately handle large payloads
+// (full data export/import, full-history sync push). Registered BEFORE the
+// global parser so they win — by the time the global parser runs, req.body
+// is already populated and it short-circuits.
+app.use('/api/data/import', express.json({ limit: '25mb' }));
+app.use('/api/sync/push',   express.json({ limit: '25mb' }));
+// Global cap: 1 MB. Prevents a single authed user from filling memory with
+// repeated large requests. Anything above belongs on a per-route opt-in.
+app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 // CORS — allow cross-origin requests from Android app (https://localhost) and same-origin
@@ -87,6 +96,14 @@ app.use((req, res, next) => {
 // Prevent browser/proxy caching of all API responses
 app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
+// Setup enforcement — block data APIs until the first user account is created.
+// Only /api/auth/* is allowed so the client can check status + register the admin.
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/auth')) return next(); // allow auth routes (status, register, login)
+  if (userMgmtActive()) return next();             // users exist — normal operation
+  res.status(503).json({ error: 'Setup required', setup_required: true });
+});
+
 // API routes
 app.use('/api/auth',   authRoutes);
 // proxy already registered before auth (line 64)
@@ -100,9 +117,37 @@ app.use('/api/settings',  settingsRoutes);
 app.use('/api/app-config',  appConfigRoutes);
 app.use('/api/ai',          aiRoutes);
 app.use('/api/full-backup',        fullBackupRoutes);
+// Per-IP rate limit on OAuth callbacks — these run unauthenticated and trigger
+// expensive token-exchange round-trips with the OAuth provider.
+const oauthCallbackLimit = makeRateLimiter({ max: 10, windowMs: 60_000, label: 'oauth-callback' });
+app.use(['/api/wellness/fitbit/callback', '/api/wellness/withings/callback', '/api/wellness/garmin/callback'], oauthCallbackLimit);
 app.use('/api/wellness/fitbit',   fitbitRoutes);
 app.use('/api/wellness/withings', withingsRoutes);
 app.use('/api/wellness/garmin',  garminRoutes);
+
+// Cross-source calories_out lookup — for Dynamic Calorie Goal
+// Returns yesterday's merged TDEE from fitbit/garmin/health_connect
+app.get('/api/wellness/calories-out', (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  const { date } = req.query;
+  // date param = the diary date; we want the day before
+  const base = date ? new Date(date + 'T12:00:00Z') : new Date();
+  base.setUTCDate(base.getUTCDate() - 1);
+  const yesterday = base.toISOString().slice(0, 10);
+  // Priority: garmin > health_connect > fitbit (all provide true TDEE)
+  const PRIORITY = ['garmin', 'health_connect', 'fitbit'];
+  const rows = db.prepare(
+    `SELECT source, value FROM wellness_data
+     WHERE user_id=? AND date=? AND metric_type='calories_out'`
+  ).all(userId, yesterday);
+  let result = null;
+  for (const src of PRIORITY) {
+    const row = rows.find(r => r.source === src);
+    if (row) { result = { calories_out: row.value, source: src, date: yesterday }; break; }
+  }
+  res.json(result || { calories_out: null, source: null, date: yesterday });
+});
 app.use('/api/sync',             syncRoutes);
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

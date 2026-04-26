@@ -39,6 +39,30 @@
   // CSS injected for quagga/html5qr video fill
   let styleEl = null;
 
+  // Lazy-load the barcode scanner libraries (~870 KB total) only when the
+  // scanner actually opens. Cached promise so subsequent opens reuse loaded scripts.
+  let _libsPromise = null;
+  function _loadBarcodeLibs() {
+    if (_libsPromise) return _libsPromise;
+    const inject = (src) => new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = false;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load ' + src));
+      document.head.appendChild(s);
+    });
+    _libsPromise = Promise.all([
+      inject('/vendor/zxing.min.js'),
+      inject('/vendor/html5-qrcode.min.js'),
+      inject('/vendor/quagga2.min.js'),
+    ]).catch(e => {
+      _libsPromise = null;          // allow retry
+      throw e;
+    });
+    return _libsPromise;
+  }
+
   const _hideEl = el => {
     el.style.setProperty('display','none','important');
     el.style.setProperty('visibility','hidden','important');
@@ -301,9 +325,17 @@
     dispatch('scan', { code });
   }
 
-  function startScanner() {
+  async function startScanner() {
     detected = false;
     scanning = true;
+    status = 'Loading scanner…';
+    try {
+      await _loadBarcodeLibs();
+    } catch (e) {
+      status = 'Failed to load scanner libraries.';
+      scanning = false;
+      return;
+    }
 
     // Inject video fill CSS
     styleEl = document.createElement('style');

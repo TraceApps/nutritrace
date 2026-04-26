@@ -9,6 +9,17 @@ export default defineConfig({
       '/uploads': 'http://localhost:3001',
     }
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'charts':  ['chart.js'],
+          'jszip':   ['jszip'],
+          'emoji':   ['emoji-picker-element'],
+        }
+      }
+    }
+  },
   // Capacitor native build: output to dist/ (default) — capacitor.config.ts points webDir here
   // The build is identical for web and native; platform branching happens at runtime via platform.js
   plugins: [
@@ -16,16 +27,28 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
-        // Precache only the offline fallback page — everything else is handled
-        // by HTTP Cache-Control headers (index.html: no-cache, /assets/*: immutable).
-        // Precaching JS/CSS caused stale UI after deploys because the old SW
-        // kept serving old bundles until the new SW fully activated.
+        // Precache the offline fallback page
         globPatterns: ['offline.html'],
-        navigateFallback: '/offline.html',
-        // Only use the offline fallback for navigation requests that aren't API calls
-        navigateFallbackDenylist: [/^\/api\//],
+        // navigateFallback explicitly disabled — navigation requests are
+        // handled by the NetworkFirst runtimeCaching route below.
+        navigateFallback: null,
+        navigateFallbackDenylist: [/.*/],
         cleanupOutdatedCaches: true,
+        // skipWaiting + clientsClaim ensure new SW activates immediately
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
+          {
+            // Navigation: network first (3s timeout), cache index.html for
+            // offline use. Deploys are picked up instantly because the
+            // network response always wins when the server is reachable.
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'pages-cache',
+              networkTimeoutSeconds: 3,
+            }
+          },
           {
             urlPattern: /^https:\/\/world\.openfoodfacts\.org\/.*/i,
             handler: 'NetworkFirst',

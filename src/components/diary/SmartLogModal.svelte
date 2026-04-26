@@ -1,5 +1,5 @@
 <!--
-  Smart Log modal — natural-language food logging via FitBot AI.
+  Smart Log modal — natural-language food logging via the AI Assistant.
 
   Voice input:
     - Native (Capacitor): @capacitor-community/speech-recognition (Android system recognizer)
@@ -20,7 +20,7 @@
   export let defaultMealSlot = 0;   // index into mealNames (used if AI can't infer)
   export let openMode = 'text';     // 'text' | 'voice' | 'preParsed'
   // When openMode === 'preParsed', the caller has already run parseInput and
-  // matched items via the AIFitBot hold-to-record path. We skip the input/
+  // matched items via the Trace hold-to-record path. We skip the input/
   // parsing phases entirely and jump straight to the review modal.
   export let preParsedMatches = null;  // [{ item, candidates, best, source }, ...]
   export let preParsedMeal = null;     // string | null — AI-inferred meal name
@@ -42,7 +42,7 @@
 
   onMount(async () => {
     // Pre-parsed mode: caller already ran parseInput + matchItems via the
-    // AIFitBot hold-to-record gesture. Jump straight to review.
+    // Trace hold-to-record gesture. Jump straight to review.
     if (openMode === 'preParsed' && preParsedMatches && preParsedMatches.length > 0) {
       parsedMeal = preParsedMeal;
       inputText = preParsedSourceText || '';
@@ -222,7 +222,14 @@
   }
 
   function swapCandidate(i, candidate) {
-    matchedItems[i] = { ...matchedItems[i], food: candidate };
+    const m = matchedItems[i];
+    // Recalculate quantity using the new food's portion size
+    const basePortion = Number(candidate.portion) > 0 ? Number(candidate.portion) : 100;
+    const qty = Number(m.item.quantity) > 0 ? Number(m.item.quantity) : 1;
+    const unit = m.item.unit ? String(m.item.unit).toLowerCase().trim() : null;
+    const isWeightOrVolume = unit === 'g' || unit === 'ml' || unit === 'gram' || unit === 'grams';
+    const newQuantity = isWeightOrVolume ? qty : basePortion * qty;
+    matchedItems[i] = { ...m, food: candidate, quantity: newQuantity };
     matchedItems = matchedItems;
   }
 

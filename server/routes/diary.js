@@ -23,32 +23,35 @@ router.get('/:date', wrap((req, res) => {
   const row = u == null
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND deleted_at IS NULL').get(req.params.date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(req.params.date, u);
-  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [] });
+  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [], notes: '' });
   res.json(parse(row));
 }));
 
 // Save/replace entire diary entry for a date
 router.put('/:date', wrap((req, res) => {
-  const { items, body_stats, water } = req.body;
+  const { items, body_stats, water, notes } = req.body;
+  const notesVal = (typeof notes === 'string' && notes.trim()) ? notes : null;
   const u = uid(req);
   if (u == null) {
     db.prepare(
-      `INSERT INTO diary (date, items, body_stats, water, updated_at)
-       VALUES (?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(date, user_id) DO UPDATE SET
-         items=excluded.items, body_stats=excluded.body_stats,
-         water=excluded.water, updated_at=excluded.updated_at,
-         deleted_at=NULL`
-    ).run(req.params.date, JSON.stringify(items || []), JSON.stringify(body_stats || {}), JSON.stringify(water || []));
-  } else {
-    db.prepare(
-      `INSERT INTO diary (user_id, date, items, body_stats, water, updated_at)
+      `INSERT INTO diary (date, items, body_stats, water, notes, updated_at)
        VALUES (?, ?, ?, ?, ?, datetime('now'))
        ON CONFLICT(date, user_id) DO UPDATE SET
          items=excluded.items, body_stats=excluded.body_stats,
-         water=excluded.water, updated_at=excluded.updated_at,
+         water=excluded.water, notes=excluded.notes,
+         updated_at=excluded.updated_at,
          deleted_at=NULL`
-    ).run(u, req.params.date, JSON.stringify(items || []), JSON.stringify(body_stats || {}), JSON.stringify(water || []));
+    ).run(req.params.date, JSON.stringify(items || []), JSON.stringify(body_stats || {}), JSON.stringify(water || []), notesVal);
+  } else {
+    db.prepare(
+      `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(date, user_id) DO UPDATE SET
+         items=excluded.items, body_stats=excluded.body_stats,
+         water=excluded.water, notes=excluded.notes,
+         updated_at=excluded.updated_at,
+         deleted_at=NULL`
+    ).run(u, req.params.date, JSON.stringify(items || []), JSON.stringify(body_stats || {}), JSON.stringify(water || []), notesVal);
   }
   const row = u == null
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(req.params.date)
@@ -98,6 +101,7 @@ function parse(row) {
     items:      fixCachedPaths(items),
     body_stats: JSON.parse(row.body_stats || '{}'),
     water:      JSON.parse(row.water      || '[]'),
+    notes:      row.notes || '',
   };
 }
 

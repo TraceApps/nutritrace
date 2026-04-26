@@ -7,9 +7,53 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import dns from 'dns/promises';
+import net from 'net';
 import { logger } from '../logger.js';
 
 const UPLOADS_DIR = process.env.UPLOADS_PATH || './uploads';
+
+/**
+ * SSRF protection: block private/loopback/link-local IP ranges so an authed
+ * user can't trick the server into fetching internal admin panels or cloud
+ * metadata endpoints (169.254.169.254). Note: there's a TOCTOU window between
+ * resolution and fetch — for higher-assurance environments, switch to a
+ * pinned-IP HTTP agent.
+ */
+function _isPrivateIP(ip) {
+  if (!net.isIP(ip)) return false;
+  if (net.isIPv4(ip)) {
+    const o = ip.split('.').map(Number);
+    return (
+      o[0] === 0 ||                                // 0.0.0.0/8
+      o[0] === 10 ||                               // 10.0.0.0/8
+      o[0] === 127 ||                              // 127.0.0.0/8 loopback
+      (o[0] === 100 && o[1] >= 64 && o[1] <= 127) || // 100.64.0.0/10 CGNAT
+      (o[0] === 169 && o[1] === 254) ||            // 169.254.0.0/16 link-local + cloud metadata
+      (o[0] === 172 && o[1] >= 16 && o[1] <= 31) ||// 172.16.0.0/12
+      (o[0] === 192 && o[1] === 168)               // 192.168.0.0/16
+    );
+  }
+  // IPv6
+  const lower = ip.toLowerCase();
+  if (lower === '::' || lower === '::1') return true;
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;       // fc00::/7 ULA
+  if (lower.startsWith('fe80:') || lower.startsWith('fe9') ||
+      lower.startsWith('fea') || lower.startsWith('feb')) return true;     // fe80::/10
+  if (lower.startsWith('::ffff:')) return _isPrivateIP(lower.slice(7));    // IPv4-mapped
+  return false;
+}
+
+async function _hostnameResolvesPrivate(hostname) {
+  // Literal IPs: check directly.
+  if (net.isIP(hostname)) return _isPrivateIP(hostname);
+  try {
+    const addrs = await dns.lookup(hostname, { all: true });
+    return addrs.some(a => _isPrivateIP(a.address));
+  } catch {
+    return true;  // DNS failure → treat as unsafe
+  }
+}
 
 /**
  * If img_url is an external URL, download it to /uploads/ and return the local path.
@@ -21,14 +65,27 @@ export async function localizeImage(img_url) {
   if (!img_url.startsWith('http')) return img_url; // Already local
 
   // Check if it's already on our server
+  let parsedUrl;
   try {
-    const parsed = new URL(img_url);
+    parsedUrl = new URL(img_url);
     // If it's a proxy URL on our server, extract the original
-    if (parsed.pathname === '/api/proxy') {
-      const originalUrl = parsed.searchParams.get('url');
+    if (parsedUrl.pathname === '/api/proxy') {
+      const originalUrl = parsedUrl.searchParams.get('url');
       if (originalUrl) return localizeImage(originalUrl);
     }
-  } catch {}
+  } catch {
+    return img_url;
+  }
+  // Reject non-http(s) protocols outright
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    logger.warn(`[image-localizer] Refusing non-http(s) URL: ${img_url.substring(0, 80)}`);
+    return img_url;
+  }
+  // SSRF guard — refuse private/loopback/link-local hosts (incl. cloud metadata 169.254.169.254)
+  if (await _hostnameResolvesPrivate(parsedUrl.hostname)) {
+    logger.warn(`[image-localizer] Refusing private/loopback URL: ${img_url.substring(0, 80)}`);
+    return img_url;
+  }
 
   try {
     // Generate a unique filename from the URL

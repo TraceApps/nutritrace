@@ -7,8 +7,10 @@
   import { NtApi } from '../lib/api.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { goals, energyUnit, weightUnit, lengthUnit, statsChartType, statsYZero,
-           statsAvgLine, statsGoalLine, statsTrendLine, hiddenBodyStats, dateFormat, pageBanners,
-           fitbitEnabled, garminEnabled, withingsEnabled, healthConnectEnabled, wellnessMetrics } from '../stores/settings.js';
+           statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday,
+           hiddenBodyStats, dateFormat, pageBanners,
+           fitbitEnabled, garminEnabled, withingsEnabled, healthConnectEnabled, wellnessMetrics,
+           calorieGoalMode } from '../stores/settings.js';
   import { isNative } from '../lib/platform.js';
   import StatsBanner from '../components/banners/StatsBanner.svelte';
   let _waterShowInStats = DB.getSetting('waterShowInStats', true);
@@ -34,6 +36,17 @@
   let loading = false;
   let summary = null; // { avg, min, max, total, daysWithData }
   let _loadVer = 0;   // cancel stale concurrent loadData calls
+
+  // Cumulative metrics accumulate throughout the day (calories, steps, water, etc.).
+  // Excluded from charts by default until the day is complete to avoid trend distortion.
+  // Point-in-time metrics (sleep score, weight, HRV, RHR) are not affected.
+  function isCumulative(m) {
+    if (!m) return false;
+    if (NUTRIMENTS.some(n => n.id === m)) return true;
+    if (m === 'water' || m === 'water_ml') return true;
+    if (m === 'wl_steps' || m === 'wl_active') return true;
+    return false;
+  }
 
   // Wellness metrics — shown only when relevant integration is enabled
   $: _hasWellness = $fitbitEnabled || $garminEnabled || $healthConnectEnabled;
@@ -215,6 +228,15 @@
     }
 
     if (ver !== _loadVer) return; // stale — don't commit
+
+    // Drop today from cumulative-metric charts by default — until end of day,
+    // today's value misrepresents the trend (a partial day looks like a dip).
+    // Point-in-time metrics (sleep_score, weight, HRV, RHR, etc.) are left
+    // alone — those are "what was measured", not "what accumulated".
+    if (isCumulative(metric) && !$statsIncludeToday) {
+      const todayStr = localDateStr();
+      rows = rows.filter(d => d.date !== todayStr);
+    }
     data = rows;
 
     // Compute summary
@@ -307,9 +329,10 @@
         if (density) goalVal = Math.round(calGoal * goalVal / 100 / density);
       }
       if (goalVal) {
+        const isDynamic = metric === 'calories' && $calorieGoalMode === 'dynamic';
         datasets.push({
           type: 'line',
-          label: 'Goal',
+          label: isDynamic ? 'Base Goal' : 'Goal',
           data: displayData.map(() => goalVal),
           borderColor: isDark ? 'rgba(129,140,248,0.8)' : 'rgba(99,102,241,0.8)',
           borderWidth: 1.5,
@@ -397,7 +420,7 @@
     return m ? (m.unit || '') : '';
   })();
 
-  $: { metric; range; customStart; customEnd; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine;
+  $: { metric; range; customStart; customEnd; $statsIncludeToday; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine;
        if (canvasEl) loadData(); }
 
   onDestroy(() => { if (chart) chart.destroy(); });
@@ -490,22 +513,33 @@
     </div>
 
     {#if range === 'custom'}
-      <div class="custom-range-row" transition:slide={{ duration: 160 }}>
-        <button class="date-range-btn" class:active={showCalFor === 'start'} on:click={() => openCal('start')}>
-          <span class="material-symbols-rounded drb-icon">calendar_today</span>
-          <div class="drb-text">
-            <span class="drb-label">From</span>
-            <span class="drb-val">{fmtDate(customStart)}</span>
-          </div>
-        </button>
-        <span class="drb-arrow">→</span>
-        <button class="date-range-btn" class:active={showCalFor === 'end'} on:click={() => openCal('end')}>
-          <span class="material-symbols-rounded drb-icon">calendar_today</span>
-          <div class="drb-text">
-            <span class="drb-label">To</span>
-            <span class="drb-val">{fmtDate(customEnd)}</span>
-          </div>
-        </button>
+      <div transition:slide={{ duration: 160 }}>
+        <!-- Quick-select shortcuts — saves drilling into the calendar -->
+        <div class="custom-range-quick">
+          <button class="quick-chip" on:click={() => { const t = localDateStr(); const d = new Date(); d.setDate(d.getDate() - 6); customStart = localDateStr(d); customEnd = t; showCalFor = null; }}>Last 7d</button>
+          <button class="quick-chip" on:click={() => { const t = localDateStr(); const d = new Date(); d.setDate(d.getDate() - 29); customStart = localDateStr(d); customEnd = t; showCalFor = null; }}>Last 30d</button>
+          <button class="quick-chip" on:click={() => { const t = localDateStr(); const d = new Date(); d.setDate(d.getDate() - 89); customStart = localDateStr(d); customEnd = t; showCalFor = null; }}>Last 90d</button>
+          <button class="quick-chip" on:click={() => { const t = new Date(); customStart = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-01`; customEnd = localDateStr(); showCalFor = null; }}>This month</button>
+          <button class="quick-chip" on:click={() => { const t = new Date(); t.setMonth(t.getMonth() - 1); const start = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-01`; const end = new Date(t.getFullYear(), t.getMonth() + 1, 0); customStart = start; customEnd = localDateStr(end); showCalFor = null; }}>Last month</button>
+          <button class="quick-chip" on:click={() => { const y = new Date().getFullYear(); customStart = `${y}-01-01`; customEnd = localDateStr(); showCalFor = null; }}>YTD</button>
+        </div>
+        <div class="custom-range-row">
+          <button class="date-range-btn" class:active={showCalFor === 'start'} on:click={() => openCal('start')}>
+            <span class="material-symbols-rounded drb-icon">calendar_today</span>
+            <div class="drb-text">
+              <span class="drb-label">From</span>
+              <span class="drb-val">{fmtDate(customStart)}</span>
+            </div>
+          </button>
+          <span class="drb-arrow">→</span>
+          <button class="date-range-btn" class:active={showCalFor === 'end'} on:click={() => openCal('end')}>
+            <span class="material-symbols-rounded drb-icon">calendar_today</span>
+            <div class="drb-text">
+              <span class="drb-label">To</span>
+              <span class="drb-val">{fmtDate(customEnd)}</span>
+            </div>
+          </button>
+        </div>
       </div>
     {/if}
 
@@ -537,6 +571,15 @@
       </div>
     {/if}
 
+    {#if isCumulative(metric)}
+      <div class="include-today-row">
+        <label class="include-today-label">
+          <input type="checkbox" checked={$statsIncludeToday} on:change={e => statsIncludeToday.set(e.target.checked)} />
+          <span>Include today (partial day)</span>
+        </label>
+      </div>
+    {/if}
+
     <!-- Chart -->
     <div class="chart-card card">
       {#if loading}
@@ -545,9 +588,18 @@
         </div>
       {:else if data.length === 0}
         <div class="chart-loading" style="background:transparent">
-          <div style="text-align:center;opacity:0.5">
-            <span class="material-symbols-rounded" style="font-size:32px">show_chart</span>
-            <div class="text-3 text-sm" style="margin-top:4px">No data for this period</div>
+          <div style="text-align:center;opacity:0.45;padding:8px 24px">
+            <span class="material-symbols-rounded" style="font-size:36px">show_chart</span>
+            <div class="text-2 text-sm" style="margin-top:6px;font-weight:600">No data for this period</div>
+            <div class="text-3 text-sm" style="margin-top:4px;line-height:1.45">
+              {#if metric === 'calories' || metric === 'proteins' || metric === 'carbohydrates' || metric === 'fat'}
+                Log food in your diary to see trends here
+              {:else if metric.startsWith('wl_')}
+                Connect a fitness tracker in Settings → Wellness
+              {:else}
+                No entries found — try a different date range
+              {/if}
+            </div>
           </div>
         </div>
       {/if}
@@ -713,6 +765,17 @@
   .chart-type-btn:hover { background: var(--surface-3); color: var(--accent); }
 
   /* Custom range date buttons */
+  .custom-range-quick {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 8px 0;
+  }
+  .quick-chip {
+    padding: 6px 12px; border-radius: var(--radius-full);
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text-2); font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: background var(--dur-fast), color var(--dur-fast);
+  }
+  .quick-chip:hover { background: var(--surface-3); color: var(--text-1); }
   .custom-range-row {
     display: flex;
     align-items: center;
@@ -797,6 +860,17 @@
   .dp-day.dp-sel   { background: var(--accent) !important; color: #fff; font-weight: 600; }
 
   .chart-card { padding: 16px; position: relative; }
+  .include-today-row {
+    display: flex; justify-content: flex-end;
+    padding: 0 4px 6px;
+    margin-top: -4px;
+  }
+  .include-today-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text-3);
+    cursor: pointer; user-select: none;
+  }
+  .include-today-label input[type="checkbox"] { margin: 0; cursor: pointer; }
   .chart-loading {
     position: absolute; inset: 0; z-index: 2;
     display: flex; align-items: center; justify-content: center;

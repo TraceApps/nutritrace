@@ -7,7 +7,7 @@
  *   3. (user reviews + edits in confirmation modal)
  *   4. saveItems(matchedItems, mealSlot) → writes to diary
  *
- * Uses the same AI provider configured for FitBot. Setting `quickLogEnabled`
+ * Uses the same AI provider configured for the AI Assistant. Setting `quickLogEnabled`
  * gates the feature; `aiEnabled` + a valid `aiApiKey` are required.
  */
 
@@ -103,7 +103,7 @@ export async function parseInput(text, userMealNames) {
   const provider = DB.getSetting('aiProvider', 'claude');
   const apiKey   = DB.getSetting('aiApiKey', '');
   const model    = DB.getSetting('aiModel', '');
-  if (!apiKey) throw new Error('AI provider not configured. Set up FitBot in Settings → AI first.');
+  if (!apiKey) throw new Error('AI provider not configured. Set up the AI Assistant in Settings first.');
 
   const waterContainers = DB.getSetting('waterContainers', []);
 

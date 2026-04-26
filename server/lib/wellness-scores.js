@@ -70,7 +70,7 @@ export function snapshotScores(userId, dateStr, { force = false } = {}) {
 
   // ── Readiness ─────────────────────────────────────────────────
   const hrvRatio = todayHrv / hrvBaseline;
-  let hrv_score = hrvRatio >= 1.0 ? 65 + (hrvRatio - 1.0) * 100 : 65 - Math.sqrt(1.0 - hrvRatio) * 55;
+  let hrv_score = hrvRatio >= 1.0 ? 65 + Math.pow(hrvRatio - 1.0, 0.7) * 80 : 65 - Math.sqrt(1.0 - hrvRatio) * 55;
   hrv_score = _clamp(hrv_score, 0, 100);
 
   let rhr_score = 59;
@@ -99,13 +99,13 @@ export function snapshotScores(userId, dateStr, { force = false } = {}) {
     interaction_penalty = _clamp(interaction_penalty, 0, 10);
   }
 
-  let readiness = (0.58 * hrv_score) + (0.22 * rhr_score) + (0.12 * sleepBase) - activity_penalty - interaction_penalty;
+  let readiness = (0.75 * hrv_score) + (0.05 * rhr_score) + (0.12 * sleepBase) + 4 - activity_penalty - interaction_penalty;
   readiness = Math.min(_clamp(Math.round(readiness), 1, 100), sleep_cap);
 
   // ── Stress ────────────────────────────────────────────────────
   function _rawStress(hrv, rhr, sleep) {
     const r = hrv / hrvBaseline;
-    let h_s = 75 + (r - 1.0) * 120;
+    let h_s = 75 + (r - 1.0) * 40;
     h_s = _clamp(h_s, 0, 100);
     let r_s = 75;
     if (rhrBaseline != null && rhr != null) {
@@ -113,7 +113,7 @@ export function snapshotScores(userId, dateStr, { force = false } = {}) {
       r_s = _clamp(r_s, 0, 100);
     }
     const sl = sleep != null ? sleep : 75;
-    return (0.35 * h_s) + (0.40 * sl) + (0.15 * r_s) + 4;
+    return (0.15 * h_s) + (0.60 * sl) + (0.10 * r_s) + 14;
   }
 
   const todayRaw = _rawStress(todayHrv, todayRhr, todaySleep);
@@ -125,7 +125,7 @@ export function snapshotScores(userId, dateStr, { force = false } = {}) {
   let stress;
   if (histStress.length >= 3) {
     const smoothed = _mean(histStress.slice(-7));
-    stress = Math.round(0.50 * smoothed + 0.50 * todayRaw);
+    stress = Math.round(0.40 * smoothed + 0.60 * todayRaw);
   } else {
     stress = Math.round(todayRaw);
   }

@@ -1,40 +1,46 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { slide, fade } from 'svelte/transition';
   import { portal } from '../lib/portal.js';
+  import { getLogBufferText, clearLogBuffer, isVerboseLogging, setVerboseLogging } from '../lib/log-capture.js';
   import Toggle from '../components/settings/Toggle.svelte';
-  import TimePicker from '../components/ui/TimePicker.svelte';
+
   import SettingsWellness from '../components/settings/SettingsWellness.svelte';
+  import SettingsTrace from '../components/settings/SettingsTrace.svelte';
+  import SettingsNotifications from '../components/settings/SettingsNotifications.svelte';
+  import SettingsUserManagement from '../components/settings/SettingsUserManagement.svelte';
+  import SettingsBackup from '../components/settings/SettingsBackup.svelte';
   import { APP_VERSION } from '../lib/version.js';
   import Sheet  from '../components/ui/Sheet.svelte';
   import SettingsBanner from '../components/banners/SettingsBanner.svelte';
-  import Dialog from '../components/ui/Dialog.svelte';
+
   import { showSuccess, showError } from '../stores/toast.js';
   import { applyAppearance, applyAccentColor } from '../stores/settings.js';
-  import { AI_PROVIDERS, AI_MODELS, AI_DEFAULT_MODELS } from '../lib/aiChat.js';
   import { catName as _catName, catDisplay as _catDisplay, scheduleSave } from '../stores/settings.js';
   import 'emoji-picker-element';
   import {
     appearance, accentColor, energyUnit, mealNames,
     diaryShowBrands, diaryShowTimestamps, diaryShowThumbnails, diaryShowAllNutrients,
     diaryShowNutritionUnits, diaryShowMacroSummary, diaryPromptQuantity, diaryShowPortionSize,
-    diaryShowNutritionBar, diaryTotalsMode,
+    diaryShowNotes,
+    diaryShowNutritionBar,
     foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsShowThumbnails, foodsShowYesterdayMeals, foodsSort,
     barcodeBeep, barcodeFlashlight, cropPhotos,
     foodCategories, visibleNutriments, nutrimentsOrder, customNutriments,
     bodyStatsOrder, hiddenBodyStats,
     dateFormat, timeFormat,
     sidebarPersistent, goalCelebrations, pageBanners,
-    aiEnabled, aiProvider, aiApiKey, aiModel, aiAssistantName, quickLogEnabled,
     waterGoalMl, waterUnit, waterContainers, waterShowInStats, waterShowInDiary,
+    calorieGoalMode, calorieGoalFactor,
+    fitbitEnabled, garminEnabled, healthConnectEnabled,
   } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
   import { DB } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
-  import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
-  import { currentUser, userMgmtActive, loadAuthState, logout } from '../stores/auth.js';
-  import { isNative, getServerUrl, setServerUrl, setNativeMode, getNativeMode, setAuthToken, apiUrl, getAuthToken, resolveAssetUrl } from '../lib/platform.js';
+  import { NUTRIMENTS } from '../lib/nutrition.js';
+  import { currentUser, userMgmtActive } from '../stores/auth.js';
+  import { isNative, getServerUrl, setServerUrl, setNativeMode, getNativeMode, setAuthToken, apiUrl, getAuthToken } from '../lib/platform.js';
 
   function _fetchOpts(extra = {}) {
     const h = { ...extra };
@@ -47,13 +53,13 @@
     }
     return { credentials: 'include', headers: h };
   }
-  import { push } from 'svelte-spa-router';
+
   // ── Collapsible section state ──────────────────────────────────────────────
   $: isDark = $appearance === 'dark' || ($appearance === 'system' && (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches));
   let openSections = { serverConnection: false, appearance: false, regional: false, diary: false, foods: false, water: false,
-                       categories: false, nutrients: false, bodyStats: false, statistics: false,
+                       categories: false, nutrients: false, goals: false, bodyStats: false, statistics: false,
                        connectedServices: false, ai: false, notifications: false, wellness: false, sharing: false,
-                       backup: false, email: false, users: false, about: false };
+                       backup: false, email: false, users: false, helpImprove: false, about: false };
 
   // ── Server Connection (native only) ─────────────────────────────────────
   let serverUrlInput = getServerUrl() || '';
@@ -243,16 +249,18 @@
     water:             ['water','display unit','daily goal','containers','bottle','cup','glass'],
     categories:        ['categories','food categories','tags','labels'],
     nutrients:         ['nutrients','nutriments','custom nutrients','vitamins','minerals'],
+    goals:             ['goals','calorie goal','dynamic calorie','tdee','burn','calories out','factor','lose','gain','maintain'],
     bodyStats:         ['body stats','body','weight','measurements','stats'],
     statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
     connectedServices: ['connected services','usda','open food facts','mealie','recipe','search language','country','api key','credentials','username','password'],
-    ai:                ['ai','fitbot','assistant','provider','model','api key','artificial intelligence','chat'],
-    notifications:     ['notifications','reminders','water reminder','meal reminder','gotify','push','alerts','wellness alerts','goal celebration'],
-    wellness:          ['wellness','activity tracking','fitbit','withings','garmin','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress'],
+    ai:                ['ai','trace','assistant','provider','model','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights'],
+    notifications:     ['notifications','reminders','water reminder','meal reminder','gotify','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
+    wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress'],
     sharing:           ['sharing','share','group','catalogue','catalog','visibility','private','members','food sharing'],
-    backup:            ['backup','export','import','restore','csv','clear data','json','full backup','images','zip'],
+    backup:            ['backup','export','import','restore','csv','clear data','json','full backup','images','zip','reset','defaults','clear settings','danger zone'],
     email:             ['email','smtp','mail','password reset','invites','notifications'],
     users:             ['users','user management','accounts','login','password','admin','register','profile'],
+    helpImprove:       ['diagnostics','logs','verbose','calibration','export','bug','report','troubleshoot'],
     about:             ['about','version','nutritrace'],
   };
 
@@ -420,13 +428,12 @@
   // ── Statistics ─────────────────────────────────────────────────────────────
   let statsChartType = DB.getSetting('statsChartType', 'bar');
   let statsYZero     = DB.getSetting('statsYZero',     true);
+  let statsIncludeTodayLocal = DB.getSetting('statsIncludeToday', false);
   let statsAvgLine   = DB.getSetting('statsAvgLine',   true);
   let statsGoalLine  = DB.getSetting('statsGoalLine',  true);
   let statsTrendLine = DB.getSetting('statsTrendLine', true);
 
-  // ── Goals ──────────────────────────────────────────────────────────────────
-  let goalsShowCalories = DB.getSetting('goalsShowCalories', true);
-  let goalsShowWeight   = DB.getSetting('goalsShowWeight',   true);
+
 
   // ── Units ──────────────────────────────────────────────────────────────────
   let weightUnit  = DB.getSetting('weightUnit',  'lb');
@@ -475,104 +482,6 @@
       });
       mealieTestStatus = res.ok ? 'ok' : 'fail';
     } catch { mealieTestStatus = 'fail'; }
-  }
-
-  // ── FitBot AI ──────────────────────────────────────────────────────────────
-  let aiEnabledVal       = DB.getSetting('aiEnabled',       false);
-  let aiProviderVal      = DB.getSetting('aiProvider',      'claude');
-  let aiApiKeyVal        = DB.getSetting('aiApiKey',        '');
-  let aiModelVal         = DB.getSetting('aiModel',         '');
-  let aiAssistantNameVal = DB.getSetting('aiAssistantName', 'FitBot');
-  let quickLogEnabledVal = DB.getSetting('quickLogEnabled', false);
-  let aiShowKey          = false;
-  // Reset model to provider default when provider changes
-  $: if (aiModelVal && !AI_MODELS[aiProviderVal]?.find(m => m.value === aiModelVal)) {
-    aiModelVal = AI_DEFAULT_MODELS[aiProviderVal] || '';
-  }
-
-  // ── Notifications ──────────────────────────────────────────────────────────
-  let _notifWater    = DB.getSetting('notifWaterReminders',  false);
-  let _notifWaterInt = DB.getSetting('notifWaterInterval',   120);
-  let _notifMeals    = DB.getSetting('notifMealReminders',   false);
-  let _notifMealTimes = DB.getSetting('notifMealTimes', ['08:00','12:00','18:00']);
-  function _defaultMealTime(i) { return ['08:00','12:00','18:00','15:00','10:00','20:00'][i] || '12:00'; }
-  let _notifGoals    = DB.getSetting('notifGoalCelebrations', false);
-  let _notifSteps    = DB.getSetting('notifStepGoal',        false);
-  let _notifWeighIn  = DB.getSetting('notifWeighIn',         false);
-  let _notifWeighInTime = DB.getSetting('notifWeighInTime',  '07:00');
-  let _notifWeekly   = DB.getSetting('notifWeeklySummary',   false);
-  let _notifWellness = DB.getSetting('notifWellnessAlerts',  false);
-  let _notifWorkouts = DB.getSetting('notifWorkoutSummary',  false);
-  let _notifSync     = DB.getSetting('notifSyncFailures',    false);
-  let _notifLocal    = DB.getSetting('notifLocalEnabled',     true);
-  let _notifPushService = DB.getSetting('notifPushService', 'none');
-  let _gotifyUrl     = DB.getSetting('gotifyUrl',            '');
-  let _gotifyToken   = DB.getSetting('gotifyToken',          '');
-  let _appriseUrl    = DB.getSetting('appriseUrl',  '');
-  let _appriseTag    = DB.getSetting('appriseTag',  '');
-  let _ntfyUrl       = DB.getSetting('ntfyUrl',     'https://ntfy.sh');
-  let _ntfyTopic     = DB.getSetting('ntfyTopic',   '');
-  let _ntfyToken     = DB.getSetting('ntfyToken',   '');
-  let _ntfyShowToken = false;
-  let _gotifyTesting = false;
-  let _gotifyShowToken = false;
-
-  $: _anyNotifEnabled = _notifLocal || _notifPushService !== 'none';
-
-  async function _requestNotifPermission() {
-    try {
-      const { requestPermission } = await import('../lib/notifications.js');
-      await requestPermission();
-    } catch {}
-  }
-
-  async function _scheduleWater() {
-    if (_notifWater) {
-      const { requestPermission, scheduleWaterReminders } = await import('../lib/notifications.js');
-      await requestPermission();
-      await scheduleWaterReminders(_notifWaterInt);
-    } else {
-      const { cancelWaterReminders } = await import('../lib/notifications.js');
-      await cancelWaterReminders();
-    }
-  }
-
-  async function _scheduleMeals() {
-    if (_notifMeals) {
-      const { requestPermission, scheduleMealReminders } = await import('../lib/notifications.js');
-      await requestPermission();
-      const names = DB.getSetting('mealNames', ['Breakfast','Lunch','Dinner','Snacks']);
-      const times = DB.getSetting('notifMealTimes', ['08:00','12:00','18:00']);
-      await scheduleMealReminders(times, names);
-    } else {
-      const { cancelMealReminders } = await import('../lib/notifications.js');
-      await cancelMealReminders();
-    }
-  }
-
-  async function _scheduleWeighIn() {
-    if (_notifWeighIn) {
-      const { requestPermission, scheduleWeighInReminder } = await import('../lib/notifications.js');
-      await requestPermission();
-      await scheduleWeighInReminder(_notifWeighInTime);
-    } else {
-      const { cancelWeighInReminder } = await import('../lib/notifications.js');
-      await cancelWeighInReminder();
-    }
-  }
-
-  async function _testPush() {
-    _gotifyTesting = true;
-    // Save all current values
-    set('gotifyUrl', _gotifyUrl); set('gotifyToken', _gotifyToken);
-    set('ntfyUrl', _ntfyUrl); set('ntfyTopic', _ntfyTopic); set('ntfyToken', _ntfyToken);
-    set('appriseUrl', _appriseUrl); set('appriseTag', _appriseTag);
-    try {
-      const { sendPush } = await import('../lib/notifications.js');
-      await sendPush(_notifPushService, 'NutriTrace', 'Test notification — push service connected!', 5);
-      showSuccess('Test sent — check your device!');
-    } catch (e) { showError(`Test failed: ${e.message || 'unknown error'}`); }
-    _gotifyTesting = false;
   }
 
   // ── Wellness ── (extracted to SettingsWellness.svelte)
@@ -857,450 +766,10 @@
     mealDragFrom = null; mealDragOver = null; mealDragDelta = 0; mealRowHeights = [];
   }
 
-  // ── Backup ─────────────────────────────────────────────────────────────────
-
-  // Native: use Capacitor Filesystem for downloads (WebView <a download> doesn't work)
-  async function _nativeDownload(blob, filename) {
-    const { Filesystem, Directory } = await import('@capacitor/filesystem');
-    const reader = new FileReader();
-    const base64 = await new Promise((res, rej) => {
-      reader.onload = () => res(reader.result.split(',')[1]);
-      reader.onerror = rej;
-      reader.readAsDataURL(blob);
-    });
-    // Write to shared Download folder so users can find it in their file manager
-    await Filesystem.writeFile({ path: `Download/${filename}`, data: base64, directory: Directory.ExternalStorage, recursive: true });
-    showSuccess(`Saved to Download/${filename}`);
-  }
-
-  function _downloadBlob(blob, filename) {
-    if (isNative) { _nativeDownload(blob, filename); return; }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
-  async function exportBackup() {
-    try {
-      const [foodList, meals, recipes, diary] = await Promise.all([
-        NtApi.getFoods(),
-        NtApi.getMeals(),
-        NtApi.getRecipes(),
-        NtApi.getAllDiary(),
-      ]);
-      const data = { foodList, meals, recipes, diary, settings: DB.getAllSettings(), exportedAt: new Date().toISOString() };
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      _downloadBlob(blob, `nutritrace-backup-${new Date().toISOString().slice(0,10)}.json`);
-      showSuccess('Backup exported');
-    } catch(e) { showError('Export failed: ' + e.message); }
-  }
-
-  // ── Local Full Backup (.zip with embedded images) ──────────────────────────
-  // Native local-only mode: backups are written to Capacitor Filesystem
-  // (Documents directory) so the user can list, share, restore, and delete
-  // them. Mirrors the server full-backup UX exactly.
-  let localZipBusy = false;
-  let localZipStatus = '';
-  let localBackups = []; // [{ filename, createdAt, size }]
-  const LOCAL_BACKUP_DIR = 'nutritrace-backups';
-
-  async function loadLocalBackups() {
-    if (!isNativeLocal) return;
-    try {
-      const { Filesystem, Directory } = await import('@capacitor/filesystem');
-      // Ensure dir exists
-      try {
-        await Filesystem.mkdir({ path: LOCAL_BACKUP_DIR, directory: Directory.Documents, recursive: true });
-      } catch {}
-      const list = await Filesystem.readdir({ path: LOCAL_BACKUP_DIR, directory: Directory.Documents });
-      // list.files is an array of FileInfo: { name, type, size, mtime, uri }
-      localBackups = (list.files || [])
-        .filter(f => f.name && f.name.endsWith('.zip'))
-        .map(f => ({
-          filename: f.name,
-          size: f.size || 0,
-          createdAt: f.mtime ? new Date(f.mtime).toISOString() : new Date().toISOString(),
-        }))
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    } catch (e) {
-      console.warn('[backup] list failed:', e.message);
-      localBackups = [];
-    }
-  }
-
-  async function exportLocalZip() {
-    if (localZipBusy || !isNativeLocal) return;
-    localZipBusy = true;
-    localZipStatus = 'Starting…';
-    try {
-      const { exportLocalBackup } = await import('../lib/local-backup.js');
-      const blob = await exportLocalBackup({
-        onProgress: (pct, label) => { localZipStatus = `${Math.round(pct)}% — ${label}`; },
-      });
-      // Convert blob → base64 → write to Filesystem
-      const filename = `nutritrace-backup-${new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)}.zip`;
-      const arrayBuffer = await blob.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      let binary = '';
-      const chunkSize = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-      }
-      const b64 = btoa(binary);
-      const { Filesystem, Directory } = await import('@capacitor/filesystem');
-      await Filesystem.mkdir({ path: LOCAL_BACKUP_DIR, directory: Directory.Documents, recursive: true }).catch(() => {});
-      await Filesystem.writeFile({
-        path: `${LOCAL_BACKUP_DIR}/${filename}`,
-        data: b64,
-        directory: Directory.Documents,
-      });
-      localZipStatus = '';
-      showSuccess('Backup created');
-      await loadLocalBackups();
-    } catch (e) {
-      console.error('[backup] export failed:', e);
-      localZipStatus = '';
-      showError('Backup failed: ' + e.message);
-    } finally {
-      localZipBusy = false;
-    }
-  }
-
-  async function importLocalZip() {
-    if (localZipBusy) return;
-    // File picker for the user to select a .zip from anywhere
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.zip,application/zip,application/x-zip-compressed';
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      await _runImport(file);
-    };
-    input.click();
-  }
-
-  async function restoreLocalBackup(filename) {
-    if (localZipBusy) return;
-    const yes = confirm(`Restore "${filename}"? Existing data is merged, not erased.`);
-    if (!yes) return;
-    try {
-      const { Filesystem, Directory } = await import('@capacitor/filesystem');
-      const result = await Filesystem.readFile({
-        path: `${LOCAL_BACKUP_DIR}/${filename}`,
-        directory: Directory.Documents,
-      });
-      // result.data is base64
-      const b64 = typeof result.data === 'string' ? result.data : await _blobToB64(result.data);
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      await _runImport(new Blob([bytes], { type: 'application/zip' }));
-    } catch (e) {
-      console.error('[backup] restore failed:', e);
-      showError('Restore failed: ' + e.message);
-    }
-  }
-
-  async function _blobToB64(blob) {
-    return new Promise((resolve) => {
-      const r = new FileReader();
-      r.onloadend = () => resolve(String(r.result).split(',')[1] || '');
-      r.readAsDataURL(blob);
-    });
-  }
-
-  async function _runImport(file) {
-    localZipBusy = true;
-    localZipStatus = 'Reading…';
-    try {
-      const { importLocalBackup } = await import('../lib/local-backup.js');
-      const result = await importLocalBackup(file, {
-        onProgress: (pct, label) => { localZipStatus = `${Math.round(pct)}% — ${label}`; },
-      });
-      const c = result.counts;
-      showSuccess(`Restored ${c.foods} foods · ${c.meals} meals · ${c.recipes} recipes · ${c.diary} days · ${c.wellness} metrics`);
-      localZipStatus = '';
-      setTimeout(() => location.reload(), 1500);
-    } catch (e) {
-      console.error('[backup] import failed:', e);
-      localZipStatus = '';
-      showError('Restore failed: ' + e.message);
-    } finally {
-      localZipBusy = false;
-    }
-  }
-
-  async function deleteLocalBackup(filename) {
-    const yes = confirm(`Delete "${filename}"? This cannot be undone.`);
-    if (!yes) return;
-    try {
-      const { Filesystem, Directory } = await import('@capacitor/filesystem');
-      await Filesystem.deleteFile({
-        path: `${LOCAL_BACKUP_DIR}/${filename}`,
-        directory: Directory.Documents,
-      });
-      showSuccess('Backup deleted');
-      await loadLocalBackups();
-    } catch (e) {
-      console.error('[backup] delete failed:', e);
-      showError('Delete failed: ' + e.message);
-    }
-  }
-
-  async function shareLocalBackup(filename) {
-    try {
-      const { Filesystem, Directory } = await import('@capacitor/filesystem');
-      const uri = await Filesystem.getUri({
-        path: `${LOCAL_BACKUP_DIR}/${filename}`,
-        directory: Directory.Documents,
-      });
-      // Try the native Share plugin if available, otherwise fall back to copy-to-clipboard of path
-      try {
-        const { Share } = await import('@capacitor/share');
-        await Share.share({
-          title: 'NutriTrace Backup',
-          text: filename,
-          url: uri.uri,
-          dialogTitle: 'Share backup',
-        });
-      } catch {
-        showSuccess(`Saved at: ${uri.uri}`);
-      }
-    } catch (e) {
-      console.error('[backup] share failed:', e);
-      showError('Share failed: ' + e.message);
-    }
-  }
-
-  async function importBackup() {
-    const input = document.createElement('input');
-    input.type = 'file'; input.accept = '.json';
-    input.onchange = async (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        // Upload any base64 images
-        async function migrateImg(item) {
-          if (!item.imgUrl || !item.imgUrl.startsWith('data:')) return item;
-          try {
-            const blob = await fetch(item.imgUrl).then(r => r.blob());
-            const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
-            const url = await NtApi.uploadImage(file);
-            return { ...item, imgUrl: url };
-          } catch { return { ...item, imgUrl: '' }; }
-        }
-        const migrateAll = arr => Promise.all((arr || []).map(migrateImg));
-        const [foodList, meals, recipes] = await Promise.all([
-          migrateAll(data.foodList),
-          migrateAll(data.meals),
-          migrateAll(data.recipes),
-        ]);
-
-        if (isNativeLocal) {
-          // Native local: import directly into SQLite
-          const { dbCreateFood, dbCreateMeal, dbSaveDiaryDate } = await import('../lib/db-native.js');
-          for (const food of (foodList || [])) await dbCreateFood(food).catch(() => {});
-          for (const meal of (meals || [])) await dbCreateMeal(meal).catch(() => {});
-          for (const meal of (recipes || [])) await dbCreateMeal({ ...meal, is_recipe: 1 }).catch(() => {});
-          for (const entry of (data.diary || [])) {
-            if (entry.date) await dbSaveDiaryDate(entry.date, entry).catch(() => {});
-          }
-        } else {
-          await NtApi.post('/api/data/import', { ...data, foodList, meals, recipes });
-        }
-
-        if (data.settings && typeof data.settings === 'object') {
-          for (const [key, value] of Object.entries(data.settings)) DB.setSetting(key, value);
-        }
-
-        // Merge imported categories into the category list
-        const importedCats = [...new Set((foodList || []).map(f => (f.categories && f.categories[0]) || f.category).filter(Boolean))];
-        if (importedCats.length) {
-          const existing = get(foodCategories) || [];
-          const existingNames = new Set(existing.map(c => _catName(c)));
-          const toAdd = importedCats.filter(n => !existingNames.has(n));
-          if (toAdd.length) foodCategories.set([...existing, ...toAdd]);
-        }
-
-        showSuccess('Backup restored — reloading...');
-        setTimeout(() => location.reload(), 1500);
-      } catch(err) { showError('Import failed: ' + err.message); }
-    };
-    input.click();
-  }
-
-  async function exportCSV() {
-    try {
-      const diary = await NtApi.getAllDiary();
-      let csv = 'Date,Meal,Food,Amount,Unit,Calories,Fat,Carbs,Protein\n';
-      diary.forEach(day => {
-        (day.items || []).forEach(item => {
-          const n = Nutrition.calculate(item);
-          csv += `${day.date},${item.meal||0},"${item.name||''}",${item.portion||100},${item.unit||'g'},${Math.round(n.calories||0)},${(n.fat||0).toFixed(1)},${(n.carbohydrates||0).toFixed(1)},${(n.proteins||0).toFixed(1)}\n`;
-        });
-      });
-      const blob = new Blob([csv], { type: 'text/csv' });
-      _downloadBlob(blob, `nutritrace-diary-${new Date().toISOString().slice(0,10)}.csv`);
-      showSuccess('CSV exported');
-    } catch(e) { showError('Export failed: ' + e.message); }
-  }
-
-  // ── Full Backup ────────────────────────────────────────────────────────────
-  let fullBackups        = [];
-  let fullBackupBusy     = false;
-  let restoreTarget      = null;  // filename pending restore confirm
-  let deleteTarget       = null;  // filename pending delete confirm
-  let showRestoreDialog  = false;
-  let showDeleteBkDialog = false;
-
-  async function loadFullBackups() {
-    if (isNativeLocal) return;
-    try {
-      const res = await fetch(apiUrl('/api/full-backup'), _fetchOpts());
-      if (res.ok) fullBackups = await res.json();
-    } catch {}
-  }
-
-  async function createFullBackup() {
-    fullBackupBusy = true;
-    try {
-      const res  = await fetch(apiUrl('/api/full-backup'), { method: 'POST', ..._fetchOpts() });
-      const data = await res.json();
-      if (!res.ok) { showError(data.error || 'Backup failed'); return; }
-      showSuccess('Full backup created');
-      await loadFullBackups();
-    } catch { showError('Backup failed'); }
-    finally   { fullBackupBusy = false; }
-  }
-
-  function downloadFullBackup(filename) {
-    const a = document.createElement('a');
-    a.href = apiUrl(`/api/full-backup/${encodeURIComponent(filename)}/download`);
-    a.download = filename;
-    a.click();
-  }
-
-  let restoreStatus = null; // null | { phase: 'uploading'|'restoring', percent: number, label: string }
-  let restoreProgressEl = null;
-
-  async function _scrollToProgress() {
-    await tick();
-    restoreProgressEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-
-  async function confirmRestoreFullBackup() {
-    if (!restoreTarget) return;
-    showRestoreDialog = false;
-    const filename = restoreTarget;
-    restoreTarget = null;
-    fullBackupBusy = true;
-    restoreStatus = { phase: 'restoring', percent: 40, label: 'Restoring backup…' };
-    _scrollToProgress();
-    try {
-      const res  = await fetch(apiUrl(`/api/full-backup/${encodeURIComponent(filename)}/restore`), { method: 'POST', ..._fetchOpts() });
-      const data = await res.json();
-      if (!res.ok) { showError(data.error || 'Restore failed'); restoreStatus = null; return; }
-      restoreStatus = { phase: 'restoring', percent: 100, label: 'Restore complete — reloading…' };
-      setTimeout(() => location.reload(), 1500);
-    } catch (err) { showError('Restore failed: ' + (err.message || 'Unknown error')); restoreStatus = null; }
-    finally   { fullBackupBusy = false; }
-  }
-
-  async function confirmDeleteFullBackup() {
-    if (!deleteTarget) return;
-    showDeleteBkDialog = false;
-    const filename = deleteTarget;
-    deleteTarget = null;
-    try {
-      const res = await fetch(apiUrl(`/api/full-backup/${encodeURIComponent(filename)}`), { method: 'DELETE', ..._fetchOpts() });
-      if (res.ok) { showSuccess('Backup deleted'); await loadFullBackups(); }
-      else showError('Delete failed');
-    } catch { showError('Delete failed'); }
-  }
-
-  function fmtBytes(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  }
-
-  let showUploadRestoreDialog = false;
-  let uploadRestoreFile       = null;
-
-  function pickUploadRestore() {
-    const input = document.createElement('input');
-    input.type = 'file'; input.accept = '.zip';
-    input.onchange = e => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      uploadRestoreFile = file;
-      showUploadRestoreDialog = true;
-    };
-    input.click();
-  }
-
-  function confirmUploadRestore() {
-    if (!uploadRestoreFile) return;
-    showUploadRestoreDialog = false;
-    fullBackupBusy = true;
-    restoreStatus = { phase: 'uploading', percent: 0, label: 'Uploading backup…' };
-    _scrollToProgress();
-
-    const file = uploadRestoreFile;
-    uploadRestoreFile = null;
-
-    const form = new FormData();
-    form.append('backup', file);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', apiUrl('/api/full-backup/upload-restore'));
-    xhr.withCredentials = true;
-
-    // onprogress at top level — Svelte can track these assignments directly
-    xhr.upload.onprogress = ev => {
-      if (ev.lengthComputable) {
-        const pct = Math.round((ev.loaded / ev.total) * 85);
-        restoreStatus = { phase: 'uploading', percent: pct, label: `Uploading… ${pct}%` };
-      }
-    };
-
-    xhr.onload = () => {
-      fullBackupBusy = false;
-      if (xhr.status >= 200 && xhr.status < 300) {
-        let err = null;
-        try { const d = JSON.parse(xhr.responseText); if (d.error) err = d.error; } catch {}
-        if (err) { showError('Restore failed: ' + err); restoreStatus = null; return; }
-        restoreStatus = { phase: 'restoring', percent: 95, label: 'Restoring on server…' };
-        setTimeout(() => {
-          restoreStatus = { phase: 'restoring', percent: 100, label: 'Restore complete — reloading…' };
-          setTimeout(() => location.reload(), 1000);
-        }, 600);
-      } else if (xhr.status === 413) {
-        showError('Upload failed: file exceeds the maximum size allowed by your server or reverse proxy. If accessing remotely, try uploading from your local network.');
-        restoreStatus = null;
-      } else {
-        let msg = `Server error ${xhr.status}`;
-        try { const d = JSON.parse(xhr.responseText); if (d.error) msg = d.error; } catch {}
-        showError('Restore failed: ' + msg);
-        restoreStatus = null;
-      }
-    };
-
-    xhr.onerror = () => {
-      fullBackupBusy = false;
-      restoreStatus = null;
-      showError('Restore failed: network error');
-    };
-
-    xhr.send(form);
-  }
-
-  // Load backup list when section opens
-  $: if (openSections.backup && $currentUser?.role === 'admin' && !isNativeLocal) loadFullBackups();
-  $: if (openSections.backup && isNativeLocal) loadLocalBackups();
+  // ── Backup ref (for triggering load when section opens) ───────────────────
+  let backupRef;
+  $: if (openSections.backup && $currentUser?.role === 'admin' && !isNativeLocal) backupRef?.loadFullBackups();
+  $: if (openSections.backup && isNativeLocal) backupRef?.loadLocalBackups();
 
   // ── Sharing ────────────────────────────────────────────────────────────────
   let adminSharingEnabled = false;
@@ -1413,180 +882,147 @@
     } catch { smtpTestStatus = 'fail'; }
   }
 
-  // ── Session duration (admin-only) ─────────────────────────────────────────
-  let sessionHours = '720';
-  let sessionSaved = false;
-  async function loadSessionConfig() {
-    try {
-      const res = await fetch(apiUrl('/api/app-config'), { credentials: 'include' });
-      if (!res.ok) return;
-      const cfg = await res.json();
-      sessionHours = cfg.session_hours ?? '720';
-    } catch {}
-  }
-  async function saveSessionHours() {
-    await fetch(apiUrl('/api/app-config'), {
-      method: 'PUT', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'session_hours', value: sessionHours }),
-    }).catch(() => {});
-    sessionSaved = true;
-    setTimeout(() => sessionSaved = false, 2000);
-  }
-
   $: if (openSections.email && $currentUser?.role === 'admin') loadSmtpConfig();
 
-  // ── Invite ─────────────────────────────────────────────────────────────────
-  let inviteEmail  = '';
-  let inviteRole   = 'user';
-  let inviteLoading = false;
-  let inviteResult = null; // { inviteUrl, sent }
+  // ── User Management ref ────────────────────────────────────────────────────
+  let userMgmtRef;
+  $: if (openSections.users && $userMgmtActive) userMgmtRef?.loadData();
 
-  async function createInvite() {
-    inviteLoading = true;
-    inviteResult  = null;
-    try {
-      const res  = await fetch(apiUrl('/api/auth/invite'), {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: inviteEmail.trim() || undefined, role: inviteRole }),
-      });
-      const data = await res.json();
-      if (!res.ok) { showError(data.error || 'Failed to create invite'); return; }
-      inviteResult = data;
-      inviteEmail  = '';
-    } catch { showError('Could not create invite'); }
-    inviteLoading = false;
+  // ── Diagnostics: in-app log capture ──────────────────────────────────────
+  let _logsSheet = false;
+  let _logsText = '';
+  let _logsCopied = false;
+  let _verboseLogging = isVerboseLogging();
+
+  function _openLogsSheet() {
+    _logsText = getLogBufferText() || '(no log lines captured yet)';
+    _logsCopied = false;
+    _logsSheet = true;
   }
-
-  // ── User Management ────────────────────────────────────────────────────────
-  let umUsers        = [];
-  let umLoading      = false;
-  let showAddUser    = false;
-  let newUsername    = '';
-  let newPassword    = '';
-  let newShowPass    = false;
-  let newFullName    = '';
-  let newRole        = 'user';
-  let umError        = '';
-  let showDisableUmDialog = false;
-
-  // Enable user management from Settings
-  let showEnableUm    = false;
-  let enableAdminUser = '';
-  let enableAdminPass = '';
-  let enableShowPass = false;
-  let enableAdminConf = '';
-  let enableAdminName = '';
-  let enableUmError   = '';
-  let enableUmLoading = false;
-
-  async function enableUserManagement() {
-    enableUmError = '';
-    if (!enableAdminUser.trim()) { enableUmError = 'Username is required'; return; }
-    if (enableAdminPass.length < 6) { enableUmError = 'Password must be at least 6 characters'; return; }
-    if (enableAdminPass !== enableAdminConf) { enableUmError = 'Passwords do not match'; return; }
-    enableUmLoading = true;
+  async function _copyLogs() {
     try {
-      const res = await fetch(apiUrl('/api/auth/register'), {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username:  enableAdminUser.trim(),
-          password:  enableAdminPass,
-          full_name: enableAdminName.trim() || undefined,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) { enableUmError = data.error || 'Registration failed'; enableUmLoading = false; return; }
-      localStorage.setItem('wl:userId', data.user.id);
-      await loadAuthState();
-      showEnableUm = false;
-      enableAdminUser = ''; enableAdminPass = ''; enableAdminConf = ''; enableAdminName = '';
-      await loadUsers();
-      showSuccess('User management enabled');
-    } catch(e) { enableUmError = 'Could not connect to server'; }
-    enableUmLoading = false;
+      await navigator.clipboard.writeText(_logsText);
+      _logsCopied = true;
+      setTimeout(() => _logsCopied = false, 2000);
+    } catch (e) {
+      showError('Copy failed — select the text manually');
+    }
   }
-
-  async function loadUsers() {
+  async function _shareLogs() {
     try {
-      umUsers = await NtApi.get('/api/auth/users');
-    } catch(e) { umError = e.message; }
-  }
-
-  async function addUser() {
-    umError = '';
-    if (!newUsername.trim() || !newPassword.trim()) { umError = 'Username and password required'; return; }
-    umLoading = true;
-    try {
-      const res = await fetch(apiUrl('/api/auth/register'), {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: newUsername.trim(), password: newPassword, full_name: newFullName.trim() || undefined, role: newRole }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) { umError = data.error || 'Failed to add user'; } else {
-        newUsername = ''; newPassword = ''; newFullName = ''; newRole = 'user';
-        showAddUser = false;
-        await loadUsers();
-        showSuccess('User added');
+      if (isNative) {
+        const { Share } = await import('@capacitor/share');
+        await Share.share({
+          title: 'NutriTrace diagnostic logs',
+          text: _logsText,
+          dialogTitle: 'Share NutriTrace logs',
+        });
+      } else if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ title: 'NutriTrace diagnostic logs', text: _logsText });
+      } else {
+        await _copyLogs();
       }
-    } catch(e) { umError = e.message; }
-    umLoading = false;
+    } catch (e) {
+      // User cancelled — silent.
+    }
+  }
+  function _clearLogs() {
+    clearLogBuffer();
+    _logsText = '(cleared)';
+  }
+  function _toggleVerbose(on) {
+    _verboseLogging = on;
+    setVerboseLogging(on);
   }
 
-  async function deleteUser(id) {
-    try {
-      await NtApi.del(`/api/auth/users/${id}`);
-      await loadUsers();
-      showSuccess('User deleted');
-    } catch(e) { showError(e.message); }
-  }
+  // ── Diagnostics: anonymized calibration export ───────────────────────────
+  let _calibExportSheet = false;
+  let _calibExportJson  = '';
+  let _calibExportCount = 0;
+  let _calibDeviceLabel = ''; // user-supplied free-text, e.g. "Pixel Watch 4"
+  let _calibCopied = false;
 
-  async function disableUserManagement() {
+  async function _generateCalibExport() {
     try {
-      await NtApi.del('/api/auth/management');
-      localStorage.removeItem('wl:userId');
-      await loadAuthState();
-      showDisableUmDialog = false;
-      showSuccess('User management disabled');
-      await loadUsers();
-    } catch(e) { showError(e.message); }
-  }
+      // Pull last 30 days of Fitbit/Garmin data via the existing /data endpoint.
+      const today = new Date();
+      const from  = new Date(today); from.setDate(from.getDate() - 30);
+      const fmt   = d => d.toLocaleDateString('sv-SE');
+      const fromStr = fmt(from), toStr = fmt(today);
 
-  // Load users when section opens
-  $: if (openSections.users && $userMgmtActive) { loadUsers(); if ($currentUser?.role === 'admin') loadSessionConfig(); }
+      let fitbitRows = {}, garminRows = {};
+      try { fitbitRows = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`) || {}; } catch {}
+      try { garminRows = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`) || {}; } catch {}
 
-  let showClearDialog = false;
-  async function clearAllData() {
-    try {
-      await NtApi.del('/api/data');
-      // Only deletes food/diary data — settings are untouched
-      showSuccess('All data cleared');
-      await loadAuthState();
-    } catch(e) { showError('Clear failed: ' + e.message); }
-  }
-
-  let showClearSettingsDialog = false;
-  async function clearAllSettings() {
-    try {
-      await fetch(apiUrl('/api/settings'), { method: 'DELETE', ..._fetchOpts() });
-      // Clear user-scoped localStorage settings
-      const userId = localStorage.getItem('wl:userId');
-      const prefix = userId ? `wl_u${userId}_` : 'wl_';
-      const keys = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(prefix)) keys.push(k);
+      // Build deterministic day list, oldest → newest
+      const dates = [];
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(from); d.setDate(from.getDate() + i);
+        dates.push(fmt(d));
       }
-      keys.forEach(k => localStorage.removeItem(k));
-      // Re-stamp setupComplete so the wizard doesn't re-trigger
-      DB.setSetting('setupComplete', true);
-      showSuccess('All settings cleared');
-      // Reload to reinitialize all local settings vars with defaults
-      setTimeout(() => location.reload(), 800);
-    } catch(e) { showError('Clear failed: ' + e.message); }
+
+      const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const days = dates.map((d, i) => {
+        const f = fitbitRows[d] || {};
+        const g = garminRows[d] || {};
+        const wd = new Date(d + 'T12:00:00').getDay();
+        // Only include fields useful for calibration. No user_id, no exact
+        // dates, no PII. Numeric biometrics + scores only.
+        const row = {
+          dayIndex: i + 1,
+          dayOfWeek: dayNames[wd],
+          // Fitbit actuals (only present if user has been seeding via /seed-scores).
+          // Most useful for tuning — these are Fitbit's own published scores.
+          fitbit_sleep_actual:     f.sleep_score_actual     ?? null,
+          fitbit_readiness_actual: f.readiness_score_actual ?? null,
+          fitbit_stress_actual:    f.stress_score_actual    ?? null,
+          // Our calculated scores (server-side for sleep, client-side for readiness/stress).
+          sleep_calc:       (f.sleep_score_actual ? null : f.sleep_score)         ?? null,
+          readiness_calc:   (f.readiness_score_actual ? null : f.readiness_score) ?? null,
+          stress_calc:      (f.stress_score_actual ? null : f.stress_score)       ?? null,
+          // Garmin's device-native scores (Garmin exposes these directly — no calc needed).
+          // Stress is conceptually different (continuous-measurement avg, not a morning score).
+          garmin_sleep:     g.sleep_score    ?? null,
+          garmin_stress:    g.stress_avg     ?? null,
+          // Raw biometrics — relevant for ANY device, useful for cross-device validation
+          hrv:              f.hrv_daily_rmssd ?? g.hrv_daily_rmssd ?? null,
+          rhr:              f.resting_hr      ?? g.resting_hr      ?? null,
+          sleep_min:        f.sleep_duration_min ?? g.sleep_duration_min ?? null,
+          deep_min:         f.sleep_deep_min  ?? g.sleep_deep_min  ?? null,
+          rem_min:          f.sleep_rem_min   ?? g.sleep_rem_min   ?? null,
+          efficiency:       f.sleep_efficiency ?? null,
+          spo2:             f.spo2_avg        ?? null,
+          calories_out:     f.calories_out    ?? g.calories_out    ?? null,
+        };
+        // Drop the day if there's no biometric data at all
+        const hasData = row.fitbit_sleep_actual != null || row.sleep_calc != null ||
+                        row.garmin_sleep != null || row.hrv != null || row.rhr != null;
+        return hasData ? row : null;
+      }).filter(Boolean);
+
+      const payload = {
+        version: 1,
+        exportedAt: new Date().toISOString().slice(0, 10),
+        device: _calibDeviceLabel.trim() || '(unspecified)',
+        appVersion: APP_VERSION,
+        days,
+      };
+      _calibExportJson  = JSON.stringify(payload, null, 2);
+      _calibExportCount = days.length;
+      _calibCopied = false;
+    } catch (e) {
+      showError('Could not generate calibration export: ' + (e.message || ''));
+    }
+  }
+
+  async function _copyCalibExport() {
+    try {
+      await navigator.clipboard.writeText(_calibExportJson);
+      _calibCopied = true;
+      setTimeout(() => _calibCopied = false, 2000);
+    } catch (e) {
+      showError('Copy failed — select the text manually');
+    }
   }
 
   // ── Reactive saves ─────────────────────────────────────────────────────────
@@ -1609,22 +1045,15 @@
   $: set('offSearchLanguage',  offSearchLanguage);
   $: set('offSearchCountry',   offSearchCountry);
   $: set('offUploadCountry',   offUploadCountry);
-  $: { aiEnabled.set(aiEnabledVal); }
-  $: { aiProvider.set(aiProviderVal); }
-  $: set('aiModel',         aiModelVal);
-  $: set('aiAssistantName', aiAssistantNameVal);
-  $: { quickLogEnabled.set(quickLogEnabledVal); }
 
   // ── Explicit credential saves ──────────────────────────────────────────────
   let usdaSaved   = false;
   let offSaved    = false;
   let mealieSaved = false;
-  let aiKeySaved  = false;
 
   function saveUsda()   { set('usdaApiKey', usdaApiKey);   usdaSaved = true;   setTimeout(() => usdaSaved   = false, 2000); }
   function saveOff()    { set('offUsername', offUsername); set('offPassword', offPassword); offSaved = true; setTimeout(() => offSaved = false, 2000); }
   function saveMealie() { set('mealieBaseUrl', mealieBaseUrl); set('mealieApiToken', mealieApiToken); mealieSaved = true; setTimeout(() => mealieSaved = false, 2000); }
-  function saveAiKey()  { set('aiApiKey', aiApiKeyVal);    aiKeySaved = true;  setTimeout(() => aiKeySaved  = false, 2000); }
 
   // ── Env-lock state — which admin sections are locked by environment vars ───
   let envLocks = { smtp: false, ai: false };
@@ -1735,8 +1164,8 @@
           <div class="setting-divider"></div>
           <div class="setting-row">
             <div>
-              <span class="setting-label">Celebrate goals</span>
-              <div class="setting-desc">Pulse effect when you reach goals</div>
+              <span class="setting-label">Goal pulse animation</span>
+              <div class="setting-desc">Pulse effect on the diary nutrition bar when you hit a goal. (For "celebration" notifications, see Notifications.)</div>
             </div>
             <Toggle checked={$goalCelebrations} on:change={e => goalCelebrations.set(e.detail)} />
           </div>
@@ -1855,23 +1284,55 @@
     {#if sectionOpen(openSections, settingsQuery, 'diary') && sectionVisible(settingsQuery, 'diary')}
       <div class="section-body" transition:slide={{ duration: 180 }}>
         <div class="card settings-card">
-          <div class="setting-row"><span class="setting-label">Show brand names</span><Toggle checked={$diaryShowBrands} on:change={e => diaryShowBrands.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show brand names</span><div class="setting-desc">Display the brand under each food name</div></div>
+            <Toggle checked={$diaryShowBrands} on:change={e => diaryShowBrands.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show timestamps</span><Toggle checked={$diaryShowTimestamps} on:change={e => diaryShowTimestamps.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show timestamps</span><div class="setting-desc">Show the time each item was logged</div></div>
+            <Toggle checked={$diaryShowTimestamps} on:change={e => diaryShowTimestamps.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show thumbnails</span><Toggle checked={$diaryShowThumbnails} on:change={e => diaryShowThumbnails.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show thumbnails</span><div class="setting-desc">Food/meal photos next to each item</div></div>
+            <Toggle checked={$diaryShowThumbnails} on:change={e => diaryShowThumbnails.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show all nutrients</span><Toggle checked={$diaryShowAllNutrients} on:change={e => diaryShowAllNutrients.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show all nutrients</span><div class="setting-desc">When viewing a meal's totals, show every available nutrient (vitamins, minerals, etc.) instead of just the macros</div></div>
+            <Toggle checked={$diaryShowAllNutrients} on:change={e => diaryShowAllNutrients.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show nutrition units</span><Toggle checked={$diaryShowNutritionUnits} on:change={e => diaryShowNutritionUnits.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show nutrition units</span><div class="setting-desc">Append "g" / "mg" / etc. after numeric values</div></div>
+            <Toggle checked={$diaryShowNutritionUnits} on:change={e => diaryShowNutritionUnits.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show macro summary per meal</span><Toggle checked={$diaryShowMacroSummary} on:change={e => diaryShowMacroSummary.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show macro summary per meal</span><div class="setting-desc">P/C/F bar at the bottom of each meal — tap it for full nutrient breakdown</div></div>
+            <Toggle checked={$diaryShowMacroSummary} on:change={e => diaryShowMacroSummary.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Ask for quantity when adding</span><Toggle checked={$diaryPromptQuantity} on:change={e => diaryPromptQuantity.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Ask for quantity when adding</span><div class="setting-desc">Prompt for portion size before adding a food (otherwise use the food's default)</div></div>
+            <Toggle checked={$diaryPromptQuantity} on:change={e => diaryPromptQuantity.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show portion size</span><Toggle checked={$diaryShowPortionSize} on:change={e => diaryShowPortionSize.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show portion size</span><div class="setting-desc">Display "150g" / "1 cup" etc. on each diary item</div></div>
+            <Toggle checked={$diaryShowPortionSize} on:change={e => diaryShowPortionSize.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show daily goals progress bar</span><Toggle checked={$diaryShowNutritionBar} on:change={e => diaryShowNutritionBar.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show daily notes</span><div class="setting-desc">Free-text notes section at the bottom of each day's diary</div></div>
+            <Toggle checked={$diaryShowNotes} on:change={e => diaryShowNotes.set(e.detail)} />
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show daily goals progress bar</span><div class="setting-desc">Progress strip at the bottom of the diary showing how much of your daily goals you've hit</div></div>
+            <Toggle checked={$diaryShowNutritionBar} on:change={e => diaryShowNutritionBar.set(e.detail)} />
+          </div>
         </div>
 
         <p class="sub-label">Meal names</p>
@@ -1998,15 +1459,30 @@
     {#if sectionOpen(openSections, settingsQuery, 'foods') && sectionVisible(settingsQuery, 'foods')}
       <div class="section-body" transition:slide={{ duration: 180 }}>
         <div class="card settings-card">
-          <div class="setting-row"><span class="setting-label">Show thumbnails</span><Toggle checked={$foodsShowThumbnails} on:change={e => foodsShowThumbnails.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show thumbnails</span><div class="setting-desc">Food/meal photos in the picker list</div></div>
+            <Toggle checked={$foodsShowThumbnails} on:change={e => foodsShowThumbnails.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show categories</span><Toggle checked={$foodsShowCategories} on:change={e => foodsShowCategories.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show categories</span><div class="setting-desc">Filter chips at the top of the Foods picker</div></div>
+            <Toggle checked={$foodsShowCategories} on:change={e => foodsShowCategories.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show category labels</span><Toggle checked={$foodsShowLabels} on:change={e => foodsShowLabels.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show category labels</span><div class="setting-desc">Display the category name + emoji on each food row</div></div>
+            <Toggle checked={$foodsShowLabels} on:change={e => foodsShowLabels.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show notes</span><Toggle checked={$foodsShowNotes} on:change={e => foodsShowNotes.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show notes</span><div class="setting-desc">Show saved food notes (e.g. "1 serving = 150g cooked") in the quick-add card</div></div>
+            <Toggle checked={$foodsShowNotes} on:change={e => foodsShowNotes.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
-          <div class="setting-row"><span class="setting-label">Show yesterday's meals</span><Toggle checked={$foodsShowYesterdayMeals} on:change={e => foodsShowYesterdayMeals.set(e.detail)} /></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show yesterday's meals</span><div class="setting-desc">In the Meals tab, surface yesterday's meals as quick-add cards (with item-list info button)</div></div>
+            <Toggle checked={$foodsShowYesterdayMeals} on:change={e => foodsShowYesterdayMeals.set(e.detail)} />
+          </div>
           <div class="setting-divider"></div>
           <div class="setting-row">
             <span class="setting-label">Sort order</span>
@@ -2021,7 +1497,7 @@
         <p class="sub-label">Camera &amp; Scanning</p>
         <div class="card settings-card">
           <div class="setting-row"><span class="setting-label">Beep on successful scan</span><Toggle checked={$barcodeBeep} on:change={e => barcodeBeep.set(e.detail)} /></div>
-          {#if !isNative}
+          {#if isNative}
             <div class="setting-divider"></div>
             <div class="setting-row"><span class="setting-label">Use flashlight while scanning</span><Toggle checked={$barcodeFlashlight} on:change={e => barcodeFlashlight.set(e.detail)} /></div>
           {/if}
@@ -2133,6 +1609,52 @@
       </div>
     {/if}
 
+    <!-- ── Goals ───────────────────────────────────────────────────────────── -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'goals')} on:click={() => toggleSection('goals')}>
+      <span class="material-symbols-rounded si">flag</span>
+      <span>Goals</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.goals}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'goals') && sectionVisible(settingsQuery, 'goals')}
+      <div class="section-body" transition:slide={{ duration: 180 }}>
+        <div class="card settings-card">
+          {#if $fitbitEnabled || $garminEnabled || $healthConnectEnabled}
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Dynamic Calorie Goal</span>
+              <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);vertical-align:middle">Experimental</span>
+              <div class="setting-desc">Adjusts your daily calorie goal based on yesterday's calories burned from your connected device</div>
+            </div>
+            <Toggle checked={$calorieGoalMode === 'dynamic'} on:change={e => calorieGoalMode.set(e.detail ? 'dynamic' : 'fixed')} />
+          </div>
+          {#if $calorieGoalMode === 'dynamic'}
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <span class="setting-label">Goal Factor</span>
+              <div class="seg-control">
+                <button class="seg-opt" class:seg-active={$calorieGoalFactor === 0.8}  on:click={() => calorieGoalFactor.set(0.8)}>Lose −20%</button>
+                <button class="seg-opt" class:seg-active={$calorieGoalFactor === 1.0}  on:click={() => calorieGoalFactor.set(1.0)}>Maintain</button>
+                <button class="seg-opt" class:seg-active={$calorieGoalFactor === 1.2}  on:click={() => calorieGoalFactor.set(1.2)}>Gain +20%</button>
+              </div>
+            </div>
+            <div class="setting-divider"></div>
+            <p class="setting-desc" style="padding:8px var(--page-px)">
+              Uses yesterday's final calorie burn. Falls back to your fixed calorie goal if no data is available.
+            </p>
+          {/if}
+          {:else}
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Dynamic Calorie Goal</span>
+              <div class="setting-desc">Connect a fitness tracker in <strong>Wellness</strong> to enable goal adjustment based on calories burned</div>
+            </div>
+            <Toggle checked={false} disabled={true} />
+          </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
     <!-- ── Body Stats ──────────────────────────────────────────────────────── -->
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'bodyStats')} on:click={() => toggleSection('bodyStats')}>
       <span class="material-symbols-rounded si">monitor_weight</span>
@@ -2192,6 +1714,14 @@
           <div class="setting-row"><span class="setting-label">Show goal line</span><Toggle checked={statsGoalLine} on:change={e => { statsGoalLine = e.detail; set('statsGoalLine', e.detail); }} /></div>
           <div class="setting-divider"></div>
           <div class="setting-row"><span class="setting-label">Show trend line</span><Toggle checked={statsTrendLine} on:change={e => { statsTrendLine = e.detail; set('statsTrendLine', e.detail); }} /></div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Include today in trends</span>
+              <div class="setting-desc">For cumulative metrics (calories, water, steps, etc.) today is partial until the day ends. Off by default — the chart looks cleaner. Statistics page also has an inline toggle for one-off overrides.</div>
+            </div>
+            <Toggle checked={statsIncludeTodayLocal} on:change={e => { statsIncludeTodayLocal = e.detail; set('statsIncludeToday', e.detail); }} />
+          </div>
         </div>
       </div>
     {/if}
@@ -2354,355 +1884,19 @@
       <span class="material-symbols-rounded chevron" class:rotated={openSections.ai}>expand_more</span>
     </button>
     {#if sectionOpen(openSections, settingsQuery, 'ai') && sectionVisible(settingsQuery, 'ai')}
-      <div class="section-body" transition:slide={{ duration: 180 }}>
-        {#if envLocks.ai}
-          <div class="env-lock-banner">
-            <span class="material-symbols-rounded">lock</span>
-            Configured via environment variables — changes are disabled.
-          </div>
-        {/if}
-        <div class="card settings-card">
-          <div class="setting-row">
-            <div>
-              <span class="setting-label">Enable FitBot AI</span>
-              <div class="setting-desc">Adds a floating chat button to all pages</div>
-            </div>
-            <Toggle checked={aiEnabledVal} on:change={e => aiEnabledVal = e.detail} disabled={envLocks.ai} />
-          </div>
-
-          {#if aiEnabledVal}
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <span class="setting-label">Assistant name</span>
-              <input class="input" style="width:130px;text-align:right"
-                placeholder="FitBot"
-                bind:value={aiAssistantNameVal} />
-            </div>
-
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <span class="setting-label">Provider</span>
-              <div class="select-wrap" style="width:170px">
-                <select class="select sel-sm" bind:value={aiProviderVal} disabled={envLocks.ai}>
-                  {#each AI_PROVIDERS as p}
-                    <option value={p.value}>{p.label}</option>
-                  {/each}
-                </select>
-              </div>
-            </div>
-
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <span class="setting-label">Model</span>
-              <div class="select-wrap" style="width:200px">
-                <select class="select sel-sm" bind:value={aiModelVal} disabled={envLocks.ai}>
-                  {#each (AI_MODELS[aiProviderVal] || []) as m}
-                    <option value={m.value}>{m.label}</option>
-                  {/each}
-                </select>
-              </div>
-            </div>
-
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">
-                  Smart Log
-                  <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);vertical-align:middle">Experimental</span>
-                </span>
-                <div class="setting-desc">Press and hold the FitBot button on any page, then say what you ate — "for breakfast I had 2 eggs and toast". When you release, the AI parses the items AND figures out which meal slot, your food database fills in the nutrition, and a confirmation modal lets you review before saving.</div>
-              </div>
-              <Toggle checked={quickLogEnabledVal} on:change={e => quickLogEnabledVal = e.detail} />
-            </div>
-            {#if quickLogEnabledVal}
-              <div class="setting-divider"></div>
-              <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:6px">
-                <div class="setting-desc" style="line-height:1.55">
-                  <strong style="color:var(--text-2)">Quick start</strong>
-                  <div style="margin-top:4px">
-                    Press and hold the FitBot button on any page, speak what you ate ("<em>for breakfast I had 2 eggs and toast</em>"), release. The AI parses your sentence and matches it against your foods, meals, recipes, and yesterday's diary.
-                  </div>
-                  <div style="margin-top:8px">
-                    <strong style="color:var(--text-2)">Trigger words</strong> for non-food matches:
-                    <div style="margin-top:4px">
-                      • <em>"my X <strong>meal</strong>"</em> → searches your saved meals<br/>
-                      • <em>"my X <strong>recipe</strong>"</em> → searches your saved recipes<br/>
-                      • <em>"<strong>same as yesterday</strong> for lunch"</em> → copies yesterday's items
-                    </div>
-                  </div>
-                  <div style="margin-top:8px">
-                    See the <a href="https://github.com/traceapps/nutritrace#smart-log--voice--ai-food-logging" target="_blank" rel="noopener" class="about-link">Smart Log section in the README</a> for the full list of trigger words, examples, what it can/can't match, and the privacy story.
-                  </div>
-                </div>
-              </div>
-            {/if}
-
-            {#if !envLocks.ai}
-              <div class="setting-divider"></div>
-              <div class="form-group" style="padding:10px 16px">
-                <label class="form-label" for="ai-api-key">API Key</label>
-                <div style="display:flex;gap:8px;align-items:center">
-                  {#if aiShowKey}
-                    <input id="ai-api-key" class="input" type="text"
-                      placeholder="Paste your API key here"
-                      bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
-                  {:else}
-                    <input id="ai-api-key" class="input" type="password"
-                      placeholder="Paste your API key here"
-                      bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
-                  {/if}
-                  <button class="btn-icon" on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? 'Hide' : 'Show'}>
-                    <span class="material-symbols-rounded">{aiShowKey ? 'visibility_off' : 'visibility'}</span>
-                  </button>
-                  <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveAiKey}>
-                    {#if aiKeySaved}<span class="material-symbols-rounded" style="font-size:16px">check</span>{:else}Save{/if}
-                  </button>
-                </div>
-                <div class="setting-desc" style="margin-top:6px">
-                  {#if aiProviderVal === 'claude'}
-                    Get your key at <a href="https://console.anthropic.com" target="_blank" rel="noopener" class="about-link">console.anthropic.com</a>
-                  {:else if aiProviderVal === 'openai'}
-                    Get your key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="about-link">platform.openai.com</a>
-                  {:else if aiProviderVal === 'gemini'}
-                    Get your key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="about-link">aistudio.google.com</a>
-                  {/if}
-                  Your key is stored securely on the server.
-                </div>
-              </div>
-            {/if}
-          {/if}
-        </div>
-      </div>
+      <SettingsTrace envLocks={envLocks} />
     {/if}
 
     <!-- ── Notifications ────────────────────────────────────────────────────── -->
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'notifications')} on:click={() => toggleSection('notifications')}>
       <span class="material-symbols-rounded si">notifications</span>
-      <span>Notifications <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);vertical-align:middle">Experimental</span></span>
+      <span>Notifications</span>
       <span class="material-symbols-rounded chevron" class:rotated={openSections.notifications}>expand_more</span>
     </button>
     {#if sectionOpen(openSections, settingsQuery, 'notifications') && sectionVisible(settingsQuery, 'notifications')}
-      <div class="section-body" transition:slide={{ duration: 180 }}>
-
-        <!-- Delivery setup first -->
-        <p class="sub-label">Delivery</p>
-        <div class="card settings-card">
-          <div class="setting-row">
-            <div>
-              <span class="setting-label">Device Notifications</span>
-              <div class="setting-desc">Native push on Android, browser notifications on desktop</div>
-            </div>
-            <Toggle checked={_notifLocal} on:change={e => { _notifLocal = e.detail; set('notifLocalEnabled', e.detail); if (e.detail) _requestNotifPermission(); }} />
-          </div>
-          <div class="setting-divider"></div>
-          <div class="setting-row">
-            <div>
-              <span class="setting-label">Push Service</span>
-              <div class="setting-desc">Self-hosted notification server</div>
-            </div>
-            <div class="select-wrap" style="width:130px">
-              <select class="select sel-sm" value={_notifPushService} on:change={e => { _notifPushService = e.target.value; set('notifPushService', e.target.value); }}>
-                <option value="none">None</option>
-                <option value="apprise">Apprise</option>
-                <option value="gotify">Gotify</option>
-                <option value="ntfy">ntfy</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Apprise config -->
-          {#if _notifPushService === 'apprise'}
-            <div class="setting-divider"></div>
-            <div class="form-group" style="padding:10px 16px 4px">
-              <label class="form-label">Apprise Server URL</label>
-              <input class="input" placeholder="https://apprise.example.com" bind:value={_appriseUrl} on:blur={() => set('appriseUrl', _appriseUrl)} />
-            </div>
-            <div class="form-group" style="padding:8px 16px 14px">
-              <label class="form-label">Tag (optional)</label>
-              <div style="display:flex;gap:8px;align-items:center">
-                <input class="input" style="flex:1" placeholder="e.g. nutritrace" bind:value={_appriseTag} on:blur={() => set('appriseTag', _appriseTag)} />
-                <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={_testPush} disabled={!_appriseUrl || _gotifyTesting}>
-                  {#if _gotifyTesting}Testing…{:else}Test{/if}
-                </button>
-              </div>
-            </div>
-          {/if}
-
-          <!-- Gotify config -->
-          {#if _notifPushService === 'gotify'}
-            <div class="setting-divider"></div>
-            <div class="form-group" style="padding:10px 16px 4px">
-              <label class="form-label">Gotify Server URL</label>
-              <input class="input" placeholder="https://gotify.example.com" bind:value={_gotifyUrl} on:blur={() => set('gotifyUrl', _gotifyUrl)} />
-            </div>
-            <div class="form-group" style="padding:8px 16px 14px">
-              <label class="form-label">App Token</label>
-              <div style="display:flex;gap:8px;align-items:center">
-                {#if _gotifyShowToken}
-                  <input class="input" style="flex:1" type="text" placeholder="Your Gotify app token" bind:value={_gotifyToken} on:blur={() => set('gotifyToken', _gotifyToken)} />
-                {:else}
-                  <input class="input" style="flex:1" type="password" placeholder="Your Gotify app token" bind:value={_gotifyToken} on:blur={() => set('gotifyToken', _gotifyToken)} />
-                {/if}
-                <button class="btn-icon" on:click={() => _gotifyShowToken = !_gotifyShowToken} title={_gotifyShowToken ? 'Hide' : 'Show'}>
-                  <span class="material-symbols-rounded">{_gotifyShowToken ? 'visibility_off' : 'visibility'}</span>
-                </button>
-                <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={_testPush} disabled={!_gotifyUrl || !_gotifyToken || _gotifyTesting}>
-                  {#if _gotifyTesting}Testing…{:else}Test{/if}
-                </button>
-              </div>
-            </div>
-          {/if}
-
-          <!-- ntfy config -->
-          {#if _notifPushService === 'ntfy'}
-            <div class="setting-divider"></div>
-            <div class="form-group" style="padding:10px 16px 4px">
-              <label class="form-label">ntfy Server URL</label>
-              <input class="input" placeholder="https://ntfy.sh" bind:value={_ntfyUrl} on:blur={() => set('ntfyUrl', _ntfyUrl)} />
-            </div>
-            <div class="form-group" style="padding:8px 16px 4px">
-              <label class="form-label">Topic</label>
-              <input class="input" placeholder="e.g. my-nutritrace" bind:value={_ntfyTopic} on:blur={() => set('ntfyTopic', _ntfyTopic)} />
-            </div>
-            <div class="form-group" style="padding:8px 16px 14px">
-              <label class="form-label">Access Token (optional — for private topics)</label>
-              <div style="display:flex;gap:8px;align-items:center">
-                {#if _ntfyShowToken}
-                  <input class="input" style="flex:1" type="text" placeholder="Bearer token" bind:value={_ntfyToken} on:blur={() => set('ntfyToken', _ntfyToken)} />
-                {:else}
-                  <input class="input" style="flex:1" type="password" placeholder="Bearer token" bind:value={_ntfyToken} on:blur={() => set('ntfyToken', _ntfyToken)} />
-                {/if}
-                <button class="btn-icon" on:click={() => _ntfyShowToken = !_ntfyShowToken} title={_ntfyShowToken ? 'Hide' : 'Show'}>
-                  <span class="material-symbols-rounded">{_ntfyShowToken ? 'visibility_off' : 'visibility'}</span>
-                </button>
-                <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={_testPush} disabled={!_ntfyTopic || _gotifyTesting}>
-                  {#if _gotifyTesting}Testing…{:else}Test{/if}
-                </button>
-              </div>
-            </div>
-          {/if}
-        </div>
-
-        {#if _anyNotifEnabled}
-          <!-- Notification types — all go through whichever delivery methods are enabled -->
-          <p class="sub-label">Scheduled Reminders</p>
-          <div class="card settings-card">
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Water Reminders</span>
-                <div class="setting-desc">Periodic reminders to stay hydrated (8am–10pm)</div>
-              </div>
-              <Toggle checked={_notifWater} on:change={e => { _notifWater = e.detail; set('notifWaterReminders', e.detail); _scheduleWater(); }} />
-            </div>
-            {#if _notifWater}
-              <div class="setting-divider"></div>
-              <div class="setting-row">
-                <span class="setting-label">Interval</span>
-                <div class="select-wrap" style="width:130px">
-                  <select class="select sel-sm" value={_notifWaterInt} on:change={e => { _notifWaterInt = Number(e.target.value); set('notifWaterInterval', _notifWaterInt); _scheduleWater(); }}>
-                    <option value={60}>Every 1 hour</option>
-                    <option value={90}>Every 1.5 hours</option>
-                    <option value={120}>Every 2 hours</option>
-                    <option value={180}>Every 3 hours</option>
-                  </select>
-                </div>
-              </div>
-            {/if}
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Meal Log Reminders</span>
-                <div class="setting-desc">Daily reminders to log your meals</div>
-              </div>
-              <Toggle checked={_notifMeals} on:change={e => { _notifMeals = e.detail; set('notifMealReminders', e.detail); _scheduleMeals(); }} />
-            </div>
-            {#if _notifMeals}
-              {@const mealNames = DB.getSetting('mealNames', ['Breakfast','Lunch','Dinner','Snacks'])}
-              {#each mealNames as name, i}
-                <div class="setting-divider"></div>
-                <div class="setting-row">
-                  <span class="setting-label">{name}</span>
-                  <TimePicker value={_notifMealTimes[i] || _defaultMealTime(i)} on:change={e => {
-                    while (_notifMealTimes.length <= i) _notifMealTimes.push(_defaultMealTime(_notifMealTimes.length));
-                    _notifMealTimes[i] = e.detail;
-                    _notifMealTimes = _notifMealTimes;
-                    set('notifMealTimes', _notifMealTimes);
-                    _scheduleMeals();
-                  }} />
-                </div>
-              {/each}
-            {/if}
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Weigh-in Reminder</span>
-                <div class="setting-desc">Morning reminder to step on the scale</div>
-              </div>
-              <Toggle checked={_notifWeighIn} on:change={e => { _notifWeighIn = e.detail; set('notifWeighIn', e.detail); _scheduleWeighIn(); }} />
-            </div>
-            {#if _notifWeighIn}
-              <div class="setting-divider"></div>
-              <div class="setting-row">
-                <span class="setting-label">Time</span>
-                <TimePicker value={_notifWeighInTime} on:change={e => { _notifWeighInTime = e.detail; set('notifWeighInTime', e.detail); _scheduleWeighIn(); }} />
-              </div>
-            {/if}
-          </div>
-
-          <p class="sub-label">Alerts & Summaries</p>
-          <div class="card settings-card">
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Goal Celebrations</span>
-                <div class="setting-desc">Celebrates when you hit any daily goal — calories, protein, carbs, fat, water, steps, sleep, and more</div>
-              </div>
-              <Toggle checked={_notifGoals} on:change={e => { _notifGoals = e.detail; set('notifGoalCelebrations', e.detail); }} />
-            </div>
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Step Goal Progress</span>
-                <div class="setting-desc">Midday nudge if you're behind on your step goal</div>
-              </div>
-              <Toggle checked={_notifSteps} on:change={e => { _notifSteps = e.detail; set('notifStepGoal', e.detail); }} />
-            </div>
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Wellness Alerts</span>
-                <div class="setting-desc">Warns when HRV drops significantly, sleep quality declines, or resting heart rate spikes</div>
-              </div>
-              <Toggle checked={_notifWellness} on:change={e => { _notifWellness = e.detail; set('notifWellnessAlerts', e.detail); }} />
-            </div>
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Workout Summaries</span>
-                <div class="setting-desc">Recap after a workout syncs — duration, distance, calories burned</div>
-              </div>
-              <Toggle checked={_notifWorkouts} on:change={e => { _notifWorkouts = e.detail; set('notifWorkoutSummary', e.detail); }} />
-            </div>
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Weekly Summary</span>
-                <div class="setting-desc">Sunday recap with average steps, calories, and sleep for the week</div>
-              </div>
-              <Toggle checked={_notifWeekly} on:change={e => { _notifWeekly = e.detail; set('notifWeeklySummary', e.detail); }} />
-            </div>
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Sync Failures</span>
-                <div class="setting-desc">Alert when Fitbit, Garmin, or Withings sync fails</div>
-              </div>
-              <Toggle checked={_notifSync} on:change={e => { _notifSync = e.detail; set('notifSyncFailures', e.detail); }} />
-            </div>
-          </div>
-        {/if}
-
-      </div>
+      <SettingsNotifications />
     {/if}
+
 
     <!-- ── Wellness ──────────────────────────────────────────────────────────── -->
     <button class="section-toggle wellness-toggle" class:hidden={!sectionVisible(settingsQuery, 'wellness')} on:click={() => { toggleSection('wellness'); wellnessRef?.loadWellnessConfig(); }}>
@@ -2796,202 +1990,7 @@
       <span class="material-symbols-rounded chevron" class:rotated={openSections.users}>expand_more</span>
     </button>
     {#if sectionOpen(openSections, settingsQuery, 'users') && sectionVisible(settingsQuery, 'users')}
-      <div class="section-body" transition:slide={{ duration: 180 }}>
-        <div class="card settings-card">
-          {#if $userMgmtActive}
-            <!-- Current user row -->
-            <button class="setting-row setting-action" on:click={() => push('/profile')}>
-              <span class="material-symbols-rounded si" style="color:var(--accent)">manage_accounts</span>
-              <div>
-                <span class="setting-label">My Profile</span>
-                <div class="setting-desc">{$currentUser?.nickname || $currentUser?.full_name || $currentUser?.username || ''}</div>
-              </div>
-              <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
-            </button>
-            <div class="setting-divider"></div>
-
-            <!-- User list (admin only) -->
-            {#if $currentUser?.role === 'admin'}
-              <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px">
-                <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
-                  <span class="setting-label">Users</span>
-                  <button class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 10px"
-                    on:click={() => { showAddUser = !showAddUser; umError = ''; }}>
-                    {showAddUser ? 'Cancel' : '+ Add User'}
-                  </button>
-                </div>
-
-                {#if showAddUser}
-                  <div class="um-add-form" transition:slide={{ duration: 160 }}>
-                    <div class="um-form-row">
-                      <input class="input" type="text" bind:value={newUsername} placeholder="Username *" autocomplete="off" />
-                      <div style="display:flex;gap:4px;align-items:center;flex:1">
-                        {#if newShowPass}
-                          <input class="input" style="flex:1" type="text" bind:value={newPassword} placeholder="Password *" autocomplete="new-password" />
-                        {:else}
-                          <input class="input" style="flex:1" type="password" bind:value={newPassword} placeholder="Password *" autocomplete="new-password" />
-                        {/if}
-                        <button class="btn-icon" on:click={() => newShowPass = !newShowPass} style="flex-shrink:0">
-                          <span class="material-symbols-rounded" style="font-size:18px">{newShowPass ? 'visibility_off' : 'visibility'}</span>
-                        </button>
-                      </div>
-                    </div>
-                    <div class="um-form-row">
-                      <input class="input" type="text" bind:value={newFullName} placeholder="Full name (optional)" />
-                      <select class="input" bind:value={newRole}>
-                        <option value="user">User</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </div>
-                    {#if umError}<p class="um-error">{umError}</p>{/if}
-                    <button class="btn btn-primary" style="width:100%" on:click={addUser} disabled={umLoading}>
-                      {umLoading ? 'Adding...' : 'Create User'}
-                    </button>
-                  </div>
-                {/if}
-
-                <div class="um-user-list">
-                  {#each umUsers as u}
-                    <div class="um-user-row">
-                      <div class="um-user-avatar">
-                        {#if u.avatar_url}
-                          <img src={resolveAssetUrl(u.avatar_url)} alt={u.username} />
-                        {:else}
-                          <span class="material-symbols-rounded">person</span>
-                        {/if}
-                      </div>
-                      <div class="um-user-info">
-                        <div class="um-user-name">{u.nickname || u.full_name || u.username}</div>
-                        <div class="um-user-sub">@{u.username}{u.role === 'admin' ? ' · admin' : ''}</div>
-                      </div>
-                      {#if u.id !== $currentUser?.id}
-                        <button class="btn btn-ghost um-del-btn" title="Delete user"
-                          on:click={() => deleteUser(u.id)}>
-                          <span class="material-symbols-rounded" style="font-size:18px;color:var(--danger)">person_remove</span>
-                        </button>
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
-              </div>
-              <div class="setting-divider"></div>
-
-              <!-- Invite user -->
-              <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px">
-                <span class="setting-label">Invite user</span>
-                <div class="um-form-row">
-                  <input class="input" type="email" bind:value={inviteEmail} placeholder="Email (optional)" />
-                  <select class="input" bind:value={inviteRole}>
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-                <button class="btn btn-secondary" style="width:100%" on:click={createInvite} disabled={inviteLoading}>
-                  {inviteLoading ? 'Creating…' : 'Generate invite link'}
-                </button>
-                {#if inviteResult}
-                  <div class="invite-result" transition:slide={{ duration: 160 }}>
-                    {#if inviteResult.sent}
-                      <span class="material-symbols-rounded" style="color:var(--accent);font-size:18px">mark_email_read</span>
-                      <span style="font-size:13px">Invite sent to <strong>{inviteEmail || 'user'}</strong></span>
-                    {:else}
-                      <span style="font-size:13px;color:var(--text-2)">Share this link:</span>
-                      <div class="invite-link-row">
-                        <input class="input" style="flex:1;font-size:12px" readonly value={inviteResult.inviteUrl} />
-                        <button class="btn btn-secondary" style="height:36px;padding:0 12px;font-size:12px"
-                          on:click={() => { navigator.clipboard?.writeText(inviteResult.inviteUrl); showSuccess('Copied!'); }}>
-                          Copy
-                        </button>
-                      </div>
-                    {/if}
-                  </div>
-                {/if}
-              </div>
-
-              <div class="setting-divider"></div>
-              <div class="setting-row">
-                <div>
-                  <span class="setting-label">Session duration</span>
-                  <div class="setting-desc">How long users stay signed in. Applies to new logins.</div>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px">
-                  <div class="select-wrap" style="width:130px">
-                    <select class="select sel-sm" bind:value={sessionHours}>
-                      <option value="0">Never expires</option>
-                      <option value="8">8 hours</option>
-                      <option value="24">1 day</option>
-                      <option value="168">7 days</option>
-                      <option value="720">30 days</option>
-                      <option value="2160">90 days</option>
-                      <option value="8760">1 year</option>
-                    </select>
-                  </div>
-                  <button class="btn btn-secondary" style="height:32px;font-size:12px;padding:0 12px;white-space:nowrap" on:click={saveSessionHours}>
-                    {#if sessionSaved}<span class="material-symbols-rounded" style="font-size:14px">check</span>{:else}Save{/if}
-                  </button>
-                </div>
-              </div>
-
-              <div class="setting-divider"></div>
-              <button class="setting-row setting-action danger" on:click={() => showDisableUmDialog = true}>
-                <span class="material-symbols-rounded si" style="color:var(--danger)">no_accounts</span>
-                <div>
-                  <span class="setting-label" style="color:var(--danger)">Disable user management</span>
-                  <div class="setting-desc">Removes all user accounts and returns to single-user mode</div>
-                </div>
-              </button>
-            {/if}
-
-            <div class="setting-divider"></div>
-            <button class="setting-row setting-action" on:click={logoutServer}>
-              <span class="material-symbols-rounded si" style="color:var(--text-3)">logout</span>
-              <span class="setting-label">Sign out</span>
-            </button>
-          {:else}
-            <button class="setting-row setting-action" on:click={() => { showEnableUm = !showEnableUm; enableUmError = ''; }}>
-              <span class="material-symbols-rounded si" style="color:var(--accent)">group_add</span>
-              <div>
-                <span class="setting-label">Enable user management</span>
-                <div class="setting-desc">Add multiple user accounts with separate data &amp; settings</div>
-              </div>
-              <span class="material-symbols-rounded text-3" style="font-size:18px">{showEnableUm ? 'expand_less' : 'expand_more'}</span>
-            </button>
-
-            {#if showEnableUm}
-              <div class="section-body" style="padding:0 16px 16px" transition:slide={{ duration: 160 }}>
-                <p class="um-section-label" style="margin-bottom:8px">Create admin account</p>
-                <div class="um-add-form">
-                  <div class="um-form-row">
-                    <input class="input" type="text" bind:value={enableAdminUser} placeholder="Username *" autocomplete="username" />
-                    <input class="input" type="text" bind:value={enableAdminName} placeholder="Full name (optional)" />
-                  </div>
-                  <div class="um-form-row">
-                    <div style="display:flex;gap:4px;align-items:center;flex:1">
-                      {#if enableShowPass}
-                        <input class="input" style="flex:1" type="text" bind:value={enableAdminPass} placeholder="Password *" autocomplete="new-password" />
-                      {:else}
-                        <input class="input" style="flex:1" type="password" bind:value={enableAdminPass} placeholder="Password *" autocomplete="new-password" />
-                      {/if}
-                      <button class="btn-icon" on:click={() => enableShowPass = !enableShowPass} style="flex-shrink:0">
-                        <span class="material-symbols-rounded" style="font-size:18px">{enableShowPass ? 'visibility_off' : 'visibility'}</span>
-                      </button>
-                    </div>
-                    {#if enableShowPass}
-                      <input class="input" type="text" bind:value={enableAdminConf} placeholder="Confirm *" autocomplete="new-password" />
-                    {:else}
-                      <input class="input" type="password" bind:value={enableAdminConf} placeholder="Confirm *" autocomplete="new-password" />
-                    {/if}
-                  </div>
-                  {#if enableUmError}<p class="um-error">{enableUmError}</p>{/if}
-                  <button class="btn btn-primary" style="width:100%" on:click={enableUserManagement} disabled={enableUmLoading}>
-                    {enableUmLoading ? 'Enabling...' : 'Enable & Create Admin'}
-                  </button>
-                </div>
-              </div>
-            {/if}
-          {/if}
-        </div>
-      </div>
+      <SettingsUserManagement bind:this={userMgmtRef} />
     {/if}
     {/if}
 
@@ -3088,205 +2087,7 @@
       <span class="material-symbols-rounded chevron" class:rotated={openSections.backup}>expand_more</span>
     </button>
     {#if sectionOpen(openSections, settingsQuery, 'backup') && sectionVisible(settingsQuery, 'backup')}
-      <div class="section-body" transition:slide={{ duration: 180 }}>
-
-        <!-- Full backup (admin only, server mode only — files stored on server) -->
-        {#if $currentUser?.role === 'admin' && !isNativeLocal}
-        <p class="sub-label">Full Backup</p>
-        <div class="card settings-card">
-          <div style="padding:12px 16px 4px">
-            <p class="setting-desc" style="margin:0 0 12px">A complete snapshot of everything — all user data, diary, foods, meals, recipes, settings, and uploaded images. Saved on the server and available to download or restore at any time.</p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-              <button class="btn btn-primary" style="height:36px;font-size:13px"
-                on:click={createFullBackup} disabled={fullBackupBusy}>
-                {#if fullBackupBusy}
-                  <span class="material-symbols-rounded spin" style="font-size:16px">autorenew</span> Working…
-                {:else}
-                  <span class="material-symbols-rounded" style="font-size:16px">add_circle</span> Create Backup
-                {/if}
-              </button>
-              <button class="btn btn-secondary" style="height:36px;font-size:13px"
-                on:click={pickUploadRestore} disabled={fullBackupBusy}>
-                <span class="material-symbols-rounded" style="font-size:16px">upload</span> Upload &amp; Restore
-              </button>
-            </div>
-            {#if restoreStatus}
-              <div class="restore-progress" bind:this={restoreProgressEl}>
-                <div class="restore-progress-label">
-                  <span class="material-symbols-rounded spin" style="font-size:15px;flex-shrink:0">autorenew</span>
-                  {restoreStatus.label}
-                </div>
-                <div class="restore-progress-track">
-                  <div class="restore-progress-fill" style="width:{restoreStatus.percent}%"></div>
-                </div>
-              </div>
-            {/if}
-          </div>
-
-          {#if fullBackups.length > 0}
-            <div class="setting-divider"></div>
-            <!-- Table header -->
-            <div class="backup-table-header">
-              <span>Name</span>
-              <span>Created</span>
-              <span>Size</span>
-              <span></span>
-            </div>
-            <div class="setting-divider"></div>
-            {#each fullBackups as bk, i}
-              {#if i > 0}<div class="setting-divider"></div>{/if}
-              <div class="backup-row">
-                <span class="backup-name">{bk.filename}</span>
-                <span class="backup-col-date">{new Date(bk.createdAt).toLocaleDateString()}</span>
-                <span class="backup-col-size">{fmtBytes(bk.size)}</span>
-                <div class="backup-actions">
-                  <button class="btn btn-secondary backup-action-btn"
-                    on:click={() => downloadFullBackup(bk.filename)}>
-                    <span class="material-symbols-rounded" style="font-size:15px">download</span> Download
-                  </button>
-                  <button class="btn btn-secondary backup-action-btn"
-                    on:click={() => { restoreTarget = bk.filename; showRestoreDialog = true; }} disabled={fullBackupBusy}>
-                    <span class="material-symbols-rounded" style="font-size:15px">restore</span> Restore
-                  </button>
-                  <button class="btn-icon" style="color:var(--danger);padding:0 4px"
-                    on:click={() => { deleteTarget = bk.filename; showDeleteBkDialog = true; }} title="Delete backup">
-                    <span class="material-symbols-rounded" style="font-size:20px">delete</span>
-                  </button>
-                </div>
-              </div>
-            {/each}
-          {:else}
-            <div class="setting-divider"></div>
-            <p style="padding:12px 16px;font-size:13px;color:var(--text-3);margin:0">No backups yet — click Create Backup to get started.</p>
-          {/if}
-        </div>
-        {/if}
-
-        {#if isNativeLocal}
-        <p class="sub-label">Full Backup</p>
-        <div class="card settings-card">
-          <div style="padding:12px 16px 4px">
-            <p class="setting-desc" style="margin:0 0 12px">A complete snapshot of everything — all foods, meals, recipes, diary, wellness data, workouts, settings, AND embedded image files. Saved to your device's Documents folder, ready for phone-to-phone transfer without needing a server.</p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-              <button class="btn btn-primary" style="height:36px;font-size:13px"
-                on:click={exportLocalZip} disabled={localZipBusy}>
-                {#if localZipBusy}
-                  <span class="material-symbols-rounded spin" style="font-size:16px">autorenew</span> Working…
-                {:else}
-                  <span class="material-symbols-rounded" style="font-size:16px">add_circle</span> Create Backup
-                {/if}
-              </button>
-              <button class="btn btn-secondary" style="height:36px;font-size:13px"
-                on:click={importLocalZip} disabled={localZipBusy}>
-                <span class="material-symbols-rounded" style="font-size:16px">upload</span> Upload &amp; Restore
-              </button>
-            </div>
-            {#if localZipStatus}
-              <div class="restore-progress">
-                <div class="restore-progress-label">
-                  <span class="material-symbols-rounded spin" style="font-size:15px;flex-shrink:0">autorenew</span>
-                  {localZipStatus}
-                </div>
-              </div>
-            {/if}
-          </div>
-
-          {#if localBackups.length > 0}
-            <div class="setting-divider"></div>
-            <div class="backup-table-header">
-              <span>Name</span>
-              <span>Created</span>
-              <span>Size</span>
-              <span></span>
-            </div>
-            <div class="setting-divider"></div>
-            {#each localBackups as bk, i}
-              {#if i > 0}<div class="setting-divider"></div>{/if}
-              <div class="backup-row">
-                <span class="backup-name">{bk.filename}</span>
-                <span class="backup-col-date">{new Date(bk.createdAt).toLocaleDateString()}</span>
-                <span class="backup-col-size">{fmtBytes(bk.size)}</span>
-                <div class="backup-actions">
-                  <button class="btn btn-secondary backup-action-btn"
-                    on:click={() => shareLocalBackup(bk.filename)}>
-                    <span class="material-symbols-rounded" style="font-size:15px">share</span> Share
-                  </button>
-                  <button class="btn btn-secondary backup-action-btn"
-                    on:click={() => restoreLocalBackup(bk.filename)} disabled={localZipBusy}>
-                    <span class="material-symbols-rounded" style="font-size:15px">restore</span> Restore
-                  </button>
-                  <button class="btn-icon" style="color:var(--danger);padding:0 4px"
-                    on:click={() => deleteLocalBackup(bk.filename)} title="Delete backup">
-                    <span class="material-symbols-rounded" style="font-size:20px">delete</span>
-                  </button>
-                </div>
-              </div>
-            {/each}
-          {:else}
-            <div class="setting-divider"></div>
-            <p style="padding:12px 16px;font-size:13px;color:var(--text-3);margin:0">No backups yet — tap Create Backup to get started.</p>
-          {/if}
-        </div>
-        {/if}
-
-        <!-- Portable JSON export/import (legacy) -->
-        <p class="sub-label">Portable JSON Export</p>
-        <div class="card settings-card">
-          <button class="setting-row setting-action" on:click={exportBackup}>
-            <span class="material-symbols-rounded si" style="color:var(--accent)">download</span>
-            <div>
-              <span class="setting-label">Export JSON</span>
-              <div class="setting-desc">Lighter format — JSON only, no images. Useful for sharing data between accounts or quick text-based exports.</div>
-            </div>
-            <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
-          </button>
-          <div class="setting-divider"></div>
-          <button class="setting-row setting-action" on:click={importBackup}>
-            <span class="material-symbols-rounded si" style="color:var(--accent)">upload</span>
-            <div>
-              <span class="setting-label">Import JSON</span>
-              <div class="setting-desc">Restores from a previously exported JSON file. Merges with existing data — does not erase what's already here.</div>
-            </div>
-            <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
-          </button>
-        </div>
-
-        <!-- Other tools -->
-        <p class="sub-label">Other</p>
-        <div class="card settings-card">
-          <button class="setting-row setting-action" on:click={exportCSV}>
-            <span class="material-symbols-rounded si" style="color:var(--info)">table_chart</span>
-            <div>
-              <span class="setting-label">Export diary as CSV</span>
-              <div class="setting-desc">Downloads your full diary history as a spreadsheet. Useful for analysis in Excel or Google Sheets.</div>
-            </div>
-            <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
-          </button>
-        </div>
-
-        <!-- Danger zone -->
-        <p class="sub-label danger-zone-label">Danger Zone</p>
-        <div class="card settings-card danger-zone-card">
-          <button class="setting-row setting-action danger" on:click={() => showClearDialog = true}>
-            <span class="material-symbols-rounded si" style="color:var(--danger)">delete_forever</span>
-            <div>
-              <span class="setting-label" style="color:var(--danger)">Clear all data</span>
-              <div class="setting-desc">Permanently deletes all diary entries, foods, meals, and body stats. Settings and credentials are kept.</div>
-            </div>
-            <span class="material-symbols-rounded" style="font-size:18px;color:var(--danger);flex-shrink:0">chevron_right</span>
-          </button>
-          <div class="setting-divider"></div>
-          <button class="setting-row setting-action danger" on:click={() => showClearSettingsDialog = true}>
-            <span class="material-symbols-rounded si" style="color:var(--danger)">manage_history</span>
-            <div>
-              <span class="setting-label" style="color:var(--danger)">Clear all settings</span>
-              <div class="setting-desc">Resets all preferences, credentials, and API keys to defaults. Food and diary data are kept.</div>
-            </div>
-            <span class="material-symbols-rounded" style="font-size:18px;color:var(--danger);flex-shrink:0">chevron_right</span>
-          </button>
-        </div>
-
-      </div>
+      <SettingsBackup bind:this={backupRef} />
     {/if}
 
     <!-- ── Server Connection (native app only, after Backup) ────────────── -->
@@ -3359,6 +2160,53 @@
     {/if}
     {/if}
 
+    <!-- Diagnostics -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'helpImprove')} on:click={() => toggleSection('helpImprove')}>
+      <span class="material-symbols-rounded si">troubleshoot</span>
+      <span>Diagnostics</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.helpImprove}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'helpImprove') && sectionVisible(settingsQuery, 'helpImprove')}
+      <div class="section-body" transition:slide={{ duration: 180 }}>
+        <div class="card settings-card">
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Verbose diagnostic logging</span>
+              <div class="setting-desc">Enables detailed app-internal logs (sync, settings, notifications, Health Connect). Off by default — turn on while reproducing a bug, then export below.</div>
+            </div>
+            <Toggle checked={_verboseLogging} on:change={e => _toggleVerbose(e.detail)} />
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+            <span class="setting-label">View diagnostic logs</span>
+            <p class="setting-desc" style="line-height:1.5">
+              Last 500 lines from the app's console. Useful for bug reports — copy and paste into a <a href="https://github.com/traceapps/nutritrace/issues" target="_blank" rel="noopener" class="about-link">GitHub issue</a>. The buffer holds in-memory only; nothing is sent anywhere automatically.
+            </p>
+            <button class="btn btn-secondary" style="height:40px;font-size:13px" on:click={_openLogsSheet}>
+              <span class="material-symbols-rounded" style="font-size:16px">terminal</span>
+              View logs
+            </button>
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+            <span class="setting-label">Calibration export</span>
+            <p class="setting-desc" style="line-height:1.5">
+              Anonymized 30-day JSON of your wellness data (HRV, RHR, sleep, calculated Trace scores). Useful for tracking how Trace scores compare to your device's own scores over time, or for attaching to a wellness-related bug report. Held in-memory until you copy it — nothing is sent anywhere automatically. Review the JSON before sharing.
+            </p>
+            <div class="form-group" style="width:100%;padding:0">
+              <label class="form-label" for="calib-device">Your device (optional, free text)</label>
+              <input id="calib-device" class="input" placeholder="e.g. Pixel Watch 4, Fitbit Charge 6, Sense 2"
+                bind:value={_calibDeviceLabel} />
+            </div>
+            <button class="btn btn-primary" style="height:40px;font-size:13px" on:click={() => { _generateCalibExport(); _calibExportSheet = true; }}>
+              <span class="material-symbols-rounded" style="font-size:16px">data_object</span>
+              Generate calibration export
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <!-- About -->
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'about')} on:click={() => toggleSection('about')}>
       <span class="material-symbols-rounded si">info</span>
@@ -3408,21 +2256,16 @@
             <span>Server: <a href="https://github.com/traceapps/nutritrace" target="_blank" rel="noopener" class="about-link">Open source</a> (AGPL-3.0)</span>
           </div>
           <div class="setting-divider"></div>
-          <div class="about-row">
-            <span class="material-symbols-rounded about-feat-icon">favorite</span>
-            <span>Inspired by <a href="https://github.com/davidhealey/waistline" target="_blank" rel="noopener" class="about-link">Waistline</a> and <a href="https://github.com/CodeWithCJ/SparkyFitness" target="_blank" rel="noopener" class="about-link">SparkyFitness</a></span>
-          </div>
-          <div class="setting-divider"></div>
           <div class="about-row" style="flex-direction:column;align-items:flex-start;gap:8px">
             <div style="display:flex;align-items:center;gap:8px">
               <span class="material-symbols-rounded about-feat-icon">volunteer_activism</span>
               <span>Support development</span>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;padding-left:30px">
-              <a href="https://github.com/sponsors/YOUR_GITHUB_USERNAME" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
+              <a href="https://github.com/sponsors/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
                 <span class="material-symbols-rounded" style="font-size:14px">favorite</span> GitHub Sponsors
               </a>
-              <a href="https://ko-fi.com/YOUR_KOFI_USERNAME" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
+              <a href="https://ko-fi.com/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
                 <span class="material-symbols-rounded" style="font-size:14px">coffee</span> Ko-fi
               </a>
             </div>
@@ -3488,59 +2331,6 @@
   </div>
 {/if}
 
-<Dialog bind:open={showClearDialog}
-  title="Clear all data"
-  message="This will permanently delete all diary entries, foods, meals, and body stats. Settings and credentials are kept. This cannot be undone."
-  confirmText="Delete all data"
-  cancelText="Cancel"
-  dangerous
-  on:confirm={clearAllData}
-/>
-
-<Dialog bind:open={showClearSettingsDialog}
-  title="Clear all settings"
-  message="This will reset all preferences, credentials, and API keys to defaults. Food and diary data are kept. This cannot be undone."
-  confirmText="Clear all settings"
-  cancelText="Cancel"
-  dangerous
-  on:confirm={clearAllSettings}
-/>
-
-<Dialog bind:open={showRestoreDialog}
-  title="Restore backup?"
-  message="This will replace all current data with the contents of this backup. This cannot be undone."
-  confirmText="Restore"
-  cancelText="Cancel"
-  dangerous
-  on:confirm={confirmRestoreFullBackup}
-/>
-
-<Dialog bind:open={showUploadRestoreDialog}
-  title="Restore from uploaded file?"
-  message="This will replace all current data with the contents of the uploaded backup. This cannot be undone."
-  confirmText="Restore"
-  cancelText="Cancel"
-  dangerous
-  on:confirm={confirmUploadRestore}
-/>
-
-<Dialog bind:open={showDeleteBkDialog}
-  title="Delete backup?"
-  message="This backup file will be permanently removed from the server."
-  confirmText="Delete"
-  cancelText="Cancel"
-  dangerous
-  on:confirm={confirmDeleteFullBackup}
-/>
-
-<Dialog bind:open={showDisableUmDialog}
-  title="Disable user management"
-  message="This will remove all user accounts and their data cannot be recovered. The app will return to single-user mode."
-  confirmText="Disable & delete all users"
-  cancelText="Cancel"
-  dangerous
-  on:confirm={disableUserManagement}
-/>
 
 <!-- Custom color picker sheet -->
 <Sheet bind:open={showColorSheet} title="Custom Color">
@@ -3631,6 +2421,50 @@
       </div>
     </div>
     <button class="btn btn-primary w-full" on:click={addCustomNutrient}>Add Nutrient</button>
+  </div>
+</Sheet>
+
+<!-- Diagnostic logs viewer -->
+<Sheet bind:open={_logsSheet} title="Diagnostic Logs">
+  <div style="padding:0 4px 8px">
+    <p class="setting-desc" style="line-height:1.5;margin-bottom:10px">
+      Last 500 lines captured. Copy and paste into a bug report. <strong>Redact</strong> any HRV / RHR / weight / calorie values before posting publicly — they're personal health data.
+    </p>
+    <textarea readonly style="width:100%;height:280px;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm,6px);background:var(--surface-2);color:var(--text-1);resize:vertical;white-space:pre">{_logsText}</textarea>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn btn-primary" style="flex:1;height:40px;font-size:13px" on:click={_copyLogs}>
+        {#if _logsCopied}
+          <span class="material-symbols-rounded" style="font-size:16px">check</span> Copied
+        {:else}
+          <span class="material-symbols-rounded" style="font-size:16px">content_copy</span> Copy
+        {/if}
+      </button>
+      <button class="btn btn-secondary" style="flex:1;height:40px;font-size:13px" on:click={_shareLogs}>
+        <span class="material-symbols-rounded" style="font-size:16px">share</span> Share
+      </button>
+      <button class="btn btn-secondary" style="flex:1;height:40px;font-size:13px" on:click={_clearLogs}>
+        <span class="material-symbols-rounded" style="font-size:16px">delete</span> Clear
+      </button>
+    </div>
+  </div>
+</Sheet>
+
+<!-- Calibration export preview -->
+<Sheet bind:open={_calibExportSheet} title="Calibration Export — Review">
+  <div style="padding:0 4px 8px">
+    <p class="setting-desc" style="line-height:1.5;margin-bottom:10px">
+      {_calibExportCount} day{_calibExportCount === 1 ? '' : 's'} of data, anonymized. Review the JSON below before sharing — nothing is uploaded automatically.
+    </p>
+    <textarea readonly style="width:100%;height:240px;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm,6px);background:var(--surface-2);color:var(--text-1);resize:vertical">{_calibExportJson}</textarea>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn btn-primary" style="flex:1;height:40px;font-size:13px" on:click={_copyCalibExport}>
+        {#if _calibCopied}
+          <span class="material-symbols-rounded" style="font-size:16px">check</span> Copied
+        {:else}
+          <span class="material-symbols-rounded" style="font-size:16px">content_copy</span> Copy JSON
+        {/if}
+      </button>
+    </div>
   </div>
 </Sheet>
 
@@ -3966,6 +2800,32 @@
     border-radius: 99px;
     margin-left: 6px;
     vertical-align: middle;
+  }
+  .seg-control {
+    display: flex;
+    background: var(--surface-2);
+    border-radius: var(--radius-full);
+    padding: 3px;
+    gap: 2px;
+  }
+  .seg-opt {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-3);
+    background: none;
+    border: none;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+    transition: background var(--dur-fast), color var(--dur-fast);
+  }
+  .seg-opt.seg-active {
+    background: var(--surface-1);
+    color: var(--text-1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
   }
   .about-hero {
     display: flex; align-items: center; gap: 16px; padding: 16px;
