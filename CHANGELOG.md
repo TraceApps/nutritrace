@@ -261,11 +261,8 @@ This brings the audit punch list to **complete** except for two intentionally-de
 
 ### Changed
 - **Docker image canonical path is now `ghcr.io/traceapps/nutritrace`** — `docker-compose.yml`, `README.md`, and `DEPLOY.md` all reference the new path.
-- **CI dual-publishes for one transition window** — `.github/workflows/docker.yml` pushes to BOTH `ghcr.io/traceapps/nutritrace` and `ghcr.io/traceapps/nutritrace` so existing users on the old path keep getting updates. The old path will be dropped after v1.0 once docs are widely propagated.
-- **FUTURE.md repo-split notes updated** to reflect actual current structure (`traceapps/nutritrace-dev` private monorepo, `traceapps/nutritrace` public-on-1.0, `traceapps/nutritrace-android` standalone).
-
-### Migration for self-hosters on the old image path
-No action required. Both `ghcr.io/traceapps/nutritrace:latest` and `ghcr.io/traceapps/nutritrace:latest` will keep getting builds for at least the next few releases. When you next update your `docker-compose.yml`, switch the image path to `ghcr.io/traceapps/nutritrace:latest`.
+- **CI publishes Docker image** to `ghcr.io/traceapps/nutritrace` on push to `main`.
+- **FUTURE.md repo-split notes updated** to reflect actual current structure (`traceapps/nutritrace-dev` private monorepo, `traceapps/nutritrace` public-on-1.0).
 
 ---
 
@@ -305,8 +302,6 @@ No action required. Both `ghcr.io/traceapps/nutritrace:latest` and `ghcr.io/trac
 
 ### Changed
 - **Console log noise cut** — `src/lib/sync.js`, `src/lib/notifications.js`, `src/lib/health-connect.js`, `src/stores/settings.js` — verbose `console.log` calls now gated on `import.meta.env.DEV`. Wellness readiness/stress debug calibration logs untouched (intentional).
-- **Sponsor button URLs fixed** — were placeholder `YOUR_GITHUB_USERNAME` / `YOUR_KOFI_USERNAME`; now `sponsors/traceapps` and `ko-fi.com/thebigjoe1`.
-- **About panel + Smart Log README link** point at `traceapps/nutritrace` (was `thebigjoe1/nutritrace`).
 
 ### Performance
 - **Barcode scanner libs lazy-loaded** — zxing + html5-qrcode + quagga2 (~870 KB combined) were loaded on every page; now loaded on first scanner open and cached for subsequent opens. Removes ~870 KB from PWA cold-start payload.
@@ -1240,7 +1235,7 @@ Smart Log can now match against three new record types in addition to individual
 - **Drag-to-reorder** — meal names, visible nutrients, and body stats order all drag-reorderable in Settings
 - **Photo URL input** — add a photo to any food, meal, or recipe via a direct URL
 - **Waistline Android import** — import foods, diary entries, meals, recipes, and images from a Waistline backup
-- **GitHub Actions CI** — pushes to `main` automatically build and publish `ghcr.io/traceapps/nutritrace:latest`
+- **GitHub Actions CI** — pushes to `main` automatically build and publish to GitHub Container Registry
 - **Proportional nutrition scaling** — lock icon in FoodEditor scales all nutrients proportionally when serving size changes; real-time preview as you type
 
 ### Changed
