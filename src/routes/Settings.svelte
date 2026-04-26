@@ -2262,9 +2262,7 @@
               <span>Support development</span>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;padding-left:30px">
-              <a href="https://github.com/sponsors/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
-                <span class="material-symbols-rounded" style="font-size:14px">favorite</span> GitHub Sponsors
-              </a>
+              <!-- GitHub Sponsors button removed pending traceapps org Sponsors approval — re-add when live -->
               <a href="https://ko-fi.com/traceapps" target="_blank" rel="noopener" class="btn btn-secondary" style="height:30px;font-size:12px;padding:0 12px">
                 <span class="material-symbols-rounded" style="font-size:14px">coffee</span> Ko-fi
               </a>
