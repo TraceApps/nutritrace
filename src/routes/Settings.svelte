@@ -945,8 +945,11 @@
   async function _generateCalibExport() {
     try {
       // Pull last 30 days of Fitbit/Garmin data via the existing /data endpoint.
+      // Window is today-29 → today inclusive (30 days ending today). Previously
+      // used today-30 → today-1, which silently dropped today even though
+      // today's seeded actuals are typically what the user just paste-confirmed.
       const today = new Date();
-      const from  = new Date(today); from.setDate(from.getDate() - 30);
+      const from  = new Date(today); from.setDate(from.getDate() - 29);
       const fmt   = d => d.toLocaleDateString('sv-SE');
       const fromStr = fmt(from), toStr = fmt(today);
 

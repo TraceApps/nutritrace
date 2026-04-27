@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.3] — 2026-04-27 — Calibration export window includes today
+
+### Fixed
+- **Calibration export was dropping today's row.** The 30-day window in `_generateCalibExport()` ran from `today-30` to `today-1`, silently excluding today even though today's seeded `*_actual` scores are typically what the user just paste-confirmed via the dev console snippet. The data was being fetched (the API call's `to=` param uses today) but never iterated during day-row construction. Window shifted to `today-29` → `today` inclusive — same 30-day length, ends today instead of yesterday.
+
+---
+
 ## [1.0.0-rc.2] — 2026-04-27 — Sleep Debt reads the actual sleep goal
 
 ### Fixed
