@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.2] — 2026-04-27 — Sleep Debt reads the actual sleep goal
+
+### Fixed
+- **Sleep Debt card on Wellness page hardcoded 8h** when the user's sleep goal was stored under `.max` (the default — "Minimum goal" toggle off in the goal editor). Code only checked `.min`, fell back to 480 minutes. Fix: use the same `max ?? min ?? default` fallback chain used elsewhere in the codebase (Goals.svelte, calorie targets, etc.). Users with custom sleep goals now see debt computed against their actual target.
+
+---
+
 ## [1.0.0-rc.1] — 2026-04-26 — First public release candidate
 
 After many months of development as the v0.x-beta series, NutriTrace is going public for wider testing. This release candidate is a snapshot of the v0.39.x line that has been running stably in single-user and multi-user setups, with all major feature work complete. The full beta history is preserved below.

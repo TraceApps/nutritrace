@@ -585,8 +585,12 @@
       };
     });
 
-    // Sleep Debt — last sleepInsightsRange nights
-    const goalMin     = goals.get().sleep_duration_min?.min ?? 480;
+    // Sleep Debt — last sleepInsightsRange nights.
+    // Goal is stored under .max when "Minimum goal" toggle is off (the default),
+    // .min only when the user explicitly enabled "Minimum goal." Match the
+    // max ?? min ?? default pattern used elsewhere (Goals.svelte, calories etc.).
+    const _slpGoal    = goals.get().sleep_duration_min;
+    const goalMin     = _slpGoal?.max ?? _slpGoal?.min ?? 480;
     const debtNights  = merged.slice(-sleepInsightsRange);
     let   totalDebt   = 0, counted = 0;
     for (const n of debtNights) {
