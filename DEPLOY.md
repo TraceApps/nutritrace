@@ -153,6 +153,47 @@ Data is in bind-mounted volumes and persists across updates.
 
 ---
 
+## Docker Secrets
+
+The container supports Docker/Swarm-style `*_FILE` environment variables. For any server environment variable, you can provide a mounted file path instead of the raw value:
+
+- `JWT_SECRET_FILE=/run/secrets/nutritrace_jwt_secret`
+- `RECOVERY_TOKEN_FILE=/run/secrets/nutritrace_recovery_token`
+- `SMTP_PASS_FILE=/run/secrets/nutritrace_smtp_pass`
+- `AI_API_KEY_FILE=/run/secrets/nutritrace_ai_api_key`
+
+Rules:
+
+- Set either `NAME` or `NAME_FILE`, not both.
+- If `NAME_FILE` is set, the container reads that file at startup and exports `NAME` before Node starts.
+- If the file is missing or unreadable, the container exits immediately with a startup error.
+
+Example Compose snippet:
+
+```yaml
+services:
+  nutritrace:
+    image: ghcr.io/traceapps/nutritrace:latest
+    environment:
+      DB_PATH: /data/db/nutritrace.db
+      UPLOADS_PATH: /data/uploads
+      JWT_SECRET_FILE: /run/secrets/nutritrace_jwt_secret
+      SMTP_PASS_FILE: /run/secrets/nutritrace_smtp_pass
+    secrets:
+      - nutritrace_jwt_secret
+      - nutritrace_smtp_pass
+
+secrets:
+  nutritrace_jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  nutritrace_smtp_pass:
+    file: ./secrets/smtp_pass.txt
+```
+
+This works for any environment variable the server reads directly, including `TOKEN_ENC_KEY`, `SMTP_USER`, `AI_API_KEY`, and similar values.
+
+---
+
 ## Backup & Restore
 
 Full backups (database + uploaded images) can be created and restored from Settings → Backup & Restore. Backups are ZIP files that include all user data and can be used to migrate between servers.
