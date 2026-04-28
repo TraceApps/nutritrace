@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.4] — 2026-04-27 — Diary image freshening + migration UX
+
+### Fixed
+- **Stale diary images now self-heal.** Diary items snapshot every food field at log time, including `imgUrl`. If a food got an image AFTER a diary entry was logged with that food, the snapshot stayed empty forever (spread captured the empty value, snapshot semantics protected history). Cosmetic fields like images shouldn't be frozen the same way as name/macros, so a live-lookup pass now fills empty `imgUrl` from the foods table at read time. Applied at three layers so all surfaces inherit it: `GET /api/diary/*` (PWA users), `/api/sync/pull` (Android sync), and `dbGetDiaryDate` / `dbGetAllDiary` in `db-native.js` (Android local-SQLite reads). Wrapped in try/catch so a query error never breaks the calling endpoint. New shared helper at `server/lib/diary-helpers.js` to keep server code DRY.
+
+### Changed
+- **Connect-to-server migration flow now shows counts and surfaces errors.** When connecting from standalone mode with existing local data, the merge dialog now displays per-table counts (foods, meals, recipes, diary days, settings) so the user knows what's about to move. The upload pass collects per-table success counts and per-row errors instead of silently `.catch(() => {})`-ing them; a summary screen after the upload shows what landed and the first 5 error messages if anything failed. Progress bar replaces the vague spinner during upload. New `src/lib/migrate.js` shared helper. (Mirrors a recent LiftTrace improvement.)
+
+### Notes
+- New `Infrastructure → OIDC / SSO support` entry in `FUTURE.md` covering Authentik / Keycloak / Authelia / Pocket-ID integration as a tracked post-1.0 enhancement.
+
+---
+
 ## [1.0.0-rc.3] — 2026-04-27 — Calibration export window includes today
 
 ### Fixed
