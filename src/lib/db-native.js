@@ -417,6 +417,47 @@ function _parseMealRow(row) {
 
 // ── Diary ─────────────────────────────────────────────────────────────────
 
+// Mirror of server-side freshenItemImages (server/lib/diary-helpers.js).
+// Diary items snapshot imgUrl at log time; if a food got an image after the
+// diary entry was logged, the snapshot stays empty. Server-side endpoints
+// freshen on read; this is the local-SQLite equivalent for the Android app
+// in server-connected mode (where the diary data comes from the local cache,
+// bypassing the server-side freshening) and for standalone mode (where there
+// is no server). Looks up the food id captured in each item against the
+// local foods table and overrides empty imgUrl. Items with their own non-
+// empty imgUrl are untouched. Wrapped in try/catch so a query error never
+// breaks the calling read path.
+async function _freshenItemImages(items) {
+  if (!Array.isArray(items) || !items.length) return items;
+  try {
+    const ids = items
+      .filter(it => !it.imgUrl && typeof it.id === 'number')
+      .map(it => it.id);
+    if (!ids.length) return items;
+    const db = await getDb();
+    const placeholders = ids.map(() => '?').join(',');
+    const r = await db.query(
+      `SELECT id, img_url FROM foods WHERE id IN (${placeholders})`,
+      ids
+    );
+    const rows = _rows(r);
+    if (!rows.length) return items;
+    const imgMap = new Map();
+    for (const row of rows) {
+      if (row.img_url) imgMap.set(row.id, row.img_url);
+    }
+    if (!imgMap.size) return items;
+    return items.map(it => {
+      if (!it.imgUrl && typeof it.id === 'number' && imgMap.has(it.id)) {
+        return { ...it, imgUrl: imgMap.get(it.id) };
+      }
+      return it;
+    });
+  } catch {
+    return items;
+  }
+}
+
 export async function dbGetDiaryDate(date) {
   const db = await getDb();
   const r = await db.query(
@@ -425,9 +466,10 @@ export async function dbGetDiaryDate(date) {
   );
   const row = _row(r);
   if (!row) return null;
+  const items = await _freshenItemImages(_parseJson(row.items, []));
   return {
     ...row,
-    items:      _parseJson(row.items, []),
+    items,
     body_stats: _parseJson(row.body_stats, {}),
     water:      _parseJson(row.water, []),
     notes:      row.notes || '',
@@ -457,13 +499,17 @@ export async function dbGetAllDiary() {
     `SELECT * FROM diary WHERE user_id = ? ORDER BY date DESC`,
     [LOCAL_USER_ID]
   );
-  return _rows(r).map(row => ({
+  const rawRows = _rows(r);
+  // Freshen item images per-row in parallel. Each call is a single SELECT
+  // against the local foods table; in practice the rows for a typical user
+  // (≤90 days) finish in a few ms.
+  return Promise.all(rawRows.map(async row => ({
     ...row,
-    items:      _parseJson(row.items, []),
+    items:      await _freshenItemImages(_parseJson(row.items, [])),
     body_stats: _parseJson(row.body_stats, {}),
     water:      _parseJson(row.water, []),
     notes:      row.notes || '',
-  }));
+  })));
 }
 
 // ── Wellness data ─────────────────────────────────────────────────────────

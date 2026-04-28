@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
+import { freshenItemImages } from '../lib/diary-helpers.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -94,11 +95,19 @@ function fixCachedPaths(items) {
   return changed ? fixed : items;
 }
 
+// Fill missing/empty imgUrl values from current foods table state.
+// Reasoning: diary items snapshot all fields at log time including imgUrl. If a
+// food was logged before it had an image (and got an image later), the snapshot
+// stays at '' forever. For cosmetic fields like images this is the wrong default
+// (unlike name/macros, where snapshot semantics protect history). Look up by the
+// food id captured in the diary item and override empty imgUrl with the food's
+// current image. Items that already carry their own non-empty imgUrl are left
+// untouched. Single batch query, scales fine for typical diary days.
 function parse(row) {
   const items = JSON.parse(row.items || '[]');
   return {
     ...row,
-    items:      fixCachedPaths(items),
+    items:      freshenItemImages(fixCachedPaths(items)),
     body_stats: JSON.parse(row.body_stats || '{}'),
     water:      JSON.parse(row.water      || '[]'),
     notes:      row.notes || '',

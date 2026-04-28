@@ -72,10 +72,14 @@
   const isNativeLocal = isNative && !getServerUrl();
 
   // ── Server connect/merge flow ──────────────────────────────────────────────
-  let mergeStep = null;  // null | 'ask-settings' | 'syncing'
+  let mergeStep = null;  // null | 'ask-settings' | 'syncing' | 'summary'
   let mergeProgress = '';
+  let mergeProgressPct = 0;
+  let mergeStage = '';   // current stage label for progress bar
   let _pendingServerUrl = '';
   let _pendingToken = null; // cookie is set by login, but we keep the URL
+  let localCounts = null;   // { foods, meals, recipes, diary, settings, total } | null
+  let migrationSummary = null;  // { success, errors, totalSuccess, total } | null
 
   async function connectServer() {
     if (!serverUrlInput.trim()) { showError('Enter a server URL'); return; }
@@ -112,17 +116,11 @@
       _pendingServerUrl = url;
       if (loginData.token) setAuthToken(loginData.token);
 
-      // Check if there's local data to merge
-      const { dbGetAllDiary, dbGetFoods, dbGetMeals } = await import('../lib/db-native.js');
-      const [localFoods, localMeals, localDiary] = await Promise.all([
-        dbGetFoods().catch(() => []),
-        dbGetMeals().catch(() => []),
-        dbGetAllDiary().catch(() => []),
-      ]);
-      const hasLocalData = localFoods.length > 0 || localMeals.length > 0 || localDiary.length > 0;
+      // Count local data so the merge dialog can show what's about to move
+      const { countLocalData } = await import('../lib/migrate.js');
+      localCounts = await countLocalData();
 
-      if (hasLocalData) {
-        // Show merge dialog
+      if (localCounts.total > 0) {
         mergeStep = 'ask-settings';
       } else {
         // No local data — just connect directly
@@ -137,58 +135,47 @@
 
   async function _mergeAndConnect(mode) {
     mergeStep = 'syncing';
+    mergeProgress = '';
+    mergeProgressPct = 0;
+    mergeStage = '';
+    migrationSummary = null;
+
     const url = _pendingServerUrl;
     const token = getAuthToken();
-    const _authH = { 'Content-Type': 'application/json' };
-    if (token) _authH['Authorization'] = `Bearer ${token}`;
 
     try {
-      const { DB: _DB } = await import('../lib/db.js');
-      const { dbGetFoods, dbGetMeals, dbGetAllDiary } = await import('../lib/db-native.js');
-
       if (mode === 'upload' || mode === 'merge') {
-        // Push local settings to server
-        mergeProgress = 'Uploading settings…';
-        const allSettings = DB.getAllSettings();
-        for (const [key, value] of Object.entries(allSettings)) {
-          await fetch(`${url}/api/settings`, { method: 'PUT', headers: _authH, body: JSON.stringify({ key, value }) }).catch(() => {});
-        }
-
-        // Push local foods
-        const localFoods = await dbGetFoods().catch(() => []);
-        if (localFoods.length) {
-          mergeProgress = `Uploading ${localFoods.length} foods…`;
-          for (const food of localFoods) {
-            const { id, user_id, sync_status, server_id, created_at, updated_at, deleted_at, imgUrl, categories, ...rest } = food;
-            await fetch(`${url}/api/foods`, { method: 'POST', headers: _authH, body: JSON.stringify({ ...rest, img_url: imgUrl || null, category: categories?.[0] || null }) }).catch(() => {});
-          }
-        }
-
-        // Push local meals
-        const localMeals = await dbGetMeals().catch(() => []);
-        if (localMeals.length) {
-          mergeProgress = `Uploading ${localMeals.length} meals…`;
-          for (const meal of localMeals) {
-            const { id, user_id, sync_status, server_id, created_at, updated_at, deleted_at, imgUrl, ...rest } = meal;
-            await fetch(`${url}/api/meals`, { method: 'POST', headers: _authH, body: JSON.stringify({ ...rest, img_url: imgUrl || null }) }).catch(() => {});
-          }
-        }
-
-        // Push local diary
-        const localDiary = await dbGetAllDiary().catch(() => []);
-        if (localDiary.length) {
-          mergeProgress = `Uploading ${localDiary.length} diary entries…`;
-          for (const entry of localDiary) {
-            await fetch(`${url}/api/diary/${entry.date}`, { method: 'PUT', headers: _authH, body: JSON.stringify({ items: entry.items || [], body_stats: entry.body_stats || {}, water: entry.water || [] }) }).catch(() => {});
-          }
-        }
+        const { uploadLocalToServer } = await import('../lib/migrate.js');
+        const stageLabels = {
+          settings: 'settings',
+          foods:    'foods',
+          meals:    'meals',
+          recipes:  'recipes',
+          diary:    'diary entries',
+        };
+        migrationSummary = await uploadLocalToServer({
+          serverUrl: url,
+          authToken: token,
+          onProgress: (stage, current, total) => {
+            mergeStage = stageLabels[stage] || stage;
+            mergeProgress = `Uploading ${mergeStage} (${current + 1} / ${total})`;
+            mergeProgressPct = total > 0 ? Math.round(((current + 1) / total) * 100) : 0;
+          },
+        });
       }
 
-      // mode === 'download' or 'merge': server data will be pulled automatically on reload via loadServerSettings + NtApiCached
-      // mode === 'upload': server settings stay, local data pushed up
+      // mode === 'download' or 'merge': server data is pulled on reload via
+      // loadServerSettings + NtApiCached.
+      // mode === 'upload': server settings stay, local data pushed up.
 
-      mergeProgress = 'Finalizing…';
-      _finalizeConnect();
+      // If anything was uploaded, show the summary before finalizing so the
+      // user can see per-table results and any errors. Otherwise (download
+      // mode, or no errors and nothing to report) finalize directly.
+      if (migrationSummary && (migrationSummary.errors.length > 0 || migrationSummary.totalSuccess > 0)) {
+        mergeStep = 'summary';
+      } else {
+        _finalizeConnect();
+      }
     } catch (e) {
       mergeStep = null;
       showError('Sync failed: ' + (e.message || 'Unknown error'));
@@ -208,6 +195,8 @@
   function cancelMerge() {
     mergeStep = null;
     _pendingServerUrl = '';
+    localCounts = null;
+    migrationSummary = null;
   }
 
   function disconnectServer() {
@@ -2293,9 +2282,21 @@
   <div class="merge-overlay" use:portal transition:fade={{ duration: 150 }}>
     <div class="merge-dialog">
       <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">Sync Options</h3>
-      <p style="font-size:13px;color:var(--text-3);margin:0 0 16px;line-height:1.5">
+      <p style="font-size:13px;color:var(--text-3);margin:0 0 12px;line-height:1.5">
         You have data on this phone. How should it be handled when connecting?
       </p>
+      {#if localCounts && localCounts.total > 0}
+        <div class="merge-counts" style="margin:0 0 16px">
+          <div class="merge-counts-title">On this phone:</div>
+          <div class="merge-counts-grid">
+            {#if localCounts.foods    > 0}<div><strong>{localCounts.foods}</strong> {localCounts.foods === 1 ? 'food' : 'foods'}</div>{/if}
+            {#if localCounts.meals    > 0}<div><strong>{localCounts.meals}</strong> {localCounts.meals === 1 ? 'meal' : 'meals'}</div>{/if}
+            {#if localCounts.recipes  > 0}<div><strong>{localCounts.recipes}</strong> {localCounts.recipes === 1 ? 'recipe' : 'recipes'}</div>{/if}
+            {#if localCounts.diary    > 0}<div><strong>{localCounts.diary}</strong> diary {localCounts.diary === 1 ? 'day' : 'days'}</div>{/if}
+            {#if localCounts.settings > 0}<div><strong>{localCounts.settings}</strong> settings</div>{/if}
+          </div>
+        </div>
+      {/if}
       <div style="display:flex;flex-direction:column;gap:8px">
         <button class="merge-option" on:click={() => _mergeAndConnect('upload')}>
           <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">cloud_upload</span>
@@ -2327,7 +2328,47 @@
     <div class="merge-dialog" style="text-align:center">
       <span class="material-symbols-rounded" style="font-size:36px;color:var(--accent);animation:spin 1.2s linear infinite">sync</span>
       <p style="font-size:15px;color:var(--text-1);margin:12px 0 4px;font-weight:600">Syncing…</p>
-      <p style="font-size:13px;color:var(--text-3);margin:0">{mergeProgress}</p>
+      <p style="font-size:13px;color:var(--text-3);margin:0">{mergeProgress || 'Preparing…'}</p>
+      {#if mergeProgressPct > 0}
+        <div class="merge-progress-bar" style="margin-top:14px">
+          <div class="merge-progress-fill" style="width:{mergeProgressPct}%"></div>
+        </div>
+      {/if}
+    </div>
+  </div>
+{:else if mergeStep === 'summary' && migrationSummary}
+  <div class="merge-overlay" use:portal transition:fade={{ duration: 150 }}>
+    <div class="merge-dialog">
+      <h3 style="margin:0 0 6px;font-size:18px;color:var(--text-1)">
+        {migrationSummary.errors.length === 0 ? 'Upload complete' : 'Upload finished with issues'}
+      </h3>
+      <p style="font-size:13px;color:var(--text-3);margin:0 0 14px;line-height:1.5">
+        {migrationSummary.totalSuccess} of {migrationSummary.total} {migrationSummary.total === 1 ? 'item' : 'items'} uploaded successfully.
+      </p>
+      <div class="merge-counts" style="margin:0 0 14px">
+        <div class="merge-counts-title">Uploaded to server:</div>
+        <div class="merge-counts-grid">
+          {#if migrationSummary.success.foods    > 0}<div><strong>{migrationSummary.success.foods}</strong> {migrationSummary.success.foods === 1 ? 'food' : 'foods'}</div>{/if}
+          {#if migrationSummary.success.meals    > 0}<div><strong>{migrationSummary.success.meals}</strong> {migrationSummary.success.meals === 1 ? 'meal' : 'meals'}</div>{/if}
+          {#if migrationSummary.success.recipes  > 0}<div><strong>{migrationSummary.success.recipes}</strong> {migrationSummary.success.recipes === 1 ? 'recipe' : 'recipes'}</div>{/if}
+          {#if migrationSummary.success.diary    > 0}<div><strong>{migrationSummary.success.diary}</strong> diary {migrationSummary.success.diary === 1 ? 'day' : 'days'}</div>{/if}
+          {#if migrationSummary.success.settings > 0}<div><strong>{migrationSummary.success.settings}</strong> settings</div>{/if}
+        </div>
+      </div>
+      {#if migrationSummary.errors.length > 0}
+        <div style="margin:0 0 14px">
+          <div class="merge-counts-title" style="color:var(--danger,#e57373)">
+            {migrationSummary.errors.length} {migrationSummary.errors.length === 1 ? 'error' : 'errors'}
+            {#if migrationSummary.errors.length > 5}(showing first 5){/if}
+          </div>
+          <ul style="font-size:12px;color:var(--text-3);padding-left:18px;margin:6px 0 0;line-height:1.5">
+            {#each migrationSummary.errors.slice(0, 5) as err}
+              <li><strong>{err.stage}</strong> · {err.name}: {err.message}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+      <button class="btn btn-primary w-full" on:click={_finalizeConnect}>Continue</button>
     </div>
   </div>
 {/if}
@@ -2917,5 +2958,38 @@
   .merge-option:hover { border-color: var(--accent); }
   .merge-option-title { font-size: 14px; font-weight: 600; color: var(--text-1); margin-bottom: 2px; }
   .merge-option-desc { font-size: 12px; color: var(--text-3); line-height: 1.4; }
+  .merge-counts {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+  }
+  .merge-counts-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    margin-bottom: 6px;
+  }
+  .merge-counts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 4px 12px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .merge-counts-grid strong { color: var(--text-1); font-weight: 600; }
+  .merge-progress-bar {
+    height: 6px;
+    background: var(--surface-2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .merge-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s ease;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>

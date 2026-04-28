@@ -20,6 +20,8 @@ router.use(requireAuth);
 
 const uid = req => userMgmtActive() ? req.user?.id : null;
 
+import { freshenItemImages } from '../lib/diary-helpers.js';
+
 function parse(row) {
   if (!row) return null;
   for (const key of ['nutrition', 'items', 'body_stats', 'water', 'metadata']) {
@@ -28,6 +30,17 @@ function parse(row) {
     }
   }
   return row;
+}
+
+// Freshen diary item images at sync time so native clients get current images
+// for items logged before their food had an image. Mirrors the behavior of
+// /api/diary/* GET endpoints (see routes/diary.js).
+function parseDiary(row) {
+  const parsed = parse(row);
+  if (parsed && Array.isArray(parsed.items)) {
+    parsed.items = freshenItemImages(parsed.items);
+  }
+  return parsed;
 }
 
 // ── GET /pull?since=<timestamp> ──────────────────────────────────────────────
@@ -54,7 +67,7 @@ router.get('/pull', wrap((req, res) => {
 
   const diary = db.prepare(
     `SELECT * FROM diary WHERE updated_at > ? ${userFilter} ORDER BY updated_at`
-  ).all(...params).map(parse);
+  ).all(...params).map(parseDiary);
 
   const settings = u != null
     ? db.prepare('SELECT * FROM user_settings WHERE updated_at > ? AND user_id = ? ORDER BY updated_at').all(sinceSql, u)
