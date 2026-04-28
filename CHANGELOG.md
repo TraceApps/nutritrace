@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.5] — 2026-04-28 — Post-launch fixes + Docker secrets
+
+### Added
+- **Sodium ↔ salt auto-derivation across the food editor and imports.** The food editor auto-fills the missing field via the regulatory factor (sodium_mg = salt_g × 400) when only one is entered, and shows a calculator icon next to the derived field so the value's origin stays visible. The same derivation runs at the data-source layer for OFF, USDA, and Mealie imports — products that ship only one of (sodium, salt) come in with both populated and the `_derived` flag set. A one-time idempotent backfill at server startup fills the missing field on existing foods + meals, and an equivalent backfill runs at native-SQLite init on Android so phones with cached pre-derivation rows self-heal too.
+- **Docker / Swarm secret file support.** New `server/docker-entrypoint.sh` reads any `*_FILE` env var at container startup, loads the referenced file, and exports the value as the corresponding env var before Node starts. Covers `JWT_SECRET_FILE`, `RECOVERY_TOKEN_FILE`, `SMTP_PASS_FILE`, `AI_API_KEY_FILE`, and any other server env var. Errors loudly if both `NAME` and `NAME_FILE` are set or if the file is unreadable. Documented in `DEPLOY.md` with a working compose snippet. Thanks to @clifmo for the contribution (#2).
+
+### Fixed
+- **Disconnect from server now fully clears cached auth state.** Disconnecting was leaving `wl:userId`, `nt:cachedUser`, `nt:cachedUserMgmt`, and `nt:csrf` behind in localStorage, so the app continued to think the user was signed in (showing only Logout instead of Connect/Login). `disconnectServer` now wipes the cached auth keys and resets the `currentUser` and `userMgmtActive` stores.
+- **Logout actually invalidates the server session.** The previous logout flow only cleared client state, leaving the JWT cookie valid; the next page load would silently re-authenticate. Logout now calls `auth.js logout()` which posts `/api/auth/logout` to invalidate the session server-side. `_refreshAuthFromServer` also treats a 401 from `/api/auth/me` as logged-out (clearing local state) instead of "server error, keep cached", so the Login route appears as expected.
+- **Settings restore after re-login.** After a logout + re-login on the same device, settings like Trace FAB visibility and the Wellness section toggle weren't reapplying even though the server returned them. Per-user-scoped localStorage keys (`wl_u<id>_<key>`) survive logout, so `DB.setSetting` was early-exiting on unchanged JSON values and never dispatching the `wl:setting` event the stores listen for. Added a `force=true` flag to `setSetting` and routed `loadServerSettings` through it after re-login.
+
+### Notes
+- New `Internationalization (i18n)` section in `FUTURE.md` covering svelte-i18n + Weblate as the planned translation contribution path. Tracked as v1.1 / v1.2 work.
+
+---
+
 ## [1.0.0-rc.4] — 2026-04-27 — Diary image freshening + migration UX
 
 ### Fixed

@@ -7,6 +7,7 @@
  */
 import { DB } from './db.js';
 import { apiUrl, isNative, getServerUrl, getAuthToken } from './platform.js';
+import { Nutrition } from './nutrition.js';
 
 function _cfg() {
   const baseUrl = (DB.getSetting('mealieBaseUrl', '') || '').replace(/\/$/, '');
@@ -104,7 +105,7 @@ const Mealie = {
       categories: [],
       _source:   'mealie',
       _mealieSlug: recipe.slug,
-      nutrition: {
+      nutrition: Nutrition.deriveSodiumSalt({
         calories:        pf(n.calories),
         proteins:        pf(n.proteinContent),
         carbohydrates:   pf(n.carbohydrateContent),
@@ -115,7 +116,7 @@ const Mealie = {
         sodium:          pf(n.sodiumContent),
         cholesterol:     pf(n.cholesterolContent),
         'trans-fat':     pf(n.transFatContent),
-      },
+      }),
     };
   },
 };

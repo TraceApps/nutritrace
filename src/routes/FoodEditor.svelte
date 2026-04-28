@@ -153,7 +153,13 @@
     sodium: '', cholesterol: '', potassium: '', caffeine: '', alcohol: '',
     calcium: '', iron: '', magnesium: '', zinc: '', phosphorus: '',
     'vitamin-c': '', 'vitamin-a': '', 'vitamin-d': '', 'vitamin-e': '', 'vitamin-k': '',
-    b1: '', b2: '', b3: '', b6: '', b9: '', b12: ''
+    b1: '', b2: '', b3: '', b6: '', b9: '', b12: '',
+    // _derived: { sodium?: true, salt?: true } — set when sodium/salt was
+    // auto-calculated from the other field via the regulatory factor (× 2.5
+    // / × 0.4). Cleared when the user manually edits the field. Persisted
+    // in nutrition._derived on the saved food so the calculator icon
+    // survives reloads.
+    _derived: {},
   };
   let store = 'foodList';
   let saving = false;
@@ -259,7 +265,37 @@
   }
 
   function onPortionInput() { scheduleScale('__portion__', () => parseFloat(food.portion) || 0); }
-  function onNutInput(id)   { scheduleScale(id, () => parseFloat(food[id]) || 0); }
+  function onNutInput(id)   {
+    scheduleScale(id, () => parseFloat(food[id]) || 0);
+    if (id === 'sodium' || id === 'salt') _handleSaltSodiumDerivation(id);
+  }
+
+  // Sodium ↔ salt derivation in the editor. When the user types in one and
+  // the other is empty, auto-fill via the regulatory factor (sodium_mg =
+  // salt_g × 400; salt_g = sodium_mg / 400) and flag the auto-filled field
+  // as derived. When the user manually types in a field, clear its derived
+  // flag (now user-entered, not derived).
+  function _handleSaltSodiumDerivation(changedId) {
+    if (!food._derived) food._derived = {};
+    // The user just typed in `changedId` — it's no longer derived.
+    if (food._derived[changedId]) food._derived = { ...food._derived, [changedId]: false };
+
+    const otherId = changedId === 'sodium' ? 'salt' : 'sodium';
+    const changedVal = parseFloat(food[changedId]);
+    const otherVal   = parseFloat(food[otherId]);
+    const otherEmpty = food[otherId] === '' || food[otherId] == null || (!otherVal && otherVal !== 0);
+
+    if (Number.isFinite(changedVal) && changedVal > 0 && otherEmpty) {
+      if (changedId === 'sodium') {
+        food.salt   = Math.round((changedVal / 400) * 1000) / 1000;
+        food._derived = { ...food._derived, salt: true };
+      } else {
+        food.sodium = Math.round((changedVal * 400) * 10) / 10;
+        food._derived = { ...food._derived, sodium: true };
+      }
+    }
+    food = food; // trigger Svelte reactivity
+  }
 
   async function downloadFromOFF() {
     if (!food.barcode) return;
@@ -321,6 +357,15 @@
         if (_v !== undefined && _v !== '' && _v !== null && !isNaN(parseFloat(_v))) {
           _nutrition[_n.id] = parseFloat(_v) || 0;
         }
+      }
+      // Persist the derived-flag map so the calculator icon survives reloads.
+      // Strip falsy entries so empty maps don't bloat the JSON payload.
+      if (food._derived) {
+        const flags = {};
+        for (const k of Object.keys(food._derived)) {
+          if (food._derived[k]) flags[k] = true;
+        }
+        if (Object.keys(flags).length) _nutrition._derived = flags;
       }
       const item = { ...food, nutrition: _nutrition };
       const saved = food.id
@@ -583,7 +628,13 @@
       <div class="editor-card-title">Nutrition</div>
       {#each displayFields as n}
         <div class="form-group">
-          <label class="form-label">{n.label} ({n.unit})</label>
+          <label class="form-label">
+            {n.label} ({n.unit})
+            {#if (n.id === 'sodium' || n.id === 'salt') && food._derived && food._derived[n.id]}
+              <span class="material-symbols-rounded" style="font-size:14px;color:var(--text-3);vertical-align:middle;margin-left:2px"
+                title={n.id === 'sodium' ? 'Auto-calculated from salt (× 400 mg/g)' : 'Auto-calculated from sodium (÷ 400)'}>calculate</span>
+            {/if}
+          </label>
           <input class="input" type="number" min="0" step="0.1" placeholder="0"
             bind:value={food[n.id]}
             on:input={() => onNutInput(n.id)} />

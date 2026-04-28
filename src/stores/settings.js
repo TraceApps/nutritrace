@@ -236,9 +236,15 @@ export async function loadServerSettings() {
     const serverSettings = await res.json();
     _suppressSync = true; // Don't push these back to server
 
-    // Write all to localStorage (PWA + native JS layer)
+    // Write all to localStorage (PWA + native JS layer). Pass force=true so
+    // the wl:setting event fires even when localStorage values match: this
+    // is the post-logout-then-relogin case where in-memory stores were
+    // re-initialized with defaults but the per-user-scoped localStorage
+    // entries survived the logout. Without the forced dispatch, subscribed
+    // components (Trace FAB, Wellness section, theme application, etc.)
+    // never get woken up to re-read the now-correct values.
     for (const [key, value] of Object.entries(serverSettings)) {
-      DB.setSetting(key, value);
+      DB.setSetting(key, value, true);
     }
 
     // Native: also mirror into the native SQLite user_settings table so the

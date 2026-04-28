@@ -326,4 +326,49 @@ for (const key of DEFUNCT_KEYS) {
   } catch {}
 }
 
+// ── Sodium ↔ salt backfill (one-time, idempotent) ──────────────────────────
+// Foods and meals saved before the auto-derivation landed only have one of
+// (sodium, salt) populated if the data source provided just one (e.g. OFF
+// returns salt, USDA returns sodium). Run a one-time pass at startup that
+// fills the missing field via the regulatory factor (sodium_mg = salt_g ×
+// 400; salt_g = sodium_mg / 400) and stores the _derived flag so the food
+// editor can render the calculator icon. Skips rows where both are present
+// or both are missing. Safe to re-run — only touches rows that need it.
+function _backfillSodiumSalt(table) {
+  let changed = 0;
+  try {
+    const rows = db.prepare(`SELECT id, nutrition FROM ${table} WHERE nutrition IS NOT NULL AND nutrition != '{}' AND deleted_at IS NULL`).all();
+    const update = db.prepare(`UPDATE ${table} SET nutrition = ? WHERE id = ?`);
+    db.transaction(() => {
+      for (const row of rows) {
+        let nutrition;
+        try { nutrition = JSON.parse(row.nutrition || '{}'); } catch { continue; }
+        if (!nutrition || typeof nutrition !== 'object') continue;
+        // Skip if already derived (idempotent)
+        if (nutrition._derived && (nutrition._derived.sodium || nutrition._derived.salt)) continue;
+        const hasSodium = nutrition.sodium != null && Number(nutrition.sodium) > 0;
+        const hasSalt   = nutrition.salt   != null && Number(nutrition.salt)   > 0;
+        if (hasSodium === hasSalt) continue; // both or neither — leave alone
+        if (hasSodium && !hasSalt) {
+          nutrition.salt = Math.round((Number(nutrition.sodium) / 400) * 1000) / 1000;
+          nutrition._derived = { ...(nutrition._derived || {}), salt: true };
+        } else if (hasSalt && !hasSodium) {
+          nutrition.sodium = Math.round(Number(nutrition.salt) * 400 * 10) / 10;
+          nutrition._derived = { ...(nutrition._derived || {}), sodium: true };
+        }
+        update.run(JSON.stringify(nutrition), row.id);
+        changed++;
+      }
+    })();
+  } catch (e) {
+    console.warn(`[db] sodium/salt backfill on ${table} failed:`, e.message || e);
+  }
+  return changed;
+}
+try {
+  const f = _backfillSodiumSalt('foods');
+  const m = _backfillSodiumSalt('meals');
+  if (f + m > 0) console.log(`[db] backfilled sodium/salt on ${f} foods + ${m} meals`);
+} catch {}
+
 export default db;

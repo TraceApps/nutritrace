@@ -110,7 +110,9 @@ async function _fetchAuthFromServer() {
 }
 
 /** Background refresh — updates cached auth if server is reachable.
- *  On native, never clear currentUser — keep cached auth if server is unreachable. */
+ *  On native, never clear currentUser silently if the server is unreachable;
+ *  but DO clear it when the server explicitly says "no user" (401 from /me),
+ *  which is what happens after logout. */
 async function _refreshAuthFromServer() {
   if (isNative) {
     try {
@@ -118,16 +120,33 @@ async function _refreshAuthFromServer() {
         fetch(_apiUrl('/api/auth/status'), { credentials: 'include', headers: _authHeaders(), signal: AbortSignal.timeout(3000) }),
         fetch(_apiUrl('/api/auth/me'),     { credentials: 'include', headers: _authHeaders(), signal: AbortSignal.timeout(3000) }),
       ]);
-      if (!statusRes.ok || !meRes.ok) return; // server error — keep cached auth
-      const { active } = await statusRes.json();
+      // Status tells us whether multi-user mode is on. Always update if it
+      // came back ok — independent of whether /me succeeds.
+      let active = null;
+      if (statusRes.ok) {
+        try {
+          const sd = await statusRes.json();
+          active = !!sd.active;
+          userMgmtActive.set(active);
+          localStorage.setItem('nt:cachedUserMgmt', active ? '1' : '0');
+        } catch {}
+      }
+      // 401 from /me means logged-out (after a logout call, or token expired).
+      // Clear local user state so needsLogin in App.svelte fires the Login route.
+      if (meRes.status === 401) {
+        currentUser.set(null);
+        localStorage.removeItem('wl:userId');
+        localStorage.removeItem('nt:cachedUser');
+        localStorage.removeItem('nt:csrf');
+        return;
+      }
+      if (!meRes.ok) return; // actual server error — keep cached auth
       const meData     = await meRes.json();
       const user       = meData.user || null;
       if (!user) return; // don't clear auth on native — keep cached user
-      userMgmtActive.set(!!active);
       currentUser.set(user);
       localStorage.setItem('wl:userId', String(user.id));
       localStorage.setItem('nt:cachedUser', JSON.stringify(user));
-      localStorage.setItem('nt:cachedUserMgmt', active ? '1' : '0');
       if (meData.csrf) localStorage.setItem('nt:csrf', meData.csrf);
       await loadServerSettings();
     } catch {} // server unreachable — silently keep cached auth

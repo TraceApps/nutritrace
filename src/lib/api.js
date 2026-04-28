@@ -103,7 +103,7 @@ const API = {
       imgUrl: p.image_front_display_url || p.image_front_url || p.image_url || p.image_front_small_url || '',
       dateTime:  new Date().toISOString(),
       categories: [],
-      nutrition: {
+      nutrition: Nutrition.deriveSodiumSalt({
         calories:        Math.round(kcal * 10) / 10,
         kilojoules:      g('energy_100g'),
         fat:                   g('fat_100g'),
@@ -138,7 +138,7 @@ const API = {
         b12:             g('vitamin-b12_100g', 1000000),
         zinc:            g('zinc_100g', 1000),
         phosphorus:      g('phosphorus_100g', 1000),
-      }
+      })
     };
   }
 };
@@ -202,10 +202,9 @@ const USDA = {
       nutrition.kilojoules = Math.round(nutrition.calories * 4.184 * 10) / 10;
     }
 
-    // Derive salt from sodium: NaCl(g) = Na(mg) × 0.0025 (Android constant)
-    if (nutrition.sodium != null && !nutrition.salt) {
-      nutrition.salt = Math.round(nutrition.sodium * 0.0025 * 1000) / 1000;
-    }
+    // Derive salt from sodium (or vice versa) via the regulatory factor.
+    // Sets `_derived.salt` so the food editor can render the calculator icon.
+    Nutrition.deriveSodiumSalt(nutrition);
 
     // USDA "Carbohydrate, by difference" includes fiber — subtract to match OFF net-carbs
     if (nutrition.carbohydrates != null && nutrition.fiber != null) {
@@ -286,6 +285,7 @@ const USDA = {
 // from the local SQLite database via NtApiNative. In all other cases (web PWA,
 // or native with a server URL configured) this HTTP implementation is used.
 import { isNative, getServerUrl, getAuthToken, resolveAssetUrl } from './platform.js';
+import { Nutrition } from './nutrition.js';
 
 function _resolveBaseUrl() {
   if (!isNative) return ''; // relative — same origin as the web app

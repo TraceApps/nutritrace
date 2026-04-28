@@ -140,13 +140,18 @@ const DB = (() => {
       if (raw === null) return (def !== undefined ? def : null);
       try { return JSON.parse(raw); } catch(e) { return raw; }
     },
-    setSetting(key, value) {
+    setSetting(key, value, force = false) {
       const fullKey = this._settingKey(key);
       const next = JSON.stringify(value);
       // Early-exit if unchanged — prevents listener floods on mount and avoids
-      // double-firing the server push from store.set() + global wl:setting listener
+      // double-firing the server push from store.set() + global wl:setting listener.
+      // `force=true` skips the early-exit and always dispatches the event;
+      // needed by loadServerSettings after a logout+re-login because per-user-
+      // scoped localStorage entries survive the logout, so a server-sourced
+      // reload would silently no-op even though the in-memory stores re-
+      // initialized with defaults during the post-logout reload.
       const prev = localStorage.getItem(fullKey);
-      if (prev === next) return;
+      if (!force && prev === next) return;
       localStorage.setItem(fullKey, next);
       window.dispatchEvent(new CustomEvent('wl:setting', { detail: { key } }));
     },

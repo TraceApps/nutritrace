@@ -47,7 +47,53 @@ const NUTRIMENTS = [
   { id: 'alcohol',       label: 'Alcohol',       unit: 'g',    category: 'other',   default: false },
 ];
 
+// Sodium ↔ salt regulatory conversion. NaCl is sodium (23) + chloride (35.5)
+// = 58.5; sodium is 23/58.5 ≈ 39.3% of salt by mass. The EU labeling standard
+// uses the rounded factor 2.5 (or its inverse 0.4), which matches what's
+// printed on packaging. NutriTrace stores sodium in mg and salt in g, so the
+// effective factor is 400 (sodium_mg = salt_g × 400; salt_g = sodium_mg / 400).
+//
+// Derived values are flagged via `nutrition._derived` so the UI can render a
+// calculator icon next to the field. The flag is cleared automatically when
+// the user manually edits the value.
+const SODIUM_MG_PER_SALT_G = 400;
+
+function _isPresent(v) {
+  return v != null && v !== '' && Number(v) > 0;
+}
+
+/**
+ * Mutates `nutrition` to fill in whichever of (sodium, salt) is missing,
+ * deriving from the present one via the regulatory factor. If both are
+ * present, no change. Sets `nutrition._derived.sodium` or `_derived.salt`
+ * to true on the field that was filled in.
+ *
+ * Returns the same nutrition object (mutated) for convenient chaining.
+ */
+function deriveSodiumSalt(nutrition) {
+  if (!nutrition || typeof nutrition !== 'object') return nutrition;
+  const hasSodium = _isPresent(nutrition.sodium);
+  const hasSalt   = _isPresent(nutrition.salt);
+  if (hasSodium === hasSalt) return nutrition; // both or neither — leave alone
+
+  if (!nutrition._derived || typeof nutrition._derived !== 'object') {
+    nutrition._derived = {};
+  }
+  if (hasSodium && !hasSalt) {
+    nutrition.salt = Math.round((Number(nutrition.sodium) / SODIUM_MG_PER_SALT_G) * 1000) / 1000;
+    nutrition._derived.salt = true;
+    nutrition._derived.sodium = false;
+  } else if (hasSalt && !hasSodium) {
+    nutrition.sodium = Math.round(Number(nutrition.salt) * SODIUM_MG_PER_SALT_G * 10) / 10;
+    nutrition._derived.sodium = true;
+    nutrition._derived.salt = false;
+  }
+  return nutrition;
+}
+
 const Nutrition = {
+  deriveSodiumSalt,
+  SODIUM_MG_PER_SALT_G,
   calculate(item) {
     if (!item) return {};
     const quantity = parseFloat(item.quantity) || 1;
@@ -56,6 +102,7 @@ const Nutrition = {
     if (item.nutrition && typeof item.nutrition === 'object' && Object.keys(item.nutrition).length > 0) {
       // Nested structure (API foods and properly-saved FoodEditor items)
       for (const [key, val] of Object.entries(item.nutrition)) {
+        if (key === '_derived') continue; // metadata, not a numeric value
         result[key] = (parseFloat(val) || 0) * factor;
       }
     } else {
@@ -71,6 +118,11 @@ const Nutrition = {
         result.calories = (parseFloat(item.calories_kcal) || 0) * factor;
       }
     }
+    // Fill in whichever of (sodium, salt) is missing so meals that sum across
+    // ingredients produce consistent totals. The flag is stripped from the
+    // result since transient calculations don't carry derivation metadata.
+    deriveSodiumSalt(result);
+    delete result._derived;
     return result;
   },
 

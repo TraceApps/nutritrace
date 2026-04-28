@@ -171,6 +171,48 @@ async function _applySchema(db) {
   } catch (e) {
     console.debug('[db-native] diary.notes migration skipped:', e?.message);
   }
+
+  // Sodium ↔ salt backfill: server-side backfill doesn't bump updated_at, so
+  // differential sync never propagates the corrected nutrition to local cache.
+  // Run the same idempotent pass against local rows so existing foods/meals
+  // get the missing field filled via the regulatory factor.
+  try {
+    const f = await _backfillSodiumSalt(db, 'foods');
+    const m = await _backfillSodiumSalt(db, 'meals');
+    if (f + m > 0) console.log(`[db-native] backfilled sodium/salt on ${f} foods + ${m} meals`);
+  } catch (e) {
+    console.debug('[db-native] sodium/salt backfill skipped:', e?.message);
+  }
+}
+
+// Mirror of server/db.js _backfillSodiumSalt. Fills the missing field via
+// sodium_mg = salt_g × 400; salt_g = sodium_mg / 400, and sets _derived so the
+// food editor renders the calculator icon. Skips rows that have both, neither,
+// or are already marked derived. Does NOT bump updated_at — we don't want
+// these locally-corrected rows to push back as edits during the next sync.
+async function _backfillSodiumSalt(db, table) {
+  let changed = 0;
+  const r = await db.query(`SELECT id, nutrition FROM ${table} WHERE nutrition IS NOT NULL AND nutrition != '{}' AND deleted_at IS NULL`);
+  const rows = r?.values || [];
+  for (const row of rows) {
+    let nutrition;
+    try { nutrition = JSON.parse(row.nutrition || '{}'); } catch { continue; }
+    if (!nutrition || typeof nutrition !== 'object') continue;
+    if (nutrition._derived && (nutrition._derived.sodium || nutrition._derived.salt)) continue;
+    const hasSodium = nutrition.sodium != null && Number(nutrition.sodium) > 0;
+    const hasSalt   = nutrition.salt   != null && Number(nutrition.salt)   > 0;
+    if (hasSodium === hasSalt) continue;
+    if (hasSodium && !hasSalt) {
+      nutrition.salt = Math.round((Number(nutrition.sodium) / 400) * 1000) / 1000;
+      nutrition._derived = { ...(nutrition._derived || {}), salt: true };
+    } else {
+      nutrition.sodium = Math.round(Number(nutrition.salt) * 400 * 10) / 10;
+      nutrition._derived = { ...(nutrition._derived || {}), sodium: true };
+    }
+    await db.run(`UPDATE ${table} SET nutrition = ? WHERE id = ?`, [JSON.stringify(nutrition), row.id]);
+    changed++;
+  }
+  return changed;
 }
 
 async function _closeAny() {
