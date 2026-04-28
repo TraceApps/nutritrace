@@ -13,6 +13,7 @@ services:
       - UPLOADS_PATH=/data/uploads
       # Required if using user management — set a long random secret
       - JWT_SECRET=${JWT_SECRET}
+      # Or mount a Swarm/Docker secret and set JWT_SECRET_FILE=/run/secrets/<name>
       # Optional — lockout recovery token (required for login page recovery)
       - RECOVERY_TOKEN=${RECOVERY_TOKEN:-}
       # Optional — log level: error | warn | info (default) | debug
@@ -24,4 +25,7 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM=${SMTP_FROM:-}
+      # Any server env var may also be supplied via <NAME>_FILE, for example:
+      # - SMTP_PASS_FILE=/run/secrets/nutritrace_smtp_pass
+      # - AI_API_KEY_FILE=/run/secrets/nutritrace_ai_api_key
     restart: unless-stopped
