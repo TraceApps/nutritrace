@@ -4,7 +4,8 @@
   import { showError, showSuccess } from '../stores/toast.js';
   import { push } from 'svelte-spa-router';
   import { slide } from 'svelte/transition';
-  import { apiUrl, isNative, getServerUrl, setAuthToken } from '../lib/platform.js';
+  import { _ } from 'svelte-i18n';
+  import { apiUrl, isNative, getServerUrl, setAuthToken, resolveAssetUrl } from '../lib/platform.js';
 
   let username = '';
   let password = '';
@@ -26,7 +27,7 @@
         body: JSON.stringify({ username: username.trim(), password }),
       });
       const data = await res.json();
-      if (!res.ok) { showError(data.error || 'Login failed'); return; }
+      if (!res.ok) { showError(data.error || $_('login.errors.failed')); return; }
       // Store auth token for native server mode
       if (isNative && data.token) setAuthToken(data.token);
       // Cache user for offline fallback
@@ -34,17 +35,22 @@
       localStorage.setItem('nt:cachedUser', JSON.stringify(data.user));
       localStorage.setItem('nt:cachedUserMgmt', '1');
       currentUser.set(data.user);
+      // Refresh CSRF token from /api/auth/me before any state-changing request
+      // can fire (otherwise reactive settings saves would use a stale csrf from
+      // a previous session and 403). loadAuthState() handles the fetch and
+      // populates localStorage.nt:csrf as a side effect.
+      await loadAuthState();
       await loadServerSettings();
       push('/');
     } catch(e) {
-      showError('Could not reach server');
+      showError($_('common.errors.cant_reach_server'));
     } finally {
       loading = false;
     }
   }
 
   async function recover() {
-    if (!confirm('This will delete all user accounts. Your food & diary data will be kept. Continue?')) return;
+    if (!confirm($_('login.recovery.confirm'))) return;
     recovering = true;
     try {
       const res = await fetch(apiUrl('/api/auth/recover'), {
@@ -53,13 +59,13 @@
         body: JSON.stringify({ token: recoveryToken.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) { showError(data.error || 'Recovery failed'); return; }
+      if (!res.ok) { showError(data.error || $_('login.recovery.failed')); return; }
       localStorage.removeItem('wl:userId');
       await loadAuthState();
       recoveryDone = true;
-      showSuccess('User management disabled — you are now in single-user mode');
+      showSuccess($_('login.recovery.success'));
     } catch(e) {
-      showError('Could not reach server');
+      showError($_('common.errors.cant_reach_server'));
     } finally {
       recovering = false;
     }
@@ -71,55 +77,55 @@
 <div class="login-page">
   <div class="login-card card">
     <div class="login-logo">
-      <img src="/icons/logo.png" alt="NutriTrace" class="logo-img" />
+      <img src={resolveAssetUrl('/icons/logo.png')} alt="NutriTrace" class="logo-img" />
       <h1 class="login-title">NutriTrace</h1>
-      <p class="text-3 text-sm">Sign in to your account</p>
+      <p class="text-3 text-sm">{$_('login.subtitle')}</p>
     </div>
 
     {#if !recoveryDone}
       <div class="form-group">
-        <label class="form-label">Username</label>
+        <label class="form-label">{$_('login.username')}</label>
         <input class="input" type="text" autocomplete="username"
           bind:value={username} on:keydown={onKey}
-          placeholder="Enter username" autofocus />
+          placeholder={$_('login.username_placeholder')} autofocus />
       </div>
 
       <div class="form-group">
-        <label class="form-label">Password</label>
+        <label class="form-label">{$_('login.password')}</label>
         <input class="input" type="password" autocomplete="current-password"
           bind:value={password} on:keydown={onKey}
-          placeholder="Enter password" />
+          placeholder={$_('login.password_placeholder')} />
       </div>
 
       <button class="btn btn-primary w-full" class:loading on:click={login} disabled={loading || !username || !password}>
-        {loading ? 'Signing in…' : 'Sign in'}
+        {loading ? $_('login.signing_in') : $_('login.sign_in')}
       </button>
 
       <div style="text-align:center">
-        <button class="recovery-toggle" on:click={() => push('/forgot-password')}>Forgot password?</button>
+        <button class="recovery-toggle" on:click={() => push('/forgot-password')}>{$_('login.forgot_password')}</button>
       </div>
 
       <!-- Locked out recovery -->
       <button class="recovery-toggle" on:click={() => showRecovery = !showRecovery}>
-        {showRecovery ? 'Hide' : 'Locked out?'}
+        {showRecovery ? $_('common.hide') : $_('login.locked_out')}
       </button>
 
       {#if showRecovery}
         <div class="recovery-box" transition:slide={{ duration: 180 }}>
           <span class="material-symbols-rounded" style="font-size:20px;color:var(--warning,#f59e0b)">warning</span>
-          <p>If you never set up user accounts intentionally, you can disable user management. <strong>This will delete all user accounts.</strong> Your food &amp; diary data will be kept.</p>
-          <p style="margin:0">Enter the <code>RECOVERY_TOKEN</code> from your server environment:</p>
-          <input class="input" type="password" bind:value={recoveryToken} placeholder="Recovery token" />
+          <p>{@html $_('login.recovery.explainer')}</p>
+          <p style="margin:0">{$_('login.recovery.token_prompt')}</p>
+          <input class="input" type="password" bind:value={recoveryToken} placeholder={$_('login.recovery.token_placeholder')} />
           <button class="btn btn-secondary" style="width:100%;border-color:var(--danger);color:var(--danger)"
             on:click={recover} disabled={recovering || !recoveryToken.trim()}>
-            {recovering ? 'Disabling…' : 'Disable user management & reset'}
+            {recovering ? $_('login.recovery.disabling') : $_('login.recovery.action')}
           </button>
         </div>
       {/if}
     {:else}
       <div style="text-align:center;padding:8px 0">
         <span class="material-symbols-rounded" style="font-size:48px;color:var(--accent)">check_circle</span>
-        <p style="margin-top:8px;color:var(--text-2)">User management has been disabled.<br>Redirecting…</p>
+        <p style="margin-top:8px;color:var(--text-2)">{@html $_('login.recovery.done')}</p>
       </div>
     {/if}
   </div>

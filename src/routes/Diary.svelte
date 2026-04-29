@@ -1,6 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
+  import DatePicker from '../components/ui/DatePicker.svelte';
   import { resolveAssetUrl } from '../lib/platform.js';
   import { fade, slide, fly } from 'svelte/transition';
   import { tweened } from 'svelte/motion';
@@ -63,7 +65,7 @@
   async function saveBodyStatsLocal() {
     await saveBodyStats(bodyStatsData);
     diaryShowBodyStats.set(false);
-    showSuccess('Body stats saved');
+    showSuccess($_('diary.toast.body_stats_saved'));
   }
 
   function openEditItem(item) {
@@ -93,7 +95,7 @@
     });
     showEditSheet = false;
     editItem = null;
-    showSuccess('Updated');
+    showSuccess($_('diary.toast.updated'));
   }
 
   $: meals = $mealNames || ['Breakfast','Lunch','Dinner','Snacks'];
@@ -257,7 +259,7 @@
   async function doDelete() {
     if (pendingDeleteIdx !== null) {
       await removeDiaryItem(pendingDeleteIdx);
-      showSuccess('Item removed');
+      showSuccess($_('diary.toast.item_removed'));
     }
     pendingDeleteIdx = null;
   }
@@ -280,7 +282,7 @@
     try {
       await saveDiaryNote(_notesText);
     } catch (e) {
-      showError(e?.message || 'Note save failed');
+      showError(e?.message || $_('diary.errors.note_save_failed'));
     } finally {
       _notesSaving = false;
     }
@@ -327,9 +329,9 @@
   async function doSaveAsMeal() {
     if (actionMealIdx == null) return;
     const name = (saveAsMealName || '').trim();
-    if (!name) { showError('Please enter a name'); return; }
+    if (!name) { showError($_('diary.errors.name_required')); return; }
     const items = getMealItems(entry.items, actionMealIdx).map(({ _i, ...it }) => it);
-    if (!items.length) { showError('Nothing to save'); return; }
+    if (!items.length) { showError($_('diary.errors.nothing_to_save')); return; }
     saveAsMealSaving = true;
     try {
       await NtApi.createMeal({ name, notes: '', categories: [], items, imgUrl: '' });
@@ -414,78 +416,18 @@
     return Math.round(calc.calories || 0);
   }
 
-  // Date picker
+  // Date picker — calendar UI lives in src/components/ui/DatePicker.svelte
   let showDatePicker = false;
   let pickerDate = '';
-  // Calendar state for date picker
-  let calYear  = new Date().getFullYear();
-  let calMonth = new Date().getMonth();
-  $: calFirstDay    = new Date(calYear, calMonth, 1).getDay();
-  $: calDaysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-  let calAtMax = false;
-  $: { const _n = new Date(); calAtMax = calYear > _n.getFullYear() + 1 || (calYear === _n.getFullYear() + 1 && calMonth > _n.getMonth()); }
-  let showYearPicker  = false;
-  let showMonthPicker = false;
-  $: calMonthName = new Date(calYear, calMonth, 1).toLocaleDateString(undefined, { month: 'long' });
-  $: yearRange = Array.from({length: 22}, (_, i) => (new Date().getFullYear() - 10) + i);
-  const monthNames = [
-    {idx:0,short:'Jan'},{idx:1,short:'Feb'},{idx:2,short:'Mar'},
-    {idx:3,short:'Apr'},{idx:4,short:'May'},{idx:5,short:'Jun'},
-    {idx:6,short:'Jul'},{idx:7,short:'Aug'},{idx:8,short:'Sep'},
-    {idx:9,short:'Oct'},{idx:10,short:'Nov'},{idx:11,short:'Dec'},
-  ];
-  function _todayStr() { return localDateStr(); }
-  function calPrevMonth() {
-    showYearPicker = false; showMonthPicker = false;
-    if (calMonth === 0) { calMonth = 11; calYear--; } else calMonth--;
-  }
-  function calNextMonth() {
-    showYearPicker = false; showMonthPicker = false;
-    if (calAtMax) return;
-    if (calMonth === 11) { calMonth = 0; calYear++; } else calMonth++;
-  }
   function openDatePicker() {
-    const d = $currentDate;
-    const dt = new Date(d + 'T12:00:00');
-    calYear  = dt.getFullYear();
-    calMonth = dt.getMonth();
-    // Show date in user's chosen format in the text input
-    const fmt = $dateFormat || 'ISO';
-    if (fmt === 'US') {
-      const m = String(dt.getMonth()+1).padStart(2,'0');
-      const dy = String(dt.getDate()).padStart(2,'0');
-      pickerDate = m + '/' + dy + '/' + dt.getFullYear();
-    } else if (fmt === 'EU') {
-      const m = String(dt.getMonth()+1).padStart(2,'0');
-      const dy = String(dt.getDate()).padStart(2,'0');
-      pickerDate = dy + '/' + m + '/' + dt.getFullYear();
-    } else {
-      pickerDate = d; // ISO (YYYY-MM-DD)
-    }
+    pickerDate = $currentDate;
     _lockAndOpen(() => showDatePicker = true);
   }
   function goToDate() {
-    let iso = null;
-    if (pickerDate) {
-      // Accept ISO: YYYY-MM-DD
-      if (/^\d{4}-\d{2}-\d{2}$/.test(pickerDate)) {
-        iso = pickerDate;
-      // Accept US: MM/DD/YYYY
-      } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(pickerDate)) {
-        const [m,d,y] = pickerDate.split('/');
-        iso = y + '-' + m.padStart(2,'0') + '-' + d.padStart(2,'0');
-      // Accept EU: DD/MM/YYYY
-      } else if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(pickerDate)) {
-        const [d,m,y] = pickerDate.split('-');
-        iso = y + '-' + m.padStart(2,'0') + '-' + d.padStart(2,'0');
-      }
+    if (pickerDate && /^\d{4}-\d{2}-\d{2}$/.test(pickerDate)) {
+      loadEntry(pickerDate);
     }
-    if (iso) {
-      loadEntry(iso);
-      showDatePicker = false;
-    } else if (!pickerDate) {
-      showDatePicker = false;
-    }
+    showDatePicker = false;
   }
 
   function nutrientBarColor(id) {
@@ -810,23 +752,23 @@
   <!-- Action icons — fixed at top-right, same level as hamburger -->
   <div use:portal class="diary-topbar-actions">
     {#if selectMode}
-      <button class="btn-icon" on:click={exitSelectMode} aria-label="Cancel selection" title="Cancel selection">
+      <button class="btn-icon" on:click={exitSelectMode} aria-label={$_('diary.actions.cancel_selection')} title={$_('diary.actions.cancel_selection')}>
         <span class="material-symbols-rounded">close</span>
       </button>
       <button class="btn-icon" style="color:var(--danger)" disabled={selectedItems.size === 0}
-        on:click={() => showMultiDeleteDialog = true} aria-label="Delete selected items" title="Delete selected">
+        on:click={() => showMultiDeleteDialog = true} aria-label={$_('diary.actions.delete_selected')} title={$_('diary.actions.delete_selected')}>
         <span class="material-symbols-rounded">delete</span>
       </button>
     {:else}
       {#if _waterShowInDiary}
-        <button class="btn-icon accent" on:click={() => showWaterQuickAdd = true} aria-label="Log water" title="Water — log your water intake">
+        <button class="btn-icon accent" on:click={() => showWaterQuickAdd = true} aria-label={$_('diary.actions.log_water')} title={$_('diary.actions.log_water_long')}>
           <span class="material-symbols-rounded">water_drop</span>
         </button>
       {/if}
-      <button class="btn-icon accent" on:click={() => diaryShowNutritionSummary.set(true)} aria-label="Nutrition summary" title="Nutrition Summary — full breakdown of today's nutrients">
+      <button class="btn-icon accent" on:click={() => diaryShowNutritionSummary.set(true)} aria-label={$_('diary.actions.nutrition_summary')} title={$_('diary.actions.nutrition_summary_long')}>
         <span class="material-symbols-rounded">monitoring</span>
       </button>
-      <button class="btn-icon accent" on:click={() => diaryShowBodyStats.set(true)} aria-label="Body stats" title="Body Stats — log weight, body fat, and measurements">
+      <button class="btn-icon accent" on:click={() => diaryShowBodyStats.set(true)} aria-label={$_('diary.actions.body_stats')} title={$_('diary.actions.body_stats_long')}>
         <span class="material-symbols-rounded">scale</span>
       </button>
     {/if}
@@ -838,16 +780,16 @@
     {#if selectMode}
       <h1 class="select-mode-title">{selectedItems.size} selected</h1>
     {:else}
-      <h1>Diary</h1>
+      <h1>{$_('routes.diary.title')}</h1>
     {/if}
   </header>
 
   <!-- Date navigation — sticky sub-bar directly below the header -->
   <div class="diary-date-bar" class:has-banner={$pageBanners}>
-    <button class="btn-icon accent" on:click={prevDay} aria-label="Previous day" title="Previous day">
+    <button class="btn-icon accent" on:click={prevDay} aria-label={$_('diary.nav.previous_day')} title={$_('diary.nav.previous_day')}>
       <span class="material-symbols-rounded">chevron_left</span>
     </button>
-    <button class="date-btn" on:click={openDatePicker} title="Jump to date">
+    <button class="date-btn" on:click={openDatePicker} title={$_('diary.nav.jump_to_date')}>
       <span class="date-label">
         {formatDate($currentDate)}
         {#if $diaryShowNotes && (entry?.notes || '').trim()}
@@ -856,7 +798,7 @@
       </span>
       <span class="date-sub">{formatDateSub($currentDate, $dateFormat)}</span>
     </button>
-    <button class="btn-icon accent" on:click={nextDay} aria-label="Next day" title="Next day">
+    <button class="btn-icon accent" on:click={nextDay} aria-label={$_('diary.nav.next_day')} title={$_('diary.nav.next_day')}>
       <span class="material-symbols-rounded">chevron_right</span>
     </button>
   </div>
@@ -937,7 +879,7 @@
         {#if items.length > 0}
           <button class="meal-add-row" on:click={() => openAddFood(mealIdx)}>
             <span class="material-symbols-rounded">add</span>
-            <span>Add food</span>
+            <span>{$_('diary.add_food')}</span>
           </button>
         {/if}
         {#if $diaryShowMacroSummary && items.length > 0}
@@ -972,7 +914,7 @@
           <div class="diary-notes-body">
             <textarea class="diary-notes-textarea" bind:value={_notesText}
               on:blur={commitNotes}
-              placeholder="How did today feel? Sleep, energy, hunger, cravings…"
+              placeholder={$_('diary.notes_placeholder')}
               rows="3"></textarea>
             <div class="diary-notes-meta">
               <span class="text-3 text-sm">{_notesSaving ? 'Saving…' : (_notesText ? `${_notesText.length} characters` : '')}</span>
@@ -1447,67 +1389,7 @@
     on:click={() => { if (!_sheetLock) showDatePicker = false; }} on:keydown={() => {}}>
     <div class="bs-sheet dp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
-      <!-- Month / year navigation -->
-      <div class="dp-nav">
-        <button class="btn-icon dp-nav-btn" on:click={calPrevMonth} aria-label="Previous month">
-          <span class="material-symbols-rounded">chevron_left</span>
-        </button>
-        <div class="dp-month-year">
-          <button class="dp-month-btn" on:click={() => { showMonthPicker = !showMonthPicker; showYearPicker = false; }}
-            title="Pick month">{calMonthName}<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;margin-left:2px">{showMonthPicker ? 'expand_less' : 'expand_more'}</span></button>
-          <button class="dp-year-btn" on:click={() => { showYearPicker = !showYearPicker; showMonthPicker = false; }}
-            title="Pick year">{calYear}<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;margin-left:2px">{showYearPicker ? 'expand_less' : 'expand_more'}</span></button>
-        </div>
-        <button class="btn-icon dp-nav-btn" on:click={calNextMonth} disabled={calAtMax} aria-label="Next month">
-          <span class="material-symbols-rounded">chevron_right</span>
-        </button>
-      </div>
-      <!-- Year picker grid (shown when year is tapped) -->
-      {#if showYearPicker}
-        <div class="dp-year-grid">
-          {#each yearRange as yr}
-            <button class="dp-yr-btn" class:dp-yr-sel={yr === calYear}
-              on:click={() => { calYear = yr; showYearPicker = false; }}>{yr}</button>
-          {/each}
-        </div>
-      {:else if showMonthPicker}
-        <div class="dp-month-grid">
-          {#each monthNames as m}
-            <button class="dp-mo-btn" class:dp-mo-sel={m.idx === calMonth}
-              on:click={() => { calMonth = m.idx; showMonthPicker = false; }}>{m.short}</button>
-          {/each}
-        </div>
-      {:else}
-        <!-- Day-of-week headers -->
-        <div class="dp-grid">
-          {#each ['Su','Mo','Tu','We','Th','Fr','Sa'] as dh}
-            <div class="dp-dh">{dh}</div>
-          {/each}
-          <!-- Blank offset for first day of month -->
-          {#each {length: calFirstDay} as _}
-            <div></div>
-          {/each}
-          <!-- Day buttons — future dates allowed for meal planning -->
-          {#each {length: calDaysInMonth} as _, di}
-            {@const day = di + 1}
-            {@const ds = calYear + '-' + String(calMonth+1).padStart(2,'0') + '-' + String(day).padStart(2,'0')}
-            <button class="dp-day"
-              class:dp-today={ds === _todayStr()}
-              class:dp-sel={ds === pickerDate}
-              class:dp-future={ds > _todayStr()}
-              on:click={() => { pickerDate = ds; goToDate(); }}>
-              {day}
-            </button>
-          {/each}
-        </div>
-        <!-- Manual date entry -->
-        <div class="dp-manual">
-          <input class="input" type="text" bind:value={pickerDate}
-            placeholder={$dateFormat === 'US' ? 'MM/DD/YYYY' : $dateFormat === 'EU' ? 'DD/MM/YYYY' : 'YYYY-MM-DD'}
-            style="flex:1;font-size:14px;height:40px" />
-          <button class="btn btn-primary" style="height:40px;padding:0 18px" on:click={goToDate}>Go</button>
-        </div>
-      {/if}
+      <DatePicker bind:value={pickerDate} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
     </div>
   </div>
 {/if}
@@ -1660,81 +1542,8 @@
 
 
 <style>
-  /* Date picker calendar */
+  /* Date picker sheet wrapper — calendar UI lives in DatePicker.svelte */
   .dp-sheet { padding-bottom: 4px; }
-  .dp-nav {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 8px 8px;
-  }
-  .dp-nav-btn { color: var(--text-2); }
-  .dp-nav-btn:disabled { opacity: 0.3; cursor: default; }
-  .dp-month-year { display: flex; align-items: center; gap: 6px; }
-  .dp-month-name { font-size: 16px; font-weight: 700; color: var(--text-1); }
-  .dp-month-btn {
-    font-size: 16px; font-weight: 700; color: var(--text-1);
-    background: var(--surface-2); border: none; cursor: pointer;
-    border-radius: var(--radius-sm); padding: 2px 8px;
-    display: flex; align-items: center;
-    transition: background var(--dur-fast);
-  }
-  .dp-month-btn:hover { background: var(--surface-3); }
-  .dp-year-btn {
-    font-size: 16px; font-weight: 700; color: var(--accent);
-    background: var(--accent-dim); border: none; cursor: pointer;
-    border-radius: var(--radius-sm); padding: 2px 8px;
-    display: flex; align-items: center;
-    transition: background var(--dur-fast);
-  }
-  .dp-year-btn:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
-  .dp-year-grid {
-    display: grid; grid-template-columns: repeat(4, 1fr);
-    gap: 4px; padding: 4px 8px 8px; max-height: 220px; overflow-y: auto;
-  }
-  .dp-yr-btn {
-    padding: 8px 4px; font-size: 14px; font-weight: 500;
-    border-radius: var(--radius-sm); background: none; border: none;
-    cursor: pointer; color: var(--text-1); transition: background var(--dur-fast);
-    text-align: center;
-  }
-  .dp-yr-btn:hover { background: var(--surface-2); }
-  .dp-yr-btn.dp-yr-sel { background: var(--accent); color: #fff; font-weight: 700; }
-  .dp-month-grid {
-    display: grid; grid-template-columns: repeat(3, 1fr);
-    gap: 4px; padding: 4px 8px 8px;
-  }
-  .dp-mo-btn {
-    padding: 10px 4px; font-size: 14px; font-weight: 500;
-    border-radius: var(--radius-sm); background: none; border: none;
-    cursor: pointer; color: var(--text-1); transition: background var(--dur-fast);
-    text-align: center;
-  }
-  .dp-mo-btn:hover { background: var(--surface-2); }
-  .dp-mo-btn.dp-mo-sel { background: var(--accent); color: #fff; font-weight: 700; }
-  .dp-grid {
-    display: grid; grid-template-columns: repeat(7, 1fr);
-    gap: 2px; padding: 0 8px 4px;
-  }
-  .dp-dh {
-    text-align: center; font-size: 11px; font-weight: 600;
-    color: var(--text-3); padding: 4px 0;
-  }
-  .dp-day {
-    aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-    font-size: 14px; border-radius: var(--radius-full);
-    background: none; border: none; cursor: pointer;
-    color: var(--text-1); transition: background var(--dur-fast);
-    -webkit-tap-highlight-color: transparent;
-  }
-  .dp-day:hover:not(:disabled) { background: var(--surface-2); }
-  .dp-day:disabled { color: var(--text-3); opacity: 0.35; cursor: default; }
-  .dp-day.dp-future { color: var(--text-3); }
-  .dp-day.dp-future:hover { background: var(--surface-2); color: var(--text-2); }
-  .dp-day.dp-today { color: var(--accent); font-weight: 700; }
-  .dp-day.dp-sel { background: var(--accent) !important; color: #fff; font-weight: 600; }
-  .dp-manual {
-    display: flex; gap: 8px; padding: 8px 16px 16px; align-items: center;
-    border-top: 1px solid var(--border); margin-top: 4px;
-  }
 
   /* diary-page no longer overrides page-shell padding-top — same as every other page */
 

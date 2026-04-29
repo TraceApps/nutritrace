@@ -5,7 +5,7 @@
  * Uses @capacitor/local-notifications on native, Notification API on PWA.
  */
 
-import { isNative } from './platform.js';
+import { isNative, resolveAssetUrl } from './platform.js';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 // Verbose notification logs gated on dev OR opt-in verbose mode
@@ -99,7 +99,7 @@ export async function showNotification(title, body, id = null) {
       console.error('[notifications] schedule FAILED:', e);
     }
   } else if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification(title, { body, icon: '/icons/icon-192.png' });
+    new Notification(title, { body, icon: resolveAssetUrl('/icons/icon-192.png') });
   }
 }
 

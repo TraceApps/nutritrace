@@ -3,6 +3,11 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  // Use relative asset URLs so the bundle works regardless of the path the
+  // server is mounted at. Combined with server-side BASE_URL support, this
+  // lets the same image run at `/`, `/nutritrace/`, or any other prefix
+  // without a rebuild.
+  base: './',
   server: {
     proxy: {
       '/api':     'http://localhost:3001',
@@ -64,8 +69,11 @@ export default defineConfig({
         background_color: '#0A0B0F',
         display: 'standalone',
         orientation: 'portrait-primary',
-        start_url: '/',
-        scope: '/',
+        // Relative URLs — browsers resolve them against the manifest's own
+        // location. This makes PWA install work whether the app is mounted
+        // at root (`/`) or at a subpath (`/nutritrace/`) without rebuilding.
+        start_url: './',
+        scope: './',
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

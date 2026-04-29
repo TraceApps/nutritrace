@@ -16,6 +16,8 @@ services:
       # Or mount a Swarm/Docker secret and set JWT_SECRET_FILE=/run/secrets/<name>
       # Optional — lockout recovery token (required for login page recovery)
       - RECOVERY_TOKEN=${RECOVERY_TOKEN:-}
+      # Optional — mount at a subpath instead of root (for reverse-proxy setups)
+      # - BASE_URL=/nutritrace
       # Optional — log level: error | warn | info (default) | debug
       - LOG_LEVEL=${LOG_LEVEL:-info}
       # Optional — SMTP email (for password reset & invites). Can also be set in Settings UI.

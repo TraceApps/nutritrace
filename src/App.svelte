@@ -8,7 +8,8 @@
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
   import { DB }    from './lib/db.js';
-  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent } from './stores/settings.js';
+  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language } from './stores/settings.js';
+  import { locale } from 'svelte-i18n';
   import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl } from './lib/platform.js';
   import { writable } from 'svelte/store';
@@ -16,6 +17,11 @@
   // Sync state — mirrored from the real sync store (dynamically imported)
   const syncState = writable({ syncing: false, phase: '', progress: '', lastSync: null, error: null, online: true });
   $: _syncModeActive = isNative && getNativeMode() === 'server';
+
+  // Drive svelte-i18n's active locale from the user's saved language setting.
+  // Fires on mount + on every change, so picking a new value in the Settings
+  // dropdown immediately re-renders all $_ calls in the running app.
+  $: if ($language) locale.set($language);
   import NativeSetup from './routes/NativeSetup.svelte';
 
   // Show native setup wizard before anything else on first Android launch

@@ -1,10 +1,13 @@
 <script>
   import { onMount } from 'svelte';
   import { pop } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { currentUser } from '../stores/auth.js';
   import { NtApi } from '../lib/api.js';
   import { apiUrl, isNative, getServerUrl, getAuthToken, resolveAssetUrl } from '../lib/platform.js';
   import { takePhoto } from '../lib/camera.js';
+  import { localDateStr } from '../lib/db.js';
+  import DateInput from '../components/ui/DateInput.svelte';
 
   function _headers(extra = {}) {
     const h = { 'Content-Type': 'application/json', ...extra };
@@ -52,11 +55,11 @@
         body: JSON.stringify({ full_name, nickname, birthday, gender, avatar_url, email }),
       });
       const data = await res.json();
-      if (!res.ok) { showError(data.error || 'Save failed'); return; }
+      if (!res.ok) { showError(data.error || $_('profile.errors.save_failed')); return; }
       currentUser.set(data.user);
-      showSuccess('Profile saved');
+      showSuccess($_('profile.saved'));
     } catch(e) {
-      showError('Could not save profile');
+      showError($_('profile.errors.save_failed'));
     } finally {
       saving = false;
     }
@@ -70,7 +73,7 @@
         uploading = true;
         const url = await NtApi.uploadImage(file);
         avatar_url = url;
-      } catch { showError('Upload failed'); }
+      } catch { showError($_('profile.errors.upload_failed')); }
       finally { uploading = false; }
       return;
     }
@@ -85,7 +88,7 @@
       const url = await NtApi.uploadImage(file);
       avatar_url = url;
     } catch(e) {
-      showError('Upload failed');
+      showError($_('profile.errors.upload_failed'));
     } finally {
       uploading = false;
     }
@@ -98,7 +101,7 @@
   let pwSaving = false;
 
   async function changePassword() {
-    if (new_password !== new_password2) { showError('Passwords do not match'); return; }
+    if (new_password !== new_password2) { showError($_('reset_password.errors.mismatch')); return; }
     const pwErr = validatePassword(new_password);
     if (pwErr) { showError(pwErr); return; }
     pwSaving = true;
@@ -110,12 +113,12 @@
         body: JSON.stringify({ current_password: cur_password, new_password }),
       });
       const data = await res.json();
-      if (!res.ok) { showError(data.error || 'Failed'); return; }
-      showSuccess('Password changed');
+      if (!res.ok) { showError(data.error || $_('common.errors.failed')); return; }
+      showSuccess($_('profile.password_changed'));
       changingPassword = false;
       cur_password = new_password = new_password2 = '';
     } catch(e) {
-      showError('Could not change password');
+      showError($_('profile.errors.password_change_failed'));
     } finally {
       pwSaving = false;
     }
@@ -124,19 +127,19 @@
 
 <div class="page-wrap">
   <div class="page-header sticky-header">
-    <button class="btn-icon" on:click={pop} title="Back">
+    <button class="btn-icon" on:click={pop} title={$_('common.back')}>
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
-    <h2 class="page-title">Profile</h2>
+    <h2 class="page-title">{$_('profile.title')}</h2>
     <button class="btn btn-primary" on:click={save} disabled={saving}>
-      {saving ? 'Saving…' : 'Save'}
+      {saving ? $_('common.saving') : $_('common.save')}
     </button>
   </div>
 
   <div class="profile-body">
     <!-- Avatar -->
     <div class="avatar-section">
-      <button class="avatar-btn" on:click={pickAvatar} disabled={uploading} title="Change photo">
+      <button class="avatar-btn" on:click={pickAvatar} disabled={uploading} title={$_('profile.change_photo')}>
         {#if avatar_url}
           <img class="avatar-img" src={resolveAssetUrl(avatar_url)} alt="avatar" />
         {:else}
@@ -155,30 +158,30 @@
 
     <!-- Profile fields -->
     <div class="card settings-card">
-      <div class="editor-card-title">Personal Info</div>
+      <div class="editor-card-title">{$_('profile.personal_info')}</div>
 
       <div class="form-group">
-        <label class="form-label">Full Name</label>
-        <input class="input" type="text" placeholder="Your full name" bind:value={full_name} />
+        <label class="form-label">{$_('profile.full_name')}</label>
+        <input class="input" type="text" placeholder={$_('profile.full_name_placeholder')} bind:value={full_name} />
       </div>
       <div class="form-group">
-        <label class="form-label">Email address</label>
+        <label class="form-label">{$_('forgot_password.email_label')}</label>
         <input class="input" type="email" autocomplete="email"
-          placeholder="Used for password resets" bind:value={email} />
+          placeholder={$_('profile.email_placeholder')} bind:value={email} />
       </div>
       <div class="form-group">
-        <label class="form-label">Nickname / Display Name</label>
-        <input class="input" type="text" placeholder="What should we call you?" bind:value={nickname} />
+        <label class="form-label">{$_('profile.nickname')}</label>
+        <input class="input" type="text" placeholder={$_('profile.nickname_placeholder')} bind:value={nickname} />
       </div>
       <div class="form-group">
-        <label class="form-label">Birthday</label>
-        <input class="input" type="date" bind:value={birthday} />
+        <label class="form-label">{$_('profile.birthday')}</label>
+        <DateInput bind:value={birthday} max={localDateStr()} />
       </div>
       <div class="form-group">
-        <label class="form-label">Gender</label>
+        <label class="form-label">{$_('profile.gender')}</label>
         <div class="select-wrap">
           <select class="select" bind:value={gender}>
-            <option value="">Prefer not to say</option>
+            <option value="">{$_('profile.gender_unset')}</option>
             {#each GENDERS as g}<option value={g}>{g}</option>{/each}
           </select>
         </div>
@@ -187,19 +190,19 @@
 
     <!-- Change password -->
     <div class="card settings-card">
-      <div class="editor-card-title">Security</div>
+      <div class="editor-card-title">{$_('profile.security')}</div>
       {#if !changingPassword}
         <button class="btn btn-ghost w-full" on:click={() => changingPassword = true}>
-          Change Password
+          {$_('profile.change_password')}
         </button>
       {:else}
         <div class="form-group">
-          <label class="form-label">Current Password</label>
+          <label class="form-label">{$_('profile.current_password')}</label>
           <input class="input" type="password" bind:value={cur_password} />
         </div>
         <div class="form-group">
-          <label class="form-label">New Password</label>
-          <input class="input" type="password" bind:value={new_password} placeholder="8+ chars, upper, lower, number, symbol" />
+          <label class="form-label">{$_('reset_password.new_password')}</label>
+          <input class="input" type="password" bind:value={new_password} placeholder={$_('reset_password.password_placeholder')} />
           {#if new_password}
             <div class="pw-strength" class:s-0={pwScore.score === 0} class:s-1={pwScore.score === 1} class:s-2={pwScore.score === 2} class:s-3={pwScore.score === 3} class:s-4={pwScore.score === 4}>
               <div class="pw-bar"><div class="pw-fill" style:width={`${(pwScore.score / 4) * 100}%`}></div></div>
@@ -208,18 +211,18 @@
           {/if}
         </div>
         <div class="form-group">
-          <label class="form-label">Confirm New Password</label>
+          <label class="form-label">{$_('profile.confirm_new_password')}</label>
           <input class="input" type="password" bind:value={new_password2} />
           {#if new_password2 && new_password !== new_password2}
-            <p class="pw-mismatch">Passwords don't match</p>
+            <p class="pw-mismatch">{$_('reset_password.errors.mismatch')}</p>
           {/if}
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-ghost" style="flex:1" on:click={() => { changingPassword = false; cur_password=new_password=new_password2=''; }}>
-            Cancel
+            {$_('common.cancel')}
           </button>
           <button class="btn btn-primary" style="flex:1" on:click={changePassword} disabled={pwSaving}>
-            {pwSaving ? 'Saving…' : 'Change Password'}
+            {pwSaving ? $_('common.saving') : $_('profile.change_password')}
           </button>
         </div>
       {/if}

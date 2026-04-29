@@ -7,7 +7,7 @@
  * Uses server_time from pull response as last_sync_at (avoids clock skew).
  */
 
-import { getServerUrl, getAuthToken, loadImageMap } from './platform.js';
+import { getServerUrl, getAuthToken, loadImageMap, apiUrl } from './platform.js';
 
 // Verbose sync logs are gated on dev OR opt-in verbose mode
 // (Settings → Diagnostics → Verbose diagnostic logging).
@@ -50,6 +50,9 @@ function _headers() {
 }
 
 function _baseUrl() {
+  // Returns empty string for PWA (so apiUrl() in callers picks up basePath
+  // via the standard helper) or the server URL for native server-connected
+  // mode. Callers wrap their path through apiUrl() for consistency.
   return getServerUrl() || '';
 }
 
@@ -61,7 +64,7 @@ export async function checkOnline() {
     return false;
   }
   try {
-    const res = await fetch(`${_baseUrl()}/api/health`, {
+    const res = await fetch(apiUrl('/api/health'), {
       headers: _headers(),
       signal: AbortSignal.timeout(3000),
     });
@@ -129,7 +132,7 @@ async function pushChanges() {
 
   _dlog(`[sync] push payload: ${payload.foods.length} foods, ${payload.meals.length} meals, ${payload.diary.length} diary, ${payload.settings.length} settings`);
 
-  const res = await fetch(`${_baseUrl()}/api/sync/push`, {
+  const res = await fetch(apiUrl('/api/sync/push'), {
     method: 'POST',
     headers: _headers(),
     body: JSON.stringify(payload),
@@ -181,7 +184,7 @@ async function pullChanges() {
 
   _dlog(`[sync] pulling since ${lastSync}`);
 
-  const res = await fetch(`${_baseUrl()}/api/sync/pull?since=${encodeURIComponent(lastSync)}`, {
+  const res = await fetch(apiUrl(`/api/sync/pull?since=${encodeURIComponent(lastSync)}`), {
     headers: _headers(),
   });
 

@@ -10,6 +10,11 @@ import './styles/buttons.css';
 import './styles/forms.css';
 import App from './App.svelte';
 import { DB } from './lib/db.js';
+import { initI18n } from './i18n/index.js';
+
+// Pick browser-detected locale for first paint; the App-level subscription to
+// the `language` store flips it to the user's saved preference once that loads.
+initI18n();
 
 // Sync system theme changes when appearance = 'system'
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {

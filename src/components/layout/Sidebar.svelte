@@ -2,6 +2,7 @@
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { location, push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { createEventDispatcher } from 'svelte';
   import { resolveAssetUrl, isNative } from '../../lib/platform.js';
   import { currentUser, userMgmtActive, logout } from '../../stores/auth.js';
@@ -29,15 +30,15 @@
     return (user?.full_name || user?.username || '?')[0].toUpperCase();
   }
 
-  const BASE_NAV = [
-    { path: '/',           icon: 'book',           label: 'Diary'      },
-    { path: '/foods',      icon: 'restaurant',     label: 'Foods'      },
-    { path: '/statistics', icon: 'bar_chart',      label: 'Statistics' },
-    { path: '/goals',      icon: 'flag',           label: 'Goals'      },
-    { path: '/settings',   icon: 'settings',       label: 'Settings'   },
+  $: BASE_NAV = [
+    { path: '/',           icon: 'book',           label: $_('nav.diary')      },
+    { path: '/foods',      icon: 'restaurant',     label: $_('nav.foods')      },
+    { path: '/statistics', icon: 'bar_chart',      label: $_('nav.statistics') },
+    { path: '/goals',      icon: 'flag',           label: $_('nav.goals')      },
+    { path: '/settings',   icon: 'settings',       label: $_('nav.settings')   },
   ];
 
-  const WELLNESS_NAV = { path: '/wellness', customIcon: WellnessIcon, label: 'Wellness' };
+  $: WELLNESS_NAV = { path: '/wellness', customIcon: WellnessIcon, label: $_('nav.wellness') };
 
   $: showWellness = $wellnessEnabled && ($fitbitEnabled || $withingsEnabled || $garminEnabled);
   $: navItems = showWellness
@@ -84,7 +85,7 @@
   >
     <!-- App branding -->
     <div class="sidebar-brand">
-      <img class="brand-icon" src="/icons/logo.png" alt="NutriTrace" />
+      <img class="brand-icon" src={resolveAssetUrl('/icons/logo.png')} alt="NutriTrace" />
       <div class="brand-text">
         <span class="brand-name">NutriTrace</span>
         <span class="brand-tagline">Trace Every Bite — Personal Nutrition Tracker</span>
@@ -128,7 +129,7 @@
             <span class="user-name">{$currentUser.full_name || $currentUser.username}</span>
             <span class="sidebar-version">{APP_VERSION}</span>
           </div>
-          <button class="btn-icon logout-btn" on:click={handleLogout} title="Sign out" aria-label="Sign out">
+          <button class="btn-icon logout-btn" on:click={handleLogout} title={$_('common.sign_out')} aria-label={$_('common.sign_out')}>
             <span class="material-symbols-rounded">logout</span>
           </button>
         </div>

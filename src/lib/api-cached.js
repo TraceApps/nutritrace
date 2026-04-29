@@ -14,7 +14,7 @@ import {
   dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal,
   dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary,
 } from './db-native.js';
-import { getServerUrl, getAuthToken, resolveAssetUrl } from './platform.js';
+import { getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
 import { schedulePush } from './sync.js';
 
 function _headers() {
@@ -24,12 +24,8 @@ function _headers() {
   return h;
 }
 
-function _base() {
-  return getServerUrl() || '';
-}
-
 async function _serverFetch(method, path, body, timeoutMs = 3000) {
-  const res = await fetch(_base() + path, {
+  const res = await fetch(apiUrl(path), {
     method,
     headers: _headers(),
     credentials: 'include',
@@ -231,7 +227,7 @@ export const NtApiCached = {
   async uploadImage(file) {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(_base() + '/api/upload', {
+    const res = await fetch(apiUrl('/api/upload'), {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${getAuthToken()}` },
       body: form,

@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
 
   import { portal } from '../lib/portal.js';
   import { pop, push } from 'svelte-spa-router';
@@ -345,7 +346,7 @@
 
   async function save() {
     if (!food.name.trim()) {
-      showError('Please enter a name');
+      showError($_('food_editor.errors.name_required'));
       return;
     }
     saving = true;
@@ -383,7 +384,7 @@
         );
       }
       clearFoodEditorState();
-      showSuccess(ctx ? 'Added to diary' : 'Saved');
+      showSuccess(ctx ? $_('food_editor.added_to_diary') : $_('food_editor.saved'));
       if (ctx) {
         // Go back twice to return to diary
         history.go(-2);
@@ -420,7 +421,7 @@
 <div class="page-shell editor-page">
   <!-- Header -->
   <header class="editor-header">
-    <button class="btn-icon" on:click={pop} aria-label="Back" title="Back">
+    <button class="btn-icon" on:click={pop} aria-label={$_('common.back')} title={$_('common.back')}>
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
     <h2 class="editor-title">{params && params.id ? 'Edit Food' : 'Add Food'}</h2>
@@ -527,11 +528,11 @@
       <div class="editor-card-title">Basic Info</div>
       <div class="form-group">
         <label class="form-label">Name *</label>
-        <input class="input" placeholder="Food name" bind:value={food.name} />
+        <input class="input" placeholder={$_('food_editor.name_placeholder')} bind:value={food.name} />
       </div>
       <div class="form-group">
         <label class="form-label">Brand</label>
-        <input class="input" placeholder="Brand (optional)" bind:value={food.brand} />
+        <input class="input" placeholder={$_('food_editor.brand_placeholder')} bind:value={food.brand} />
       </div>
       <div class="form-row" style="align-items:flex-end">
         <div class="form-group" style="flex:1">

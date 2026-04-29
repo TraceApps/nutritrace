@@ -2,6 +2,7 @@
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { createEventDispatcher } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
 
   // actions: [{ label, icon?, value, danger? }]
@@ -48,7 +49,7 @@
           {action.label}
         </button>
       {/each}
-      <button class="as-cancel" on:click={cancel}>Cancel</button>
+      <button class="as-cancel" on:click={cancel}>{$_('common.cancel')}</button>
     </div>
   </div>
 {/if}

@@ -11,6 +11,7 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { fly, fade } from 'svelte/transition';
+  import { _ } from 'svelte-i18n';
   import { mealNames } from '../../stores/settings.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { parseInput, matchItems, saveItems, resolveMealSlot } from '../../lib/quick-log.js';
@@ -268,7 +269,7 @@
     <span class="material-symbols-rounded" style="color:var(--accent)">auto_awesome</span>
     <span class="ql-title">Smart Log</span>
     <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">Experimental</span>
-    <button class="btn-icon" on:click={close} aria-label="Close" style="margin-left:auto">
+    <button class="btn-icon" on:click={close} aria-label={$_('common.close')} style="margin-left:auto">
       <span class="material-symbols-rounded">close</span>
     </button>
   </div>
@@ -282,7 +283,7 @@
           bind:value={inputText}
           on:keydown={(e) => e.key === 'Enter' && runParse()}
           class="input ql-input"
-          placeholder="for breakfast I had 2 eggs and toast"
+          placeholder={$_('smart_log.placeholder')}
           autocomplete="off"
         />
         {#if voiceAvailable}

@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { pop } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { NtApi } from '../lib/api.js';
   import { takePhoto } from '../lib/camera.js';
   import { isNative, resolveAssetUrl } from '../lib/platform.js';
@@ -373,8 +374,8 @@
 
   // ── Save ──────────────────────────────────────────────────────────────────
   async function save() {
-    if (!meal.name.trim()) { showError('Please enter a name'); return; }
-    if (!meal.items.length) { showError('Please add at least one ingredient'); return; }
+    if (!meal.name.trim()) { showError($_('food_editor.errors.name_required')); return; }
+    if (!meal.items.length) { showError($_('meal_editor.errors.no_ingredients')); return; }
     saving = true;
     try {
       const item = {
@@ -390,10 +391,10 @@
       if (meal.id) await NtApi.updateMeal(meal.id, item);
       else await NtApi.createMeal(item);
       clearMealEditorState();
-      showSuccess('Saved');
+      showSuccess($_('food_editor.saved'));
       pop();
     } catch(e) {
-      showError('Save failed');
+      showError($_('common.errors.failed'));
     } finally {
       saving = false;
     }
@@ -402,7 +403,7 @@
 
 <div class="page-shell editor-page">
   <header class="editor-header">
-    <button class="btn-icon" on:click={pop} aria-label="Back" title="Back">
+    <button class="btn-icon" on:click={pop} aria-label={$_('common.back')} title={$_('common.back')}>
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
     <h2 class="editor-title">{params && params.id ? 'Edit' : 'New'} {isRecipe ? 'Recipe' : 'Meal'}</h2>
@@ -459,7 +460,7 @@
     <!-- Name -->
     <div class="card editor-card">
       <div class="editor-card-title">Name *</div>
-      <input class="input" placeholder="{isRecipe ? 'Recipe name' : 'Meal name'}" bind:value={meal.name} />
+      <input class="input" placeholder={isRecipe ? $_('meal_editor.recipe_name_placeholder') : $_('meal_editor.meal_name_placeholder')} bind:value={meal.name} />
     </div>
 
     <!-- Recipe amount/unit -->

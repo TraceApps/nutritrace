@@ -2,6 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
+  import { _ } from 'svelte-i18n';
   import TraceFace from './TraceFace.svelte';
   import { NtApi }     from '../../lib/api.js';
   import { DB, localDateStr } from '../../lib/db.js';
@@ -1213,7 +1214,7 @@ Water: ${ctx.waterText}`
       class="ai-panel"
       style={panelStyle}
       transition:fly={{ y: 600, duration: 320, easing: cubicOut }}
-      aria-label="AI coach chat"
+      aria-label={$_('trace.panel_label')}
     >
       <!-- Drag handle (mobile only) -->
       <div class="ai-drag-handle" aria-hidden="true"></div>
@@ -1229,10 +1230,10 @@ Water: ${ctx.waterText}`
           </div>
         </div>
         <div class="ai-header-actions">
-          <button class="btn-icon" on:click={clearChat} title="Clear conversation">
+          <button class="btn-icon" on:click={clearChat} title={$_('trace.clear_conversation')}>
             <span class="material-symbols-rounded">delete_sweep</span>
           </button>
-          <button class="btn-icon" on:click={() => panelOpen = false} title="Close">
+          <button class="btn-icon" on:click={() => panelOpen = false} title={$_('common.close')}>
             <span class="material-symbols-rounded">close</span>
           </button>
         </div>
@@ -1331,7 +1332,7 @@ Water: ${ctx.waterText}`
       {/if}
       <div class="ai-input-bar">
         <div style="position:relative">
-          <button class="ai-attach-btn" on:click={_attachImage} disabled={loading} title="Attach image">
+          <button class="ai-attach-btn" on:click={_attachImage} disabled={loading} title={$_('trace.attach_image')}>
             <span class="material-symbols-rounded">photo_camera</span>
           </button>
           {#if _showAttachMenu}
@@ -1348,7 +1349,7 @@ Water: ${ctx.waterText}`
         <textarea
           class="ai-textarea"
           bind:value={input}
-          placeholder="Ask me anything…"
+          placeholder={$_('trace.ask_placeholder')}
           on:keydown={onKey}
           rows="1"
           disabled={loading}

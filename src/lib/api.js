@@ -16,7 +16,10 @@ async function _extFetch(url) {
       json: async () => typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data,
     };
   }
-  return fetch('/api/proxy?url=' + encodeURIComponent(url));
+  // Lazy-import to avoid an early-load circular reference; apiUrl() prefixes
+  // the path with the BASE_URL when running at a subpath.
+  const { apiUrl } = await import('./platform.js');
+  return fetch(apiUrl('/api/proxy?url=' + encodeURIComponent(url)));
 }
 
 const API = {
@@ -284,24 +287,18 @@ const USDA = {
 // In native standalone mode (Capacitor + no server URL), requests are served
 // from the local SQLite database via NtApiNative. In all other cases (web PWA,
 // or native with a server URL configured) this HTTP implementation is used.
-import { isNative, getServerUrl, getAuthToken, resolveAssetUrl } from './platform.js';
+import { isNative, getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
 import { Nutrition } from './nutrition.js';
 
-function _resolveBaseUrl() {
-  if (!isNative) return ''; // relative — same origin as the web app
-  const url = getServerUrl();
-  return url || ''; // native + server configured → absolute URL
-}
-
 const _NtApiHttp = {
-  // Core fetch — uses absolute URL + Bearer token (native server) or relative URL + cookies (web)
+  // Core fetch — apiUrl() handles the server URL prefix (native server mode)
+  // or the BASE_URL prefix (PWA at a subpath) consistently for every call.
   async _fetch(method, path, body, isUpload = false) {
-    const base = _resolveBaseUrl();
     const headers = {};
     if (!isUpload) headers['Content-Type'] = 'application/json';
 
     // Native server mode: add Bearer token (cookies don't persist across WebView reloads)
-    if (isNative && base) {
+    if (isNative && getServerUrl()) {
       const token = getAuthToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
     }
@@ -312,7 +309,7 @@ const _NtApiHttp = {
       if (csrf) headers['X-CSRF-Token'] = csrf;
     }
 
-    const res = await fetch(base + path, {
+    const res = await fetch(apiUrl(path), {
       method,
       headers,
       credentials: 'include',

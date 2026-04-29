@@ -1,5 +1,5 @@
 <script>
-  import { setNativeMode, setServerUrl, setAuthToken } from '../lib/platform.js';
+  import { setNativeMode, setServerUrl, setAuthToken, resolveAssetUrl } from '../lib/platform.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { DB } from '../lib/db.js';
 
@@ -68,7 +68,7 @@
   <div class="setup-inner">
     <!-- Logo / branding -->
     <div class="setup-brand">
-      <img src="/icons/icon-192.png" alt="NutriTrace" class="setup-logo" />
+      <img src={resolveAssetUrl('/icons/icon-192.png')} alt="NutriTrace" class="setup-logo" />
       <h1 class="setup-title">NutriTrace</h1>
       <p class="setup-subtitle">Trace Every Bite</p>
     </div>

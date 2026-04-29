@@ -1,11 +1,6 @@
 import { writable } from 'svelte/store';
 import { loadServerSettings } from './settings.js';
-import { isNative, getServerUrl, getAuthToken } from '../lib/platform.js';
-
-function _apiUrl(path) {
-  if (isNative) { const url = getServerUrl(); if (url) return url + path; }
-  return path;
-}
+import { isNative, getServerUrl, getAuthToken, apiUrl as _apiUrl } from '../lib/platform.js';
 
 function _authHeaders() {
   const h = {};

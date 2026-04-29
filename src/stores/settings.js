@@ -61,7 +61,7 @@ export const USER_PREFS = new Set([
   'notifWellnessAlerts','notifWorkoutSummary','notifSyncFailures',
   'appriseUrl','appriseTag','gotifyUrl','gotifyToken','ntfyUrl','ntfyTopic','ntfyToken',
   // UI behavior prefs that should match across devices
-  'accentColor','startPage','goalCelebrations','pageBanners',
+  'accentColor','startPage','goalCelebrations','pageBanners','language',
 ]);
 
 // DEVICE_PREFS — local-only, never synced.
@@ -77,18 +77,26 @@ export const DEVICE_PREFS = new Set([
 // touching every call site. Equivalent to USER_PREFS.
 const SERVER_SETTINGS = USER_PREFS;
 
-import { isNative, getServerUrl, getAuthToken } from '../lib/platform.js';
+import { isNative, getServerUrl, getAuthToken, apiUrl } from '../lib/platform.js';
 
 function _settingsUrl() {
-  if (isNative) { const url = getServerUrl(); if (url) return url + '/api/settings'; }
-  return '/api/settings';
+  return apiUrl('/api/settings');
 }
 
 function _authHeaders() {
   const h = { 'Content-Type': 'application/json' };
   if (isNative && getServerUrl()) {
+    // Native server-connected mode: Bearer auth (cookies don't persist across
+    // WebView reloads). Bearer requests are inherently CSRF-safe.
     const token = getAuthToken();
     if (token) h['Authorization'] = `Bearer ${token}`;
+  } else if (!isNative) {
+    // PWA cookie-based session: needs CSRF token on state-changing requests
+    // when the server has user management active. The token is populated by
+    // auth.js after /api/auth/me, and absent for unauthenticated / single-user
+    // mode (in which case the server's CSRF middleware also skips the check).
+    const csrf = localStorage.getItem('nt:csrf');
+    if (csrf) h['X-CSRF-Token'] = csrf;
   }
   return h;
 }
@@ -339,6 +347,7 @@ function createSettingStore(key, defaultValue) {
 }
 
 export const appearance       = createSettingStore('appearance',       'system');
+export const language          = createSettingStore('language',          'en');
 export const energyUnit        = createSettingStore('energyUnit',       'kcal');
 export const mealNames         = createSettingStore('mealNames',        ['Breakfast','Lunch','Dinner','Snacks']);
 export const goals             = createSettingStore('goals',            {});

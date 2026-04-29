@@ -142,6 +142,64 @@ If you use Cloudflare Tunnel for external access, no special NutriTrace configur
 
 ---
 
+## Reverse Proxy with Subpath
+
+To run NutriTrace behind a reverse proxy at a subpath (e.g. `https://example.com/nutritrace/`), set the `BASE_URL` environment variable to the path prefix:
+
+```yaml
+environment:
+  - BASE_URL=/nutritrace
+```
+
+The path must start with `/` and must NOT have a trailing slash. Empty (the default) keeps the app at root, identical to the previous behavior — no change for existing deployments.
+
+With `BASE_URL` set, the app's assets, API routes, service worker, and image URLs all live under that prefix. Your reverse proxy should pass requests through *without* stripping the path:
+
+### Caddy
+
+```caddyfile
+example.com {
+  handle /nutritrace/* {
+    reverse_proxy localhost:3000
+  }
+}
+```
+
+(Note: `handle`, not `handle_path`, since we want the prefix preserved.)
+
+### nginx
+
+```nginx
+location /nutritrace/ {
+  proxy_pass http://localhost:3000/nutritrace/;  # trailing slash on both sides
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+### Traefik (docker-compose labels)
+
+```yaml
+labels:
+  - "traefik.http.routers.nutritrace.rule=PathPrefix(`/nutritrace`)"
+  # No StripPrefix middleware — pass the full path through.
+```
+
+### OAuth callback URLs at a subpath
+
+When you connect Fitbit / Withings / Garmin OAuth, register the callback URL with the dev portal **including the prefix**, for example `https://example.com/nutritrace/api/wellness/fitbit/callback`. Enter the same URL in the in-app Settings → Wellness configuration. The provider redirects back through your reverse proxy to the prefixed path, the app handles it, and the OAuth flow completes.
+
+### Service worker and PWA install
+
+The PWA service worker registers correctly under the subpath. Installing the PWA from a subpath uses the prefixed URL as `start_url`. Both work, but the in-app browser experience is the primary supported case for subpath deployments.
+
+### Native Android app
+
+If you connect the Android app to a server running at a subpath, enter the full URL including the prefix when prompted by the setup wizard (e.g. `https://example.com/nutritrace`). All subsequent API calls preserve the path.
+
+---
+
 ## Updating
 
 ```bash

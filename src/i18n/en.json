@@ -1,0 +1,308 @@
+{
+  "nav": {
+    "diary": "Diary",
+    "foods": "Foods",
+    "wellness": "Wellness",
+    "statistics": "Statistics",
+    "goals": "Goals",
+    "settings": "Settings"
+  },
+  "routes": {
+    "diary":      { "title": "Diary" },
+    "foods":      { "title": "Foods" },
+    "wellness":   { "title": "Wellness" },
+    "statistics": { "title": "Statistics" },
+    "goals":      { "title": "Goals" },
+    "settings":   { "title": "Settings" }
+  },
+  "common": {
+    "sign_out":     "Sign out",
+    "experimental": "Experimental",
+    "hide":         "Hide",
+    "save":         "Save",
+    "saving":       "Saving…",
+    "cancel":       "Cancel",
+    "delete":       "Delete",
+    "back":         "Back",
+    "edit":         "Edit",
+    "done":         "Done",
+    "close":        "Close",
+    "loading":      "Loading…",
+    "errors": {
+      "cant_reach_server": "Could not reach server",
+      "failed":            "Failed"
+    }
+  },
+  "settings": {
+    "appearance": {
+      "section":          "Appearance",
+      "theme":            "Theme",
+      "accent_color":     "Accent color",
+      "navigation_style": "Navigation style"
+    },
+    "regional":           {
+      "section":  "Regional & Units",
+      "language": "Language"
+    },
+    "diary":              { "section": "Diary" },
+    "water":              { "section": "Water" },
+    "foods":              { "section": "Foods" },
+    "categories":         { "section": "Categories" },
+    "nutrients":          { "section": "Nutrients" },
+    "goals":              { "section": "Goals" },
+    "body_stats":         { "section": "Body Stats" },
+    "statistics":         { "section": "Statistics" },
+    "connected_services": { "section": "Connected Services" },
+    "ai":                 { "section": "AI Assistant" },
+    "notifications":      { "section": "Notifications" },
+    "wellness":           { "section": "Wellness" },
+    "sharing":            { "section": "Food Sharing" },
+    "users":              { "section": "User Management" },
+    "email":              { "section": "Email (SMTP)" },
+    "backup":             { "section": "Backup & Restore" },
+    "server":             { "section": "Server Connection" },
+    "diagnostics":        { "section": "Diagnostics" },
+    "about":              { "section": "About" }
+  },
+  "login": {
+    "subtitle":             "Sign in to your account",
+    "username":             "Username",
+    "username_placeholder": "Enter username",
+    "password":             "Password",
+    "password_placeholder": "Enter password",
+    "sign_in":              "Sign in",
+    "signing_in":           "Signing in…",
+    "forgot_password":      "Forgot password?",
+    "locked_out":           "Locked out?",
+    "errors": {
+      "failed": "Login failed"
+    },
+    "recovery": {
+      "confirm":           "This will delete all user accounts. Your food & diary data will be kept. Continue?",
+      "explainer":         "If you never set up user accounts intentionally, you can disable user management. <strong>This will delete all user accounts.</strong> Your food &amp; diary data will be kept.",
+      "token_prompt":      "Enter the <code>RECOVERY_TOKEN</code> from your server environment:",
+      "token_placeholder": "Recovery token",
+      "action":            "Disable user management & reset",
+      "disabling":         "Disabling…",
+      "failed":            "Recovery failed",
+      "success":           "User management disabled — you are now in single-user mode",
+      "done":              "User management has been disabled.<br>Redirecting…"
+    }
+  },
+  "forgot_password": {
+    "title":             "Reset Password",
+    "intro":             "Enter your email address and we'll send you a link to reset your password.",
+    "email_label":       "Email address",
+    "send_link":         "Send reset link",
+    "sending":           "Sending…",
+    "back_to_signin":    "Back to sign in",
+    "sent":              "If an account exists for <strong>{email}</strong>, a reset link has been sent. Check your inbox."
+  },
+  "reset_password": {
+    "title":               "New Password",
+    "verifying":           "Verifying link…",
+    "invalid_link":        "This reset link is invalid or has expired.",
+    "request_new":         "Request a new link",
+    "success":             "Password updated. Redirecting…",
+    "set_for":             "Set a new password for <strong>{username}</strong>",
+    "new_password":        "New password",
+    "confirm_password":    "Confirm password",
+    "password_placeholder": "8+ chars, upper, lower, number, symbol",
+    "submit":              "Set new password",
+    "saving":              "Saving…",
+    "errors": {
+      "required": "Password is required",
+      "mismatch": "Passwords do not match",
+      "failed":   "Reset failed"
+    }
+  },
+  "profile": {
+    "title":                "Profile",
+    "personal_info":        "Personal Info",
+    "security":             "Security",
+    "change_photo":         "Change photo",
+    "full_name":            "Full Name",
+    "full_name_placeholder": "Your full name",
+    "email_placeholder":    "Used for password resets",
+    "nickname":             "Nickname / Display Name",
+    "nickname_placeholder": "What should we call you?",
+    "birthday":             "Birthday",
+    "gender":               "Gender",
+    "gender_unset":         "Prefer not to say",
+    "change_password":      "Change Password",
+    "current_password":     "Current Password",
+    "confirm_new_password": "Confirm New Password",
+    "saved":                "Profile saved",
+    "password_changed":     "Password changed",
+    "errors": {
+      "save_failed":            "Could not save profile",
+      "upload_failed":          "Upload failed",
+      "password_change_failed": "Could not change password"
+    }
+  },
+  "wizard": {
+    "nav": {
+      "skip":         "Skip",
+      "get_started":  "Get Started",
+      "next":         "Next",
+      "finish":       "Finish"
+    },
+    "welcome": {
+      "title": "Welcome to NutriTrace",
+      "desc":  "Your personal nutrition tracker. Let's get you set up in about a minute."
+    },
+    "usermgmt": {
+      "create_account_title": "Create Your Account",
+      "create_account_desc":  "Set up your admin account to secure your NutriTrace instance. You can invite other users later from Settings.",
+      "multi_user_title":     "Multi-User Support",
+      "multi_user_desc":      "NutriTrace can run in single-user mode (default) or multi-user mode with separate logins and password resets. You can always enable this later in Settings."
+    },
+    "units": {
+      "title": "Measurement System",
+      "desc":  "How do you measure things?"
+    },
+    "gender": {
+      "title": "What is your gender?",
+      "desc":  "Used to calculate your calorie needs."
+    },
+    "dob": {
+      "title": "When were you born?",
+      "desc":  "Your age affects your metabolic rate."
+    },
+    "height": {
+      "title": "What is your height?",
+      "desc":  "Used to estimate your calorie needs."
+    },
+    "weight": {
+      "title": "What is your weight?"
+    },
+    "target": {
+      "title": "What is your target weight?"
+    },
+    "activity": {
+      "title": "How active are you?",
+      "desc":  "Affects your daily calorie needs."
+    },
+    "integrations": {
+      "title": "Integrations",
+      "desc":  "Connect optional services. Skip anything you don't need — you can configure these later in Settings."
+    },
+    "notifications": {
+      "title": "Stay on Track",
+      "desc":  "Get helpful reminders and celebrate your wins. You can customize all of these later in Settings."
+    },
+    "summary": {
+      "title": "Your Daily Goals",
+      "desc":  "Calculated from your stats using the Mifflin-St Jeor formula."
+    },
+    "skip_modal": {
+      "title":    "Skip setup?",
+      "desc":     "You can set up your goals, units, and integrations any time from <strong>Settings</strong>. Until then, calorie targets won't be calculated automatically.",
+      "continue": "Continue setup",
+      "skip_now": "Skip for now"
+    }
+  },
+  "diary": {
+    "add_food":          "Add food",
+    "notes_placeholder": "How did today feel? Sleep, energy, hunger, cravings…",
+    "nav": {
+      "previous_day":  "Previous day",
+      "next_day":      "Next day",
+      "jump_to_date":  "Jump to date"
+    },
+    "actions": {
+      "cancel_selection":      "Cancel selection",
+      "delete_selected":       "Delete selected",
+      "log_water":             "Log water",
+      "log_water_long":        "Water — log your water intake",
+      "nutrition_summary":     "Nutrition summary",
+      "nutrition_summary_long": "Nutrition Summary — full breakdown of today's nutrients",
+      "body_stats":            "Body stats",
+      "body_stats_long":       "Body Stats — log weight, body fat, and measurements"
+    },
+    "toast": {
+      "body_stats_saved": "Body stats saved",
+      "updated":          "Updated",
+      "item_removed":     "Item removed"
+    },
+    "errors": {
+      "note_save_failed": "Note save failed",
+      "name_required":    "Please enter a name",
+      "nothing_to_save":  "Nothing to save"
+    }
+  },
+  "foods": {
+    "search_placeholder":      "Search foods or scan barcode...",
+    "scan_barcode":            "Scan barcode",
+    "add_new":                 "Add new",
+    "n_selected":              "{n} selected",
+    "add_n":                   "Add {n}",
+    "adding":                  "Adding…",
+    "add_selected_to_diary":   "Add selected to diary",
+    "search_in":               "Search {source}",
+    "searching_in":            "Searching {source}…",
+    "no_results_in":           "No results in {source}",
+    "sources": {
+      "local":       "Local",
+      "from_others": "From Others"
+    },
+    "toast": {
+      "deleted": "Deleted",
+      "cloned":  "Cloned"
+    }
+  },
+  "trace": {
+    "panel_label":        "AI coach chat",
+    "ask_placeholder":    "Ask me anything…",
+    "clear_conversation": "Clear conversation",
+    "attach_image":       "Attach image"
+  },
+  "smart_log": {
+    "placeholder": "for breakfast I had 2 eggs and toast"
+  },
+  "goals": {
+    "save_goal": "Save Goal",
+    "toast": {
+      "goal_saved":       "Goal saved",
+      "water_goal_saved": "Water goal saved",
+      "template_saved":   "Template saved",
+      "template_applied": "\"{name}\" applied"
+    }
+  },
+  "food_editor": {
+    "name_placeholder":  "Food name",
+    "brand_placeholder": "Brand (optional)",
+    "saved":             "Saved",
+    "added_to_diary":    "Added to diary",
+    "errors": {
+      "name_required": "Please enter a name"
+    }
+  },
+  "meal_editor": {
+    "meal_name_placeholder":   "Meal name",
+    "recipe_name_placeholder": "Recipe name",
+    "errors": {
+      "no_ingredients": "Please add at least one ingredient"
+    }
+  },
+  "accept_invite": {
+    "title":                "Create Account",
+    "verifying":            "Verifying invite…",
+    "invalid_link":         "This invite link is invalid or has expired. Ask your admin for a new one.",
+    "success":              "Account created! Redirecting…",
+    "intro":                "You've been invited to NutriTrace. Choose a username and password to get started.",
+    "intro_with_email":     "You were invited as <strong>{email}</strong>. Choose a username and password to get started.",
+    "username_label":       "Username *",
+    "username_placeholder": "Choose a username",
+    "full_name_label":      "Full name (optional)",
+    "full_name_placeholder": "Your name",
+    "password_label":       "Password *",
+    "confirm_label":        "Confirm password *",
+    "submit":               "Create account",
+    "creating":             "Creating account…",
+    "errors": {
+      "username_required": "Username is required",
+      "failed":            "Failed to create account"
+    }
+  }
+}

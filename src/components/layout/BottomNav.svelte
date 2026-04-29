@@ -1,17 +1,18 @@
 <script>
   import { location, push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { wellnessEnabled, fitbitEnabled, withingsEnabled, garminEnabled, healthConnectEnabled } from '../../stores/settings.js';
   import WellnessIcon from '../icons/WellnessIcon.svelte';
 
-  const BASE_TABS = [
-    { path: '/',            icon: 'book',          label: 'Diary'    },
-    { path: '/foods',       icon: 'restaurant',    label: 'Foods'    },
-    { path: '/statistics',  icon: 'bar_chart',     label: 'Statistics' },
-    { path: '/goals',       icon: 'flag',          label: 'Goals'    },
-    { path: '/settings',    icon: 'settings',      label: 'Settings' },
+  $: BASE_TABS = [
+    { path: '/',            icon: 'book',          label: $_('nav.diary')      },
+    { path: '/foods',       icon: 'restaurant',    label: $_('nav.foods')      },
+    { path: '/statistics',  icon: 'bar_chart',     label: $_('nav.statistics') },
+    { path: '/goals',       icon: 'flag',          label: $_('nav.goals')      },
+    { path: '/settings',    icon: 'settings',      label: $_('nav.settings')   },
   ];
 
-  const WELLNESS_TAB = { path: '/wellness', customIcon: WellnessIcon, label: 'Wellness' };
+  $: WELLNESS_TAB = { path: '/wellness', customIcon: WellnessIcon, label: $_('nav.wellness') };
 
   // Wellness tab inserted after Foods (where Water used to be) when the feature is enabled
   $: showWellness = $wellnessEnabled && ($fitbitEnabled || $withingsEnabled || $garminEnabled || $healthConnectEnabled);

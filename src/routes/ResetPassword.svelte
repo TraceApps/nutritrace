@@ -1,9 +1,11 @@
 <script>
   import { onMount } from 'svelte';
   import { push, querystring } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { currentUser } from '../stores/auth.js';
   import { loadServerSettings } from '../stores/settings.js';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
+  import { apiUrl, resolveAssetUrl } from '../lib/platform.js';
 
   $: pwScore = passwordStrength(password);
 
@@ -22,7 +24,7 @@
     token = params.get('token') || '';
     if (!token) { validating = false; return; }
     try {
-      const res  = await fetch(`/api/auth/validate-token?token=${token}&type=reset`, { credentials: 'include' });
+      const res  = await fetch(apiUrl(`/api/auth/validate-token?token=${token}&type=reset`), { credentials: 'include' });
       const data = await res.json();
       if (res.ok) { tokenValid = true; username = data.username || ''; }
     } finally {
@@ -31,27 +33,27 @@
   });
 
   async function submit() {
-    if (!password) { error = 'Password is required'; return; }
+    if (!password) { error = $_('reset_password.errors.required'); return; }
     const pwErr = validatePassword(password);
     if (pwErr) { error = pwErr; return; }
-    if (password !== confirm) { error = 'Passwords do not match'; return; }
+    if (password !== confirm) { error = $_('reset_password.errors.mismatch'); return; }
     loading = true; error = '';
     try {
-      const res  = await fetch('/api/auth/reset-password', {
+      const res  = await fetch(apiUrl('/api/auth/reset-password'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password }),
       });
       const data = await res.json();
-      if (!res.ok) { error = data.error || 'Reset failed'; return; }
+      if (!res.ok) { error = data.error || $_('reset_password.errors.failed'); return; }
       localStorage.setItem('wl:userId', String(data.user.id));
       currentUser.set(data.user);
       await loadServerSettings();
       done = true;
       setTimeout(() => push('/'), 2000);
     } catch {
-      error = 'Could not reach server';
+      error = $_('common.errors.cant_reach_server');
     } finally {
       loading = false;
     }
@@ -61,37 +63,37 @@
 <div class="login-page">
   <div class="login-card card">
     <div class="login-logo">
-      <img src="/icons/logo.png" alt="NutriTrace" class="logo-img" />
-      <h1 class="login-title">New Password</h1>
+      <img src={resolveAssetUrl('/icons/logo.png')} alt="NutriTrace" class="logo-img" />
+      <h1 class="login-title">{$_('reset_password.title')}</h1>
     </div>
 
     {#if validating}
-      <p class="text-3" style="text-align:center;font-size:14px">Verifying link…</p>
+      <p class="text-3" style="text-align:center;font-size:14px">{$_('reset_password.verifying')}</p>
 
     {:else if !tokenValid}
       <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px">
         <span class="material-symbols-rounded" style="font-size:48px;color:var(--danger)">link_off</span>
-        <p style="color:var(--text-2);font-size:14px">This reset link is invalid or has expired.</p>
-        <button class="btn btn-secondary w-full" on:click={() => push('/forgot-password')}>Request a new link</button>
+        <p style="color:var(--text-2);font-size:14px">{$_('reset_password.invalid_link')}</p>
+        <button class="btn btn-secondary w-full" on:click={() => push('/forgot-password')}>{$_('reset_password.request_new')}</button>
       </div>
 
     {:else if done}
       <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px">
         <span class="material-symbols-rounded" style="font-size:48px;color:var(--accent)">check_circle</span>
-        <p style="color:var(--text-2);font-size:14px">Password updated. Redirecting…</p>
+        <p style="color:var(--text-2);font-size:14px">{$_('reset_password.success')}</p>
       </div>
 
     {:else}
       {#if username}
         <p class="text-3" style="font-size:14px;text-align:center">
-          Set a new password for <strong>{username}</strong>
+          {@html $_('reset_password.set_for', { values: { username } })}
         </p>
       {/if}
 
       <div class="form-group">
-        <label class="form-label">New password</label>
+        <label class="form-label">{$_('reset_password.new_password')}</label>
         <input class="input" type="password" autocomplete="new-password"
-          bind:value={password} placeholder="8+ chars, upper, lower, number, symbol" autofocus />
+          bind:value={password} placeholder={$_('reset_password.password_placeholder')} autofocus />
         {#if password}
           <div class="pw-strength" class:s-0={pwScore.score === 0} class:s-1={pwScore.score === 1} class:s-2={pwScore.score === 2} class:s-3={pwScore.score === 3} class:s-4={pwScore.score === 4}>
             <div class="pw-bar"><div class="pw-fill" style:width={`${(pwScore.score / 4) * 100}%`}></div></div>
@@ -100,12 +102,12 @@
         {/if}
       </div>
       <div class="form-group">
-        <label class="form-label">Confirm password</label>
+        <label class="form-label">{$_('reset_password.confirm_password')}</label>
         <input class="input" type="password" autocomplete="new-password"
           bind:value={confirm}
           on:keydown={e => e.key === 'Enter' && submit()} />
         {#if confirm && password !== confirm}
-          <p class="pw-mismatch">Passwords don't match</p>
+          <p class="pw-mismatch">{$_('reset_password.errors.mismatch')}</p>
         {/if}
       </div>
 
@@ -114,7 +116,7 @@
       {/if}
 
       <button class="btn btn-primary w-full" on:click={submit} disabled={loading || !password || !confirm}>
-        {loading ? 'Saving…' : 'Set new password'}
+        {loading ? $_('reset_password.saving') : $_('reset_password.submit')}
       </button>
     {/if}
   </div>

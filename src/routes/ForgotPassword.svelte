@@ -1,6 +1,7 @@
 <script>
   import { push } from 'svelte-spa-router';
-  import { apiUrl } from '../lib/platform.js';
+  import { _ } from 'svelte-i18n';
+  import { apiUrl, resolveAssetUrl } from '../lib/platform.js';
 
   let email   = '';
   let loading = false;
@@ -19,10 +20,10 @@
         body: JSON.stringify({ email: email.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) { error = data.error || 'Failed'; return; }
+      if (!res.ok) { error = data.error || $_('common.errors.failed'); return; }
       sent = true;
     } catch {
-      error = 'Could not reach server';
+      error = $_('common.errors.cant_reach_server');
     } finally {
       loading = false;
     }
@@ -32,25 +33,25 @@
 <div class="login-page">
   <div class="login-card card">
     <div class="login-logo">
-      <img src="/icons/logo.png" alt="NutriTrace" class="logo-img" />
-      <h1 class="login-title">Reset Password</h1>
+      <img src={resolveAssetUrl('/icons/logo.png')} alt="NutriTrace" class="logo-img" />
+      <h1 class="login-title">{$_('forgot_password.title')}</h1>
     </div>
 
     {#if sent}
       <div style="text-align:center;padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:12px">
         <span class="material-symbols-rounded" style="font-size:48px;color:var(--accent)">mark_email_read</span>
         <p style="color:var(--text-2);font-size:14px;line-height:1.5">
-          If an account exists for <strong>{email}</strong>, a reset link has been sent. Check your inbox.
+          {@html $_('forgot_password.sent', { values: { email } })}
         </p>
-        <button class="btn btn-secondary w-full" on:click={() => push('/login')}>Back to sign in</button>
+        <button class="btn btn-secondary w-full" on:click={() => push('/login')}>{$_('forgot_password.back_to_signin')}</button>
       </div>
     {:else}
       <p class="text-3" style="font-size:14px;text-align:center">
-        Enter your email address and we'll send you a link to reset your password.
+        {$_('forgot_password.intro')}
       </p>
 
       <div class="form-group">
-        <label class="form-label">Email address</label>
+        <label class="form-label">{$_('forgot_password.email_label')}</label>
         <input class="input" type="email" autocomplete="email"
           bind:value={email}
           on:keydown={e => e.key === 'Enter' && submit()}
@@ -62,11 +63,11 @@
       {/if}
 
       <button class="btn btn-primary w-full" on:click={submit} disabled={loading || !email.trim()}>
-        {loading ? 'Sending…' : 'Send reset link'}
+        {loading ? $_('forgot_password.sending') : $_('forgot_password.send_link')}
       </button>
 
       <div style="text-align:center">
-        <button class="back-link" on:click={() => push('/login')}>← Back to sign in</button>
+        <button class="back-link" on:click={() => push('/login')}>← {$_('forgot_password.back_to_signin')}</button>
       </div>
     {/if}
   </div>

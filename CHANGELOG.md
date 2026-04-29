@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.6] — 2026-04-28 — i18n scaffolding, subpath support, wizard cleanup
+
+### Added
+- **Internationalization (i18n) scaffolding.** `svelte-i18n` wired up with a JSON-per-locale model under `src/i18n/`. New "Language" picker in Settings → Regional & Units that drives the active locale reactively. ~210 source strings extracted across navigation, page titles, full auth flow (Login / ForgotPassword / ResetPassword / AcceptInvite / Profile), the wizard, primary actions in Diary / Foods / Goals / FoodEditor / MealEditor, common toasts/buttons, and the Trace AI assistant FAB. New `npm run i18n:check` script reports per-locale coverage. Translation contributor guide added to `CONTRIBUTING.md → Translations` (covers adding a new language, conventions, and the "use regulatory nutrient terms not literal translations" gotcha for nutrition labels). Server-side strings (email subjects, push bodies, AI system prompts) intentionally out of scope for now.
+- **Reverse-proxy / subpath support via `BASE_URL` env var.** Lets users mount NutriTrace at `/your-prefix/` for reverse-proxy deployments without URL rewriting. Server mounts all middleware + routes inside an Express sub-router at the prefix; the client reads the basePath from `window.__NT_CONFIG__` (injected at HTML serve time). `apiUrl()` and `resolveAssetUrl()` in `src/lib/platform.js` are the single point where the prefix gets applied. Vite `base: './'` so generated asset URLs are relative; PWA manifest `start_url` and `scope` are `'./'` so PWA install works at any subpath. Default empty `BASE_URL` is identical to pre-feature behavior — existing deployments don't migrate. New "Reverse Proxy with Subpath" section in `DEPLOY.md` with Caddy / nginx / Traefik configs and OAuth callback guidance. Closes the feature request from issue #3 (tellis82).
+- **Shared `DatePicker` + `DateInput` components.** New `src/components/ui/DatePicker.svelte` extracted from inline calendar duplicates in Diary and Wellness — month/year nav, year/month grid pickers, day grid, locale-aware. `src/components/ui/DateInput.svelte` wraps DatePicker with a masked text input + calendar trigger button for form-style date entry (Profile birthday, Wizard dob step). Manual entry is now masked: only digits accepted, separators auto-inserted in the user's chosen format (ISO / US / EU), capped at 8 digits.
+
+### Changed
+- **Wizard cleanup pass.** Removed duplicate birthday + gender fields from the Create Account form — the dedicated `dob` and `gender` wizard steps already capture both. Eliminates the previous mismatch where the auth form offered M/F/Non-binary/Prefer-not but the BMR-bound dedicated step only accepts M/F. Variant-logic comment added in source explaining the three usermgmt-step variants (native local skip / PWA force-create / PWA toggle). Top-bar Skip button now routes through the same confirmation modal as the welcome screen's "I'll do this later" link instead of bailing immediately. Per-integration "Skip" buttons relabeled to "Skip this" so they're visually distinct from the wizard-level skip. AI provider card renamed from "AI Buddy" (legacy waistline-ai-buddy naming) to "AI Assistant" with description mentioning Trace.
+
+### Fixed
+- **Subpath-mode bypass paths.** Several modules constructed API URLs locally instead of going through `apiUrl()`: `src/stores/auth.js` had a duplicate `_apiUrl` helper, `src/lib/api.js` used `_resolveBaseUrl()`, `src/lib/api-cached.js` had `_base()`, `src/lib/sync.js` had `_baseUrl()`, `src/stores/settings.js` had `_settingsUrl()`, and Wizard / AcceptInvite / ResetPassword had raw `fetch('/api/...')` calls. All consolidated through `platform.apiUrl()` so the BASE_URL prefix gets applied uniformly. Prevents the 404 wave seen during the first subpath test.
+- **Static image references at subpath.** `<img src="/icons/logo.png">` and similar absolute paths 404'd when running at a subpath. Touched components: Sidebar (visible on every page), Login / ForgotPassword / ResetPassword / AcceptInvite / NativeSetup / Settings → About panel, plus `src/lib/notifications.js` Web Notification icon. All routed through `resolveAssetUrl()` which prefixes `/uploads/`, `/api/`, `/icons/`, `/fonts/` paths with the basePath in PWA mode.
+- **CSRF rejected settings PUTs.** Fresh JWTs (issued post-CSRF-feature) require an `X-CSRF-Token` header on state-changing requests, but `settings.js` and Wizard's `_putConfig` never sent one. Added the header in both. Existing daily-use installs were shielded by old JWTs lacking the csrf field; this fix lands defensively before any logout-then-login could trigger the bug.
+- **Login flow now refreshes CSRF on sign-in.** Login.svelte previously called `currentUser.set(data.user)` and `loadServerSettings()` immediately, but the new JWT's csrf field never made it into localStorage until the next page reload — so the post-login wave of reactive settings saves all 403'd. Now awaits `loadAuthState()` (which fetches `/api/auth/me` and stores csrf) before settings load.
+
+### Notes
+- Reverse-proxy / subpath support marked done in `FUTURE.md` Infrastructure section. New "Internationalization (i18n)" entry added to `FUTURE.md` between UI/UX Polish and Code/Performance.
+- Three volunteer translators raised hands for French (Lemmy), Dutch (Reddit), and German (Lemmy) on launch threads; outreach pending until translation tracking issue is opened on the public repo.
+- Caveat: `BASE_URL` should be picked at install time. Changing it against existing data leaves stale image URLs in old diary item snapshots since the snapshotted `imgUrl` was stored with the prefix from when it was logged. Documented in `DEPLOY.md`.
+
+---
+
 ## [1.0.0-rc.5] — 2026-04-28 — Post-launch fixes + Docker secrets
 
 ### Added

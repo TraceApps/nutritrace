@@ -13,6 +13,14 @@ import { Capacitor } from '@capacitor/core';
  */
 export const isNative = Capacitor.isNativePlatform();
 
+/**
+ * Server-injected base path (when NutriTrace is mounted at a subpath via
+ * BASE_URL env var, e.g. `/nutritrace`). Empty string when running at root,
+ * or in native where API calls go through getServerUrl() which already
+ * carries any path component the user configured.
+ */
+const _basePath = (typeof window !== 'undefined' && window.__NT_CONFIG__ && window.__NT_CONFIG__.basePath) || '';
+
 
 /**
  * Native setup mode: 'local' | 'server' | null (not yet chosen).
@@ -125,17 +133,25 @@ export function resolveAssetUrl(path) {
     if (url && !path.startsWith('http')) return url + path;
     if (path.startsWith('http')) return path;
   }
+  // PWA: prefix server-relative paths with base path so they resolve under
+  // the configured subpath instead of the document root.
+  if (_basePath && (path.startsWith('/uploads/') || path.startsWith('/api/') || path.startsWith('/icons/') || path.startsWith('/fonts/'))) {
+    return _basePath + path;
+  }
   return path;
 }
 
 /**
  * Prefix an API path with the server URL when in native server-connected mode.
- * In web mode or native local mode, returns the path unchanged (relative URL).
+ * In native local mode, returns the path unchanged (caller intercepts to local
+ * SQLite). In PWA mode, prefixes with the server-injected base path so the
+ * request reaches the right place when the server is mounted at a subpath.
  */
 export function apiUrl(path) {
   if (isNative) {
     const url = getServerUrl();
-    if (url) return url + path;
+    if (url) return url + path; // server URL already carries any subpath the user configured
+    return path; // native local — caller redirects to NtApiNative
   }
-  return path;
+  return _basePath + path;
 }

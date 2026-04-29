@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { slide } from 'svelte/transition';
+  import { _ } from 'svelte-i18n';
   import { portal } from '../lib/portal.js';
   import Chart from 'chart.js/auto';
   import { DB, localDateStr } from '../lib/db.js';
@@ -478,7 +479,7 @@
 <div class="page-shell">
   <header class="page-header" class:has-banner={$pageBanners}>
     {#if $pageBanners}<StatsBanner />{/if}
-    <h1>Statistics</h1>
+    <h1>{$_('routes.statistics.title')}</h1>
   </header>
 
   <div class="stats-content">

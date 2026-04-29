@@ -1,5 +1,6 @@
 <script>
   import { push } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { DB, localDateStr } from '../lib/db.js';
@@ -8,13 +9,22 @@
   import { currentUser, userMgmtActive, setupRequired, loadAuthState } from '../stores/auth.js';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { showError } from '../stores/toast.js';
-  import { isNative, getServerUrl } from '../lib/platform.js';
+  import { isNative, getServerUrl, apiUrl } from '../lib/platform.js';
   import Toggle from '../components/settings/Toggle.svelte';
+  import DateInput from '../components/ui/DateInput.svelte';
 
-  // In native local mode, skip user management step (single user, no server)
-  const _isNativeLocal = isNative && !getServerUrl();
-  // PWA: account creation is mandatory (server must have at least one user)
-  const _isPwa = !isNative;
+  // ── Wizard mode branching ────────────────────────────────────────────────
+  // Three variants of the user-management step:
+  //   1. Native local mode (Capacitor + no server URL): step is skipped entirely.
+  //      Single-device, single-user, no auth — nothing to configure.
+  //   2. PWA with no users yet on server: forces "Create Your Account". The user
+  //      must register an admin before the rest of the wizard can run; cookie-
+  //      based auth needs at least one user. No skip, no toggle.
+  //   3. PWA with users already present: shows "Multi-User Support" toggle.
+  //      Lets the user opt into multi-user mode (separate logins, password
+  //      resets), or stay single-user.
+  const _isNativeLocal       = isNative && !getServerUrl();
+  const _isPwa               = !isNative;
   const _forceAccountCreation = _isPwa && $setupRequired;
 
   // Steps: usermgmt (optional on native, mandatory on PWA), welcome, units, ...
@@ -25,18 +35,21 @@
   let dir  = 1;
 
   // ── User management step ─────────────────────────────────────────────────
-  // On PWA with no users: force account creation (no toggle, can't skip)
-  let enableUserMgmt  = _forceAccountCreation ? true : false;
-  let adminUsername   = '';
-  let adminPassword   = '';
-  let adminConfirm    = '';
-  let adminFullName   = '';
-  let adminNickname   = '';
-  let adminEmail      = '';
-  let adminBirthday   = '';
-  let adminGender     = '';
-  let umError         = '';
-  let umLoading       = false;
+  // Auth-only fields — birthday and gender intentionally NOT collected here.
+  // The dedicated `dob` and `gender` wizard steps later in the flow capture
+  // those into USER_PREFS where they live with the rest of the profile.
+  // Collecting them in two places previously created two sources of truth and
+  // mismatched gender option lists (auth form had M/F/Non-binary/Prefer-not,
+  // the dedicated step has only M/F because Mifflin-St Jeor is binary).
+  let enableUserMgmt = _forceAccountCreation ? true : false;
+  let adminUsername  = '';
+  let adminPassword  = '';
+  let adminConfirm   = '';
+  let adminFullName  = '';
+  let adminNickname  = '';
+  let adminEmail     = '';
+  let umError        = '';
+  let umLoading      = false;
 
   // ── Unit system ───────────────────────────────────────────────────────────
   let unitSystem = ''; // 'metric' | 'imperial'
@@ -93,7 +106,7 @@
   $: if (currentStepName === 'integrations' && !intStatusLoaded) {
     intStatusLoaded = true;
     if (!_isNativeLocal) {
-      fetch('/api/app-config/env-locks', { credentials: 'include' })
+      fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include' })
         .then(r => r.ok ? r.json() : {})
         .then(d => {
           intAILocked = d.ai === true;
@@ -118,11 +131,6 @@
 
   $: wUnit = $weightUnit || 'kg';
   $: hUnit = $heightUnit || 'cm';
-
-  // Sync gender from user mgmt step when user picks there
-  $: if (adminGender && !gender) gender = adminGender;
-  // Sync dob from user mgmt step
-  $: if (adminBirthday && dob === (new Date().getFullYear() - 25) + '-01-01') dob = adminBirthday;
 
   function toKg(v) {
     if (wUnit === 'lb') return v * 0.453592;
@@ -167,8 +175,8 @@
                && !(currentStepName === 'gender'   && !gender)
                && !(currentStepName === 'activity' && !activity);
 
-  $: btnLabel = step === ALL_STEPS.length - 1 ? 'Finish'
-    : step === 0 ? 'Get Started' : 'Next';
+  $: btnLabel = step === ALL_STEPS.length - 1 ? $_('wizard.nav.finish')
+    : step === 0 ? $_('wizard.nav.get_started') : $_('wizard.nav.next');
 
   async function next() {
     if (currentStepName === 'usermgmt') {
@@ -181,18 +189,16 @@
         // Register the admin account
         umLoading = true;
         try {
-          const res = await fetch('/api/auth/register', {
+          const res = await fetch(apiUrl('/api/auth/register'), {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              username:   adminUsername.trim(),
-              password:   adminPassword,
-              full_name:  adminFullName.trim() || undefined,
-              nickname:   adminNickname.trim() || undefined,
-              email:      adminEmail.trim()    || undefined,
-              birthday:   adminBirthday || undefined,
-              gender:     adminGender   || undefined,
+              username:  adminUsername.trim(),
+              password:  adminPassword,
+              full_name: adminFullName.trim() || undefined,
+              nickname:  adminNickname.trim() || undefined,
+              email:     adminEmail.trim()    || undefined,
             }),
           });
           const data = await res.json().catch(() => ({}));
@@ -261,11 +267,15 @@
 
     // AI is admin-side: writes to app_config, not user_settings
     if (!intSkipped.ai && !intAILocked && intAIKey.trim()) {
-      const _putConfig = (key, value) => fetch('/api/app-config', {
-        method: 'PUT', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, value }),
-      }).catch(() => {});
+      const _putConfig = (key, value) => {
+        const headers = { 'Content-Type': 'application/json' };
+        const csrf = localStorage.getItem('nt:csrf');
+        if (csrf) headers['X-CSRF-Token'] = csrf;
+        return fetch(apiUrl('/api/app-config'), {
+          method: 'PUT', credentials: 'include', headers,
+          body: JSON.stringify({ key, value }),
+        }).catch(() => {});
+      };
       await Promise.all([
         _putConfig('ai_api_key',  intAIKey.trim()),
         _putConfig('ai_provider', intAIProvider),
@@ -342,7 +352,7 @@
   <!-- Skip button -->
   <div class="wizard-topbar">
     {#if step > 0 && step < ALL_STEPS.length - 1 && !(_forceAccountCreation && !$userMgmtActive)}
-      <button class="btn btn-ghost wizard-skip" on:click={skip}>Skip</button>
+      <button class="btn btn-ghost wizard-skip" on:click={() => skipSetupConfirm = true}>{$_('wizard.nav.skip')}</button>
     {:else}
       <div></div>
     {/if}
@@ -365,14 +375,14 @@
         {#if _forceAccountCreation}
           <div class="step-hero compact">
             <span class="material-symbols-rounded hero-icon">person_add</span>
-            <h1 class="step-title">Create Your Account</h1>
-            <p class="step-desc">Set up your admin account to secure your NutriTrace instance. You can invite other users later from Settings.</p>
+            <h1 class="step-title">{$_('wizard.usermgmt.create_account_title')}</h1>
+            <p class="step-desc">{$_('wizard.usermgmt.create_account_desc')}</p>
           </div>
         {:else}
           <div class="step-hero compact">
             <span class="material-symbols-rounded hero-icon">group</span>
-            <h1 class="step-title">Multi-User Support</h1>
-            <p class="step-desc">NutriTrace can run in single-user mode (default) or multi-user mode with separate logins and password resets. You can always enable this later in Settings.</p>
+            <h1 class="step-title">{$_('wizard.usermgmt.multi_user_title')}</h1>
+            <p class="step-desc">{$_('wizard.usermgmt.multi_user_desc')}</p>
           </div>
 
           <div class="toggle-row">
@@ -412,24 +422,6 @@
 
             <div class="form-row-2">
               <div class="form-group">
-                <label class="form-label">Birthday</label>
-                <input class="input" type="date" bind:value={adminBirthday}
-                  max={localDateStr()} />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Gender</label>
-                <select class="input" bind:value={adminGender}>
-                  <option value="">— skip —</option>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="other">Other</option>
-                  <option value="prefer_not">Prefer not to say</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="form-row-2">
-              <div class="form-group">
                 <label class="form-label">Password *</label>
                 <input class="input" type="password" bind:value={adminPassword} autocomplete="new-password" placeholder="8+ chars, upper, lower, number, symbol" />
                 {#if adminPassword}
@@ -459,8 +451,8 @@
       {:else if currentStepName === 'welcome'}
         <div class="step-hero">
           <div class="logo-icon">🥗</div>
-          <h1 class="step-title">Welcome to NutriTrace</h1>
-          <p class="step-desc">Your personal nutrition tracker. Let's get you set up in about a minute.</p>
+          <h1 class="step-title">{$_('wizard.welcome.title')}</h1>
+          <p class="step-desc">{$_('wizard.welcome.desc')}</p>
           {#if !(_forceAccountCreation && !$userMgmtActive)}
             <button type="button" class="skip-setup-link" on:click={() => skipSetupConfirm = true}>
               I'll do this later
@@ -470,8 +462,8 @@
 
       <!-- ── Units ── -->
       {:else if currentStepName === 'units'}
-        <h2 class="step-title">Measurement System</h2>
-        <p class="step-desc">How do you measure things?</p>
+        <h2 class="step-title">{$_('wizard.units.title')}</h2>
+        <p class="step-desc">{$_('wizard.units.desc')}</p>
         <div class="gender-cards">
           <button class="option-card" class:selected={unitSystem === 'metric'}
             on:click={() => applyUnitSystem('metric')}>
@@ -495,8 +487,8 @@
 
       <!-- ── Gender ── -->
       {:else if currentStepName === 'gender'}
-        <h2 class="step-title">What is your gender?</h2>
-        <p class="step-desc">Used to calculate your calorie needs.</p>
+        <h2 class="step-title">{$_('wizard.gender.title')}</h2>
+        <p class="step-desc">{$_('wizard.gender.desc')}</p>
         <div class="gender-cards">
           {#each [['male','man','Male'],['female','woman','Female']] as [val, icon, lbl]}
             <button class="option-card" class:selected={gender === val}
@@ -512,16 +504,16 @@
 
       <!-- ── Date of Birth ── -->
       {:else if currentStepName === 'dob'}
-        <h2 class="step-title">When were you born?</h2>
-        <p class="step-desc">Your age affects your metabolic rate.</p>
-        <input class="input" type="date" bind:value={dob}
-          max={localDateStr()}
-          style="margin-top:24px;font-size:16px" />
+        <h2 class="step-title">{$_('wizard.dob.title')}</h2>
+        <p class="step-desc">{$_('wizard.dob.desc')}</p>
+        <div class="dob-input-wrap">
+          <DateInput bind:value={dob} max={localDateStr()} />
+        </div>
 
       <!-- ── Height ── -->
       {:else if currentStepName === 'height'}
-        <h2 class="step-title">What is your height?</h2>
-        <p class="step-desc">Used to estimate your calorie needs.</p>
+        <h2 class="step-title">{$_('wizard.height.title')}</h2>
+        <p class="step-desc">{$_('wizard.height.desc')}</p>
         <div style="margin-top:24px;display:flex;flex-direction:column;gap:12px">
           {#if hUnit === 'cm'}
             <label class="form-label">Height (cm)</label>
@@ -543,22 +535,22 @@
 
       <!-- ── Current Weight ── -->
       {:else if currentStepName === 'weight'}
-        <h2 class="step-title">What is your weight?</h2>
+        <h2 class="step-title">{$_('wizard.weight.title')}</h2>
         <p class="step-desc">Your current body weight ({wUnit}).</p>
         <input class="input" type="number" min="20" max="500" step="0.1"
           bind:value={weight} style="margin-top:24px;font-size:16px" />
 
       <!-- ── Target Weight ── -->
       {:else if currentStepName === 'target'}
-        <h2 class="step-title">What is your target weight?</h2>
+        <h2 class="step-title">{$_('wizard.target.title')}</h2>
         <p class="step-desc">Your goal weight ({wUnit}). Leave same as current to maintain.</p>
         <input class="input" type="number" min="20" max="500" step="0.1"
           bind:value={targetW} style="margin-top:24px;font-size:16px" />
 
       <!-- ── Activity Level ── -->
       {:else if currentStepName === 'activity'}
-        <h2 class="step-title">How active are you?</h2>
-        <p class="step-desc">Affects your daily calorie needs.</p>
+        <h2 class="step-title">{$_('wizard.activity.title')}</h2>
+        <p class="step-desc">{$_('wizard.activity.desc')}</p>
         <div class="activity-list">
           {#each ACTIVITY_LEVELS as lvl}
             <button class="activity-card" class:selected={activity === lvl.value}
@@ -576,8 +568,8 @@
       {:else if currentStepName === 'integrations'}
         <div class="step-hero compact">
           <span class="material-symbols-rounded hero-icon">extension</span>
-          <h1 class="step-title">Integrations</h1>
-          <p class="step-desc">Connect optional services. Skip anything you don't need — you can configure these later in Settings.</p>
+          <h1 class="step-title">{$_('wizard.integrations.title')}</h1>
+          <p class="step-desc">{$_('wizard.integrations.desc')}</p>
         </div>
 
         <div class="int-cards">
@@ -593,7 +585,7 @@
               {#if intSkipped.off}
                 <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, off: false}}>Configure</button>
               {:else}
-                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, off: true}}>Skip</button>
+                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, off: true}}>Skip this</button>
               {/if}
             </div>
             {#if !intSkipped.off}
@@ -615,7 +607,7 @@
               {#if intSkipped.usda}
                 <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, usda: false}}>Configure</button>
               {:else}
-                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, usda: true}}>Skip</button>
+                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, usda: true}}>Skip this</button>
               {/if}
             </div>
             {#if !intSkipped.usda}
@@ -636,7 +628,7 @@
               {#if intSkipped.mealie}
                 <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, mealie: false}}>Configure</button>
               {:else}
-                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, mealie: true}}>Skip</button>
+                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, mealie: true}}>Skip this</button>
               {/if}
             </div>
             {#if !intSkipped.mealie}
@@ -647,13 +639,13 @@
             {/if}
           </div>
 
-          <!-- AI Buddy -->
+          <!-- AI Assistant -->
           {#if intAILocked}
             <div class="int-card int-card-locked">
               <div class="int-card-head">
                 <div class="int-card-icon">🤖</div>
                 <div class="int-card-info">
-                  <div class="int-card-title">AI Buddy</div>
+                  <div class="int-card-title">AI Assistant</div>
                   <div class="int-card-sub int-locked-label">Configured via environment variables</div>
                 </div>
                 <span class="material-symbols-rounded int-lock-icon">lock</span>
@@ -664,13 +656,13 @@
               <div class="int-card-head">
                 <div class="int-card-icon">🤖</div>
                 <div class="int-card-info">
-                  <div class="int-card-title">AI Buddy</div>
-                  <div class="int-card-sub">A nutrition assistant powered by your own AI provider</div>
+                  <div class="int-card-title">AI Assistant</div>
+                  <div class="int-card-sub">Trace, your AI nutrition assistant — bring your own API key</div>
                 </div>
                 {#if intSkipped.ai}
                   <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, ai: false}}>Configure</button>
                 {:else}
-                  <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, ai: true}}>Skip</button>
+                  <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, ai: true}}>Skip this</button>
                 {/if}
               </div>
               {#if !intSkipped.ai}
@@ -717,8 +709,8 @@
       {:else if currentStepName === 'notifications'}
         <div class="step-hero compact">
           <span class="material-symbols-rounded hero-icon">notifications</span>
-          <h1 class="step-title">Stay on Track</h1>
-          <p class="step-desc">Get helpful reminders and celebrate your wins. You can customize all of these later in Settings.</p>
+          <h1 class="step-title">{$_('wizard.notifications.title')}</h1>
+          <p class="step-desc">{$_('wizard.notifications.desc')}</p>
         </div>
 
         <div class="int-cards">
@@ -782,8 +774,8 @@
 
       <!-- ── Summary ── -->
       {:else if currentStepName === 'summary'}
-        <h2 class="step-title">Your Daily Goals</h2>
-        <p class="step-desc">Calculated from your stats using the Mifflin-St Jeor formula.</p>
+        <h2 class="step-title">{$_('wizard.summary.title')}</h2>
+        <p class="step-desc">{$_('wizard.summary.desc')}</p>
         <div class="summary-card">
           <div class="tdee-row">
             <div class="tdee-label">Estimated TDEE</div>
@@ -825,7 +817,7 @@
   <!-- Nav buttons -->
   <div class="wizard-nav">
     {#if step > 0}
-      <button class="btn btn-secondary" on:click={prev}>Back</button>
+      <button class="btn btn-secondary" on:click={prev}>{$_('common.back')}</button>
     {:else}
       <div></div>
     {/if}
@@ -842,13 +834,13 @@
 {#if skipSetupConfirm}
   <div class="skip-modal-backdrop" on:click|self={() => skipSetupConfirm = false}>
     <div class="skip-modal" on:click|stopPropagation>
-      <h3 class="skip-modal-title">Skip setup?</h3>
+      <h3 class="skip-modal-title">{$_('wizard.skip_modal.title')}</h3>
       <p class="skip-modal-desc">
-        You can set up your goals, units, and integrations any time from <strong>Settings</strong>. Until then, calorie targets won't be calculated automatically.
+        {@html $_('wizard.skip_modal.desc')}
       </p>
       <div class="skip-modal-actions">
-        <button class="btn btn-secondary" on:click={() => skipSetupConfirm = false}>Continue setup</button>
-        <button class="btn btn-primary" on:click={() => { skipSetupConfirm = false; skip(); }}>Skip for now</button>
+        <button class="btn btn-secondary" on:click={() => skipSetupConfirm = false}>{$_('wizard.skip_modal.continue')}</button>
+        <button class="btn btn-primary" on:click={() => { skipSetupConfirm = false; skip(); }}>{$_('wizard.skip_modal.skip_now')}</button>
       </div>
     </div>
   </div>
@@ -1055,4 +1047,9 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
   .spin { animation: spin 0.8s linear infinite; }
+
+  .dob-input-wrap {
+    margin: 24px auto 0;
+    max-width: 360px;
+  }
 </style>

@@ -2,6 +2,7 @@
   import { fly, fade } from 'svelte/transition';
   import { cubicOut }  from 'svelte/easing';
   import { createEventDispatcher } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
 
   export let open   = false;
@@ -49,7 +50,7 @@
       {#if title}
         <div class="sheet-header">
           <h3 class="sheet-title">{title}</h3>
-          <button class="btn-icon" on:click={close} aria-label="Close" title="Close">
+          <button class="btn-icon" on:click={close} aria-label={$_('common.close')} title={$_('common.close')}>
             <span class="material-symbols-rounded">close</span>
           </button>
         </div>

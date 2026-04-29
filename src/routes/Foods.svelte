@@ -1,6 +1,7 @@
 <script>
   import { onMount, tick } from 'svelte';
   import { push, location } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { fade, fly } from 'svelte/transition';
 
   import Tabs        from '../components/ui/Tabs.svelte';
@@ -78,11 +79,11 @@
   let searchSource = 'local';
   const _mealieEnabled = DB.getSetting('mealieEnabled',  false);
   $: availableSources = [
-    { value: 'local',  label: 'Local'  },
-    { value: 'off',    label: 'OFF'    },
-    ...($usdaEnabled   ? [{ value: 'usda',   label: 'USDA'   }] : []),
+    { value: 'local',  label: $_('foods.sources.local')  },
+    { value: 'off',    label: 'OFF'                       },
+    ...($usdaEnabled   ? [{ value: 'usda',   label: 'USDA' }] : []),
     ...(_mealieEnabled ? [{ value: 'mealie', label: 'Mealie' }] : []),
-    ...(_tabHasShared  ? [{ value: 'shared', label: 'From Others' }] : []),
+    ...(_tabHasShared  ? [{ value: 'shared', label: $_('foods.sources.from_others') }] : []),
   ];
   $: _sourceLabel = availableSources.find(s => s.value === searchSource)?.label || '';
 
@@ -446,7 +447,7 @@
     if (currentStore === 'foodList') await NtApi.deleteFood(item.id);
     else await NtApi.deleteMeal(item.id);
     await load();
-    showSuccess('Deleted');
+    showSuccess($_('foods.toast.deleted'));
   }
 
   async function cloneItem(item) {
@@ -455,7 +456,7 @@
     if (currentStore === 'foodList') await NtApi.createFood(clone);
     else await NtApi.createMeal(clone);
     await load();
-    showSuccess('Cloned');
+    showSuccess($_('foods.toast.cloned'));
   }
 
   function longPress(item) {
@@ -571,23 +572,23 @@
   <header class="page-header" class:has-banner={$pageBanners}>
     {#if $pageBanners}<FoodsBanner />{/if}
     {#if pickMode && selectedFoods.size > 0}
-      <h1 class="pick-count-title">{selectedFoods.size} selected</h1>
-      <button class="btn btn-primary pick-confirm-btn" on:click={confirmMultiAdd} disabled={multiAdding} aria-label="Add selected to diary">
+      <h1 class="pick-count-title">{$_('foods.n_selected', { values: { n: selectedFoods.size } })}</h1>
+      <button class="btn btn-primary pick-confirm-btn" on:click={confirmMultiAdd} disabled={multiAdding} aria-label={$_('foods.add_selected_to_diary')}>
         {#if multiAdding}
           <span class="material-symbols-rounded spin" style="font-size:16px">refresh</span>
-          <span>Adding…</span>
+          <span>{$_('foods.adding')}</span>
         {:else}
           <span class="material-symbols-rounded" style="font-size:16px">check</span>
-          <span>Add {selectedFoods.size}</span>
+          <span>{$_('foods.add_n', { values: { n: selectedFoods.size } })}</span>
         {/if}
       </button>
     {:else}
-      <h1>Foods</h1>
+      <h1>{$_('routes.foods.title')}</h1>
       <button class="btn-icon accent" on:click={() => {
         if (activeTab === 0) openEditor(null, 'foodList');
         else if (activeTab === 1) openMealEditor(null, false);
         else openMealEditor(null, true);
-      }} aria-label="Add new" title="Add new">
+      }} aria-label={$_('foods.add_new')} title={$_('foods.add_new')}>
         <span class="material-symbols-rounded">add</span>
       </button>
     {/if}
@@ -605,10 +606,10 @@
       <input
         class="foods-search-input"
         type="search"
-        placeholder="Search foods or scan barcode..."
+        placeholder={$_('foods.search_placeholder')}
         bind:value={search}
       />
-      <button class="scan-btn-inline" on:click={() => scannerOpen = true} aria-label="Scan barcode" title="Scan barcode">
+      <button class="scan-btn-inline" on:click={() => scannerOpen = true} aria-label={$_('foods.scan_barcode')} title={$_('foods.scan_barcode')}>
         <span class="material-symbols-rounded">barcode_scanner</span>
       </button>
     </div>
@@ -763,19 +764,19 @@
       {#if !search.trim()}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search</span>
-          <p>Search {_sourceLabel}</p>
+          <p>{$_('foods.search_in', { values: { source: _sourceLabel } })}</p>
         </div>
 
       {:else if loading || mealieLoading}
         <div class="loading-row">
           <span class="material-symbols-rounded spin">refresh</span>
-          <span class="text-2 text-sm">Searching {_sourceLabel}…</span>
+          <span class="text-2 text-sm">{$_('foods.searching_in', { values: { source: _sourceLabel } })}</span>
         </div>
 
       {:else if apiResults.length === 0 && mealieResults.length === 0}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search_off</span>
-          <p>No results in {_sourceLabel}</p>
+          <p>{$_('foods.no_results_in', { values: { source: _sourceLabel } })}</p>
         </div>
 
       {:else}

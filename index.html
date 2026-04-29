@@ -8,7 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#0A0B0F" id="theme-color-meta" />
   <title>NutriTrace</title>
-  <link rel="manifest" href="/manifest.webmanifest" />
+  <!-- VitePWA injects its own <link rel="manifest"> with a relative href that
+       respects the Vite base config — keeping this hand-written one as a no-op
+       fallback would resolve to the wrong absolute path under BASE_URL. -->
   <!-- Fonts: CDN for web, local fallback for Android/offline -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

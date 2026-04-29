@@ -1,9 +1,11 @@
 <script>
   import { onMount } from 'svelte';
   import { push, querystring } from 'svelte-spa-router';
+  import { _ } from 'svelte-i18n';
   import { currentUser } from '../stores/auth.js';
   import { loadServerSettings } from '../stores/settings.js';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
+  import { apiUrl, resolveAssetUrl } from '../lib/platform.js';
 
   $: pwScore = passwordStrength(password);
 
@@ -24,7 +26,7 @@
     token = params.get('token') || '';
     if (!token) { validating = false; return; }
     try {
-      const res  = await fetch(`/api/auth/validate-token?token=${token}&type=invite`, { credentials: 'include' });
+      const res  = await fetch(apiUrl(`/api/auth/validate-token?token=${token}&type=invite`), { credentials: 'include' });
       const data = await res.json();
       if (res.ok) { tokenValid = true; prefillEmail = data.email || ''; }
     } finally {
@@ -33,28 +35,28 @@
   });
 
   async function submit() {
-    if (!username.trim()) { error = 'Username is required'; return; }
-    if (!password) { error = 'Password is required'; return; }
+    if (!username.trim()) { error = $_('accept_invite.errors.username_required'); return; }
+    if (!password)        { error = $_('reset_password.errors.required'); return; }
     const pwErr = validatePassword(password);
     if (pwErr) { error = pwErr; return; }
-    if (password !== confirm) { error = 'Passwords do not match'; return; }
+    if (password !== confirm) { error = $_('reset_password.errors.mismatch'); return; }
     loading = true; error = '';
     try {
-      const res  = await fetch('/api/auth/accept-invite', {
+      const res  = await fetch(apiUrl('/api/auth/accept-invite'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, username: username.trim(), password, full_name: fullName.trim() || undefined }),
       });
       const data = await res.json();
-      if (!res.ok) { error = data.error || 'Failed to create account'; return; }
+      if (!res.ok) { error = data.error || $_('accept_invite.errors.failed'); return; }
       localStorage.setItem('wl:userId', String(data.user.id));
       currentUser.set(data.user);
       await loadServerSettings();
       done = true;
       setTimeout(() => push('/'), 2000);
     } catch {
-      error = 'Could not reach server';
+      error = $_('common.errors.cant_reach_server');
     } finally {
       loading = false;
     }
@@ -64,51 +66,51 @@
 <div class="login-page">
   <div class="login-card card">
     <div class="login-logo">
-      <img src="/icons/logo.png" alt="NutriTrace" class="logo-img" />
-      <h1 class="login-title">Create Account</h1>
+      <img src={resolveAssetUrl('/icons/logo.png')} alt="NutriTrace" class="logo-img" />
+      <h1 class="login-title">{$_('accept_invite.title')}</h1>
     </div>
 
     {#if validating}
-      <p class="text-3" style="text-align:center;font-size:14px">Verifying invite…</p>
+      <p class="text-3" style="text-align:center;font-size:14px">{$_('accept_invite.verifying')}</p>
 
     {:else if !tokenValid}
       <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px">
         <span class="material-symbols-rounded" style="font-size:48px;color:var(--danger)">link_off</span>
-        <p style="color:var(--text-2);font-size:14px">This invite link is invalid or has expired. Ask your admin for a new one.</p>
-        <button class="btn btn-secondary w-full" on:click={() => push('/login')}>Back to sign in</button>
+        <p style="color:var(--text-2);font-size:14px">{$_('accept_invite.invalid_link')}</p>
+        <button class="btn btn-secondary w-full" on:click={() => push('/login')}>{$_('forgot_password.back_to_signin')}</button>
       </div>
 
     {:else if done}
       <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px">
         <span class="material-symbols-rounded" style="font-size:48px;color:var(--accent)">check_circle</span>
-        <p style="color:var(--text-2);font-size:14px">Account created! Redirecting…</p>
+        <p style="color:var(--text-2);font-size:14px">{$_('accept_invite.success')}</p>
       </div>
 
     {:else}
       {#if prefillEmail}
         <p class="text-3" style="font-size:14px;text-align:center">
-          You were invited as <strong>{prefillEmail}</strong>. Choose a username and password to get started.
+          {@html $_('accept_invite.intro_with_email', { values: { email: prefillEmail } })}
         </p>
       {:else}
         <p class="text-3" style="font-size:14px;text-align:center">
-          You've been invited to NutriTrace. Choose a username and password to get started.
+          {$_('accept_invite.intro')}
         </p>
       {/if}
 
       <div class="form-group">
-        <label class="form-label">Username *</label>
+        <label class="form-label">{$_('accept_invite.username_label')}</label>
         <input class="input" type="text" autocomplete="username"
-          bind:value={username} placeholder="Choose a username" autofocus />
+          bind:value={username} placeholder={$_('accept_invite.username_placeholder')} autofocus />
       </div>
       <div class="form-group">
-        <label class="form-label">Full name (optional)</label>
+        <label class="form-label">{$_('accept_invite.full_name_label')}</label>
         <input class="input" type="text" autocomplete="name"
-          bind:value={fullName} placeholder="Your name" />
+          bind:value={fullName} placeholder={$_('accept_invite.full_name_placeholder')} />
       </div>
       <div class="form-group">
-        <label class="form-label">Password *</label>
+        <label class="form-label">{$_('accept_invite.password_label')}</label>
         <input class="input" type="password" autocomplete="new-password"
-          bind:value={password} placeholder="8+ chars, upper, lower, number, symbol" />
+          bind:value={password} placeholder={$_('reset_password.password_placeholder')} />
         {#if password}
           <div class="pw-strength" class:s-0={pwScore.score === 0} class:s-1={pwScore.score === 1} class:s-2={pwScore.score === 2} class:s-3={pwScore.score === 3} class:s-4={pwScore.score === 4}>
             <div class="pw-bar"><div class="pw-fill" style:width={`${(pwScore.score / 4) * 100}%`}></div></div>
@@ -117,11 +119,11 @@
         {/if}
       </div>
       <div class="form-group">
-        <label class="form-label">Confirm password *</label>
+        <label class="form-label">{$_('accept_invite.confirm_label')}</label>
         <input class="input" type="password" autocomplete="new-password"
           bind:value={confirm} on:keydown={e => e.key === 'Enter' && submit()} />
         {#if confirm && password !== confirm}
-          <p class="pw-mismatch">Passwords don't match</p>
+          <p class="pw-mismatch">{$_('reset_password.errors.mismatch')}</p>
         {/if}
       </div>
 
@@ -130,7 +132,7 @@
       {/if}
 
       <button class="btn btn-primary w-full" on:click={submit} disabled={loading || !username || !password || !confirm}>
-        {loading ? 'Creating account…' : 'Create account'}
+        {loading ? $_('accept_invite.creating') : $_('accept_invite.submit')}
       </button>
     {/if}
   </div>
