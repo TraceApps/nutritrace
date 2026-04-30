@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.8] — 2026-04-30 — Manual activity logging (issue #3)
+
+Adds an opt-in **Activity** section to the Diary so you can log
+exercise calories without a wearable. Closes [#3](https://github.com/TraceApps/nutritrace/issues/3).
+
+### Added
+- **Activity section on the Diary.** Turn it on in Settings → Diary
+  → "Show activity section" (off by default). Each entry takes a
+  name plus calories burned, with optional duration and distance.
+  Multiple entries per day, edit or delete via long-press. Sits
+  below your meals and visually mirrors them — green segmented bar
+  showing each entry's share of the day's burn, total at the bottom.
+- **Optional earn-back toggle.** Settings → Diary → "Adjust calorie
+  goal from activity" (off by default). When on, today's burn raises
+  your calorie remaining for the day. The expanded Remaining panel
+  shows the math — *"Goal 2,000 + Activity 540 = 2,540 kcal"* — so
+  it's clear what bumped the number. Macro targets (protein / carbs /
+  fat) stay anchored to your base goal regardless.
+- **Wearable + manual coexistence policy.** When you have both a
+  wearable integration and manual entries on the same day, a Settings
+  radio decides how they combine: *Wearable wins* (default — manual
+  entries display but don't move the goal math), *Manual wins*
+  (replaces the wearable's burn for the day), or *Add together*
+  (with a double-count warning). The policy section only appears when
+  the earn-back toggle is on.
+- **Trace can log activity for you.** New `add_activity_entry`
+  tool — say *"I hiked 10 miles, about 1000 calories"* in chat or
+  hold-to-record on the FAB and Trace logs it directly. If you don't
+  supply a number, Trace can estimate one from your body profile —
+  gated by a separate "Estimate activity calories" toggle in Settings
+  → AI Assistant, which only enables when your weight, height, date
+  of birth, and sex are all set.
+- **Wellness hint on the Activity header.** When any wearable
+  integration is enabled, a subtle line under "Activity" reminds you
+  that synced device workouts (Garmin runs, Fitbit rides, etc.) live
+  on the Wellness page — Activity is for what you log manually.
+- **Negative remaining values.** Goal totals in Remaining mode now
+  show how far you are *over* a target (e.g. `−20 g Fat` instead of
+  `0 g`) for calories, protein, carbs, fat, sodium, sugars, fiber,
+  and other tracked nutrients. Water still clamps at zero.
+
+### Storage & backups
+- New `activity_log` table covered by Full Backup ZIP, JSON
+  export, and the Clear Data path.
+
+---
+
 ## [1.0.0-rc.6] — 2026-04-28 — i18n scaffolding, subpath support, wizard cleanup
 
 ### Added

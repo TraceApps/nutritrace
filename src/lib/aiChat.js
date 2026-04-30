@@ -74,6 +74,22 @@ export const TOOLS = [
     parameters: { type: 'object', properties: {} },
   },
   {
+    name: 'add_activity_entry',
+    description: 'Log an exercise/activity entry to the user\'s Diary Activity section. Use this when the user describes a workout or physical activity ("I hiked 10 miles", "did 45 min of yoga"). Each entry offsets the day\'s calorie goal per the user\'s policy. If the user provides a calorie number, pass it as kcal and use source="user_stated". If you estimated kcal from body profile + duration/MET, use source="ai_estimated" and tell the user the estimate so they can correct it. Do NOT call this tool if the activityAutoEstimate setting is off and the user did not supply a calorie number — ask them for one instead.',
+    parameters: {
+      type: 'object',
+      properties: {
+        date:         { type: 'string', description: 'Date the activity happened (YYYY-MM-DD). Defaults to today if omitted.' },
+        name:         { type: 'string', description: 'Short label for the activity, e.g. "Morning hike", "Yoga", "Bike commute".' },
+        kcal:         { type: 'number', description: 'Calories burned (positive integer).' },
+        duration_min: { type: 'number', description: 'Optional duration in minutes.' },
+        distance:     { type: 'string', description: 'Optional free-text distance, e.g. "10 mi" or "5 km".' },
+        source:       { type: 'string', description: 'Provenance: "user_stated" if the user gave a number, "ai_estimated" if you computed it.' },
+      },
+      required: ['name', 'kcal'],
+    },
+  },
+  {
     name: 'get_diary_averages',
     description: 'Get the user\'s average daily nutrition intake over the last N days, plus logging consistency. Returns average calories, protein, carbs, fat, water, and other nutrients. Also returns how many days were logged vs total days (consistency %), and weight change over the period if available. Use this to compare actual intake against goals and offer evidence-based goal adjustment suggestions.',
     parameters: {

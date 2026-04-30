@@ -203,6 +203,24 @@ export const NtApiCached = {
     return await dbGetAllDiary().catch(() => []);
   },
 
+  // ── Activity (server-only for now; no native cache yet) ───────────────
+
+  async getActivity(date) {
+    try { return await _serverFetch('GET', `/api/activity/${date}`); }
+    catch { return []; }
+  },
+  async getActivitySum(date, policy = 'wearable_wins') {
+    try { return await _serverFetch('GET', `/api/activity/sum/${date}?policy=${encodeURIComponent(policy)}`); }
+    catch { return { manual: 0, wearable: 0, effective: 0, policy }; }
+  },
+  async getActivityRange(from, to) {
+    try { return await _serverFetch('GET', `/api/activity?from=${from}&to=${to}`); }
+    catch { return []; }
+  },
+  async createActivity(data)     { return _serverFetch('POST', '/api/activity', data); },
+  async updateActivity(id, data) { return _serverFetch('PUT', `/api/activity/${id}`, data); },
+  async deleteActivity(id)       { return _serverFetch('DELETE', `/api/activity/${id}`); },
+
   // ── Users (server-only) ───────────────────────────────────────────────
 
   async getUsersList() {

@@ -28,6 +28,7 @@ export const USER_PREFS = new Set([
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
   'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes',
+  'diaryShowActivity','manualActivityPolicy','activityAutoEstimate','calorieAdjustFromActivity',
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
   'foodsShowYesterdayMeals','foodsYesterdayCollapsed','foodsSavedCollapsed','foodsSort',
   'barcodeBeep','cropPhotos',
@@ -373,6 +374,11 @@ export const diaryShowMacroSummary  = createSettingStore('diaryShowMacroSummary'
 export const diaryPromptQuantity    = createSettingStore('diaryPromptQuantity',     true);
 export const diaryShowPortionSize   = createSettingStore('diaryShowPortionSize',    false);
 export const diaryShowNotes         = createSettingStore('diaryShowNotes',          true);
+// Activity logging (issue #3 — opt-in calorie-burn entry that offsets daily goal)
+export const diaryShowActivity      = createSettingStore('diaryShowActivity',        false);
+export const manualActivityPolicy   = createSettingStore('manualActivityPolicy',     'wearable_wins'); // 'wearable_wins' | 'manual_wins' | 'additive'
+export const activityAutoEstimate   = createSettingStore('activityAutoEstimate',     false);
+export const calorieAdjustFromActivity = createSettingStore('calorieAdjustFromActivity', false);
 
 export const foodsShowCategories    = createSettingStore('foodsShowCategories',    true);
 export const foodsShowLabels        = createSettingStore('foodsShowLabels',        true);

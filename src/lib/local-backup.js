@@ -12,6 +12,7 @@
  *   - diary.json        (all diary entries with body_stats and water)
  *   - wellness.json     (all wellness_data rows: fitbit, garmin, withings, health_connect)
  *   - workouts.json     (all workout entries)
+ *   - activity.json     (manual activity entries from the Diary's Activity section)
  *   - settings.json     (all USER_PREFS — DEVICE_PREFS and SERVER_ADMIN are excluded)
  *   - images/<id>.jpg   (binary image files for each food/meal that has an imgUrl,
  *                       referenced from the JSON via "img:images/<id>.jpg")
@@ -102,12 +103,14 @@ export async function exportLocalBackup(opts = {}) {
   const { NtApi } = await import('./api.js');
   const { DB }     = await import('./db.js');
 
-  let foods = [], meals = [], recipes = [], diary = [], wellness = [], workouts = [];
+  let foods = [], meals = [], recipes = [], diary = [], wellness = [], workouts = [], activity = [];
 
   try { foods    = await NtApi.getFoods()    || []; } catch {}
   try { meals    = await NtApi.getMeals()    || []; } catch {}
   try { recipes  = await NtApi.getRecipes()  || []; } catch {}
   try { diary    = await NtApi.getAllDiary() || []; } catch {}
+  // Activity — manual exercise calorie entries (server-only path)
+  try { activity = await NtApi.getActivityRange('1900-01-01', '2999-12-31') || []; } catch {}
 
   // Wellness + workouts are native-only (PWA reads from server endpoints not unified API)
   if (isNative) {
@@ -151,6 +154,7 @@ export async function exportLocalBackup(opts = {}) {
       diary: diary.length,
       wellness: wellness.length,
       workouts: workouts.length,
+      activity: activity.length,
       settings: Object.keys(settings).length,
     },
     includesImages: true,
@@ -192,6 +196,7 @@ export async function exportLocalBackup(opts = {}) {
   zip.file('diary.json',    JSON.stringify(diary,    null, 2));
   zip.file('wellness.json', JSON.stringify(wellness, null, 2));
   zip.file('workouts.json', JSON.stringify(workouts, null, 2));
+  zip.file('activity.json', JSON.stringify(activity, null, 2));
   zip.file('settings.json', JSON.stringify(settings, null, 2));
 
   onProgress(90, 'Compressing…');
@@ -238,6 +243,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
   const diary    = await readJson('diary.json', []);
   const wellness = await readJson('wellness.json', []);
   const workouts = await readJson('workouts.json', []);
+  const activity = await readJson('activity.json', []);
   const settings = await readJson('settings.json', {});
 
   onProgress(20, 'Extracting images…');
@@ -289,7 +295,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
   const { NtApi } = await import('./api.js');
   const { DB }     = await import('./db.js');
 
-  const counts = { foods: 0, meals: 0, recipes: 0, diary: 0, wellness: 0, workouts: 0, settings: 0 };
+  const counts = { foods: 0, meals: 0, recipes: 0, diary: 0, wellness: 0, workouts: 0, activity: 0, settings: 0 };
 
   if (isNative) {
     try {
@@ -321,13 +327,14 @@ export async function importLocalBackup(zipFile, opts = {}) {
   } else {
     // PWA: server import endpoint
     try {
-      await NtApi.post('/api/data/import', { foodList: foods, meals, recipes, diary, wellness, workouts });
+      await NtApi.post('/api/data/import', { foodList: foods, meals, recipes, diary, wellness, workouts, activity });
       counts.foods    = foods.length;
       counts.meals    = meals.length;
       counts.recipes  = recipes.length;
       counts.diary    = diary.length;
       counts.wellness = wellness.length;
       counts.workouts = workouts.length;
+      counts.activity = activity.length;
     } catch {}
   }
 

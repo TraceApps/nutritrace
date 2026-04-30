@@ -24,6 +24,7 @@
     diaryShowBrands, diaryShowTimestamps, diaryShowThumbnails, diaryShowAllNutrients,
     diaryShowNutritionUnits, diaryShowMacroSummary, diaryPromptQuantity, diaryShowPortionSize,
     diaryShowNotes,
+    diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
     diaryShowNutritionBar,
     foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsShowThumbnails, foodsShowYesterdayMeals, foodsSort,
     barcodeBeep, barcodeFlashlight, cropPhotos,
@@ -1356,6 +1357,42 @@
             <div><span class="setting-label">Show daily notes</span><div class="setting-desc">Free-text notes section at the bottom of each day's diary</div></div>
             <Toggle checked={$diaryShowNotes} on:change={e => diaryShowNotes.set(e.detail)} />
           </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show activity section</span><div class="setting-desc">A list-of-entries Activity section on the Diary for logging exercise. Each entry has a name + calories burned. Useful if you don't have a wearable integration.</div></div>
+            <Toggle checked={$diaryShowActivity} on:change={e => diaryShowActivity.set(e.detail)} />
+          </div>
+          {#if $diaryShowActivity}
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <div><span class="setting-label">Adjust calorie goal from activity</span><div class="setting-desc">When on, today's burn (manual + wearable per the policy below) raises your calorie remaining for the day — earn-back model. When off, activity entries still log and display but your goal stays at its base value.</div></div>
+              <Toggle checked={$calorieAdjustFromActivity} on:change={e => calorieAdjustFromActivity.set(e.detail)} />
+            </div>
+          {/if}
+          {#if $diaryShowActivity && $calorieAdjustFromActivity && (!isNativeLocal || $healthConnectEnabled)}
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <div style="flex:1">
+                <span class="setting-label">When wearable + manual entries both exist</span>
+                <div class="setting-desc">{isNativeLocal ? 'How to combine your manually-logged activity with Health Connect active calories on days you have both.' : 'How to combine your manually-logged activity with calories from Fitbit / Garmin / Withings / Health Connect on days you have both.'}</div>
+                <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
+                  <label style="display:flex; gap:8px; align-items:flex-start;">
+                    <input type="radio" name="activityPolicy" value="wearable_wins" checked={$manualActivityPolicy === 'wearable_wins'} on:change={() => manualActivityPolicy.set('wearable_wins')} />
+                    <span><strong>Wearable wins</strong> <span class="setting-desc">— manual entries show on the diary but don't move the goal math. Default, no double-count risk.</span></span>
+                  </label>
+                  <label style="display:flex; gap:8px; align-items:flex-start;">
+                    <input type="radio" name="activityPolicy" value="manual_wins" checked={$manualActivityPolicy === 'manual_wins'} on:change={() => manualActivityPolicy.set('manual_wins')} />
+                    <span><strong>Manual wins</strong> <span class="setting-desc">— your manually-logged total replaces the wearable's burn for the day.</span></span>
+                  </label>
+                  <label style="display:flex; gap:8px; align-items:flex-start;">
+                    <input type="radio" name="activityPolicy" value="additive" checked={$manualActivityPolicy === 'additive'} on:change={() => manualActivityPolicy.set('additive')} />
+                    <span><strong>Add together</strong> <span class="setting-desc">— sums both. ⚠ Risk of double-counting if your wearable already saw the activity.</span></span>
+                  </label>
+                </div>
+                <div class="setting-desc" style="margin-top:8px">When no wearable data exists for a day, manual entries always count regardless of this setting.</div>
+              </div>
+            </div>
+          {/if}
           <div class="setting-divider"></div>
           <div class="setting-row">
             <div><span class="setting-label">Show daily goals progress bar</span><div class="setting-desc">Progress strip at the bottom of the diary showing how much of your daily goals you've hit</div></div>

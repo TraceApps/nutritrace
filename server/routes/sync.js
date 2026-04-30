@@ -92,9 +92,15 @@ router.get('/pull', wrap((req, res) => {
     `SELECT id, role, content, created_at FROM ai_chat_history WHERE created_at > ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY created_at`
   ).all(...chatParams);
 
-  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length}`);
+  // Activity log — server-side updates pulled to clients
+  const activityParams = u != null ? [sinceSql, u] : [sinceSql];
+  const activity = db.prepare(
+    `SELECT * FROM activity_log WHERE updated_at > ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY updated_at`
+  ).all(...activityParams);
 
-  res.json({ foods, meals, diary, settings, wellness, workouts, chat_history, server_time: serverTime });
+  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length}`);
+
+  res.json({ foods, meals, diary, activity, settings, wellness, workouts, chat_history, server_time: serverTime });
 }));
 
 // ── POST /push ───────────────────────────────────────────────────────────────
@@ -103,8 +109,8 @@ router.get('/pull', wrap((req, res) => {
 // Returns a mapping of client_id → server_id for newly created records.
 router.post('/push', wrap((req, res) => {
   const u = uid(req);
-  const { foods = [], meals = [], diary = [], settings = [] } = req.body;
-  const result = { foods: [], meals: [], diary: [], settings: [] };
+  const { foods = [], meals = [], diary = [], activity = [], settings = [] } = req.body;
+  const result = { foods: [], meals: [], diary: [], activity: [], settings: [] };
 
   // Normalize timestamp for comparison (strip T, Z, milliseconds)
   const norm = ts => ts ? ts.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '') : '';
@@ -194,6 +200,36 @@ router.post('/push', wrap((req, res) => {
       result.diary.push({ client_id: d.client_id, server_id: row?.id, date: d.date });
     }
 
+    // ── Activity (keyed by id, mirrors foods/meals upsert pattern) ───────
+    for (const a of activity) {
+      if (a.server_id) {
+        const existing = db.prepare('SELECT updated_at FROM activity_log WHERE id = ?').get(a.server_id);
+        if (existing && norm(a.updated_at) >= norm(existing.updated_at)) {
+          if (a.deleted_at) {
+            db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(a.server_id);
+          } else {
+            db.prepare(
+              `UPDATE activity_log SET name=?, kcal=?, duration_min=?, distance=?, source=?, date=?, updated_at=datetime('now') WHERE id=?`
+            ).run(a.name, Math.max(0, Math.round(Number(a.kcal) || 0)),
+              a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null,
+              a.distance != null ? String(a.distance).slice(0, 40) : null,
+              a.source || 'manual_form', a.date, a.server_id);
+          }
+        }
+        result.activity.push({ client_id: a.client_id, server_id: a.server_id });
+      } else if (!a.deleted_at) {
+        const r = db.prepare(
+          `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+        ).run(u, a.date, String(a.name || '').slice(0, 80),
+          Math.max(0, Math.round(Number(a.kcal) || 0)),
+          a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null,
+          a.distance != null ? String(a.distance).slice(0, 40) : null,
+          a.source || 'manual_form');
+        result.activity.push({ client_id: a.client_id, server_id: r.lastInsertRowid });
+      }
+    }
+
     // ── Settings (keyed by key, not ID) ──────────────────────────────────
     // SECURITY: server-only keys are rejected — clients can't overwrite admin config.
     if (u != null) {
@@ -215,7 +251,7 @@ router.post('/push', wrap((req, res) => {
 
   run();
 
-  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} settings=${settings.length}`);
+  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} settings=${settings.length}`);
   res.json({ ok: true, ...result });
 }));
 

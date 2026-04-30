@@ -12,6 +12,8 @@ import {
   dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood,
   dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal,
   dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary,
+  dbGetActivity, dbGetActivityRange, dbSumActivity, dbWearableActiveCalories,
+  dbCreateActivity, dbUpdateActivity, dbDeleteActivity,
   LOCAL_USER_ID,
 } from './db-native.js';
 import { Filesystem, Directory } from '@capacitor/filesystem';
@@ -156,6 +158,29 @@ export const NtApiNative = {
   async getAllDiary() {
     return dbGetAllDiary();
   },
+
+  // ── Activity (manual exercise calorie offset) ─────────────────────────
+
+  async getActivity(date) { return await dbGetActivity(date); },
+  async getActivitySum(date, policy = 'wearable_wins') {
+    // In standalone mode, Health Connect is the only wearable source — its
+    // active_calories rows live in the local wellness_data table.
+    const [manual, wearable] = await Promise.all([
+      dbSumActivity(date),
+      dbWearableActiveCalories(date),
+    ]);
+    let effective;
+    if (!wearable) effective = manual;
+    else if (!manual) effective = wearable;
+    else if (policy === 'manual_wins') effective = manual;
+    else if (policy === 'additive')    effective = wearable + manual;
+    else                                effective = wearable; // wearable_wins
+    return { manual, wearable, effective, policy };
+  },
+  async getActivityRange(from, to) { return await dbGetActivityRange(from, to); },
+  async createActivity(data)       { return await dbCreateActivity(data); },
+  async updateActivity(id, data)   { return await dbUpdateActivity(id, data); },
+  async deleteActivity(id)         { return await dbDeleteActivity(id); },
 
   // ── Users (stub — standalone is single-user) ──────────────────────────
 

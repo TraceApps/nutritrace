@@ -4,6 +4,7 @@
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
     aiEnabled, aiProvider, aiApiKey, aiModel, aiAssistantName, quickLogEnabled, aiGoalInsights,
+    activityAutoEstimate, diaryShowActivity,
   } from '../../stores/settings.js';
   import { AI_PROVIDERS, AI_MODELS, AI_DEFAULT_MODELS } from '../../lib/aiChat.js';
   import { DB } from '../../lib/db.js';
@@ -116,6 +117,17 @@
               See the <a href="https://github.com/traceapps/nutritrace#smart-log--voice--ai-food-logging" target="_blank" rel="noopener" class="about-link">Smart Log section in the README</a> for full examples and privacy details.
             </div>
           </div>
+        </div>
+      {/if}
+
+      {#if $diaryShowActivity}
+        <div class="setting-divider"></div>
+        <div class="setting-row">
+          <div>
+            <span class="setting-label">Estimate activity calories</span>
+            <div class="setting-desc">When you log a workout via Trace without a calorie number ("I hiked 10 miles"), let Trace estimate the burn from your body profile. Estimations need your <strong>weight, height, age, and sex</strong> on file — missing any pauses the estimator and Trace will ask for a number instead.</div>
+          </div>
+          <Toggle checked={$activityAutoEstimate} on:change={e => activityAutoEstimate.set(e.detail)} />
         </div>
       {/if}
 

@@ -137,6 +137,25 @@ const SCHEMA = `
     error       TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS activity_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id    INTEGER,
+    user_id      INTEGER DEFAULT 1,
+    date         TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    kcal         INTEGER NOT NULL,
+    duration_min INTEGER,
+    distance     TEXT,
+    source       TEXT NOT NULL DEFAULT 'manual_form',
+    created_at   TEXT DEFAULT (datetime('now')),
+    updated_at   TEXT DEFAULT (datetime('now')),
+    deleted_at   TEXT DEFAULT NULL,
+    sync_status  TEXT DEFAULT 'synced'
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_activity_user_date ON activity_log(user_id, date);
+  CREATE INDEX IF NOT EXISTS idx_activity_sync      ON activity_log(sync_status);
+
   CREATE INDEX IF NOT EXISTS idx_foods_user ON foods(user_id);
   CREATE INDEX IF NOT EXISTS idx_foods_server ON foods(server_id);
   CREATE INDEX IF NOT EXISTS idx_meals_user ON meals(user_id);
@@ -580,10 +599,11 @@ export async function dbUpsertWellness(date, source, metric_type, value, metadat
 
 export async function dbGetPendingChanges() {
   const db = await getDb();
-  const [foods, meals, diary] = await Promise.all([
+  const [foods, meals, diary, activity] = await Promise.all([
     db.query(`SELECT * FROM foods WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM meals WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM diary WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
+    db.query(`SELECT * FROM activity_log WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
   ]);
   return {
     foods: _rows(foods).map(_parseFoodRow),
@@ -595,6 +615,7 @@ export async function dbGetPendingChanges() {
       water:      _parseJson(row.water, []),
       notes:      row.notes || '',
     })),
+    activity: _rows(activity),
   };
 }
 
@@ -874,6 +895,138 @@ export async function dbUpsertSettingFromServer(record) {
      ON CONFLICT(user_id, key) DO UPDATE SET
        value=excluded.value, updated_at=excluded.updated_at, sync_status='synced'`,
     [LOCAL_USER_ID, key, typeof value === 'string' ? value : JSON.stringify(value), updated_at]
+  );
+}
+
+// Apply a server-pushed activity_log row to the local mirror.
+export async function dbUpsertActivityFromServer(record) {
+  const db = await getDb();
+  const { id: serverId, deleted_at } = record;
+  if (deleted_at) {
+    await db.run(`DELETE FROM activity_log WHERE server_id = ?`, [serverId]);
+    return;
+  }
+  // Match by server_id; if absent (first-pull), insert new
+  const existing = await db.query(`SELECT id FROM activity_log WHERE server_id = ? AND user_id = ?`, [serverId, LOCAL_USER_ID]);
+  const row = _row(existing);
+  if (row) {
+    await db.run(
+      `UPDATE activity_log SET date=?, name=?, kcal=?, duration_min=?, distance=?, source=?, updated_at=?, sync_status='synced'
+        WHERE id=?`,
+      [record.date, record.name, record.kcal, record.duration_min, record.distance, record.source, record.updated_at, row.id]
+    );
+  } else {
+    await db.run(
+      `INSERT INTO activity_log (server_id, user_id, date, name, kcal, duration_min, distance, source, created_at, updated_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+      [serverId, LOCAL_USER_ID, record.date, record.name, record.kcal,
+       record.duration_min, record.distance, record.source,
+       record.created_at || record.updated_at, record.updated_at]
+    );
+  }
+}
+
+// ── Activity (manual exercise calorie offset) ─────────────────────────────
+
+export async function dbGetActivity(date) {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT * FROM activity_log
+      WHERE user_id = ? AND date = ? AND deleted_at IS NULL
+      ORDER BY id ASC`,
+    [LOCAL_USER_ID, date]
+  );
+  return r?.values || [];
+}
+
+export async function dbGetActivityRange(from, to) {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT * FROM activity_log
+      WHERE user_id = ? AND date BETWEEN ? AND ? AND deleted_at IS NULL
+      ORDER BY date ASC, id ASC`,
+    [LOCAL_USER_ID, from, to]
+  );
+  return r?.values || [];
+}
+
+// Read wearable active_calories from local wellness_data (Health Connect on native).
+// Highest single-source value to avoid double-counting when multiple sources exist.
+export async function dbWearableActiveCalories(date) {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT MAX(value) AS v FROM wellness_data
+      WHERE user_id = ? AND date = ? AND metric_type = 'active_calories'`,
+    [LOCAL_USER_ID, date]
+  );
+  const row = _row(r);
+  return row?.v != null ? Math.max(0, Math.round(row.v)) : 0;
+}
+
+export async function dbSumActivity(date) {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT COALESCE(SUM(kcal), 0) AS s FROM activity_log
+      WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
+    [LOCAL_USER_ID, date]
+  );
+  const row = _row(r);
+  return Math.max(0, Math.round(row?.s || 0));
+}
+
+export async function dbCreateActivity(data) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  await db.run(
+    `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, created_at, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    [
+      LOCAL_USER_ID,
+      data.date,
+      String(data.name || '').slice(0, 80),
+      Math.max(0, Math.round(Number(data.kcal) || 0)),
+      data.duration_min != null ? Math.max(0, Math.round(Number(data.duration_min))) : null,
+      data.distance != null ? String(data.distance).slice(0, 40) : null,
+      data.source || 'manual_form',
+      now,
+      now,
+    ]
+  );
+  const r = await db.query(`SELECT * FROM activity_log WHERE id = last_insert_rowid()`);
+  return _row(r);
+}
+
+export async function dbUpdateActivity(id, data) {
+  const db = await getDb();
+  const existing = await db.query(`SELECT * FROM activity_log WHERE id = ? AND user_id = ?`, [id, LOCAL_USER_ID]);
+  const row = _row(existing);
+  if (!row) return null;
+  const merged = { ...row, ...data };
+  const now = new Date().toISOString();
+  await db.run(
+    `UPDATE activity_log
+        SET name = ?, kcal = ?, duration_min = ?, distance = ?, source = ?, updated_at = ?, sync_status = 'pending'
+      WHERE id = ?`,
+    [
+      String(merged.name || '').slice(0, 80),
+      Math.max(0, Math.round(Number(merged.kcal) || 0)),
+      merged.duration_min != null ? Math.max(0, Math.round(Number(merged.duration_min))) : null,
+      merged.distance != null ? String(merged.distance).slice(0, 40) : null,
+      merged.source || 'manual_form',
+      now,
+      id,
+    ]
+  );
+  const r = await db.query(`SELECT * FROM activity_log WHERE id = ?`, [id]);
+  return _row(r);
+}
+
+export async function dbDeleteActivity(id) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  await db.run(
+    `UPDATE activity_log SET deleted_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ?`,
+    [now, now, id, LOCAL_USER_ID]
   );
 }
 

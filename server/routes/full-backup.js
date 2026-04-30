@@ -105,6 +105,13 @@ function restoreFromZip(zip) {
       VALUES (@id, @user_id, @source, @source_id, @date, @activity_type, @activity_name, @start_time, @duration_ms, @distance_km, @calories, @avg_hr, @max_hr, @steps, @has_gps, @gps_data, @synced_at, @updated_at)
     `);
     for (const w of data.workouts || []) insWorkout.run(w);
+
+    db.prepare('DELETE FROM activity_log').run();
+    const insActivity = db.prepare(`
+      INSERT OR IGNORE INTO activity_log (id, user_id, date, name, kcal, duration_min, distance, source, created_at, updated_at, deleted_at)
+      VALUES (@id, @user_id, @date, @name, @kcal, @duration_min, @distance, @source, @created_at, @updated_at, @deleted_at)
+    `);
+    for (const a of data.activity_log || []) insActivity.run({ deleted_at: null, ...a });
   })();
 
   // Restore images — guard against zip-slip and zip-bomb attacks
@@ -152,6 +159,7 @@ function dumpDatabase() {
     ai_chat_history:  db.prepare('SELECT * FROM ai_chat_history').all(),
     wellness_data:    db.prepare('SELECT * FROM wellness_data').all(),
     workouts:         db.prepare('SELECT * FROM workouts').all(),
+    activity_log:     db.prepare('SELECT * FROM activity_log').all(),
   };
 }
 

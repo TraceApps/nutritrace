@@ -58,7 +58,13 @@
         NtApi.getRecipes(),
         NtApi.getAllDiary(),
       ]);
-      const data = { foodList, meals, recipes, diary, settings: DB.getAllSettings(), exportedAt: new Date().toISOString() };
+      // Activity entries: pull a wide range covering all known dates so a JSON
+      // export carries the full history. Best-effort — older instances 404.
+      let activity = [];
+      try {
+        activity = await NtApi.getActivityRange('1900-01-01', '2999-12-31');
+      } catch {}
+      const data = { foodList, meals, recipes, diary, activity, settings: DB.getAllSettings(), exportedAt: new Date().toISOString() };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       _downloadBlob(blob, `nutritrace-backup-${new Date().toISOString().slice(0,10)}.json`);
       showSuccess('Backup exported');

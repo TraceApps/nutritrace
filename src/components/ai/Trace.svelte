@@ -314,6 +314,48 @@
             return result;
           } catch { return { error: 'Could not compute diary averages.' }; }
         }
+        case 'add_activity_entry': {
+          // Permission + capability gates
+          const showActivity   = DB.getSetting('diaryShowActivity', false);
+          const autoEstimate   = DB.getSetting('activityAutoEstimate', false);
+          if (!showActivity) {
+            return { error: 'Activity logging is disabled. The user must turn on Settings → Diary → Show activity section before you can log activity.' };
+          }
+          const name = String(args?.name || '').trim();
+          if (!name) return { error: 'Activity name required.' };
+          let kcal = args?.kcal != null ? Math.max(0, Math.round(Number(args.kcal))) : 0;
+          const source = args?.source === 'ai_estimated' ? 'ai_estimated' : (args?.source === 'user_stated' ? 'user_stated' : 'manual_form');
+          // If AI is trying to estimate without a number, gate on autoEstimate + profile
+          if (!kcal && source === 'ai_estimated') {
+            if (!autoEstimate) {
+              return { error: 'Auto-estimation is off. Ask the user for a calorie number, or have them enable Settings → AI Assistant → Estimate activity calories.' };
+            }
+            const w = Number(DB.getSetting('weight_kg', 0));
+            const h = Number(DB.getSetting('height_cm', 0));
+            const dob = DB.getSetting('dob', '');
+            const sex = DB.getSetting('gender', '');
+            if (!w || !h || !dob || !sex) {
+              return { error: 'Cannot estimate — missing body profile fields. Ask the user to fill in weight, height, date of birth, and sex on their profile, or supply a calorie number directly.' };
+            }
+            // Caller (the AI) is expected to compute kcal itself given duration_min and an
+            // appropriate MET, then pass it back as kcal. We refuse to log a 0 here.
+            return { error: 'Estimation needs a non-zero kcal value. Compute kcal from duration + MET × body weight and call again with kcal set.' };
+          }
+          if (!kcal) return { error: 'kcal must be a positive integer.' };
+          const date = (typeof args?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.date)) ? args.date : localDateStr();
+          try {
+            const { addActivity } = await import('../../stores/activity.js');
+            await addActivity({
+              date, name, kcal,
+              duration_min: args?.duration_min != null ? Math.max(0, Math.round(Number(args.duration_min))) : null,
+              distance: typeof args?.distance === 'string' ? args.distance.trim().slice(0, 40) || null : null,
+              source,
+            });
+            return { ok: true, date, name, kcal, source };
+          } catch (e) {
+            return { error: 'Failed to save activity: ' + (e?.message || String(e)) };
+          }
+        }
         default:
           return { error: `Unknown tool: ${name}` };
       }
@@ -990,7 +1032,13 @@ You have FULL ACCESS to the user's complete health data through tools. ALWAYS us
 - **Workouts**: recorded exercises with duration, distance, calories, heart rate, steps, GPS (any date range) — use get_workouts
 - **Nutrition goals**: calorie and macro targets — use get_goals
 
-When the user asks about their data (steps, sleep, weight, food log, etc.) for ANY date or date range, USE THE APPROPRIATE TOOL to fetch the real data. Do not estimate or hallucinate numbers.`
+When the user asks about their data (steps, sleep, weight, food log, etc.) for ANY date or date range, USE THE APPROPRIATE TOOL to fetch the real data. Do not estimate or hallucinate numbers.
+
+LOGGING ACTIVITY — When the user describes a workout, exercise, or physical activity ("I hiked 10 miles", "did 45 min of yoga", "burned 540 at the gym"), use add_activity_entry to log it. Rules:
+- If the user provides a calorie number, trust it verbatim (source="user_stated").
+- If the user does NOT provide a number, you may compute one from their body weight (use the TODAY'S SUMMARY context if available) × MET × duration / 200, then call add_activity_entry with kcal set and source="ai_estimated", and tell the user the estimate so they can correct it.
+- Do not call add_activity_entry without a kcal value. The tool refuses kcal=0.
+- The tool itself enforces user permission gates (Activity section toggle, auto-estimate toggle, body profile completeness) — if it returns an error, relay the explanation to the user verbatim and ask for what's missing.`
          + ($aiGoalInsights ? `
 
 GOAL INSIGHTS MODE IS ENABLED. You have permission to proactively analyze the user's actual intake vs their goals and offer evidence-based suggestions. When relevant:

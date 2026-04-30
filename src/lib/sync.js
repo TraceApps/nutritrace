@@ -20,7 +20,7 @@ import {
   dbUpsertFromServer, dbUpsertDiaryFromServer, dbUpsertWellnessFromServer,
   dbPurgeSoftDeleted,
   dbGetPendingSettings, dbMarkSettingsSynced, dbUpsertSettingFromServer,
-  dbUpsertWorkoutFromServer,
+  dbUpsertWorkoutFromServer, dbUpsertActivityFromServer,
 } from './db-native.js';
 import { writable } from 'svelte/store';
 
@@ -84,10 +84,11 @@ export async function checkOnline() {
 async function pushChanges() {
   const pending = await dbGetPendingChanges();
   const pendingSettings = await dbGetPendingSettings();
-  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || pendingSettings.length;
+  const activity = pending.activity || [];
+  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || pendingSettings.length;
   if (!hasPending) return false;
 
-  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${pendingSettings.length} settings`);
+  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${pendingSettings.length} settings`);
 
   // Build push payload with client_id and server_id
   const payload = {
@@ -122,6 +123,18 @@ async function pushChanges() {
       updated_at: d.updated_at,
       deleted_at: d.deleted_at || null,
     })),
+    activity: activity.map(a => ({
+      client_id: a.id,
+      server_id: a.server_id || null,
+      date: a.date,
+      name: a.name,
+      kcal: a.kcal,
+      duration_min: a.duration_min,
+      distance: a.distance,
+      source: a.source || 'manual_form',
+      updated_at: a.updated_at,
+      deleted_at: a.deleted_at || null,
+    })),
     settings: pendingSettings.map(s => ({
       key: s.key,
       value: _parseJson(s.value),
@@ -130,7 +143,7 @@ async function pushChanges() {
     })),
   };
 
-  _dlog(`[sync] push payload: ${payload.foods.length} foods, ${payload.meals.length} meals, ${payload.diary.length} diary, ${payload.settings.length} settings`);
+  _dlog(`[sync] push payload: ${payload.foods.length} foods, ${payload.meals.length} meals, ${payload.diary.length} diary, ${payload.activity.length} activity, ${payload.settings.length} settings`);
 
   const res = await fetch(apiUrl('/api/sync/push'), {
     method: 'POST',
@@ -162,17 +175,24 @@ async function pushChanges() {
       await dbSetServerId('diary', d.client_id, d.server_id);
     }
   }
+  for (const a of (result.activity || [])) {
+    if (a.client_id && a.server_id) {
+      await dbSetServerId('activity_log', a.client_id, a.server_id);
+    }
+  }
 
   // Mark all as synced
   await dbMarkSynced('foods', pending.foods.map(f => f.id));
   await dbMarkSynced('meals', pending.meals.map(m => m.id));
   await dbMarkSynced('diary', pending.diary.map(d => d.id));
+  await dbMarkSynced('activity_log', activity.map(a => a.id));
   if (pendingSettings.length) await dbMarkSettingsSynced(pendingSettings.map(s => s.key));
 
   // Purge soft-deleted records that have been confirmed pushed
   await dbPurgeSoftDeleted('foods');
   await dbPurgeSoftDeleted('meals');
   await dbPurgeSoftDeleted('diary');
+  await dbPurgeSoftDeleted('activity_log');
 
   _dlog('[sync] push complete');
   return true;
@@ -234,6 +254,11 @@ async function pullChanges() {
     await dbUpsertWorkoutFromServer(w);
   }
 
+  // Apply activity entries from server
+  for (const a of (data.activity || [])) {
+    await dbUpsertActivityFromServer(a);
+  }
+
   // Chat history — pull only, notify the AI Assistant component via event
   const newChat = data.chat_history || [];
   if (newChat.length && typeof window !== 'undefined') {
@@ -245,8 +270,8 @@ async function pullChanges() {
     await dbSetSyncMeta('last_sync_at', data.server_time);
   }
 
-  const totalChanges = (data.foods?.length || 0) + (data.meals?.length || 0) + (data.diary?.length || 0) + (data.wellness?.length || 0) + pulledSettings.length + (data.workouts?.length || 0) + newChat.length;
-  _dlog(`[sync] pull complete: ${data.foods?.length || 0} foods, ${data.meals?.length || 0} meals, ${data.diary?.length || 0} diary, ${data.wellness?.length || 0} wellness, ${pulledSettings.length} settings, ${data.workouts?.length || 0} workouts, ${newChat.length} chat`);
+  const totalChanges = (data.foods?.length || 0) + (data.meals?.length || 0) + (data.diary?.length || 0) + (data.activity?.length || 0) + (data.wellness?.length || 0) + pulledSettings.length + (data.workouts?.length || 0) + newChat.length;
+  _dlog(`[sync] pull complete: ${data.foods?.length || 0} foods, ${data.meals?.length || 0} meals, ${data.diary?.length || 0} diary, ${data.activity?.length || 0} activity, ${data.wellness?.length || 0} wellness, ${pulledSettings.length} settings, ${data.workouts?.length || 0} workouts, ${newChat.length} chat`);
   return totalChanges > 0;
 }
 

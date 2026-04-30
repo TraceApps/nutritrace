@@ -194,6 +194,25 @@ db.exec(`
     UNIQUE(user_id, source, source_id)
   );
   CREATE INDEX IF NOT EXISTS idx_workouts_user_date ON workouts(user_id, date);
+
+  -- Manually-logged activity entries (issue #3 — Activity diary section)
+  -- Sums per date offset the daily calorie goal per manualActivityPolicy.
+  CREATE TABLE IF NOT EXISTS activity_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    date          TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    kcal          INTEGER NOT NULL,
+    duration_min  INTEGER,
+    distance      TEXT,
+    source        TEXT NOT NULL DEFAULT 'manual_form',
+    created_at    TEXT DEFAULT (datetime('now')),
+    updated_at    TEXT DEFAULT (datetime('now')),
+    deleted_at    TEXT DEFAULT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_activity_user_date ON activity_log(user_id, date);
+  CREATE INDEX IF NOT EXISTS idx_activity_updated   ON activity_log(updated_at);
+  CREATE INDEX IF NOT EXISTS idx_activity_deleted   ON activity_log(deleted_at);
 `);
 
 // ── Migrations ─────────────────────────────────────────────────────────────

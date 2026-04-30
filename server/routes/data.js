@@ -15,6 +15,7 @@ router.delete('/', wrap((req, res) => {
     db.prepare(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
+    db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`DELETE FROM wellness_data`).run();
     db.prepare(`DELETE FROM workouts`).run();
     db.prepare(`DELETE FROM ai_chat_history`).run();
@@ -22,6 +23,7 @@ router.delete('/', wrap((req, res) => {
     db.prepare(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
+    db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`DELETE FROM wellness_data WHERE user_id = ?`).run(u);
     db.prepare(`DELETE FROM workouts WHERE user_id = ?`).run(u);
     db.prepare(`DELETE FROM ai_chat_history WHERE user_id = ?`).run(u);
@@ -31,7 +33,7 @@ router.delete('/', wrap((req, res) => {
 
 // Bulk import — accepts NutriTrace backup format (foodList/meals/recipes/diary)
 router.post('/import', wrap((req, res) => {
-  const { foodList = [], meals = [], recipes = [], diary = [] } = req.body;
+  const { foodList = [], meals = [], recipes = [], diary = [], activity = [] } = req.body;
   const u = uid(req);
 
   const insFood = db.prepare(
@@ -45,6 +47,10 @@ router.post('/import', wrap((req, res) => {
   const insDiary = db.prepare(
     `INSERT OR REPLACE INTO diary (user_id, date, items, body_stats, water, notes)
      VALUES (?, ?, ?, ?, ?, ?)`
+  );
+  const insActivity = db.prepare(
+    `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
 
   const run = db.transaction(() => {
@@ -77,6 +83,16 @@ router.post('/import', wrap((req, res) => {
         JSON.stringify(e.bodyStats || e.body_stats || {}),
         JSON.stringify(e.water || []),
         (typeof e.notes === 'string' && e.notes.trim()) ? e.notes : null
+      );
+    }
+    for (const a of activity) {
+      if (!a.date || !a.name) continue;
+      insActivity.run(
+        u, a.date, String(a.name).slice(0, 80),
+        Math.max(0, Math.round(Number(a.kcal) || 0)),
+        a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null,
+        a.distance != null ? String(a.distance).slice(0, 40) : null,
+        a.source || 'manual_form'
       );
     }
   });

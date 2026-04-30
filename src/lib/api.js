@@ -382,6 +382,14 @@ const _NtApiHttp = {
   saveDiaryDate(date, data) { return this.put(`/api/diary/${date}`, data); },
   getAllDiary()              { return this.get('/api/diary'); },
 
+  // Activity (manual exercise/calorie-burn entries)
+  getActivity(date)          { return this.get(`/api/activity/${date}`); },
+  getActivitySum(date, policy = 'wearable_wins') { return this.get(`/api/activity/sum/${date}?policy=${encodeURIComponent(policy)}`); },
+  getActivityRange(from, to) { return this.get(`/api/activity?from=${from}&to=${to}`); },
+  createActivity(data)       { return this.post('/api/activity', data); },
+  updateActivity(id, data)   { return this.put(`/api/activity/${id}`, data); },
+  deleteActivity(id)         { return this.del(`/api/activity/${id}`); },
+
   // Upload
   async uploadImage(file) {
     const form = new FormData();

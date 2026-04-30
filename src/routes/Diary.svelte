@@ -9,6 +9,7 @@
   import { cubicOut } from 'svelte/easing';
 
   import MacroRing    from '../components/diary/MacroRing.svelte';
+  import AddActivitySheet from '../components/diary/AddActivitySheet.svelte';
   import { mealIcon } from '../lib/mealIcon.js';
   import Sheet        from '../components/ui/Sheet.svelte';
   import Dialog       from '../components/ui/Dialog.svelte';
@@ -26,7 +27,10 @@
            diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode,
            diaryShowAllNutrients, diaryShowNutritionUnits, visibleNutriments, hiddenBodyStats,
            dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners,
-           calorieGoalMode, calorieGoalFactor } from '../stores/settings.js';
+           calorieGoalMode, calorieGoalFactor,
+           diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
+           wellnessEnabled } from '../stores/settings.js';
+  import { dayActivity, activitySummary, loadActivity, deleteActivity } from '../stores/activity.js';
   import DiaryBanner  from '../components/banners/DiaryBanner.svelte';
   import WaterBanner  from '../components/banners/WaterBanner.svelte';
   import { editorState } from '../stores/editorState.js';
@@ -37,6 +41,35 @@
 
   let addMealIdx = 0;
   let showAddAction = false;
+  // Activity logging state (gated on diaryShowActivity)
+  let showActivitySheet = false;
+  let editingActivity = null;
+  let showActivityAction = false;
+  let activityActionItem = null;
+  async function onActivityDelete(a) {
+    try {
+      await deleteActivity(a.id);
+      showSuccess('Activity removed');
+    } catch (e) {
+      showError(e?.message || 'Could not delete');
+    }
+  }
+  function openActivityActionSheet(a) {
+    activityActionItem = a;
+    _lockAndOpen(() => showActivityAction = true);
+  }
+  function onActivityAction(e) {
+    const val = e.detail?.value;
+    showActivityAction = false;
+    if (!activityActionItem) return;
+    if (val === 'edit') {
+      editingActivity = activityActionItem;
+      _lockAndOpen(() => showActivitySheet = true);
+    } else if (val === 'delete') {
+      onActivityDelete(activityActionItem);
+    }
+    activityActionItem = null;
+  }
   let showDeleteDialog = false;
   let pendingDeleteIdx = null;
   // showBodyStats and showNutritionSummary now live in diary.js stores (controlled from topbar)
@@ -135,6 +168,18 @@
 
   $: if ($calorieGoalMode === 'dynamic' && $currentDate) _loadDynamicGoal($currentDate);
 
+  // Activity offset — load whenever date changes (gated on the toggle)
+  $: if ($diaryShowActivity && $currentDate) loadActivity($currentDate);
+
+  // Effective active calories from manual + wearable per policy.
+  // Adjusts the displayed calories budget when calorieAdjustFromActivity is
+  // on; otherwise the activity section still shows the burn but the goal
+  // stays at its base value (cleanest for fixed-budget / cutting workflows).
+  // Macro percentages always use the base goal so protein/carbs/fat targets
+  // don't drift when you log a workout.
+  $: _effectiveActive = ($diaryShowActivity && $calorieAdjustFromActivity ? ($activitySummary?.effective || 0) : 0);
+  $: caloriesGoalAdjusted = caloriesGoal + _effectiveActive;
+
   $: _hasBottomNav = $navStyle === 'bottom' || $navStyle === 'both';
   $: barBottom     = _hasBottomNav ? 'calc(var(--nav-h) + env(safe-area-inset-bottom, 0px))' : 'env(safe-area-inset-bottom, 0px)';
 
@@ -209,7 +254,7 @@
   $: fatGoal   = _macroGoal('fat');
   $: carbGoal  = _macroGoal('carbohydrates');
   $: protGoal  = _macroGoal('proteins');
-  $: calPct    = Math.min(100, ((totals.calories||0) / caloriesGoal) * 100);
+  $: calPct    = Math.min(100, ((totals.calories||0) / caloriesGoalAdjusted) * 100);
 
   function formatDate(d) {
     if (!d) return '';
@@ -899,6 +944,69 @@
       </section>
     {/each}
 
+    {#if $diaryShowActivity}
+      {@const acts = $dayActivity || []}
+      {@const sum  = $activitySummary || { manual: 0, wearable: 0, effective: 0, policy: 'wearable_wins' }}
+      {@const policy = $manualActivityPolicy || 'wearable_wins'}
+      {@const wearablePresent = (sum.wearable || 0) > 0}
+      {@const manualCounted   = !wearablePresent || policy !== 'wearable_wins'}
+      {@const totalActKcal = acts.reduce((s, a) => s + (a.kcal || 0), 0)}
+      <section class="meal-group card activity-group" id="activity-group" in:fly={{ y: 18, duration: 280, delay: 60 + meals.length * 55 }}>
+        <div class="meal-header" style="--meal-color:#4FFFB0">
+          <span class="meal-type-icon material-symbols-rounded">directions_run</span>
+          <div class="activity-name-stack">
+            <span class="meal-name">Activity</span>
+            {#if $wellnessEnabled}
+              <span class="activity-sub text-3 text-sm">Synced workouts from your device live in Wellness</span>
+            {/if}
+          </div>
+          <button class="btn-icon accent ml-auto" on:click={() => { editingActivity = null; showActivitySheet = true; }} aria-label="Add activity" title="Add activity">
+            <span class="material-symbols-rounded">add</span>
+          </button>
+        </div>
+
+        {#if acts.length === 0}
+          <button type="button" class="meal-empty" on:click={() => { editingActivity = null; showActivitySheet = true; }} aria-label="Add activity">
+            <span class="material-symbols-rounded meal-empty-icon" style="color:#4FFFB0">add_circle</span>
+            <span class="meal-empty-text">Tap to add activity</span>
+          </button>
+        {:else}
+          <div class="meal-items">
+            {#each acts as a (a.id)}
+              <div class="diary-item" in:fly={{ y: 6, duration: 180 }}
+                on:contextmenu|preventDefault={() => openActivityActionSheet(a)}>
+                <button class="diary-item-btn" on:click={() => { editingActivity = a; showActivitySheet = true; }}>
+                  <div class="item-info">
+                    <span class="item-name truncate">{a.name}</span>
+                    <span class="item-meta text-3 text-sm">
+                      {#if a.duration_min}{a.duration_min} min{/if}{#if a.duration_min && a.distance} · {/if}{#if a.distance}{a.distance}{/if}{#if (a.duration_min || a.distance)} · {/if}<span style="color:#4FFFB0">−{a.kcal} kcal</span>{#if a.source === 'ai_estimated'} · <span class="text-3" title="Estimated by Trace">est.</span>{/if}
+                    </span>
+                  </div>
+                </button>
+              </div>
+            {/each}
+          </div>
+          <button class="meal-add-row" on:click={() => { editingActivity = null; showActivitySheet = true; }}>
+            <span class="material-symbols-rounded">add</span>
+            <span>Add activity</span>
+          </button>
+          <div class="meal-macro-footer activity-footer" aria-label="Activity total">
+            <div class="meal-macro-bar">
+              {#each acts as a (a.id)}
+                <div class="amb-seg" style="width:{totalActKcal ? (a.kcal / totalActKcal * 100) : 0}%" title={`${a.name} — ${a.kcal} kcal`}></div>
+              {/each}
+            </div>
+            <span class="meal-macro-text text-3 text-sm">
+              <span style="color:#4FFFB0">−{totalActKcal} kcal</span>
+              {#if wearablePresent && !manualCounted}
+                · <span title="Policy: wearable wins. Toggle in Settings → Diary.">not counted — using wearable</span>
+              {/if}
+            </span>
+          </div>
+        {/if}
+      </section>
+    {/if}
+
     {#if $diaryShowNotes}
       <section class="diary-notes card" class:expanded={notesExpanded || _notesText}>
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
@@ -977,8 +1085,8 @@
       <div class="dbb-detail-row">
         <div class="dbb-kcal">
           {#if _totalsMode === 'remaining'}
-            <span class="dbb-num">{Math.max(0, caloriesGoal - Math.round($_calTween)).toLocaleString()}</span>
-            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}kcal left</span>
+            <span class="dbb-num">{(caloriesGoalAdjusted - Math.round($_calTween)).toLocaleString()}</span>
+            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}{#if _effectiveActive > 0}<span class="material-symbols-rounded dbb-activity-cue" title="Adjusted for activity">directions_run</span> {/if}kcal left</span>
           {:else}
             <span class="dbb-num">{Math.round($_calTween).toLocaleString()}</span>
             <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}kcal eaten</span>
@@ -986,19 +1094,24 @@
         </div>
         <div class="dbb-macros">
           <span class="dbb-macro" style="color:var(--macro-protein)">
-            {#if _totalsMode === 'remaining' && protGoal != null}{Math.max(0, Math.round((protGoal - $_protTween)*10)/10)}{:else}{Math.round($_protTween*10)/10}{/if}
+            {#if _totalsMode === 'remaining' && protGoal != null}{Math.round((protGoal - $_protTween)*10)/10}{:else}{Math.round($_protTween*10)/10}{/if}
             <span class="dbb-mlabel">g Protein</span>
           </span>
           <span class="dbb-macro" style="color:var(--macro-carbs)">
-            {#if _totalsMode === 'remaining' && carbGoal != null}{Math.max(0, Math.round((carbGoal - $_carbTween)*10)/10)}{:else}{Math.round($_carbTween*10)/10}{/if}
+            {#if _totalsMode === 'remaining' && carbGoal != null}{Math.round((carbGoal - $_carbTween)*10)/10}{:else}{Math.round($_carbTween*10)/10}{/if}
             <span class="dbb-mlabel">g Carbs</span>
           </span>
           <span class="dbb-macro" style="color:var(--macro-fat)">
-            {#if _totalsMode === 'remaining' && fatGoal != null}{Math.max(0, Math.round((fatGoal - $_fatTween)*10)/10)}{:else}{Math.round($_fatTween*10)/10}{/if}
+            {#if _totalsMode === 'remaining' && fatGoal != null}{Math.round((fatGoal - $_fatTween)*10)/10}{:else}{Math.round($_fatTween*10)/10}{/if}
             <span class="dbb-mlabel">g Fat</span>
           </span>
         </div>
       </div>
+      {#if _effectiveActive > 0 && _totalsMode === 'remaining'}
+        <div class="dbb-activity-breakdown text-3 text-sm">
+          Goal {caloriesGoal.toLocaleString()} <span style="color:#4FFFB0">+ Activity {_effectiveActive.toLocaleString()}</span> = {caloriesGoalAdjusted.toLocaleString()} kcal
+        </div>
+      {/if}
       <!-- Water row -->
       {#if _waterShowInDiary}
         <div class="dbb-water-row">
@@ -1029,7 +1142,7 @@
               <div class="nb-bar"><div class="nb-fill" class:over={nb.over} style="width:{nb.pct}%;{nb.over ? '' : 'background:' + nutrientBarColor(nb.id)}"></div></div>
               <span class="nb-val" class:over={nb.over}>
                 {#if _totalsMode === 'remaining' && nb.tgt}
-                  {Math.max(0, Math.round((nb.tgt - nb.cur)*10)/10)}{#if $diaryShowNutritionUnits} {nb.unit}{/if}
+                  {Math.round((nb.tgt - nb.cur)*10)/10}{#if $diaryShowNutritionUnits} {nb.unit}{/if}
                 {:else}
                   {Math.round(nb.cur*10)/10}{#if $diaryShowNutritionUnits} {nb.unit}{/if}
                 {/if}
@@ -1465,7 +1578,7 @@
         <div class="ns-ring-wrap">
           <MacroRing
             calories={totals.calories || 0}
-            caloriesGoal={caloriesGoal}
+            caloriesGoal={caloriesGoalAdjusted}
             fat={totals.fat || 0}
             carbs={totals.carbohydrates || 0}
             protein={totals.proteins || 0}
@@ -1540,10 +1653,40 @@
   </div>
 </Sheet>
 
+<AddActivitySheet bind:open={showActivitySheet} date={$currentDate} entry={editingActivity} on:close={() => editingActivity = null} />
+
+<ActionSheet
+  bind:open={showActivityAction}
+  title={activityActionItem?.name || 'Activity'}
+  actions={[
+    { label: 'Edit',   icon: 'edit',   value: 'edit'   },
+    { label: 'Delete', icon: 'delete', value: 'delete', danger: true },
+  ]}
+  on:select={onActivityAction}
+/>
+
 
 <style>
   /* Date picker sheet wrapper — calendar UI lives in DatePicker.svelte */
   .dp-sheet { padding-bottom: 4px; }
+
+  /* Inline cue + math breakdown for the activity-adjusted calorie budget */
+  :global(.dbb-activity-cue) { font-size: 14px; vertical-align: middle; opacity: 0.85; }
+  :global(.dbb-activity-breakdown) {
+    padding: 4px 12px 8px; text-align: right;
+  }
+
+  /* Activity section — same shell as meal-group, footer mirrors meal-macro-footer
+     but with green segments per entry instead of P/C/F. */
+  .activity-name-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .activity-sub { line-height: 1.2; opacity: 0.75; }
+  .activity-footer { cursor: default; }
+  .activity-footer:hover, .activity-footer:active { background: transparent; }
+  .amb-seg {
+    background: linear-gradient(90deg, #4FFFB0, #00B894);
+    border-right: 1px solid var(--surface-2, rgba(0,0,0,0.18));
+  }
+  .amb-seg:last-child { border-right: 0; }
 
   /* diary-page no longer overrides page-shell padding-top — same as every other page */
 
