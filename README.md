@@ -224,6 +224,7 @@ On first launch, a setup wizard walks you through enabling user management and c
 | `DATA_DB_PATH` | Yes | — | Host path for the SQLite database directory |
 | `DATA_UPLOADS_PATH` | Yes | — | Host path for uploaded images and backups |
 | `JWT_SECRET` | If using users | — | Secret key for signing auth tokens. Use a long random string. |
+| `TOKEN_ENC_KEY` | No | derived from `JWT_SECRET` | At-rest encryption key for OIDC client secrets and wearable OAuth tokens. Set this if you want to rotate `JWT_SECRET` without invalidating stored secrets. |
 | `RECOVERY_TOKEN` | No | — | Passphrase required to disable user management from the login page (lockout recovery). Without this the recovery endpoint is disabled. |
 | `LOG_LEVEL` | No | `info` | Log verbosity: `error` \| `warn` \| `info` \| `debug`. Use `debug` for detailed wellness sync output (Fitbit, Withings, Garmin, Health Connect). |
 | `SMTP_HOST` | No | — | SMTP server hostname (for password reset & invites) |
