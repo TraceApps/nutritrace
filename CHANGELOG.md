@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.10] — 2026-05-01 — Fix stuck "Could not reach server" banner after login
+
+### Fixed
+- **Diary banner persistence** — when the app was opened while not authenticated, the diary's pre-login fetch returned 401 and stamped a synthetic empty-day placeholder into the local cache. After signing in, the diary's cache-skip logic saw the placeholder and skipped the fetch — leaving the "Could not reach server" banner up forever even though authenticated requests were now succeeding. Three small fixes: the failed-load placeholder is gone (cache reads as "no entry" so the next mount re-fetches), the diary onMount additionally re-fetches whenever the previous load errored, and a successful login now re-pulls server settings + clears any lingering diary error flag so the next view is clean.
+
+  Same root cause was making **settings appear reverted to defaults** after login (the initial `loadServerSettings()` failed at 401 pre-login and was never retried). Fixed by the same login-transition hook.
+
+  Reported in a community issue against rc.13; same bug existed in rc.9.
+
+---
+
 ## [1.0.0-rc.9] — 2026-05-01
 
 ### Single Sign-On (OIDC)

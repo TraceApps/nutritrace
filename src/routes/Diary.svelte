@@ -759,7 +759,13 @@
     // or user picked a different day).
     let cur = null;
     currentEntry.subscribe(v => cur = v)();
-    if (!cur || cur.date !== targetDate) {
+    // Always re-fetch if the previous load errored (e.g. 401 before login)
+    // — otherwise the "Could not reach server" banner can stick around even
+    // after the user authenticates, because a synthetic empty entry from the
+    // failed call would otherwise satisfy the date-match check below.
+    let prevError = false;
+    diaryLoadError.subscribe(v => prevError = v)();
+    if (!cur || cur.date !== targetDate || prevError) {
       await loadEntry(targetDate);
     } else {
       // Make sure currentDate matches what's displayed (may be stale).

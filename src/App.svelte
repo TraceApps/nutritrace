@@ -307,6 +307,24 @@
   // Auth gate: bypass for password reset / invite pages
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
+
+  // When the user transitions from unauthenticated → authenticated (after a
+  // successful login on the gate), re-pull server settings + clear stale
+  // diary errors. Without this, settings that failed to load while the user
+  // was anonymous (401) stay at their built-in defaults until a manual
+  // refresh, and the diary banner from a pre-login load attempt sticks
+  // around. Tracked manually since `currentUser` doesn't expose a
+  // change-event we can subscribe to.
+  let _wasNeedsLogin = needsLogin;
+  $: {
+    if (_wasNeedsLogin && !needsLogin && $currentUser) {
+      _wasNeedsLogin = false;
+      import('./stores/settings.js').then(({ loadServerSettings }) => loadServerSettings()).catch(() => {});
+      import('./stores/diary.js').then(({ diaryLoadError }) => diaryLoadError.set(false)).catch(() => {});
+    } else if (needsLogin) {
+      _wasNeedsLogin = true;
+    }
+  }
 </script>
 
 <!-- Native setup gate — shown on first launch on Android/iOS -->

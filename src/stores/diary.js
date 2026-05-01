@@ -85,7 +85,12 @@ export async function loadEntry(dateStr) {
   currentDate.subscribe(v => curDate = v)();
   if (curDate === dateStr) {
     diaryLoadError.set(failed);
-    currentEntry.set(entry || { date: dateStr, items: [], bodyStats: {}, water: [] });
+    // On failure, set currentEntry to null (not a synthetic placeholder) so
+    // the cache-check in Diary.svelte's onMount can detect "no real entry"
+    // and re-fetch on the next mount (e.g. after the user logs in following
+    // a 401). A placeholder with date=targetDate would fool the skip-refetch
+    // logic and leave the user staring at a permanent error banner.
+    currentEntry.set(failed ? null : (entry || { date: dateStr, items: [], bodyStats: {}, water: [] }));
   }
   return entry || null;
 }
