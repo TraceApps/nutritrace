@@ -31,17 +31,26 @@ export function freshenItemImages(items) {
     if (!ids.length) return items;
     const placeholders = ids.map(() => '?').join(',');
     const rows = db.prepare(
-      `SELECT id, img_url FROM foods WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+      `SELECT id, name, img_url FROM foods WHERE id IN (${placeholders}) AND deleted_at IS NULL`
     ).all(...ids);
     if (!rows.length) return items;
-    const imgMap = new Map();
-    for (const r of rows) {
-      if (r.img_url) imgMap.set(r.id, r.img_url);
-    }
-    if (!imgMap.size) return items;
+    const foodById = new Map();
+    for (const r of rows) foodById.set(r.id, r);
+    if (!foodById.size) return items;
+    // Defensive name-match guard: a diary item's `id` is the food id captured
+    // at log time (or copied from a saved meal/recipe). If the foods table got
+    // rebuilt at some point — disaster recovery, restore from another deploy,
+    // user manually re-imported their catalogue — the auto-increment counter
+    // can reassign the same id to a totally unrelated food, which would make
+    // this helper silently swap thumbnails to wrong items. Only freshen when
+    // the looked-up food's name still matches the item's name.
+    const norm = s => String(s || '').trim().toLowerCase();
     return items.map(it => {
-      if (!it.imgUrl && typeof it.id === 'number' && imgMap.has(it.id)) {
-        return { ...it, imgUrl: imgMap.get(it.id) };
+      if (!it.imgUrl && typeof it.id === 'number') {
+        const food = foodById.get(it.id);
+        if (food && food.img_url && norm(food.name) === norm(it.name)) {
+          return { ...it, imgUrl: food.img_url };
+        }
       }
       return it;
     });

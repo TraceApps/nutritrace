@@ -13,6 +13,7 @@
   import { isNative } from '../lib/platform.js';
   import Dialog from '../components/ui/Dialog.svelte';
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, catName as _catName, catDisplay as _catDisplay } from '../stores/settings.js';
+  import { fitImageDataUrl } from '../lib/image-fit.js';
 
   // ── Photo capture / upload ─────────────────────────────────
   let fileInput;
@@ -39,12 +40,14 @@
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => {
+    reader.onload = async ev => {
       if ($cropPhotos) {
         cropSrc = ev.target.result;
         showCrop = true;
       } else {
-        food.imgUrl = ev.target.result;
+        // Downscale to keep payload under the server's 1MB JSON limit.
+        // Preserves aspect ratio — no cropping.
+        food.imgUrl = await fitImageDataUrl(ev.target.result);
       }
     };
     reader.readAsDataURL(file);
@@ -57,9 +60,9 @@
         const file = await takePhoto();
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = ev => {
+        reader.onload = async ev => {
           if ($cropPhotos) { cropSrc = ev.target.result; showCrop = true; }
-          else { food.imgUrl = ev.target.result; }
+          else { food.imgUrl = await fitImageDataUrl(ev.target.result); }
         };
         reader.readAsDataURL(file);
       } catch { /* user cancelled */ }
@@ -83,7 +86,7 @@
     showCamera = false;
   }
 
-  function capturePhoto() {
+  async function capturePhoto() {
     if (!cameraVideo) return;
     const canvas = document.createElement('canvas');
     canvas.width = cameraVideo.videoWidth;
@@ -95,7 +98,7 @@
       cropSrc = dataUrl;
       showCrop = true;
     } else {
-      food.imgUrl = dataUrl;
+      food.imgUrl = await fitImageDataUrl(dataUrl);
     }
   }
 
@@ -721,6 +724,9 @@
   .photo-preview-img {
     width: 100%;
     height: 100%;
+    /* cover = scale to fill, center-cropped on overflow edges. Looks
+       better than letterboxing for food photos where the subject is
+       typically centered in the frame. */
     object-fit: cover;
     background: var(--surface-2);
   }

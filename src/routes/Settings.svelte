@@ -11,6 +11,7 @@
   import SettingsNotifications from '../components/settings/SettingsNotifications.svelte';
   import SettingsUserManagement from '../components/settings/SettingsUserManagement.svelte';
   import SettingsBackup from '../components/settings/SettingsBackup.svelte';
+  import SettingsNutritionImport from '../components/settings/SettingsNutritionImport.svelte';
   import { APP_VERSION } from '../lib/version.js';
   import Sheet  from '../components/ui/Sheet.svelte';
   import SettingsBanner from '../components/banners/SettingsBanner.svelte';
@@ -62,7 +63,7 @@
   let openSections = { serverConnection: false, appearance: false, regional: false, diary: false, foods: false, water: false,
                        categories: false, nutrients: false, goals: false, bodyStats: false, statistics: false,
                        connectedServices: false, ai: false, notifications: false, wellness: false, sharing: false,
-                       backup: false, email: false, users: false, helpImprove: false, about: false };
+                       backup: false, nutritionImport: false, email: false, users: false, helpImprove: false, about: false };
 
   // ── Server Connection (native only) ─────────────────────────────────────
   let serverUrlInput = getServerUrl() || '';
@@ -269,12 +270,13 @@
     goals:             ['goals','calorie goal','dynamic calorie','tdee','burn','calories out','factor','lose','gain','maintain'],
     bodyStats:         ['body stats','body','weight','measurements','stats'],
     statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
-    connectedServices: ['connected services','usda','open food facts','mealie','recipe','search language','country','api key','credentials','username','password'],
+    connectedServices: ['food sources','connected services','usda','open food facts','mealie','recipe','search language','country','api key','credentials','username','password'],
     ai:                ['ai','trace','assistant','provider','model','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights'],
     notifications:     ['notifications','reminders','water reminder','meal reminder','gotify','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
     wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress'],
     sharing:           ['sharing','share','group','catalogue','catalog','visibility','private','members','food sharing'],
     backup:            ['backup','export','import','restore','csv','clear data','json','full backup','images','zip','reset','defaults','clear settings','danger zone'],
+    nutritionImport:   ['import','nutrition import','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','csv','migrate','migration','from another app'],
     email:             ['email','smtp','mail','password reset','invites','notifications'],
     users:             ['users','user management','accounts','login','password','admin','register','profile'],
     helpImprove:       ['diagnostics','logs','verbose','calibration','export','bug','report','troubleshoot'],
@@ -1792,8 +1794,8 @@
     {/if}
 
 
-    <p class="settings-group-label">Connected Services</p>
-    <!-- ── Connected Services ─────────────────────────────────────────────── -->
+    <p class="settings-group-label">Integrations</p>
+    <!-- ── Food Sources ───────────────────────────────────────────────────── -->
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'connectedServices')} on:click={() => toggleSection('connectedServices')}>
       <span class="material-symbols-rounded si">hub</span>
       <span>{$_('settings.connected_services.section')}</span>
@@ -1974,7 +1976,113 @@
     {/if}
 
     <p class="settings-group-label">App</p>
-    <!-- ── Sharing (hidden in native local mode — no one to share with) ──── -->
+
+    <!-- ── Server Connection (native app only — most fundamental on Android) ── -->
+    {#if isNative}
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'serverConnection')} on:click={() => toggleSection('serverConnection')}>
+      <span class="material-symbols-rounded si">cloud_sync</span>
+      <span>{$_('settings.server.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.serverConnection}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'serverConnection') && sectionVisible(settingsQuery, 'serverConnection')}
+      <div class="section-body" transition:slide={{ duration: 180 }}>
+        <div class="card settings-card">
+          {#if serverMode === 'server' && getServerUrl()}
+            <div class="setting-row">
+              <div>
+                <span class="setting-label">Connected</span>
+                <div class="setting-desc">{getServerUrl()}</div>
+              </div>
+              <span class="material-symbols-rounded" style="color:var(--success, #22c55e);font-size:22px">cloud_done</span>
+            </div>
+            <div class="setting-divider"></div>
+            <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+              <button class="btn btn-ghost w-full" on:click={logoutServer}>
+                <span class="material-symbols-rounded" style="font-size:18px">logout</span>
+                Log Out
+              </button>
+              <button class="btn btn-ghost w-full" style="color:var(--error,#f87171)" on:click={disconnectServer}>
+                <span class="material-symbols-rounded" style="font-size:18px">link_off</span>
+                Disconnect &amp; Use Locally
+              </button>
+            </div>
+          {:else}
+            <div class="setting-row">
+              <div>
+                <span class="setting-label">Local Mode</span>
+                <div class="setting-desc">All data stored on this device only</div>
+              </div>
+              <span class="material-symbols-rounded" style="color:var(--text-3);font-size:22px">smartphone</span>
+            </div>
+            <div class="setting-divider"></div>
+            <div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px">
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Server URL</label>
+                <input class="input" type="url" placeholder="https://nutritrace.example.com" bind:value={serverUrlInput} />
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Username</label>
+                <input class="input" type="text" placeholder="Your username" bind:value={serverUsername} autocapitalize="off" />
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Password</label>
+                <div style="position:relative">
+                  {#if serverShowPw}
+                    <input class="input" type="text" placeholder="Your password" bind:value={serverPassword} style="padding-right:40px" />
+                  {:else}
+                    <input class="input" type="password" placeholder="Your password" bind:value={serverPassword} style="padding-right:40px" />
+                  {/if}
+                  <button type="button" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-3);padding:4px" on:click={() => serverShowPw = !serverShowPw}>
+                    <span class="material-symbols-rounded" style="font-size:20px">{serverShowPw ? 'visibility_off' : 'visibility'}</span>
+                  </button>
+                </div>
+              </div>
+              <button class="btn btn-primary w-full" on:click={connectServer} disabled={serverConnecting}>
+                {serverConnecting ? 'Connecting…' : 'Connect to Server'}
+              </button>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+    {/if}
+
+    <!-- ── Backup & Restore ────────────────────────────────────────────────── -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'backup')} on:click={() => toggleSection('backup')}>
+      <span class="material-symbols-rounded si">backup</span>
+      <span>{$_('settings.backup.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.backup}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'backup') && sectionVisible(settingsQuery, 'backup')}
+      <SettingsBackup bind:this={backupRef} />
+    {/if}
+
+    <!-- ── Nutrition Import (from MFP / LoseIt / Cronometer / spreadsheet) ── -->
+    <!-- Hidden in native standalone (no server to receive the upload). -->
+    {#if !isNativeLocal}
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'nutritionImport')} on:click={() => toggleSection('nutritionImport')}>
+      <span class="material-symbols-rounded si">file_upload</span>
+      <span>{$_('settings.nutritionImport.section')} <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">{$_('common.experimental')}</span></span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.nutritionImport}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'nutritionImport') && sectionVisible(settingsQuery, 'nutritionImport')}
+      <SettingsNutritionImport />
+    {/if}
+    {/if}
+
+    <!-- ── User Management (hidden in native local mode — single user) ────── -->
+    {#if !isNativeLocal}
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'users')} on:click={() => toggleSection('users')}>
+      <span class="material-symbols-rounded si">group</span>
+      <span>{$_('settings.users.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.users}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'users') && sectionVisible(settingsQuery, 'users')}
+      <SettingsUserManagement bind:this={userMgmtRef} />
+    {/if}
+    {/if}
+
+    <!-- ── Food Sharing (hidden in native local mode — no one to share with) ─ -->
     {#if $userMgmtActive && !isNativeLocal}
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'sharing')} on:click={() => toggleSection('sharing')}>
         <span class="material-symbols-rounded si">group</span>
@@ -2045,18 +2153,6 @@
           {/if}
         </div>
       {/if}
-    {/if}
-
-    <!-- ── User Management (hidden in native local mode — single user) ────── -->
-    {#if !isNativeLocal}
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'users')} on:click={() => toggleSection('users')}>
-      <span class="material-symbols-rounded si">group</span>
-      <span>{$_('settings.users.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.users}>expand_more</span>
-    </button>
-    {#if sectionOpen(openSections, settingsQuery, 'users') && sectionVisible(settingsQuery, 'users')}
-      <SettingsUserManagement bind:this={userMgmtRef} />
-    {/if}
     {/if}
 
     <!-- ── Email (hidden in native local mode — no server to send from) ───── -->
@@ -2140,86 +2236,6 @@
               </span>
             {/if}
           </div>
-        </div>
-      </div>
-    {/if}
-    {/if}
-
-    <!-- ── Backup & Restore ────────────────────────────────────────────────── -->
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'backup')} on:click={() => toggleSection('backup')}>
-      <span class="material-symbols-rounded si">backup</span>
-      <span>{$_('settings.backup.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.backup}>expand_more</span>
-    </button>
-    {#if sectionOpen(openSections, settingsQuery, 'backup') && sectionVisible(settingsQuery, 'backup')}
-      <SettingsBackup bind:this={backupRef} />
-    {/if}
-
-    <!-- ── Server Connection (native app only, after Backup) ────────────── -->
-    {#if isNative}
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'serverConnection')} on:click={() => toggleSection('serverConnection')}>
-      <span class="material-symbols-rounded si">cloud_sync</span>
-      <span>{$_('settings.server.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.serverConnection}>expand_more</span>
-    </button>
-    {#if sectionOpen(openSections, settingsQuery, 'serverConnection') && sectionVisible(settingsQuery, 'serverConnection')}
-      <div class="section-body" transition:slide={{ duration: 180 }}>
-        <div class="card settings-card">
-          {#if serverMode === 'server' && getServerUrl()}
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Connected</span>
-                <div class="setting-desc">{getServerUrl()}</div>
-              </div>
-              <span class="material-symbols-rounded" style="color:var(--success, #22c55e);font-size:22px">cloud_done</span>
-            </div>
-            <div class="setting-divider"></div>
-            <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-ghost w-full" on:click={logoutServer}>
-                <span class="material-symbols-rounded" style="font-size:18px">logout</span>
-                Log Out
-              </button>
-              <button class="btn btn-ghost w-full" style="color:var(--error,#f87171)" on:click={disconnectServer}>
-                <span class="material-symbols-rounded" style="font-size:18px">link_off</span>
-                Disconnect &amp; Use Locally
-              </button>
-            </div>
-          {:else}
-            <div class="setting-row">
-              <div>
-                <span class="setting-label">Local Mode</span>
-                <div class="setting-desc">All data stored on this device only</div>
-              </div>
-              <span class="material-symbols-rounded" style="color:var(--text-3);font-size:22px">smartphone</span>
-            </div>
-            <div class="setting-divider"></div>
-            <div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px">
-              <div class="form-group" style="margin:0">
-                <label class="form-label">Server URL</label>
-                <input class="input" type="url" placeholder="https://nutritrace.example.com" bind:value={serverUrlInput} />
-              </div>
-              <div class="form-group" style="margin:0">
-                <label class="form-label">Username</label>
-                <input class="input" type="text" placeholder="Your username" bind:value={serverUsername} autocapitalize="off" />
-              </div>
-              <div class="form-group" style="margin:0">
-                <label class="form-label">Password</label>
-                <div style="position:relative">
-                  {#if serverShowPw}
-                    <input class="input" type="text" placeholder="Your password" bind:value={serverPassword} style="padding-right:40px" />
-                  {:else}
-                    <input class="input" type="password" placeholder="Your password" bind:value={serverPassword} style="padding-right:40px" />
-                  {/if}
-                  <button type="button" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-3);padding:4px" on:click={() => serverShowPw = !serverShowPw}>
-                    <span class="material-symbols-rounded" style="font-size:20px">{serverShowPw ? 'visibility_off' : 'visibility'}</span>
-                  </button>
-                </div>
-              </div>
-              <button class="btn btn-primary w-full" on:click={connectServer} disabled={serverConnecting}>
-                {serverConnecting ? 'Connecting…' : 'Connect to Server'}
-              </button>
-            </div>
-          {/if}
         </div>
       </div>
     {/if}
@@ -2744,6 +2760,19 @@
     padding: 13px 16px;
     min-height: 50px;
   }
+  /* Layout guard for the common .setting-row pattern. The text-block
+     (a <div> or a bare <span class="setting-label">) grows and is allowed
+     to shrink (min-width:0) so long labels wrap/truncate instead of
+     bleeding into icons or controls beside it. Icons (.material-symbols-
+     rounded) and right-side controls stay pinned via flex-shrink:0. The
+     text-block can be in any position (some rows have leading icon + text
+     + chevron; others have just text + Toggle), so we target it by tag/
+     class instead of :first-child. :global() so sub-components inherit. */
+  :global(.setting-row > *) { flex-shrink: 0; }
+  :global(.setting-row > div), :global(.setting-row > span.setting-label) {
+    flex: 1 1 0; min-width: 0;
+  }
+  :global(.setting-label), :global(.setting-desc) { word-break: break-word; overflow-wrap: anywhere; }
   /* Allow dragged items to visually escape the card boundary */
   .drag-list { overflow: visible; }
 

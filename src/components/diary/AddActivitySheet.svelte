@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import Sheet from '../ui/Sheet.svelte';
   import { addActivity, updateActivity } from '../../stores/activity.js';
 
@@ -29,14 +30,14 @@
     _wasOpen = open;
   }
 
-  $: titleText = entry ? 'Edit Activity' : 'Add Activity';
+  $: titleText = entry ? $_('diary.activity.title_edit') : $_('diary.activity.title_add');
 
   async function save() {
     error = '';
     const trimmed = name.trim();
-    if (!trimmed) { error = 'Name required'; return; }
+    if (!trimmed) { error = $_('diary.activity.errors.name_required'); return; }
     const kcalNum = Math.max(0, Math.round(Number(kcal) || 0));
-    if (!kcalNum) { error = 'Calories required'; return; }
+    if (!kcalNum) { error = $_('diary.activity.errors.kcal_required'); return; }
     const dur = durationMin === '' ? null : Math.max(0, Math.round(Number(durationMin) || 0));
     const dist = distance.trim() || null;
     saving = true;
@@ -63,23 +64,23 @@
 <Sheet bind:open title={titleText} on:close>
   <div class="form" on:keydown={onKeydown}>
     <label class="field">
-      <span class="field-label">Activity</span>
-      <input class="input" type="text" bind:value={name} placeholder="e.g. Morning hike" maxlength="80" />
+      <span class="field-label">{$_('diary.activity.field_name')}</span>
+      <input class="input" type="text" bind:value={name} placeholder={$_('diary.activity.field_name_placeholder')} maxlength="80" />
     </label>
 
     <label class="field">
-      <span class="field-label">Calories burned</span>
-      <input class="input" type="number" bind:value={kcal} inputmode="numeric" min="0" placeholder="kcal" />
+      <span class="field-label">{$_('diary.activity.field_kcal')}</span>
+      <input class="input" type="number" bind:value={kcal} inputmode="numeric" min="0" placeholder={$_('diary.activity.field_kcal_placeholder')} />
     </label>
 
     <div class="row-2">
       <label class="field">
-        <span class="field-label">Duration <span class="hint">(optional)</span></span>
-        <input class="input" type="number" bind:value={durationMin} inputmode="numeric" min="0" placeholder="minutes" />
+        <span class="field-label">{$_('diary.activity.field_duration')} <span class="hint">{$_('diary.activity.field_optional')}</span></span>
+        <input class="input" type="number" bind:value={durationMin} inputmode="numeric" min="0" placeholder={$_('diary.activity.field_duration_placeholder')} />
       </label>
       <label class="field">
-        <span class="field-label">Distance <span class="hint">(optional)</span></span>
-        <input class="input" type="text" bind:value={distance} placeholder="e.g. 10 mi" maxlength="40" />
+        <span class="field-label">{$_('diary.activity.field_distance')} <span class="hint">{$_('diary.activity.field_optional')}</span></span>
+        <input class="input" type="text" bind:value={distance} placeholder={$_('diary.activity.field_distance_placeholder')} maxlength="40" />
       </label>
     </div>
 
@@ -88,7 +89,9 @@
     {/if}
 
     <div class="actions">
-      <button class="btn btn-primary btn-block" on:click={save} disabled={saving}>{saving ? 'Adding…' : (entry ? 'Save Changes' : 'Add to Diary')}</button>
+      <button class="btn btn-primary btn-block" on:click={save} disabled={saving}>
+        {saving ? $_('diary.activity.saving') : (entry ? $_('diary.activity.save_changes') : $_('diary.activity.add_to_diary'))}
+      </button>
     </div>
   </div>
 </Sheet>

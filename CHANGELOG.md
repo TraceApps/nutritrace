@@ -5,6 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.9] — 2026-05-01
+
+### Single Sign-On (OIDC)
+- Sign in with your existing identity provider — Authentik, Keycloak, Pocket ID, Authelia, Auth0, Google, or any OIDC 1.0 provider. Settings → User Management → OIDC providers, with a guided picker that pre-fills sensible defaults per IdP.
+- Auto-link verified-email accounts on first sign-in (default ON) and an opt-in auto-register-new-users toggle for blanket onboarding.
+- Admin role mapping via group claims, runtime password-login disable for OIDC-only instances, and Profile → Linked accounts to attach SSO to an existing password account.
+- Client secrets encrypted at rest. Discovery cached, PKCE + state + nonce validated on every callback.
+
+### Import from another app *(experimental)*
+- Bring past days into NutriTrace from **MyFitnessPal**, **Lose It!**, **Cronometer**, or a generic spreadsheet. Settings → Import from another app.
+- Preview shows day count, date range, and any unmapped meal labels before commit. Per-date conflict policy: skip, merge, or replace.
+
+### Settings reorganization
+- Cleaner group structure with renamed sections (Integrations / Food Sources) so labels don't collide.
+- Long labels no longer push toggles or icons off-screen on narrower viewports.
+
+### User Management polish
+- Inline role change on the user list (with a last-admin guard that refuses to demote the only admin).
+- Admin row action to reset another user's password.
+- "Delete my account" Danger zone on the Profile page.
+- Invite-by-email is now the primary "Add user" path; direct-add stays as a quieter secondary option for environments without SMTP.
+- Profile shortcut redesigned with a gradient avatar + role pill.
+
+### Reliability + security
+- Sign-out actually signs you out — previously the server cookie wasn't cleared, leaving you in a half-state.
+- Theme no longer flashes to defaults every 30 seconds when settings poll.
+- Diary doesn't briefly flash meal cards on every tab switch.
+- Database migration hardened against a foreign-key cascade that could wipe per-user data on upgrade. Existing deploys are unaffected going forward.
+- Sync engine repopulates server-side rows that go missing, instead of silently dropping the change.
+- Photo uploads downscale before saving, so phone photos no longer silently fail to save when they exceed the server's payload limit.
+- Forgot-password endpoint timing-padded so response time can no longer be used to enumerate registered emails.
+- JWT rotates on password change, so old sessions on other devices stop working.
+- Stress score recalibrated against accumulated calibration data.
+
+### For self-hosters
+- Backups now include OIDC providers and per-user links. `client_secret` is encrypted in the dump; restoring to a host with a different `JWT_SECRET` (and no `TOKEN_ENC_KEY` override) requires re-entering secrets.
+- New env var `TOKEN_ENC_KEY` for independent rotation of at-rest encryption keys.
+
+---
+
 ## [1.0.0-rc.8] — 2026-04-30 — Manual activity logging (issue #3)
 
 Adds an opt-in **Activity** section to the Diary so you can log

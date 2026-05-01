@@ -275,6 +275,51 @@ async function pullChanges() {
   return totalChanges > 0;
 }
 
+/**
+ * Disaster-recovery push: marks every locally-cached row as pending and
+ * clears stale server_id refs (which are no longer valid if the server
+ * lost rows), then runs a full sync. Re-creates everything on the server
+ * from the device's local SQLite mirror.
+ *
+ * Native server-mode only. PWA has no local mirror; native standalone
+ * has no server to push to.
+ *
+ * Returns { pushed: { foods, meals, diary, activity, settings } } counts
+ * of rows that were marked pending (i.e. rows that should now be on the
+ * server after the sync completes).
+ */
+export async function pushAllFromDevice() {
+  if (typeof window === 'undefined') throw new Error('Browser only');
+  const { isNative, getServerUrl } = await import('./platform.js');
+  if (!isNative) throw new Error('This action only works in the native app.');
+  if (!getServerUrl()) throw new Error('Connect to a server first.');
+  const { getDb } = await import('./db-native.js');
+  const db = await getDb();
+
+  // Clear stale server_id refs (server may have lost rows; their old IDs
+  // are meaningless) and mark every row pending. user_settings doesn't
+  // carry server_id so just mark pending.
+  await db.execute(`
+    UPDATE foods         SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
+    UPDATE meals         SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
+    UPDATE diary         SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
+    UPDATE activity_log  SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
+    UPDATE user_settings SET sync_status='pending'                  WHERE deleted_at IS NULL;
+  `);
+
+  // Count what we just queued so the UI can confirm afterwards.
+  const counts = {};
+  for (const t of ['foods', 'meals', 'diary', 'activity_log', 'user_settings']) {
+    const r = await db.query(`SELECT COUNT(*) AS n FROM ${t} WHERE sync_status='pending' AND deleted_at IS NULL`);
+    counts[t] = r?.values?.[0]?.n || 0;
+  }
+
+  // Trigger a full sync — this pushes everything we just marked pending.
+  // Run non-silent so the user sees the sync bar progressing.
+  await fullSync(false);
+  return { pushed: counts };
+}
+
 /** Full sync — push then pull then cache images
  * @param {boolean} silent - If true, don't show sync bar unless there are actual changes
  */

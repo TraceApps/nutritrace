@@ -49,9 +49,9 @@
   async function onActivityDelete(a) {
     try {
       await deleteActivity(a.id);
-      showSuccess('Activity removed');
+      showSuccess($_('diary.toast.activity_removed'));
     } catch (e) {
-      showError(e?.message || 'Could not delete');
+      showError(e?.message || $_('diary.errors.activity_delete_failed'));
     }
   }
   function openActivityActionSheet(a) {
@@ -749,7 +749,22 @@
     const today = localDateStr();
     let storedDate;
     currentDate.subscribe(v => storedDate = v)();
-    await loadEntry(storedDate || today);
+    const targetDate = storedDate || today;
+    // Skip the network round-trip when the store already holds this date —
+    // App.svelte's {#key $location} unmounts + remounts Diary on every nav,
+    // and refetching here causes a visible empty-then-populated flicker
+    // every time you switch to /diary. The store retains data across the
+    // remount; the reactive `$: entry = ...` shows it immediately. We still
+    // call loadEntry when the date in the store doesn't match (first load,
+    // or user picked a different day).
+    let cur = null;
+    currentEntry.subscribe(v => cur = v)();
+    if (!cur || cur.date !== targetDate) {
+      await loadEntry(targetDate);
+    } else {
+      // Make sure currentDate matches what's displayed (may be stale).
+      currentDate.set(targetDate);
+    }
 
     // Handle replace flow — food picker added the new item, now delete the old one
     const replaceData = sessionStorage.getItem('nt:replaceItem');
@@ -955,20 +970,20 @@
         <div class="meal-header" style="--meal-color:#4FFFB0">
           <span class="meal-type-icon material-symbols-rounded">directions_run</span>
           <div class="activity-name-stack">
-            <span class="meal-name">Activity</span>
+            <span class="meal-name">{$_('diary.activity.section')}</span>
             {#if $wellnessEnabled}
-              <span class="activity-sub text-3 text-sm">Synced workouts from your device live in Wellness</span>
+              <span class="activity-sub text-3 text-sm">{$_('diary.activity.wellness_hint')}</span>
             {/if}
           </div>
-          <button class="btn-icon accent ml-auto" on:click={() => { editingActivity = null; showActivitySheet = true; }} aria-label="Add activity" title="Add activity">
+          <button class="btn-icon accent ml-auto" on:click={() => { editingActivity = null; showActivitySheet = true; }} aria-label={$_('diary.activity.add')} title={$_('diary.activity.add')}>
             <span class="material-symbols-rounded">add</span>
           </button>
         </div>
 
         {#if acts.length === 0}
-          <button type="button" class="meal-empty" on:click={() => { editingActivity = null; showActivitySheet = true; }} aria-label="Add activity">
+          <button type="button" class="meal-empty" on:click={() => { editingActivity = null; showActivitySheet = true; }} aria-label={$_('diary.activity.add')}>
             <span class="material-symbols-rounded meal-empty-icon" style="color:#4FFFB0">add_circle</span>
-            <span class="meal-empty-text">Tap to add activity</span>
+            <span class="meal-empty-text">{$_('diary.activity.tap_to_add')}</span>
           </button>
         {:else}
           <div class="meal-items">
@@ -979,7 +994,7 @@
                   <div class="item-info">
                     <span class="item-name truncate">{a.name}</span>
                     <span class="item-meta text-3 text-sm">
-                      {#if a.duration_min}{a.duration_min} min{/if}{#if a.duration_min && a.distance} · {/if}{#if a.distance}{a.distance}{/if}{#if (a.duration_min || a.distance)} · {/if}<span style="color:#4FFFB0">−{a.kcal} kcal</span>{#if a.source === 'ai_estimated'} · <span class="text-3" title="Estimated by Trace">est.</span>{/if}
+                      {#if a.duration_min}{a.duration_min} min{/if}{#if a.duration_min && a.distance} · {/if}{#if a.distance}{a.distance}{/if}{#if (a.duration_min || a.distance)} · {/if}<span style="color:#4FFFB0">−{a.kcal} kcal</span>{#if a.source === 'ai_estimated'} · <span class="text-3" title="Estimated by Trace">{$_('diary.activity.estimated_short')}</span>{/if}
                     </span>
                   </div>
                 </button>
@@ -988,9 +1003,9 @@
           </div>
           <button class="meal-add-row" on:click={() => { editingActivity = null; showActivitySheet = true; }}>
             <span class="material-symbols-rounded">add</span>
-            <span>Add activity</span>
+            <span>{$_('diary.activity.add')}</span>
           </button>
-          <div class="meal-macro-footer activity-footer" aria-label="Activity total">
+          <div class="meal-macro-footer activity-footer" aria-label={$_('diary.activity.section')}>
             <div class="meal-macro-bar">
               {#each acts as a (a.id)}
                 <div class="amb-seg" style="width:{totalActKcal ? (a.kcal / totalActKcal * 100) : 0}%" title={`${a.name} — ${a.kcal} kcal`}></div>
@@ -999,7 +1014,7 @@
             <span class="meal-macro-text text-3 text-sm">
               <span style="color:#4FFFB0">−{totalActKcal} kcal</span>
               {#if wearablePresent && !manualCounted}
-                · <span title="Policy: wearable wins. Toggle in Settings → Diary.">not counted — using wearable</span>
+                · <span title={$_('diary.activity.policy_chip')}>{$_('diary.activity.not_counted')}</span>
               {/if}
             </span>
           </div>
@@ -1657,10 +1672,10 @@
 
 <ActionSheet
   bind:open={showActivityAction}
-  title={activityActionItem?.name || 'Activity'}
+  title={activityActionItem?.name || $_('diary.activity.section')}
   actions={[
-    { label: 'Edit',   icon: 'edit',   value: 'edit'   },
-    { label: 'Delete', icon: 'delete', value: 'delete', danger: true },
+    { label: $_('diary.activity.actions.edit'),   icon: 'edit',   value: 'edit'   },
+    { label: $_('diary.activity.actions.delete'), icon: 'delete', value: 'delete', danger: true },
   ]}
   on:select={onActivityAction}
 />

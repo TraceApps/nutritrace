@@ -213,7 +213,97 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_activity_user_date ON activity_log(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_activity_updated   ON activity_log(updated_at);
   CREATE INDEX IF NOT EXISTS idx_activity_deleted   ON activity_log(deleted_at);
+
+  -- OIDC providers — admin-managed list; client_secret encrypted via
+  -- server/lib/token-crypto.js so a leaked DB doesn't hand out IdP creds.
+  CREATE TABLE IF NOT EXISTS oidc_providers (
+    id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+    issuer_url                    TEXT NOT NULL,
+    client_id                     TEXT NOT NULL,
+    client_secret                 TEXT,                                -- encrypted
+    redirect_uris                 TEXT NOT NULL DEFAULT '[]',          -- JSON array
+    scope                         TEXT NOT NULL DEFAULT 'openid profile email',
+    token_endpoint_auth_method    TEXT NOT NULL DEFAULT 'client_secret_post',
+    response_types                TEXT NOT NULL DEFAULT '["code"]',    -- JSON array
+    id_token_signed_response_alg  TEXT NOT NULL DEFAULT 'RS256',
+    userinfo_signed_response_alg  TEXT NOT NULL DEFAULT 'none',
+    request_timeout_ms            INTEGER NOT NULL DEFAULT 30000,
+    auto_register                 INTEGER NOT NULL DEFAULT 0, -- legacy, kept for migrations
+    auto_link_verified_email      INTEGER NOT NULL DEFAULT 1, -- ON by default; safe (just trusts the IdP)
+    auto_register_new_users       INTEGER NOT NULL DEFAULT 0, -- OFF by default; gates blanket onboarding
+    admin_group_claim             TEXT,
+    admin_group_value             TEXT,
+    display_name                  TEXT,
+    logo_url                      TEXT,
+    is_active                     INTEGER NOT NULL DEFAULT 1,
+    created_at                    TEXT DEFAULT (datetime('now')),
+    updated_at                    TEXT DEFAULT (datetime('now'))
+  );
+
+  -- Per-user OIDC links — one row per (user, provider) link. Lets a single
+  -- user authenticate via N IdPs without bloating the users table.
+  CREATE TABLE IF NOT EXISTS user_oidc_links (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    oidc_provider_id  INTEGER NOT NULL REFERENCES oidc_providers(id) ON DELETE CASCADE,
+    oidc_sub          TEXT NOT NULL,
+    email_verified    INTEGER DEFAULT 0,
+    last_login_at     TEXT,
+    created_at        TEXT DEFAULT (datetime('now')),
+    UNIQUE (oidc_provider_id, oidc_sub)
+  );
+  CREATE INDEX IF NOT EXISTS idx_user_oidc_links_user ON user_oidc_links(user_id);
 `);
+
+// Allow password_hash to be NULL for OIDC-only users (legacy schemas had NOT NULL).
+// SQLite doesn't support ALTER COLUMN; we rebuild the table.
+//
+// CRITICAL: foreign_keys MUST be disabled around the rebuild. With FK
+// enforcement ON, DROP TABLE on the parent will trigger cascade deletes on
+// every child table that references users(id) ON DELETE CASCADE — which is
+// user_settings, food_shares, meal_shares, ai_chat_history, activity_log,
+// user_oidc_links, etc. — wiping user-scoped data. Following SQLite's
+// recommended safe-rebuild recipe:
+// https://www.sqlite.org/lang_altertable.html#otheralter
+{
+  const colInfo = db.prepare(`PRAGMA table_info(users)`).all();
+  const pwCol = colInfo.find(c => c.name === 'password_hash');
+  if (pwCol && pwCol.notnull) {
+    db.pragma('foreign_keys = OFF');
+    try {
+      const rebuild = db.transaction(() => {
+        db.exec(`
+          CREATE TABLE users_new (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT UNIQUE NOT NULL,
+            password_hash TEXT,
+            full_name     TEXT,
+            nickname      TEXT,
+            birthday      TEXT,
+            gender        TEXT,
+            avatar_url    TEXT,
+            role          TEXT NOT NULL DEFAULT 'user',
+            email         TEXT,
+            created_at    TEXT DEFAULT (datetime('now'))
+          );
+          INSERT INTO users_new SELECT id, username, password_hash, full_name, nickname, birthday, gender, avatar_url, role, email, created_at FROM users;
+          DROP TABLE users;
+          ALTER TABLE users_new RENAME TO users;
+        `);
+      });
+      rebuild();
+      // Sanity: with FKs back on, validate that no child table holds an
+      // orphaned user_id. If anything's broken, surface it loudly rather
+      // than silently corrupt the DB.
+      const violations = db.prepare(`PRAGMA foreign_key_check`).all();
+      if (violations.length) {
+        console.error('[db] FK violations after users rebuild:', violations);
+      }
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  }
+}
 
 // ── Migrations ─────────────────────────────────────────────────────────────
 function columnExists(table, col) {
@@ -331,6 +421,31 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_meals_deleted ON meals(deleted_at);
   CREATE INDEX IF NOT EXISTS idx_diary_deleted ON diary(deleted_at);
 `);
+
+// ── OIDC providers: split auto_register into auto_link_verified_email +
+//    auto_register_new_users (rc.12). Existing rows keep their old behavior
+//    by copying auto_register into both new columns.
+{
+  if (!columnExists('oidc_providers', 'auto_link_verified_email')) {
+    db.exec(`ALTER TABLE oidc_providers ADD COLUMN auto_link_verified_email INTEGER NOT NULL DEFAULT 1`);
+    db.exec(`UPDATE oidc_providers SET auto_link_verified_email = auto_register`);
+  }
+  if (!columnExists('oidc_providers', 'auto_register_new_users')) {
+    db.exec(`ALTER TABLE oidc_providers ADD COLUMN auto_register_new_users INTEGER NOT NULL DEFAULT 0`);
+    db.exec(`UPDATE oidc_providers SET auto_register_new_users = auto_register`);
+  }
+}
+
+// ── Seed default app_config rows ───────────────────────────────────────────
+// Idempotent — only inserts if missing. Surfaces sane defaults so admins can
+// flip values via the UI without first knowing the row needs to exist.
+{
+  const seeds = [
+    ['enable_email_password_login', '1'],   // OIDC + password coexist by default
+  ];
+  const ins = db.prepare(`INSERT OR IGNORE INTO app_config (key, value) VALUES (?, ?)`);
+  for (const [k, v] of seeds) ins.run(k, v);
+}
 
 // ── Defunct setting key cleanup ──────────────────────────────────────────────
 // Drop orphan rows for keys that no longer have any code reading them.

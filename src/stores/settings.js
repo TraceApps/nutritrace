@@ -274,6 +274,23 @@ export async function loadServerSettings() {
     }
 
     _suppressSync = false;
+
+    // After settings are written to localStorage, force-apply the theme
+    // settings directly to the DOM. The reactive `$: applyAccentColor(…)`
+    // in App.svelte only fires when Svelte sees the store value change —
+    // if the in-memory store value matches what the server returned, the
+    // reactive skips, leaving the document still styled with whatever was
+    // applied previously (or defaults, on the post-login first-paint).
+    // Calling apply* here guarantees the document picks up the right
+    // values whether or not Svelte's reactive system fires.
+    try {
+      if (typeof window !== 'undefined') {
+        const accent = DB.getSetting('accentColor', 'mint');
+        const appearanceVal = DB.getSetting('appearance', 'system');
+        applyAccentColor(accent);
+        applyAppearance(appearanceVal);
+      }
+    } catch {}
   } catch { _suppressSync = false; }
 }
 
@@ -314,7 +331,17 @@ function createSettingStore(key, defaultValue) {
 
   window.addEventListener('wl:setting', (e) => {
     if (e.detail && e.detail.key === key) {
-      store.set(DB.getSetting(key, defaultValue));
+      const next = DB.getSetting(key, defaultValue);
+      const prev = get(store);
+      // Only update if the value actually changed. Without this guard,
+      // the 30s settings poll (loadServerSettings dispatches force=true
+      // on every key) would re-set every store with identical values,
+      // firing all subscribers, which makes reactive blocks like
+      // `$: meals = $mealNames` re-evaluate and any in:transition'd
+      // children flash on every poll.
+      if (JSON.stringify(prev) !== JSON.stringify(next)) {
+        store.set(next);
+      }
     }
   });
 
@@ -401,7 +428,17 @@ export const offUploadCountry       = createSettingStore('offUploadCountry',    
 export const accentColor = createSettingStore('accentColor', 'mint');
 
 /** Apply accent color — supports named presets and custom hex (#rrggbb) */
+// Track what's currently applied so periodic re-applies (every 30s settings
+// poll, on tab visibilitychange, after login) don't unnecessarily mutate the
+// DOM and cause a visible flash. Only the first call OR a real change does
+// the work.
+let _lastAppliedAccent = null;
 export function applyAccentColor(value) {
+  if (value === _lastAppliedAccent) {
+    accentColor.set(value);
+    return;
+  }
+  _lastAppliedAccent = value;
   const isHex = /^#[0-9a-fA-F]{6}$/.test(value);
   // Clear any previously injected custom vars
   ['--accent','--accent-2','--accent-dim','--accent-text'].forEach(v =>
@@ -426,7 +463,13 @@ export function applyAccentColor(value) {
 }
 
 /** Apply an appearance change and update the DOM + theme-color meta */
+let _lastAppliedAppearance = null;
 export function applyAppearance(value) {
+  if (value === _lastAppliedAppearance) {
+    appearance.set(value);
+    return;
+  }
+  _lastAppliedAppearance = value;
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const dark = value === 'dark' || (value === 'system' && prefersDark);
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');

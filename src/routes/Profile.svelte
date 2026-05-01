@@ -19,6 +19,31 @@
   }
   import { showSuccess, showError } from '../stores/toast.js';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
+  import { confirmDialog } from '../stores/confirmDialog.js';
+  import { loadAuthState } from '../stores/auth.js';
+
+  let deletingAccount = false;
+  async function deleteMyAccount() {
+    if (!await confirmDialog({
+      title: $_('profile.delete_account_title'),
+      message: $_('profile.delete_account_message'),
+      confirmText: $_('profile.delete_account_confirm'),
+      dangerous: true,
+    })) return;
+    deletingAccount = true;
+    try {
+      const res = await fetch(apiUrl('/api/auth/me'), { method: 'DELETE', credentials: 'include', headers: _headers() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showError(data?.error || $_('profile.errors.delete_account_failed')); deletingAccount = false; return; }
+      localStorage.removeItem('wl:userId');
+      await loadAuthState();
+      showSuccess($_('profile.account_deleted'));
+      pop();
+    } catch (e) {
+      showError($_('common.errors.cant_reach_server'));
+      deletingAccount = false;
+    }
+  }
 
   $: pwScore = passwordStrength(new_password);
 
@@ -43,6 +68,7 @@
     gender     = u.gender     || '';
     avatar_url = u.avatar_url || '';
     email      = u.email      || '';
+    loadOidc();
   });
 
   async function save() {
@@ -100,17 +126,68 @@
   let new_password2 = '';
   let pwSaving = false;
 
+  // OIDC: provider list + linked accounts for the current user
+  let oidcProviders = [];
+  let linkedProviders = [];
+  let unlinking = null;
+  async function loadOidc() {
+    try {
+      const r = await fetch(apiUrl('/api/auth/status'), { credentials: 'include', headers: _headers() });
+      if (r.ok) {
+        const data = await r.json();
+        oidcProviders = (data?.oidc?.providers) || [];
+      }
+    } catch {}
+    try {
+      const r2 = await fetch(apiUrl('/api/auth/oidc/links'), { credentials: 'include', headers: _headers() });
+      if (r2.ok) {
+        const data = await r2.json();
+        linkedProviders = data?.links || [];
+      }
+    } catch {}
+  }
+  function startLink(providerId) {
+    const ret = encodeURIComponent('#/profile');
+    window.location.href = apiUrl(`/api/auth/oidc/login/${providerId}?link=1&return=${ret}`);
+  }
+  async function unlink(linkId) {
+    if (!confirm('Unlink this provider? You won\'t be able to sign in with it again until you re-link.')) return;
+    unlinking = linkId;
+    try {
+      const csrf = localStorage.getItem('nt:csrf');
+      const r = await fetch(apiUrl(`/api/auth/oidc/unlink/${linkId}`), {
+        method: 'POST',
+        credentials: 'include',
+        headers: _headers(csrf ? { 'X-CSRF-Token': csrf } : {}),
+      });
+      const data = await r.json();
+      if (!r.ok) { showError(data?.error || $_('common.errors.unlink_failed')); return; }
+      linkedProviders = data.links || [];
+      showSuccess($_('common.unlinked'));
+    } catch (e) {
+      showError($_('common.errors.cant_reach_server'));
+    } finally { unlinking = null; }
+  }
+  $: linkedProviderIds = new Set(linkedProviders.map(l => l.oidc_provider_id));
+  $: availableToLink = oidcProviders.filter(p => !linkedProviderIds.has(p.id));
+  $: hasPassword = !!$currentUser?.has_password;
+  $: canChangePassword = hasPassword;
+  $: canSetPassword = !hasPassword;
+
   async function changePassword() {
     if (new_password !== new_password2) { showError($_('reset_password.errors.mismatch')); return; }
     const pwErr = validatePassword(new_password);
     if (pwErr) { showError(pwErr); return; }
     pwSaving = true;
     try {
+      const body = hasPassword
+        ? { current_password: cur_password, new_password }
+        : { new_password };  // OIDC-only user setting their first password
       const res = await fetch(apiUrl('/api/auth/password'), {
         method: 'PUT',
         credentials: 'include',
         headers: _headers(),
-        body: JSON.stringify({ current_password: cur_password, new_password }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) { showError(data.error || $_('common.errors.failed')); return; }
@@ -188,18 +265,64 @@
       </div>
     </div>
 
+    {#if oidcProviders.length || linkedProviders.length}
+      <div class="card settings-card">
+        <div class="editor-card-title">{$_('profile.linked_accounts')}</div>
+        {#if linkedProviders.length}
+          <div class="oidc-link-list">
+            {#each linkedProviders as l (l.id)}
+              <div class="oidc-link-row">
+                {#if l.logo_url}
+                  <img src={resolveAssetUrl(l.logo_url)} alt="" class="oidc-link-logo" />
+                {:else}
+                  <span class="material-symbols-rounded oidc-link-icon">verified_user</span>
+                {/if}
+                <div class="oidc-link-info">
+                  <span class="oidc-link-name">{l.display_name || 'OIDC'}</span>
+                  {#if l.last_login_at}
+                    <span class="oidc-link-meta text-3 text-sm">last sign-in {new Date(l.last_login_at).toLocaleDateString()}</span>
+                  {/if}
+                </div>
+                <button class="btn btn-ghost btn-sm" on:click={() => unlink(l.id)} disabled={unlinking === l.id}>
+                  {unlinking === l.id ? '…' : $_('profile.unlink')}
+                </button>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <p class="text-3 text-sm" style="margin:0 0 8px">{$_('profile.no_linked_accounts')}</p>
+        {/if}
+        {#if availableToLink.length}
+          <div class="oidc-link-add">
+            {#each availableToLink as p (p.id)}
+              <button class="btn btn-secondary" on:click={() => startLink(p.id)}>
+                {#if p.logo_url}
+                  <img src={resolveAssetUrl(p.logo_url)} alt="" class="oidc-link-logo" />
+                {:else}
+                  <span class="material-symbols-rounded oidc-link-icon">add_link</span>
+                {/if}
+                <span>{$_('profile.link_with')} {p.display_name || 'SSO'}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- Change password -->
     <div class="card settings-card">
       <div class="editor-card-title">{$_('profile.security')}</div>
       {#if !changingPassword}
         <button class="btn btn-ghost w-full" on:click={() => changingPassword = true}>
-          {$_('profile.change_password')}
+          {hasPassword ? $_('profile.change_password') : $_('profile.set_password')}
         </button>
       {:else}
-        <div class="form-group">
-          <label class="form-label">{$_('profile.current_password')}</label>
-          <input class="input" type="password" bind:value={cur_password} />
-        </div>
+        {#if hasPassword}
+          <div class="form-group">
+            <label class="form-label">{$_('profile.current_password')}</label>
+            <input class="input" type="password" bind:value={cur_password} />
+          </div>
+        {/if}
         <div class="form-group">
           <label class="form-label">{$_('reset_password.new_password')}</label>
           <input class="input" type="password" bind:value={new_password} placeholder={$_('reset_password.password_placeholder')} />
@@ -222,16 +345,30 @@
             {$_('common.cancel')}
           </button>
           <button class="btn btn-primary" style="flex:1" on:click={changePassword} disabled={pwSaving}>
-            {pwSaving ? $_('common.saving') : $_('profile.change_password')}
+            {pwSaving ? $_('common.saving') : (hasPassword ? $_('profile.change_password') : $_('profile.set_password'))}
           </button>
         </div>
       {/if}
+    </div>
+
+    <!-- Danger zone: delete my account -->
+    <div class="card settings-card danger-zone-card">
+      <div class="editor-card-title" style="color:var(--danger)">{$_('profile.danger_zone')}</div>
+      <p class="text-3 text-sm" style="margin:0;line-height:1.5">
+        {$_('profile.delete_account_explainer')}
+      </p>
+      <button class="btn btn-secondary" style="color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%, transparent)"
+        on:click={deleteMyAccount} disabled={deletingAccount}>
+        <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle">delete_forever</span>
+        {deletingAccount ? $_('profile.deleting') : $_('profile.delete_account')}
+      </button>
     </div>
   </div>
 </div>
 
 <style>
   .page-wrap { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+  .danger-zone-card { border-color: color-mix(in srgb, var(--danger) 25%, transparent) !important; }
   .profile-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
   .avatar-section {
     display: flex;
@@ -278,4 +415,17 @@
   .pw-strength.s-4 .pw-label { color: var(--success, #22c55e); }
   .pw-strength.s-0 .pw-label, .pw-strength.s-1 .pw-label { color: var(--danger, #ef4444); }
   .pw-mismatch { color: var(--danger, #ef4444); font-size: 11px; margin: 4px 0 0; }
+
+  .oidc-link-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+  .oidc-link-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-md);
+  }
+  .oidc-link-logo { width: 22px; height: 22px; object-fit: contain; flex: 0 0 auto; }
+  .oidc-link-icon { font-size: 22px; flex: 0 0 auto; color: var(--text-3); }
+  .oidc-link-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .oidc-link-name { font-weight: 600; }
+  .oidc-link-meta { font-size: 11px; }
+  .oidc-link-add { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .oidc-link-add .btn { display: flex; align-items: center; gap: 8px; justify-content: center; }
 </style>

@@ -112,6 +112,38 @@ function restoreFromZip(zip) {
       VALUES (@id, @user_id, @date, @name, @kcal, @duration_min, @distance, @source, @created_at, @updated_at, @deleted_at)
     `);
     for (const a of data.activity_log || []) insActivity.run({ deleted_at: null, ...a });
+
+    // OIDC providers — admin config; client_secret is encrypted with the
+    // deploy's JWT_SECRET, so cross-deploy restores will need the secret
+    // re-entered from the admin UI.
+    db.prepare('DELETE FROM oidc_providers').run();
+    const insOidcProvider = db.prepare(`
+      INSERT OR IGNORE INTO oidc_providers (
+        id, issuer_url, client_id, client_secret, redirect_uris, scope,
+        token_endpoint_auth_method, response_types,
+        id_token_signed_response_alg, userinfo_signed_response_alg, request_timeout_ms,
+        auto_register, auto_link_verified_email, auto_register_new_users,
+        admin_group_claim, admin_group_value,
+        display_name, logo_url, is_active, created_at, updated_at
+      ) VALUES (
+        @id, @issuer_url, @client_id, @client_secret, @redirect_uris, @scope,
+        @token_endpoint_auth_method, @response_types,
+        @id_token_signed_response_alg, @userinfo_signed_response_alg, @request_timeout_ms,
+        @auto_register, @auto_link_verified_email, @auto_register_new_users,
+        @admin_group_claim, @admin_group_value,
+        @display_name, @logo_url, @is_active, @created_at, @updated_at
+      )
+    `);
+    for (const p of data.oidc_providers || []) insOidcProvider.run({
+      auto_register: 0, auto_link_verified_email: 1, auto_register_new_users: 0, ...p,
+    });
+
+    db.prepare('DELETE FROM user_oidc_links').run();
+    const insOidcLink = db.prepare(`
+      INSERT OR IGNORE INTO user_oidc_links (id, user_id, oidc_provider_id, oidc_sub, email_verified, last_login_at, created_at)
+      VALUES (@id, @user_id, @oidc_provider_id, @oidc_sub, @email_verified, @last_login_at, @created_at)
+    `);
+    for (const l of data.user_oidc_links || []) insOidcLink.run({ email_verified: 0, last_login_at: null, ...l });
   })();
 
   // Restore images — guard against zip-slip and zip-bomb attacks
@@ -160,6 +192,8 @@ function dumpDatabase() {
     wellness_data:    db.prepare('SELECT * FROM wellness_data').all(),
     workouts:         db.prepare('SELECT * FROM workouts').all(),
     activity_log:     db.prepare('SELECT * FROM activity_log').all(),
+    oidc_providers:   db.prepare('SELECT * FROM oidc_providers').all(),
+    user_oidc_links:  db.prepare('SELECT * FROM user_oidc_links').all(),
   };
 }
 

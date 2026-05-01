@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { currentUser, userMgmtActive, loadAuthState } from '../stores/auth.js';
   import { loadServerSettings } from '../stores/settings.js';
   import { showError, showSuccess } from '../stores/toast.js';
@@ -15,6 +16,43 @@
   let recovering    = false;
   let recoveryDone  = false;
   let recoveryToken = '';
+
+  // OIDC providers + password-login flag are returned by /api/auth/status.
+  // Native (Capacitor server-mode) routes the auth flow through
+  // @capacitor/browser; the IdP redirects back via a nutritrace://oidc-callback
+  // deep link which App.svelte handles. Native local mode skips OIDC entirely
+  // since there's no server to talk to.
+  let oidcProviders = [];
+  let passwordLoginEnabled = true;
+  onMount(async () => {
+    if (isNative && !getServerUrl()) return; // standalone — skip
+    try {
+      const r = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' });
+      if (r.ok) {
+        const data = await r.json();
+        if (data?.oidc) {
+          oidcProviders = Array.isArray(data.oidc.providers) ? data.oidc.providers : [];
+          passwordLoginEnabled = data.oidc.enable_email_password_login !== false;
+        }
+      }
+    } catch {}
+  });
+
+  async function startOidc(providerId) {
+    const ret = encodeURIComponent(window.location.hash || '#/');
+    if (isNative) {
+      // Capacitor: open in @capacitor/browser. The mobile=1 flag tells
+      // the server to redirect via the nutritrace://oidc-callback deep
+      // link instead of setting an HttpOnly cookie + SPA hash redirect.
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({
+        url: apiUrl(`/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}`),
+        presentationStyle: 'popover',
+      });
+      return;
+    }
+    window.location.href = apiUrl(`/api/auth/oidc/login/${providerId}?return=${ret}`);
+  }
 
   async function login() {
     if (!username.trim() || !password) return;
@@ -83,27 +121,49 @@
     </div>
 
     {#if !recoveryDone}
-      <div class="form-group">
-        <label class="form-label">{$_('login.username')}</label>
-        <input class="input" type="text" autocomplete="username"
-          bind:value={username} on:keydown={onKey}
-          placeholder={$_('login.username_placeholder')} autofocus />
-      </div>
+      {#if oidcProviders.length}
+        <div class="sso-row">
+          {#each oidcProviders as p (p.id)}
+            <button class="btn btn-secondary sso-btn" on:click={() => startOidc(p.id)} type="button">
+              {#if p.logo_url}
+                <img src={resolveAssetUrl(p.logo_url)} alt="" class="sso-logo" />
+              {:else}
+                <span class="material-symbols-rounded sso-icon">login</span>
+              {/if}
+              <span>{$_('login.sso_sign_in_with', { values: { provider: p.display_name || 'SSO' } })}</span>
+            </button>
+          {/each}
+        </div>
+        {#if passwordLoginEnabled}
+          <div class="sso-divider"><span>{$_('login.sso_or')}</span></div>
+        {/if}
+      {/if}
 
-      <div class="form-group">
-        <label class="form-label">{$_('login.password')}</label>
-        <input class="input" type="password" autocomplete="current-password"
-          bind:value={password} on:keydown={onKey}
-          placeholder={$_('login.password_placeholder')} />
-      </div>
+      {#if passwordLoginEnabled}
+        <div class="form-group">
+          <label class="form-label">{$_('login.username')}</label>
+          <input class="input" type="text" autocomplete="username"
+            bind:value={username} on:keydown={onKey}
+            placeholder={$_('login.username_placeholder')} autofocus />
+        </div>
 
-      <button class="btn btn-primary w-full" class:loading on:click={login} disabled={loading || !username || !password}>
-        {loading ? $_('login.signing_in') : $_('login.sign_in')}
-      </button>
+        <div class="form-group">
+          <label class="form-label">{$_('login.password')}</label>
+          <input class="input" type="password" autocomplete="current-password"
+            bind:value={password} on:keydown={onKey}
+            placeholder={$_('login.password_placeholder')} />
+        </div>
 
-      <div style="text-align:center">
-        <button class="recovery-toggle" on:click={() => push('/forgot-password')}>{$_('login.forgot_password')}</button>
-      </div>
+        <button class="btn btn-primary w-full" class:loading on:click={login} disabled={loading || !username || !password}>
+          {loading ? $_('login.signing_in') : $_('login.sign_in')}
+        </button>
+
+        <div style="text-align:center">
+          <button class="recovery-toggle" on:click={() => push('/forgot-password')}>{$_('login.forgot_password')}</button>
+        </div>
+      {:else if !oidcProviders.length}
+        <p class="text-3 text-sm" style="text-align:center">{$_('login.no_signin_methods')}</p>
+      {/if}
 
       <!-- Locked out recovery -->
       <button class="recovery-toggle" on:click={() => showRecovery = !showRecovery}>
@@ -190,5 +250,17 @@
     font-size: 13px;
     color: var(--text-2);
     line-height: 1.5;
+  }
+  .sso-row { display: flex; flex-direction: column; gap: 8px; }
+  .sso-btn { display: flex; align-items: center; gap: 10px; justify-content: center; width: 100%; }
+  .sso-logo { width: 18px; height: 18px; object-fit: contain; }
+  .sso-icon { font-size: 18px; }
+  .sso-divider {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--text-3); font-size: 12px;
+    margin: 4px 0;
+  }
+  .sso-divider::before, .sso-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
   }
 </style>

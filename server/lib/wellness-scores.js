@@ -113,7 +113,7 @@ export function snapshotScores(userId, dateStr, { force = false } = {}) {
       r_s = _clamp(r_s, 0, 100);
     }
     const sl = sleep != null ? sleep : 75;
-    return (0.15 * h_s) + (0.60 * sl) + (0.10 * r_s) + 14;
+    return (0.15 * h_s) + (0.60 * sl) + (0.10 * r_s) + 11;
   }
 
   const todayRaw = _rawStress(todayHrv, todayRhr, todaySleep);

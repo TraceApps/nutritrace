@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { signToken, sessionMaxAge, userMgmtActive, requireAuth, requireAdmin } from '../middleware/auth.js';
+import { listProviders as oidcListProviders, publicProvider as oidcPublicProvider, isPasswordLoginEnabled, listUserLinks } from '../lib/oidc.js';
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
 
 const router = Router();
@@ -70,13 +71,23 @@ const COOKIE_OPTS = {
 
 function safeUser(u) {
   const { password_hash, ...rest } = u;
-  return rest;
+  // Linked OIDC providers + password-set flag — surfaced so the Profile page
+  // can render badges and the Unlink/Link UI without an extra round-trip.
+  let linked_providers = [];
+  try { linked_providers = listUserLinks(u.id); } catch {}
+  return { ...rest, has_password: !!password_hash, linked_providers };
 }
 
 // ── Status: is user management active? ────────────────────────────────────
 router.get('/status', wrap((req, res) => {
   const active = userMgmtActive();
-  res.json({ active, setup_required: !active });
+  // Surface OIDC providers + password-login flag for the Login page to use.
+  const providers = oidcListProviders({ activeOnly: true }).map(oidcPublicProvider);
+  res.json({
+    active,
+    setup_required: !active,
+    oidc: { providers, enable_email_password_login: isPasswordLoginEnabled() },
+  });
 }));
 
 // ── Who am I? ─────────────────────────────────────────────────────────────
@@ -88,11 +99,14 @@ router.get('/me', wrap((req, res) => {
 
 // ── Login ──────────────────────────────────────────────────────────────────
 router.post('/login', rateLimitLogin, wrap((req, res) => {
+  if (!isPasswordLoginEnabled()) {
+    return res.status(403).json({ error: 'Password login is disabled. Use Single Sign-On instead.' });
+  }
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim().toLowerCase());
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+  if (!user || !user.password_hash || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
@@ -158,15 +172,21 @@ router.put('/profile', requireAuth, wrap((req, res) => {
   res.json({ user: safeUser(user) });
 }));
 
-// ── Change own password ────────────────────────────────────────────────────
+// ── Change / set own password ──────────────────────────────────────────────
+// OIDC-only users (no password_hash) can use this endpoint to *set* their
+// first password without supplying current_password. Existing-password users
+// still need to verify with their current one.
 router.put('/password', requireAuth, wrap((req, res) => {
   const { current_password, new_password } = req.body;
-  if (!current_password || !new_password) return res.status(400).json({ error: 'Both passwords required' });
+  if (!new_password) return res.status(400).json({ error: 'New password required' });
   { const pwErr = validatePassword(new_password); if (pwErr) return res.status(400).json({ error: pwErr }); }
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  if (!bcrypt.compareSync(current_password, user.password_hash)) {
-    return res.status(401).json({ error: 'Current password is incorrect' });
+  if (user.password_hash) {
+    if (!current_password) return res.status(400).json({ error: 'Current password required' });
+    if (!bcrypt.compareSync(current_password, user.password_hash)) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
   }
 
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 12), req.user.id);
@@ -221,6 +241,26 @@ router.put('/users/:id/password', requireAuth, requireAdmin, wrap((req, res) => 
   const { new_password } = req.body;
   { const pwErr = validatePassword(new_password); if (pwErr) return res.status(400).json({ error: pwErr }); }
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 12), id);
+  res.json({ ok: true });
+}));
+
+// ── Admin: change another user's role (user | admin) ──────────────────────
+router.put('/users/:id/role', requireAuth, requireAdmin, wrap((req, res) => {
+  const id = parseInt(req.params.id);
+  const { role } = req.body;
+  if (!['admin', 'user'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (id === req.user.id) return res.status(400).json({ error: 'Cannot change your own role' });
+  // Last-admin guard — refuse to demote the only admin and lock the instance out.
+  if (role !== 'admin') {
+    const target = db.prepare('SELECT role FROM users WHERE id = ?').get(id);
+    if (target?.role === 'admin') {
+      const admins = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get();
+      if (admins.count <= 1) {
+        return res.status(400).json({ error: 'Cannot demote the only admin. Promote another user to admin first.' });
+      }
+    }
+  }
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
   res.json({ ok: true });
 }));
 

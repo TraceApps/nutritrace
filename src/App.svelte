@@ -7,10 +7,11 @@
   import BottomNav from './components/layout/BottomNav.svelte';
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
+  import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import { DB }    from './lib/db.js';
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language } from './stores/settings.js';
   import { locale } from 'svelte-i18n';
-  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from './stores/auth.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState, handleOidcCallback } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl } from './lib/platform.js';
   import { writable } from 'svelte/store';
 
@@ -164,10 +165,28 @@
             await closeBrowser();
           } catch {}
           // Parse the deep link URL: nutritrace://callback?fitbit=connected
+          // OR for OIDC flow: nutritrace://oidc-callback?token=… / ?error=… / ?linked=1
           try {
             const u = new URL(url);
             const params = u.searchParams;
-            if (params.get('fitbit') === 'connected' || params.get('withings') === 'connected' || params.get('garmin') === 'connected') {
+            const host = (u.hostname || u.host || '').toLowerCase();
+            if (host === 'oidc-callback') {
+              const errMsg = params.get('error');
+              const linked = params.get('linked');
+              const token = params.get('token');
+              if (errMsg) {
+                import('./stores/toast.js').then(({ showError }) => showError(decodeURIComponent(errMsg)));
+              } else if (linked) {
+                import('./stores/toast.js').then(({ showSuccess }) => showSuccess('Linked'));
+                await loadAuthState();
+              } else if (token) {
+                const { setAuthToken } = await import('./lib/platform.js');
+                setAuthToken(token);
+                import('./stores/toast.js').then(({ showSuccess }) => showSuccess('Signed in'));
+                await loadAuthState();
+                window.location.hash = '#/';
+              }
+            } else if (params.get('fitbit') === 'connected' || params.get('withings') === 'connected' || params.get('garmin') === 'connected') {
               const provider = params.get('fitbit') ? 'fitbit' : params.get('withings') ? 'withings' : 'garmin';
               import('./stores/toast.js').then(({ showSuccess }) => showSuccess(`${provider.charAt(0).toUpperCase() + provider.slice(1)} connected!`));
               // Navigate to Wellness page to pick up new connection
@@ -186,6 +205,11 @@
 
     // Load auth state first (sets $currentUser and $userMgmtActive)
     await loadAuthState();
+
+    // OIDC post-callback: if the URL hash contains ?oidc=ok / ?oidc_error=…
+    // strip it, toast, and refresh auth state. Runs after loadAuthState so
+    // we don't double-fetch on cold load.
+    await handleOidcCallback();
 
     // Show wizard on first launch:
     // - Native server mode: NEVER show wizard (server is already configured)
@@ -347,6 +371,8 @@
 
 <!-- Toast must also render outside the login gate so errors show on the login screen -->
 {#if needsLogin}<Toast />{/if}
+<!-- ConfirmDialog is always-mounted so it works on every screen including login + native setup -->
+<ConfirmDialogMount />
 
 <style>
   :global(body) { overflow-x: hidden; }

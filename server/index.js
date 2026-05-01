@@ -22,6 +22,9 @@ import fitbitRoutes     from './routes/fitbit.js';
 import withingsRoutes   from './routes/withings.js';
 import garminRoutes     from './routes/garmin.js';
 import syncRoutes       from './routes/sync.js';
+import oidcRoutes       from './routes/oidc.js';
+import oidcAdminRoutes  from './routes/oidc-admin.js';
+import nutritionImportRoutes from './routes/nutrition-import.js';
 import { logger }   from './logger.js';
 import { authenticate, userMgmtActive } from './middleware/auth.js';
 import { csrfProtect } from './middleware/csrf.js';
@@ -122,13 +125,23 @@ router.use('/api', (req, res, next) => {
 });
 
 // API routes
+// OIDC public routes mount BEFORE authRoutes so /api/auth/oidc/* never falls
+// into authRoutes' 404 path. Both are exempt from the setup-required gate
+// above (it allows anything under /auth) so OIDC can bootstrap a fresh
+// install.
+router.use('/api/auth/oidc', oidcRoutes);
 router.use('/api/auth',   authRoutes);
+// OIDC admin (provider CRUD) — gated by requireAuth + requireAdmin inside
+// the router; setup-required gate blocks it until a user exists, which is
+// the right ordering (no admin UI before the first user).
+router.use('/api/admin/oidc', oidcAdminRoutes);
 // proxy already registered before auth (line 64)
 router.use('/api/data',   dataRoutes);
 router.use('/api/foods',  foodsRoutes);
 router.use('/api/meals',  mealsRoutes);
 router.use('/api/diary',  diaryRoutes);
 router.use('/api/activity', activityRoutes);
+router.use('/api/nutrition-import', nutritionImportRoutes);
 router.use('/api/upload', uploadRoutes);
 router.use('/api/mealie',     mealieRoutes);
 router.use('/api/settings',  settingsRoutes);

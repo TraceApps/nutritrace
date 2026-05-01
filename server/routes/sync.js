@@ -118,10 +118,14 @@ router.post('/push', wrap((req, res) => {
   const run = db.transaction(() => {
     // ── Foods ────────────────────────────────────────────────────────────
     for (const f of foods) {
-      if (f.server_id) {
-        // Update existing — last-write-wins
-        const existing = db.prepare('SELECT updated_at FROM foods WHERE id = ?').get(f.server_id);
-        if (existing && norm(f.updated_at) >= norm(existing.updated_at)) {
+      // Defensive: if client has a server_id but server has no matching row
+      // (e.g. after a disaster-recovery push from a device whose cached IDs
+      // are now stale), fall through to INSERT instead of silently no-op-ing.
+      const existing = f.server_id
+        ? db.prepare('SELECT updated_at FROM foods WHERE id = ?').get(f.server_id)
+        : null;
+      if (f.server_id && existing) {
+        if (norm(f.updated_at) >= norm(existing.updated_at)) {
           if (f.deleted_at) {
             db.prepare(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(f.server_id);
           } else {
@@ -133,7 +137,7 @@ router.post('/push', wrap((req, res) => {
         }
         result.foods.push({ client_id: f.client_id, server_id: f.server_id });
       } else if (!f.deleted_at) {
-        // New record
+        // New record (no server_id, OR server_id refs missing row → re-create)
         const r = db.prepare(
           `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
@@ -145,9 +149,11 @@ router.post('/push', wrap((req, res) => {
 
     // ── Meals ────────────────────────────────────────────────────────────
     for (const m of meals) {
-      if (m.server_id) {
-        const existing = db.prepare('SELECT updated_at FROM meals WHERE id = ?').get(m.server_id);
-        if (existing && norm(m.updated_at) >= norm(existing.updated_at)) {
+      const existing = m.server_id
+        ? db.prepare('SELECT updated_at FROM meals WHERE id = ?').get(m.server_id)
+        : null;
+      if (m.server_id && existing) {
+        if (norm(m.updated_at) >= norm(existing.updated_at)) {
           if (m.deleted_at) {
             db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(m.server_id);
           } else {
@@ -202,9 +208,11 @@ router.post('/push', wrap((req, res) => {
 
     // ── Activity (keyed by id, mirrors foods/meals upsert pattern) ───────
     for (const a of activity) {
-      if (a.server_id) {
-        const existing = db.prepare('SELECT updated_at FROM activity_log WHERE id = ?').get(a.server_id);
-        if (existing && norm(a.updated_at) >= norm(existing.updated_at)) {
+      const existing = a.server_id
+        ? db.prepare('SELECT updated_at FROM activity_log WHERE id = ?').get(a.server_id)
+        : null;
+      if (a.server_id && existing) {
+        if (norm(a.updated_at) >= norm(existing.updated_at)) {
           if (a.deleted_at) {
             db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(a.server_id);
           } else {

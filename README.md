@@ -313,6 +313,38 @@ All external API calls are proxied server-side — no keys are exposed to the br
 
 ---
 
+## Single Sign-On (OIDC) — Experimental
+
+Optional. Connect any OpenID Connect 1.0 compliant identity provider — **Authentik**, **Keycloak**, **Authelia**, **Pocket ID**, **Auth0**, **Google**, etc. — to sign in to NutriTrace with credentials your IdP already manages. Existing password login keeps working alongside SSO; admins can also disable password login entirely once SSO is set up.
+
+**To configure** (admin-only): **Settings → User Management → OIDC providers (Single Sign-On)**. The form has a card picker for the most common IdPs that pre-fills sensible defaults (issuer-URL pattern, scope, claim names, branded logo). Custom / Generic OIDC is the fallback for anything not on the list. Enter your provider's `issuer URL`, `client ID`, and `client secret`, save, then test discovery with the network-check button before letting users sign in.
+
+**Per-provider toggles**:
+- **Auto-link existing users (verified email)** — when the IdP says `email_verified=true` and the email matches an existing NutriTrace user, link them silently on first SSO sign-in. Defaults ON; safe for any IdP you trust to verify emails.
+- **Auto-register new users** — let anyone with an account at the IdP create a brand-new NutriTrace account on first sign-in. Defaults OFF; leave off for shared IdPs (Google, work SSO) unless you want blanket onboarding.
+- **Admin group claim / value** — optionally elevate users to admin based on a claim. E.g. claim `groups` containing value `NutriTraceAdmins`. Re-evaluated on every sign-in so revoking a user's admin in your IdP propagates immediately.
+
+**Mobile**: Android in server-connected mode supports SSO too. The app opens the IdP authorize URL in an in-app browser (Chrome Custom Tabs); the IdP redirects back via `nutritrace://oidc-callback/` deep link, the app intercepts it and signs you in — no manual paste, no token wrangling.
+
+**Security**: client secrets are encrypted at rest using the same key derivation as wearable OAuth tokens. Email-based auto-linking only fires when the IdP explicitly flags the email verified, AND the provider's `auto-register` is enabled — both gates have to be on, since email-based auto-link is the main account-takeover vector if the IdP is dishonest about verification.
+
+---
+
+## Translations
+
+NutriTrace ships with English (`en`) translations covering navigation, settings, login & onboarding, the diary's primary actions, the AI assistant FAB, and most user-visible strings. Pick your active language from **Settings → Regional & Units → Language** — the change is reactive (no reload needed).
+
+**Want to contribute a translation?** It's a single JSON file:
+
+1. Copy [`src/i18n/en.json`](src/i18n/en.json) to `src/i18n/<your-locale>.json` (e.g. `fr.json`, `de.json`, `nl.json`, `pt-BR.json`).
+2. Translate the values, leave the keys untouched. HTML/Markdown inside values (e.g. `<strong>`, `<code>`, `<br>`) stays as-is.
+3. `npm run i18n:check` reports per-locale coverage — run it locally to see what's missing.
+4. Open a PR. See [CONTRIBUTING.md → Translations](CONTRIBUTING.md#translations) for conventions, regulatory-term gotchas (nutrient labels — use the term your country's nutrition labels use, not a literal translation), and the existing volunteer thread.
+
+Server-side strings (email subjects, push-notification bodies, AI system prompts) and admin-only settings panels are intentionally English-only for now and will follow once the user-facing scaffolding is stable.
+
+---
+
 ## Roadmap
 
 **Coming soon:**

@@ -10,7 +10,8 @@
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearMealEditorState } from '../stores/editorState.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
-  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, catName as _catName, catDisplay as _catDisplay } from '../stores/settings.js';
+  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, catName as _catName, catDisplay as _catDisplay } from '../stores/settings.js';
+  import { fitImageDataUrl } from '../lib/image-fit.js';
 
   export let params = {};
 
@@ -83,11 +84,17 @@
   });
 
   // ── Photo ──────────────────────────────────────────────────────────────────
+  // The crop step is opt-in via Settings → Foods → "Crop photos on upload"
+  // (cropPhotos store, default OFF). When off, the picked image is used
+  // as-is and the meal card fits it to the available space via object-fit.
   function handleFileChange(e) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => { cropSrc = ev.target.result; cropOpen = true; initCropBox(); };
+    reader.onload = async ev => {
+      if ($cropPhotos) { cropSrc = ev.target.result; cropOpen = true; initCropBox(); }
+      else { photoPreviewUrl = await fitImageDataUrl(ev.target.result); }
+    };
     reader.readAsDataURL(file);
     e.target.value = '';
   }
@@ -98,7 +105,10 @@
         const file = await takePhoto();
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = ev => { cropSrc = ev.target.result; cropOpen = true; initCropBox(); };
+        reader.onload = async ev => {
+          if ($cropPhotos) { cropSrc = ev.target.result; cropOpen = true; initCropBox(); }
+          else { photoPreviewUrl = await fitImageDataUrl(ev.target.result); }
+        };
         reader.readAsDataURL(file);
       } catch { /* user cancelled */ }
       return;
@@ -111,14 +121,15 @@
     } catch { cameraOpen = false; showError('Camera not available'); }
   }
 
-  function capturePhoto() {
+  async function capturePhoto() {
     if (!videoEl) return;
     const canvas = document.createElement('canvas');
     canvas.width = videoEl.videoWidth; canvas.height = videoEl.videoHeight;
     canvas.getContext('2d').drawImage(videoEl, 0, 0);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
     closeCamera();
-    cropSrc = dataUrl; cropOpen = true; initCropBox();
+    if ($cropPhotos) { cropSrc = dataUrl; cropOpen = true; initCropBox(); }
+    else { photoPreviewUrl = await fitImageDataUrl(dataUrl); }
   }
 
   function closeCamera() {
