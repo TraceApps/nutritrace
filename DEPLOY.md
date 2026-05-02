@@ -141,6 +141,8 @@ Each user connects their own fitness tracker using their own developer API crede
 
 If you use Cloudflare Tunnel for external access, no special NutriTrace configuration is needed. Just set your OAuth redirect URIs to the tunnel's public URL (e.g. `https://nutritrace.example.com/api/wellness/fitbit/callback`).
 
+**Free-tier upload limit**: Cloudflare's free plan caps proxied request bodies at **100 MB**. Normal use (auth, sync, food images) is well under this, but a full-backup *restore* upload can exceed it on accounts with many photos. Either run the restore from your local network (bypassing the tunnel), upgrade to a paid plan, or split the backup. Browsing and creating backups is fine — only restore-upload is affected.
+
 ---
 
 ## Reverse Proxy with Subpath
@@ -198,6 +200,51 @@ The PWA service worker registers correctly under the subpath. Installing the PWA
 ### Native Android app
 
 If you connect the Android app to a server running at a subpath, enter the full URL including the prefix when prompted by the setup wizard (e.g. `https://example.com/nutritrace`). All subsequent API calls preserve the path.
+
+---
+
+## Connecting from Android
+
+The Android app ships with a strict network security policy on **release-signed APKs** (the ones distributed via Play Store / GitHub Releases): only HTTPS traffic is allowed to a user's NutriTrace server, to protect auth tokens on open WiFi. Debug-signed APKs (built locally) are unrestricted and can use plain HTTP.
+
+This only affects **server mode** — local-only Android users never hit this.
+
+Four supported paths for server-mode Android users:
+
+### Path 1 — Real domain + Let's Encrypt (recommended)
+
+Point a real domain at your server (`nutritrace.yourdomain.com`) and terminate TLS with a publicly-trusted cert via Caddy, Traefik, nginx + certbot, etc. The DNS-01 challenge works fine even when your server is on an internal IP — no port forwarding needed. Enter `https://nutritrace.yourdomain.com` in the app and you're done.
+
+### Path 2 — Cloudflare Tunnel / Tailscale Funnel / Tailscale mesh
+
+These hand out publicly-trusted certs automatically, no domain or cert management on your end. Enter the tunnel URL (`https://nutritrace.yourtunnel.example.com`) in the app. See the Cloudflare Tunnel section above for the free-tier upload caveat.
+
+### Path 3 — Self-signed cert + install your CA on Android
+
+If you generate your own root CA and use it to sign certs for `nutritrace.home.arpa` (or whatever internal domain you use), the strict APK won't trust it out of the box — but you can install your CA on the device once and the app will accept any cert your CA signed.
+
+1. Export your CA's certificate as a `.crt` or `.pem` file
+2. On your phone: Settings → Security & Privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate
+3. Browse to the file and install. Android will warn that anyone with this CA can monitor your traffic — that's expected, you're explicitly trusting your own CA
+4. Open NutriTrace and connect to `https://nutritrace.home.arpa`
+
+This survives app updates. You only need to repeat it if you regenerate the CA or factory-reset the device.
+
+### Path 4 — Plain HTTP (build the APK yourself)
+
+If you really don't want HTTPS at all (LAN-only, fully isolated network, willing to accept the risk), the source includes a permissive debug build profile. Clone the repo and run:
+
+```bash
+npm run build && cd android && ./gradlew assembleDebug
+```
+
+The APK at `android/app/build/outputs/apk/debug/app-debug.apk` allows cleartext (`http://`) connections. Sideload it instead of the release APK.
+
+This is also the fallback if you hit any cert issues with paths 1–3 — the debug build connects to anything.
+
+### What you'll see in the app
+
+If a release-built app tries to connect to an `http://` URL, the connection fails and the in-app error explicitly mentions the HTTPS requirement and points back to this section.
 
 ---
 

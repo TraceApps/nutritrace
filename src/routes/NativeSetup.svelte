@@ -1,5 +1,5 @@
 <script>
-  import { setNativeMode, setServerUrl, setAuthToken, resolveAssetUrl } from '../lib/platform.js';
+  import { setNativeMode, setServerUrl, setAuthToken, resolveAssetUrl, explainConnectError } from '../lib/platform.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { DB } from '../lib/db.js';
 
@@ -50,7 +50,7 @@
       showSuccess('Connected to server');
       window.location.reload();
     } catch (e) {
-      showError(e.message || 'Could not connect to server');
+      showError(explainConnectError(e, url));
     } finally {
       connecting = false;
     }

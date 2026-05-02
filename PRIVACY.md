@@ -48,11 +48,19 @@ Your data is retained on your server until you delete it. You can:
 
 ## Android App
 
-The NutriTrace Android app stores data locally on your device in an encrypted SQLite database. When connected to a server, data syncs bidirectionally. The app requests the following permissions:
+The NutriTrace Android app stores data locally on your device in a SQLite database within the app's private data directory. When connected to a server, data syncs bidirectionally. The app requests the following permissions:
 - **Camera** — Food photos, barcode scanning, Trace image attachments
 - **Internet** — Server sync, food database lookups, AI chat
 - **Notifications** — Meal reminders, hydration reminders, goal celebrations
 - **Health Connect** — Read steps, sleep, heart rate, weight, exercise (optional)
+
+### Local data at rest
+
+NutriTrace does not add its own SQLite-level encryption (e.g. SQLCipher) on top of the database. Instead, it relies on Android's built-in file-based encryption (FBE), which has been the default on every Android device since Android 7 (2016). FBE encrypts the app's private data directory using a key derived from your device PIN, password, or biometric — meaning a locked phone is already encrypted at rest, and the contents of the database are inaccessible to anyone without your unlock credential. This matches the approach used by other self-hosted lifestyle apps (Immich, Joplin, Obsidian, AnkiDroid).
+
+This means: an attacker with physical access to your *locked* device cannot read your data. An attacker with physical access to your *unlocked* device can read it — but they could also simply open the app. If your threat model includes nation-state-level adversaries with extended access to your unlocked device, no nutrition tracker (and few apps in any category) will protect you, and you should be using a hardened device profile separate from this app.
+
+The local database is the same database used by all your data: diary entries, foods, meals, settings, wellness data, AI chat history. Full backups (ZIP exports) are also unencrypted by default — keep them in trusted storage if you back up off-device.
 
 ## Children's Privacy
 

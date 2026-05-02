@@ -313,8 +313,10 @@
     <div class="card settings-card">
       <div class="editor-card-title">{$_('profile.security')}</div>
       {#if !changingPassword}
-        <button class="btn btn-ghost w-full" on:click={() => changingPassword = true}>
-          {hasPassword ? $_('profile.change_password') : $_('profile.set_password')}
+        <button class="security-row" on:click={() => changingPassword = true}>
+          <span class="material-symbols-rounded security-icon">lock</span>
+          <span class="security-label">{hasPassword ? $_('profile.change_password') : $_('profile.set_password')}</span>
+          <span class="material-symbols-rounded security-chev">chevron_right</span>
         </button>
       {:else}
         {#if hasPassword}
@@ -357,10 +359,10 @@
       <p class="text-3 text-sm" style="margin:0;line-height:1.5">
         {$_('profile.delete_account_explainer')}
       </p>
-      <button class="btn btn-secondary" style="color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%, transparent)"
+      <button class="btn btn-secondary danger-zone-btn"
         on:click={deleteMyAccount} disabled={deletingAccount}>
-        <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle">delete_forever</span>
-        {deletingAccount ? $_('profile.deleting') : $_('profile.delete_account')}
+        <span class="material-symbols-rounded" style="font-size:18px">delete</span>
+        <span>{deletingAccount ? $_('profile.deleting') : $_('profile.delete_account')}</span>
       </button>
     </div>
   </div>
@@ -416,16 +418,48 @@
   .pw-strength.s-0 .pw-label, .pw-strength.s-1 .pw-label { color: var(--danger, #ef4444); }
   .pw-mismatch { color: var(--danger, #ef4444); font-size: 11px; margin: 4px 0 0; }
 
-  .oidc-link-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+  .oidc-link-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  /* Row sits inside the section card; no nested border (was visually
+     competing with the outer card and clipping the meta line). */
   .oidc-link-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-md);
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--border);
   }
-  .oidc-link-logo { width: 22px; height: 22px; object-fit: contain; flex: 0 0 auto; }
-  .oidc-link-icon { font-size: 22px; flex: 0 0 auto; color: var(--text-3); }
-  .oidc-link-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .oidc-link-name { font-weight: 600; }
-  .oidc-link-meta { font-size: 11px; }
+  .oidc-link-row:last-child { border-bottom: none; }
+  .oidc-link-logo { width: 24px; height: 24px; object-fit: contain; flex: 0 0 auto; }
+  .oidc-link-icon { font-size: 24px; flex: 0 0 auto; color: var(--text-3); }
+  .oidc-link-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .oidc-link-name { font-weight: 600; font-size: 14px; line-height: 1.3; }
+  .oidc-link-meta { font-size: 11px; color: var(--text-3); line-height: 1.3; }
   .oidc-link-add { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
   .oidc-link-add .btn { display: flex; align-items: center; gap: 8px; justify-content: center; }
+
+  /* Security card — replace the empty-looking ghost button with a row
+     pattern (icon + label + chevron) that matches Settings rows in the
+     rest of the app. */
+  .security-row {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; padding: 10px 4px;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-1); font-family: inherit; font-size: 14px;
+    text-align: left;
+    border-radius: var(--radius-md);
+    transition: background var(--dur-fast);
+  }
+  .security-row:hover { background: var(--surface-2); }
+  .security-icon { font-size: 20px; color: var(--accent); flex-shrink: 0; }
+  .security-label { flex: 1; font-weight: 500; }
+  .security-chev { font-size: 20px; color: var(--text-3); flex-shrink: 0; }
+
+  /* Danger zone button — full width, danger-tinted, icon + label centered. */
+  .danger-zone-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%;
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  }
+  .danger-zone-btn:hover {
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+  }
 </style>

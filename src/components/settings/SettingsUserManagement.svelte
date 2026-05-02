@@ -606,8 +606,11 @@
       </button>
       <div class="setting-divider"></div>
 
-      <!-- User list (admin only) -->
+      <!-- User list (admin only) — hidden when there's only the admin viewing
+           themselves; the profile shortcut card above already represents that
+           user. The list earns its keep with ≥2 users. -->
       {#if $currentUser?.role === 'admin'}
+        {#if umUsers.length > 1}
         <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px">
           <span class="setting-label">{$_('settings.users.users_heading')}</span>
 
@@ -651,19 +654,24 @@
           </div>
         </div>
         <div class="setting-divider"></div>
+        {/if}
 
         <!-- Primary path: invite -->
-        <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px">
+        <div class="setting-row um-form-block">
           <div>
             <span class="setting-label">{$_('settings.users.invite_user')}</span>
             <div class="setting-desc" style="margin-top:2px">{$_('settings.users.invite_user_explainer')}</div>
           </div>
-          <div class="um-form-row">
-            <input class="input" type="email" bind:value={inviteEmail} placeholder={$_('settings.users.email_optional')} />
-            <select class="input" bind:value={inviteRole}>
-              <option value="user">{$_('settings.users.role_user')}</option>
-              <option value="admin">{$_('settings.users.role_admin')}</option>
-            </select>
+          <input class="input" type="email" bind:value={inviteEmail} placeholder={$_('settings.users.email_optional')} />
+          <div class="um-role-pair">
+            <label class="um-role-label" for="invite-role-sel">{$_('settings.users.role')}</label>
+            <div class="um-role-select-wrap">
+              <select id="invite-role-sel" class="um-role-styled-select" bind:value={inviteRole}>
+                <option value="user">{$_('settings.users.role_user')}</option>
+                <option value="admin">{$_('settings.users.role_admin')}</option>
+              </select>
+              <span class="material-symbols-rounded um-role-chev">expand_more</span>
+            </div>
           </div>
           <button class="btn btn-primary" style="width:100%" on:click={createInvite} disabled={inviteLoading}>
             {inviteLoading ? $_('settings.users.creating') : (inviteEmail.trim() ? $_('settings.users.send_invite') : $_('settings.users.generate_link'))}
@@ -687,33 +695,37 @@
           {/if}
         </div>
 
-        <!-- Secondary path: add user directly (escape hatch for no-SMTP / offline setups) -->
+        <!-- Subtle divider separating the two add-user paths -->
+        <div class="setting-divider"></div>
+
+        <!-- Secondary path: add user manually (escape hatch for no-SMTP / offline setups) -->
         <button class="um-secondary-toggle" on:click={() => { showAddUser = !showAddUser; umError = ''; }}>
           <span class="material-symbols-rounded" style="font-size:14px">{showAddUser ? 'expand_less' : 'expand_more'}</span>
           {showAddUser ? $_('settings.users.add_user_hide') : $_('settings.users.add_user_show')}
         </button>
         {#if showAddUser}
-          <div class="um-add-form" transition:slide={{ duration: 160 }} style="padding:0 16px 14px">
-            <p class="setting-desc" style="margin:0 0 8px">{$_('settings.users.add_user_explainer')}</p>
-            <div class="um-form-row">
-              <input class="input" type="text" bind:value={newUsername} placeholder={$_('settings.users.username_required')} autocomplete="off" />
-              <div style="display:flex;gap:4px;align-items:center;flex:1">
-                {#if newShowPass}
-                  <input class="input" style="flex:1" type="text" bind:value={newPassword} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
-                {:else}
-                  <input class="input" style="flex:1" type="password" bind:value={newPassword} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
-                {/if}
-                <button class="btn-icon" on:click={() => newShowPass = !newShowPass} style="flex-shrink:0">
-                  <span class="material-symbols-rounded" style="font-size:18px">{newShowPass ? 'visibility_off' : 'visibility'}</span>
-                </button>
-              </div>
+          <div class="um-add-form um-form-block" transition:slide={{ duration: 160 }}>
+            <input class="input" type="text" bind:value={newUsername} placeholder={$_('settings.users.username_required')} autocomplete="off" />
+            <div class="um-pw-wrap">
+              {#if newShowPass}
+                <input class="input um-pw-input" type="text" bind:value={newPassword} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
+              {:else}
+                <input class="input um-pw-input" type="password" bind:value={newPassword} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
+              {/if}
+              <button class="um-pw-eye" type="button" on:click={() => newShowPass = !newShowPass} aria-label={newShowPass ? 'Hide' : 'Show'}>
+                <span class="material-symbols-rounded">{newShowPass ? 'visibility_off' : 'visibility'}</span>
+              </button>
             </div>
-            <div class="um-form-row">
-              <input class="input" type="text" bind:value={newFullName} placeholder={$_('settings.users.full_name')} />
-              <select class="input" bind:value={newRole}>
-                <option value="user">{$_('settings.users.role_user')}</option>
-                <option value="admin">{$_('settings.users.role_admin')}</option>
-              </select>
+            <input class="input" type="text" bind:value={newFullName} placeholder={$_('settings.users.full_name')} />
+            <div class="um-role-pair">
+              <label class="um-role-label" for="add-role-sel">{$_('settings.users.role')}</label>
+              <div class="um-role-select-wrap">
+                <select id="add-role-sel" class="um-role-styled-select" bind:value={newRole}>
+                  <option value="user">{$_('settings.users.role_user')}</option>
+                  <option value="admin">{$_('settings.users.role_admin')}</option>
+                </select>
+                <span class="material-symbols-rounded um-role-chev">expand_more</span>
+              </div>
             </div>
             {#if umError}<p class="um-error">{umError}</p>{/if}
             <button class="btn btn-secondary" style="width:100%" on:click={addUser} disabled={umLoading}>
@@ -1091,18 +1103,97 @@
   }
   .um-role-select:focus { border-color: var(--accent); }
 
-  /* Secondary 'Or add directly' toggle — quieter than a button, leads
+  /* Secondary 'Add user manually' toggle — quieter than a button, leads
      into the escape-hatch direct-add form. */
   .um-secondary-toggle {
     display: flex; align-items: center; gap: 4px;
     width: 100%;
     background: none; border: none; cursor: pointer;
-    padding: 8px 16px;
+    padding: 10px 16px;
     color: var(--text-3); font-size: 12px; font-family: inherit;
     text-align: left;
     transition: color var(--dur-fast);
   }
   .um-secondary-toggle:hover { color: var(--text-2); }
+
+  /* Vertically-stacked form block for invite + manual-add — clearer than
+     the previous side-by-side compression that squished the password
+     input next to the eye icon. */
+  .um-form-block {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+
+  /* Password input + visibility toggle, side-by-side with the eye icon
+     pinned at the right. The previous flex-1-on-flex-1 nesting collapsed
+     the input to a stub. */
+  .um-pw-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .um-pw-input {
+    flex: 1;
+    width: 100%;
+    padding-right: 38px;
+  }
+  .um-pw-eye {
+    position: absolute;
+    right: 6px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-3);
+    padding: 4px;
+    display: flex;
+    align-items: center;
+  }
+  .um-pw-eye:hover { color: var(--text-1); }
+  .um-pw-eye .material-symbols-rounded { font-size: 18px; }
+
+  /* Role select with proper label + chevron — looks like a select instead
+     of a flat input. */
+  .um-role-pair {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .um-role-label {
+    font-size: 13px;
+    color: var(--text-2);
+    flex-shrink: 0;
+  }
+  .um-role-select-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .um-role-styled-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-1);
+    font-size: 13px;
+    font-family: inherit;
+    border-radius: var(--radius-md);
+    padding: 6px 28px 6px 10px;
+    cursor: pointer;
+  }
+  .um-role-styled-select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .um-role-chev {
+    position: absolute;
+    right: 6px;
+    pointer-events: none;
+    font-size: 18px;
+    color: var(--text-3);
+  }
   .um-del-btn   { padding: 4px 8px; }
   .um-error     { color: var(--danger); font-size: 13px; margin: 0; }
   .um-section-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }

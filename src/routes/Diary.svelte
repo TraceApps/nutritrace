@@ -928,7 +928,7 @@
                   <div class="item-info">
                     <span class="item-name truncate">{item.name}</span>
                     <span class="item-meta text-3 text-sm">
-                      {item.portion || item.amount || 100}{item.unit || 'g'}{#if (item.quantity || 1) > 1} × {item.quantity || 1}{#if $diaryShowPortionSize} (= {Math.round((item.portion || item.amount || 100) * (item.quantity || 1))}{item.unit || 'g'}){/if}{/if}
+                      {Math.round((item.portion || item.amount || 100) * (item.quantity || 1) * 10) / 10}{item.unit || 'g'}{#if $diaryShowPortionSize && Math.abs((item.quantity || 1) - 1) > 0.001} ({item.quantity || 1} × {item.portion || item.amount || 100}{item.unit || 'g'}){/if}
                       {#if $diaryShowBrands && item.brand} · {item.brand}{/if}
                       · {formatKcal(item)} kcal
                       {#if $diaryShowTimestamps && item.addedAt}

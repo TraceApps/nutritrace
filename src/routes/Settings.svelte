@@ -42,7 +42,7 @@
   import { NtApi } from '../lib/api.js';
   import { NUTRIMENTS } from '../lib/nutrition.js';
   import { currentUser, userMgmtActive } from '../stores/auth.js';
-  import { isNative, getServerUrl, setServerUrl, setNativeMode, getNativeMode, setAuthToken, apiUrl, getAuthToken, resolveAssetUrl } from '../lib/platform.js';
+  import { isNative, getServerUrl, setServerUrl, setNativeMode, getNativeMode, setAuthToken, apiUrl, getAuthToken, resolveAssetUrl, explainConnectError } from '../lib/platform.js';
   import { _ } from 'svelte-i18n';
   import { AVAILABLE_LOCALES } from '../i18n/index.js';
 
@@ -133,7 +133,7 @@
         _finalizeConnect();
       }
     } catch (e) {
-      showError(e.message || 'Could not connect');
+      showError(explainConnectError(e, url));
     } finally {
       serverConnecting = false;
     }

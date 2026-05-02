@@ -84,6 +84,32 @@ export function getAuthToken() {
 }
 
 /**
+ * Translate a connect-server error into something the user can act on.
+ * Release-signed Android APKs ship with a strict network_security_config
+ * that blocks cleartext (http://) traffic — the WebView and CapacitorHttp
+ * surface this as a generic network error or "ERR_CLEARTEXT_NOT_PERMITTED".
+ * If the user typed an http:// URL, point them at the HTTPS setup docs
+ * instead of leaving them staring at a generic failure.
+ */
+export function explainConnectError(rawError, serverUrl) {
+  const msg = (rawError?.message || String(rawError) || '').toLowerCase();
+  const isHttp = typeof serverUrl === 'string' && serverUrl.toLowerCase().startsWith('http://');
+  const looksLikeCleartextBlock =
+    msg.includes('cleartext') ||
+    msg.includes('err_cleartext') ||
+    (isNative && isHttp && (msg.includes('network') || msg.includes('not reachable') || msg.includes('failed to fetch')));
+  if (isHttp && looksLikeCleartextBlock) {
+    return 'This build only allows HTTPS connections. Set up a reverse proxy (Caddy, Tailscale, Cloudflare Tunnel) or install a debug APK. See DEPLOY.md → Connecting from Android.';
+  }
+  if (isHttp && isNative) {
+    // Plain http on native — even if it succeeded, surface the warning so
+    // users on debug builds know release builds will reject this URL.
+    return rawError?.message || 'Could not reach server';
+  }
+  return rawError?.message || 'Could not reach server';
+}
+
+/**
  * In-memory image cache map: server URL → local file URI.
  * Populated during sync by loadImageMap(). Used by resolveAssetUrl() synchronously.
  */

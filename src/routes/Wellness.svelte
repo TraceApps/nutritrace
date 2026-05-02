@@ -703,6 +703,8 @@
       interaction_penalty:  Math.round(interaction_penalty),
       hrv_baseline:         Math.round(hrvBaseline * 10) / 10,
       rhr_baseline:         rhrBaseline != null ? Math.round(rhrBaseline) : null,
+      hrv_today:            Math.round(todayHrv * 10) / 10,
+      rhr_today:            todayRhr != null ? Math.round(todayRhr) : null,
       data_days:            totalHrvCount,
     };
   }
@@ -841,8 +843,107 @@
       sleep_score_used: today.sleep_s,
       hrv_baseline: Math.round(hrvBaseline * 10) / 10,
       rhr_baseline: rhrBaseline != null ? Math.round(rhrBaseline) : null,
+      hrv_today:    Math.round(todayHrv * 10) / 10,
+      rhr_today:    todayRhr != null ? Math.round(todayRhr) : null,
       data_days:    totalHrvCount,
     };
+  }
+
+  // ── Readiness/Stress insight text ─────────────────────────────────────────
+  // Generate a band-driven lead + sub-score-driven driver line. Sub-scores
+  // are 0-100 (the same numbers shown as HRV/RHR/Sleep under each card).
+  // Driver branches: penalty (readiness only) → lowest sub-score → holistic.
+
+  function _readinessInsight(r) {
+    if (!r || r.calibrating) return null;
+
+    const lead =
+      r.score >= 80 ? "You're well-recovered today."
+    : r.score >= 65 ? "Solid recovery — you can train normally."
+    : r.score >= 50 ? "Moderate recovery — go lighter than usual today."
+    :                 "Recovery is low. Treat this as a deload day.";
+
+    const totalPen = (r.activity_penalty || 0) + (r.interaction_penalty || 0);
+    const subs = [
+      { key: 'hrv',   val: r.hrv_score,        label: 'HRV' },
+      { key: 'rhr',   val: r.rhr_score,        label: 'Resting HR' },
+      { key: 'sleep', val: r.sleep_score_used, label: 'Sleep' },
+    ];
+    // Lowest sub-score; ties broken by HRV > RHR > Sleep (most actionable first)
+    const lowest = subs.reduce((m, c) => c.val < m.val ? c : m);
+
+    let driver;
+    if (totalPen >= 8) {
+      driver = `Yesterday's activity load is the main drag (penalty −${totalPen}) — your body's still paying it back from a hard effort.`;
+    } else if (lowest.val < 50) {
+      if (lowest.key === 'hrv') {
+        driver = `Your HRV (${r.hrv_today}ms) is well below your ${r.hrv_baseline}ms baseline — recovery is the priority. Hydrate, eat enough, and prioritize sleep tonight.`;
+      } else if (lowest.key === 'rhr') {
+        driver = `Resting HR is elevated (${r.rhr_today} vs ${r.rhr_baseline} baseline) — possible early sign of illness or under-recovery.`;
+      } else {
+        driver = `Last night's sleep (${r.sleep_score_used}) is dragging this down. Cap caffeine after noon and aim for an earlier bedtime.`;
+      }
+    } else if (lowest.val < 65) {
+      if (lowest.key === 'hrv') {
+        driver = `HRV (${r.hrv_today}ms) is below your ${r.hrv_baseline}ms baseline — the dominant signal here. Light activity will help recovery more than a hard session.`;
+      } else if (lowest.key === 'rhr') {
+        driver = `Resting HR (${r.rhr_today}) is up from your ${r.rhr_baseline} baseline. Watch for early illness signs and keep intensity in check.`;
+      } else {
+        driver = `Sleep (${r.sleep_score_used}) is the weakest signal today. An earlier bedtime tonight will pay back tomorrow.`;
+      }
+    } else if (r.score >= 80) {
+      driver = "Every component is strong. Good day for harder training, longer sessions, or a PR attempt.";
+    } else if (r.score >= 65) {
+      driver = "All signals are healthy — train as planned.";
+    } else {
+      driver = "Components look fine individually — likely cumulative fatigue from the week. A lighter session today still makes sense.";
+    }
+
+    return { lead, driver };
+  }
+
+  function _stressInsight(s) {
+    if (!s || s.calibrating) return null;
+
+    const lead =
+      s.score >= 80 ? "Your body's well-balanced today."
+    : s.score >= 65 ? "Moderate stress — manageable."
+    : s.score >= 50 ? "Elevated stress — your body's working harder than usual."
+    :                 "High physiological stress detected.";
+
+    const subs = [
+      { key: 'hrv',   val: s.hrv_score,        label: 'HRV' },
+      { key: 'rhr',   val: s.rhr_score,        label: 'Resting HR' },
+      { key: 'sleep', val: s.sleep_score_used, label: 'Sleep' },
+    ];
+    const lowest = subs.reduce((m, c) => c.val < m.val ? c : m);
+
+    let driver;
+    if (lowest.val < 50) {
+      if (lowest.key === 'sleep') {
+        driver = `Poor sleep (${s.sleep_score_used}) is amplifying this. The most reliable lever right now is an earlier bedtime.`;
+      } else if (lowest.key === 'hrv') {
+        driver = `HRV (${s.hrv_today}ms vs ${s.hrv_baseline}ms baseline) is depressed — sympathetic dominance. A wind-down routine tonight will help (low light, no caffeine after 2pm).`;
+      } else {
+        driver = `Resting HR (${s.rhr_today}) is up from your ${s.rhr_baseline} baseline. Watch for illness signals; consider a slower pace today.`;
+      }
+    } else if (lowest.val < 65) {
+      if (lowest.key === 'sleep') {
+        driver = `Sleep (${s.sleep_score_used}) is the weakest factor today. Catching up tonight will move this score more than anything else.`;
+      } else if (lowest.key === 'hrv') {
+        driver = `HRV (${s.hrv_today}ms) is below your ${s.hrv_baseline}ms baseline. A walk and a real lunch break help more than another coffee.`;
+      } else {
+        driver = `Resting HR (${s.rhr_today}) is slightly up from baseline. Easy day, real meals, water.`;
+      }
+    } else if (s.score >= 80) {
+      driver = "Every signal is calm. Keep the current rhythm working.";
+    } else if (s.score >= 65) {
+      driver = "Components are individually OK — likely accumulated load. A walk and a real lunch break will move the needle more than another coffee.";
+    } else {
+      driver = "Signals are mixed — the smoothed history is pulling the score down even though today's components look decent. Steady recovery habits this week will lift it.";
+    }
+
+    return { lead, driver };
   }
 
   async function loadStressScore() {
@@ -1827,6 +1928,13 @@
                       </span>
                     </div>
                   </div>
+                  {@const _rIns = _readinessInsight(readiness)}
+                  {#if _rIns}
+                    <div class="readiness-insight">
+                      <p class="ri-lead">{_rIns.lead}</p>
+                      <p class="ri-driver">{_rIns.driver}</p>
+                    </div>
+                  {/if}
                   {#if readiness.data_days < 30}
                     <div class="si-calibration-note">
                       <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
@@ -1879,6 +1987,13 @@
                       <span class="rd-val" style="color:{stressScore.sleep_score_used >= 65 ? 'var(--accent)' : stressScore.sleep_score_used >= 50 ? '#f59e0b' : '#ef4444'}">{stressScore.sleep_score_used}</span>
                     </div>
                   </div>
+                  {@const _sIns = _stressInsight(stressScore)}
+                  {#if _sIns}
+                    <div class="readiness-insight">
+                      <p class="ri-lead">{_sIns.lead}</p>
+                      <p class="ri-driver">{_sIns.driver}</p>
+                    </div>
+                  {/if}
                   {#if stressScore.data_days < 30}
                     <div class="si-calibration-note">
                       <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
@@ -2783,6 +2898,31 @@
     color: var(--text-1);
   }
   .rd-penalty { color: #f59e0b; }
+
+  /* Daily Readiness / Stress Management contextual copy. Lead is the
+     overall-score sentence, driver is the sub-score-driven explanation
+     + action. Same component used in both cards. */
+  .readiness-insight {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ri-lead {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-1);
+    line-height: 1.4;
+  }
+  .ri-driver {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-3);
+    line-height: 1.45;
+  }
 
   @media (max-width: 400px) {
     .metric-grid { grid-template-columns: 1fr 1fr; }

@@ -77,7 +77,7 @@
   let localBackups = [];
   const LOCAL_BACKUP_DIR = 'nutritrace-backups';
 
-  async function loadLocalBackups() {
+  export async function loadLocalBackups() {
     if (!isNativeLocal) return;
     try {
       const { Filesystem, Directory } = await import('@capacitor/filesystem');

@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.11] — 2026-05-02
+
+### Wellness
+- Daily Readiness and Stress Management cards now show interpretive copy under the score — a lead sentence based on the band + a driver line that calls out which sub-component (HRV / RHR / Sleep) is dragging things down, with one concrete action.
+
+### Diary
+- Diary lines lead with the *actual amount eaten* as the primary number; fractional quantities show an explicit multiplier ("× 1.5") so the math is unambiguous.
+
+### Barcode scanning
+- Scans check your existing library first instead of always re-fetching from OFF / USDA.
+- Inline scan icon inside the barcode input on FoodEditor — scan without leaving the editor.
+- Duplicate-barcode warning when the barcode is already used by another food.
+- Leading-zero normalization so scans match library entries that were typed manually.
+
+### Profile + User Management
+- Linked-accounts row no longer clips on narrow viewports.
+- Manual-add user form restructured — password input no longer squished, role uses a proper chevron-styled select, manual-add and invite read as alternatives separated by a divider.
+- Smaller polish to the Security card and Danger Zone delete button.
+
+### Fixed
+- Settings → Backup & Restore no longer freezes the page in Android local-only mode.
+
+---
+
 ## [1.0.0-rc.10] — 2026-05-01 — Fix stuck "Could not reach server" banner after login
 
 ### Fixed

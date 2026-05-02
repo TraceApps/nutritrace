@@ -12,6 +12,7 @@
   import { takePhoto } from '../lib/camera.js';
   import { isNative } from '../lib/platform.js';
   import Dialog from '../components/ui/Dialog.svelte';
+  import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, catName as _catName, catDisplay as _catDisplay } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
 
@@ -174,8 +175,52 @@
   let _snapshot = null;       // snapshot of all values when editor was opened (never changes during edit)
   let downloading = false;
   let downloadSuccess = false;
+  let editorScannerOpen = false;
+  // Cached list of the user's foods, used for client-side duplicate-barcode
+  // detection. Populated once on mount; refreshed only when the editor saves
+  // (so a save+stay-open flow can re-check). Whitespace + leading-zero
+  // normalisation matches the picker-page lookup behaviour.
+  let _myFoods = [];
+  let duplicateOf = null;
   $: isNewFood = !(params && params.id);
   $: hasBarcode = !!(food.barcode && food.barcode.trim());
+
+  function _normBarcode(b) {
+    return String(b || '').trim().replace(/^0+/, '');
+  }
+  // Reactively check for a duplicate barcode in the user's library whenever
+  // the field changes. Excludes the food currently being edited so editing
+  // an existing food doesn't flag itself.
+  $: {
+    if (!food.barcode || !food.barcode.trim()) {
+      duplicateOf = null;
+    } else if (_myFoods && _myFoods.length) {
+      const codeN = _normBarcode(food.barcode);
+      duplicateOf = _myFoods.find(f =>
+        f.id !== food.id && f.barcode && _normBarcode(f.barcode) === codeN
+      ) || null;
+    }
+  }
+
+  // Inline scan handler — populate the barcode field, then auto-prefill the
+  // form from OFF if the user hasn't typed anything substantive yet. Skips
+  // the auto-prefill when the user has already filled name + nutrition so
+  // we don't clobber curated data.
+  async function onEditorScan({ detail }) {
+    const code = detail?.code;
+    if (!code) return;
+    food.barcode = code;
+    food = food;
+    const looksEmpty = !food.name?.trim() && !food.brand?.trim() &&
+      (food.nutrition == null || Object.keys(food.nutrition || {}).length === 0) &&
+      !NUTRIMENTS.some(n => food[n.id] != null && food[n.id] !== '');
+    if (looksEmpty) {
+      // Re-use the existing smart-fill that only writes empty fields.
+      await downloadFromOFF();
+    } else {
+      showSuccess('Barcode set');
+    }
+  }
 
 
   let offVerified    = null;  // null = unchecked, true = confirmed, false = not found yet
@@ -331,6 +376,9 @@
 
   onMount(async () => {
     store = editorState.foodStore || 'foodList';
+    // Cache the user's library for duplicate-barcode detection. Best-effort —
+    // if the call fails the duplicate warning just stays inactive.
+    NtApi.getFoods().then(list => { _myFoods = list || []; }).catch(() => {});
     if (editorState.foodPrefill) {
       const prefill = editorState.foodPrefill;
       // Flatten nested nutrition into top-level fields for editing
@@ -558,7 +606,25 @@
       </div>
       <div class="form-group">
         <label class="form-label">Barcode</label>
-        <input class="input" type="text" inputmode="numeric" placeholder="Optional" bind:value={food.barcode} />
+        <div class="barcode-input-wrap">
+          <input class="input barcode-input" type="text" inputmode="numeric" placeholder="Optional" bind:value={food.barcode} />
+          <button type="button" class="barcode-scan-inline" title="Scan barcode" aria-label="Scan barcode"
+            on:click={() => editorScannerOpen = true}>
+            <span class="material-symbols-rounded">barcode_scanner</span>
+          </button>
+        </div>
+        {#if duplicateOf}
+          <div class="barcode-dup-warn">
+            <span class="material-symbols-rounded" style="font-size:16px;color:var(--warning,#f59e0b)">warning</span>
+            <span>You already have a food with this barcode: <strong>{duplicateOf.name}</strong></span>
+            <button type="button" class="btn-link" on:click={() => {
+              clearFoodEditorState();
+              editorState.foodStore = store;
+              if (editorState.foodDiaryCtx) { /* preserve pick-mode context */ }
+              push(`/foods/edit/${duplicateOf.id}`);
+            }}>Open existing →</button>
+          </div>
+        {/if}
         {#if hasBarcode}
           <div class="form-row" style="gap:8px;margin-top:8px">
             {#if isNewFood}
@@ -662,7 +728,55 @@
   on:confirm={confirmOffOverwrite}
 />
 
+<!-- Inline barcode scanner — fired by the scan button next to the Barcode field -->
+<BarcodeScanner bind:open={editorScannerOpen} on:scan={onEditorScan} on:close={() => editorScannerOpen = false} />
+
 <style>
+  /* Barcode field — scan button absolutely positioned inside the input
+     wrapper, mirroring the search-bar pattern in Foods.svelte. */
+  .barcode-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .barcode-input {
+    flex: 1;
+    width: 100%;
+    padding-right: 38px; /* leave room for the scan icon */
+  }
+  .barcode-scan-inline {
+    position: absolute;
+    right: 6px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-3);
+    padding: 4px;
+    display: flex;
+    align-items: center;
+  }
+  .barcode-scan-inline:hover { color: var(--text-1); }
+  .barcode-scan-inline .material-symbols-rounded { font-size: 20px; }
+
+  .barcode-dup-warn {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--warning, #f59e0b) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    color: var(--text-1);
+    flex-wrap: wrap;
+  }
+  .barcode-dup-warn .btn-link {
+    background: none; border: none; cursor: pointer;
+    color: var(--accent); font-weight: 600; font-size: 13px;
+    padding: 0; margin-left: auto;
+    font-family: inherit;
+  }
+  .barcode-dup-warn .btn-link:hover { text-decoration: underline; }
+
   .link-btn { color: var(--text-3); margin-bottom: 2px; }
   .link-btn.linked { color: var(--accent); }
   .editor-page {

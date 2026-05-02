@@ -485,18 +485,40 @@
     }
   }
 
+  // Barcode normalizer — strips whitespace + leading zeros so a UPC-A saved
+  // as "0036000291452" matches a scan that returns "36000291452" (and vice
+  // versa). Different scanners (ML Kit on Android, Quagga on web) and
+  // different OFF entries don't agree on whether to keep the leading zero.
+  function _normBarcode(b) {
+    return String(b || '').trim().replace(/^0+/, '');
+  }
+
   async function handleScan({ detail }) {
     const code = detail.code;
     if (!code) return;
     try {
+      // 1. Check the user's library first. If they've already saved this
+      //    barcode, the quick-add card (pickMode) or the existing food page
+      //    (browse mode) is what they want — no point hitting OFF + showing
+      //    a fresh-import editor for something they've already vetted.
+      const codeN = _normBarcode(code);
+      const existing = (localFoods || []).find(f => f.barcode && _normBarcode(f.barcode) === codeN);
+      if (existing) {
+        if (pickMode) await pickFood(existing);
+        else          openEditor(existing, 'foodList');
+        return;
+      }
+
+      // 2. Not in library — fetch from Open Food Facts and open the full
+      //    FoodEditor with OFF data prefilled (picture, full nutrition,
+      //    brand). In pickMode the editor saves to the library AND adds
+      //    to the diary on save via foodDiaryCtx; in browse mode it just
+      //    saves. Bypassing the quick-add card here so the user can verify
+      //    OFF data + see the picture before committing it to their library.
       const { API } = await import('../lib/api.js');
       const result = await API.lookupBarcode(code);
       if (result) {
-        if (pickMode) {
-          await pickFood(result);
-        } else {
-          openEditor(result, 'foodList');
-        }
+        openEditor(result, 'foodList');
       } else {
         const { showError: se } = await import('../stores/toast.js');
         se('Barcode not found: ' + code);
