@@ -34,3 +34,4 @@ data/
 *.swp
 *.swo
 
+android/keystore.properties

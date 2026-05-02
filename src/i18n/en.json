@@ -251,6 +251,11 @@
       "title": "Welcome to NutriTrace",
       "desc":  "Your personal nutrition tracker. Let's get you set up in about a minute."
     },
+    "name": {
+      "title":       "What should we call you?",
+      "desc":        "Used in greetings, the side menu, and your AI assistant. You can change it later in Settings.",
+      "placeholder": "Your name (optional)"
+    },
     "usermgmt": {
       "create_account_title": "Create Your Account",
       "create_account_desc":  "Set up your admin account to secure your NutriTrace instance. You can invite other users later from Settings.",

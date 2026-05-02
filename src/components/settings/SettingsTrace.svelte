@@ -3,7 +3,7 @@
   import Toggle from './Toggle.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
-    aiEnabled, aiProvider, aiApiKey, aiModel, aiAssistantName, quickLogEnabled, aiGoalInsights,
+    aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, quickLogEnabled, aiGoalInsights,
     activityAutoEstimate, diaryShowActivity,
   } from '../../stores/settings.js';
   import { AI_PROVIDERS, AI_MODELS, AI_DEFAULT_MODELS } from '../../lib/aiChat.js';
@@ -19,13 +19,16 @@
   let aiProviderVal      = DB.getSetting('aiProvider',      'claude');
   let aiApiKeyVal        = DB.getSetting('aiApiKey',        '');
   let aiModelVal         = DB.getSetting('aiModel',         '');
+  let aiBaseUrlVal       = DB.getSetting('aiBaseUrl',       '');
   let aiAssistantNameVal = DB.getSetting('aiAssistantName', 'Trace');
   let quickLogEnabledVal = DB.getSetting('quickLogEnabled', false);
   let aiShowKey          = false;
   let aiKeySaved         = false;
+  let aiBaseUrlSaved     = false;
 
-  // Reset model to provider default when provider changes
-  $: if (aiModelVal && !AI_MODELS[aiProviderVal]?.find(m => m.value === aiModelVal)) {
+  // Reset model to provider default when switching to a built-in provider.
+  // 'oai-compat' has no model dropdown (free-text input), so skip the reset.
+  $: if (aiProviderVal !== 'oai-compat' && aiModelVal && !AI_MODELS[aiProviderVal]?.find(m => m.value === aiModelVal)) {
     aiModelVal = AI_DEFAULT_MODELS[aiProviderVal] || '';
   }
 
@@ -40,6 +43,12 @@
     set('aiApiKey', aiApiKeyVal);
     aiKeySaved = true;
     setTimeout(() => aiKeySaved = false, 2000);
+  }
+
+  function saveAiBaseUrl() {
+    set('aiBaseUrl', aiBaseUrlVal.trim());
+    aiBaseUrlSaved = true;
+    setTimeout(() => aiBaseUrlSaved = false, 2000);
   }
 </script>
 
@@ -81,16 +90,48 @@
       </div>
 
       <div class="setting-divider"></div>
-      <div class="setting-row">
-        <span class="setting-label">Model</span>
-        <div class="select-wrap" style="width:200px">
-          <select class="select sel-sm" bind:value={aiModelVal} disabled={envLocks.ai}>
-            {#each (AI_MODELS[aiProviderVal] || []) as m}
-              <option value={m.value}>{m.label}</option>
-            {/each}
-          </select>
+      {#if aiProviderVal === 'oai-compat'}
+        <!-- Custom OpenAI-compatible: free-text Base URL + Model name -->
+        <div class="form-group" style="padding:10px 16px">
+          <label class="form-label" for="ai-base-url">Base URL</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="ai-base-url" class="input" type="url"
+              placeholder="http://localhost:11434  or  https://api.deepseek.com"
+              bind:value={aiBaseUrlVal} autocomplete="off" style="flex:1" />
+            <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveAiBaseUrl}>
+              {#if aiBaseUrlSaved}<span class="material-symbols-rounded" style="font-size:16px">check</span>{:else}Save{/if}
+            </button>
+          </div>
+          <div class="setting-desc" style="margin-top:6px">
+            Any OpenAI Compatible <code>/v1/chat/completions</code> endpoint — Ollama, LM Studio, LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. Don't include the path; just the origin.
+          </div>
         </div>
-      </div>
+        <div class="setting-divider"></div>
+        <div class="setting-row">
+          <span class="setting-label">Model</span>
+          <input class="input" style="width:220px;text-align:right"
+            placeholder="llama3.1:8b"
+            bind:value={aiModelVal} disabled={envLocks.ai} />
+        </div>
+        <div class="setting-divider"></div>
+        <div style="padding:10px 16px;display:flex;gap:8px;align-items:flex-start;background:color-mix(in srgb,#f59e0b 8%, transparent);border-left:3px solid #f59e0b">
+          <span class="material-symbols-rounded" style="font-size:18px;color:#f59e0b;flex-shrink:0">info</span>
+          <div class="setting-desc" style="margin:0;line-height:1.5">
+            <strong>Tool calls reliability varies by model.</strong> Llama 3.1+, Mistral, Qwen 2.5+ handle them well; smaller or older models may break Smart Log + Goal Insights silently. Vision (image attachments) needs a multimodal model. If you're unsure, start with a known-good model and check the chat works before relying on it.
+          </div>
+        </div>
+      {:else}
+        <div class="setting-row">
+          <span class="setting-label">Model</span>
+          <div class="select-wrap" style="width:200px">
+            <select class="select sel-sm" bind:value={aiModelVal} disabled={envLocks.ai}>
+              {#each (AI_MODELS[aiProviderVal] || []) as m}
+                <option value={m.value}>{m.label}</option>
+              {/each}
+            </select>
+          </div>
+        </div>
+      {/if}
 
       <div class="setting-divider"></div>
       <div class="setting-row">
@@ -145,15 +186,17 @@
       {#if !envLocks.ai}
         <div class="setting-divider"></div>
         <div class="form-group" style="padding:10px 16px">
-          <label class="form-label" for="ai-api-key">API Key</label>
+          <label class="form-label" for="ai-api-key">
+            API Key{aiProviderVal === 'oai-compat' ? ' (optional)' : ''}
+          </label>
           <div style="display:flex;gap:8px;align-items:center">
             {#if aiShowKey}
               <input id="ai-api-key" class="input" type="text"
-                placeholder="Paste your API key here"
+                placeholder={aiProviderVal === 'oai-compat' ? 'Leave blank for local endpoints (Ollama, etc.)' : 'Paste your API key here'}
                 bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
             {:else}
               <input id="ai-api-key" class="input" type="password"
-                placeholder="Paste your API key here"
+                placeholder={aiProviderVal === 'oai-compat' ? 'Leave blank for local endpoints (Ollama, etc.)' : 'Paste your API key here'}
                 bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
             {/if}
             <button class="btn-icon" on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? 'Hide' : 'Show'}>
@@ -170,6 +213,8 @@
               Get your key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="about-link">platform.openai.com</a>
             {:else if aiProviderVal === 'gemini'}
               Get your key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="about-link">aistudio.google.com</a>
+            {:else if aiProviderVal === 'oai-compat'}
+              Local endpoints (Ollama, LM Studio, etc.) typically don't need a key. Cloud providers like DeepSeek or Groq do — get one from their dashboard.
             {/if}
             Your key is stored securely on the server.
           </div>

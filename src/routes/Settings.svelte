@@ -2,8 +2,9 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { slide, fade } from 'svelte/transition';
+  import { push } from 'svelte-spa-router';
   import { portal } from '../lib/portal.js';
-  import { getLogBufferText, clearLogBuffer, isVerboseLogging, setVerboseLogging } from '../lib/log-capture.js';
+  import { getLogBufferText, clearLogBuffer, isVerboseLogging, setVerboseLogging, getLogFileUri, getLastCrashFileUri, hasCrashReport, clearCrashReport } from '../lib/log-capture.js';
   import Toggle from '../components/settings/Toggle.svelte';
 
   import SettingsWellness from '../components/settings/SettingsWellness.svelte';
@@ -64,6 +65,41 @@
                        categories: false, nutrients: false, goals: false, bodyStats: false, statistics: false,
                        connectedServices: false, ai: false, notifications: false, wellness: false, sharing: false,
                        backup: false, nutritionImport: false, email: false, users: false, helpImprove: false, about: false };
+
+  // ── Sync state + manual trigger ────────────────────────────────────────
+  // Native server mode only. lastSyncAt comes from sync_meta on mount and is
+  // kept in sync with the live syncState.lastSync as background syncs fire.
+  let lastSyncAt = null;
+  let _nowTick = Date.now(); // re-render the "X ago" label every 30s
+  let _syncing = false;
+
+  async function manualSync() {
+    if (_syncing) return;
+    _syncing = true;
+    try {
+      const { fullSync } = await import('../lib/sync.js');
+      await fullSync(); // visible mode (shows the sync bar in App.svelte)
+    } catch (e) {
+      showError(e.message || 'Sync failed');
+    } finally {
+      _syncing = false;
+    }
+  }
+
+  function _fmtTimeAgo(iso) {
+    if (!iso) return 'never';
+    const ms = _nowTick - new Date(iso).getTime();
+    if (ms < 0) return 'just now';
+    const s = Math.floor(ms / 1000);
+    if (s < 10)  return 'just now';
+    if (s < 60)  return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60)  return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24)  return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    return `${d}d ago`;
+  }
 
   // ── Server Connection (native only) ─────────────────────────────────────
   let serverUrlInput = getServerUrl() || '';
@@ -912,10 +948,12 @@
   let _logsText = '';
   let _logsCopied = false;
   let _verboseLogging = isVerboseLogging();
+  let _hasCrashReport = false;
 
   function _openLogsSheet() {
     _logsText = getLogBufferText() || '(no log lines captured yet)';
     _logsCopied = false;
+    _hasCrashReport = hasCrashReport();
     _logsSheet = true;
   }
   async function _copyLogs() {
@@ -944,6 +982,45 @@
     } catch (e) {
       // User cancelled — silent.
     }
+  }
+  // Share the persistent log file as a real file attachment (native only,
+  // and only useful when verbose / diagnostic mode has been on long enough
+  // to write something to disk).
+  async function _shareLogFile() {
+    try {
+      const f = await getLogFileUri();
+      if (!f) { showError('No log file yet — turn on Verbose logs and reproduce the issue first'); return; }
+      const { Share } = await import('@capacitor/share');
+      await Share.share({
+        title: 'NutriTrace diagnostic logs',
+        text: 'NutriTrace log file',
+        url: f.uri,
+        dialogTitle: 'Share NutriTrace log file',
+      });
+    } catch (e) {
+      // User cancelled or share unsupported — silent.
+    }
+  }
+  // Share the most recent crash report file. Only visible when one exists
+  // (cleared on next successful share or via the explicit Clear button).
+  async function _shareCrashReport() {
+    try {
+      const f = await getLastCrashFileUri();
+      if (!f) { _hasCrashReport = false; return; }
+      const { Share } = await import('@capacitor/share');
+      await Share.share({
+        title: 'NutriTrace crash report',
+        text: 'NutriTrace crash report',
+        url: f.uri,
+        dialogTitle: 'Share NutriTrace crash report',
+      });
+    } catch (e) {
+      // User cancelled — silent.
+    }
+  }
+  function _clearCrashReport() {
+    clearCrashReport();
+    _hasCrashReport = false;
   }
   function _clearLogs() {
     clearLogBuffer();
@@ -1084,6 +1161,31 @@
       const res = await fetch(apiUrl('/api/app-config/env-locks'), _fetchOpts());
       if (res.ok) envLocks = await res.json();
     } catch {}
+
+    // Native server mode: surface last-sync time in Server Connection card.
+    // Pull the persisted timestamp from sync_meta (survives across sessions),
+    // then keep it live by subscribing to the in-memory syncState store.
+    let _syncStoreUnsub = null;
+    let _tickInterval = null;
+    if (isNative && getServerUrl()) {
+      try {
+        const { dbGetSyncMeta } = await import('../lib/db-native.js');
+        lastSyncAt = await dbGetSyncMeta('last_sync_at');
+      } catch {}
+      try {
+        const { syncState } = await import('../lib/sync.js');
+        _syncStoreUnsub = syncState.subscribe(s => {
+          if (s.lastSync) lastSyncAt = s.lastSync;
+        });
+      } catch {}
+      // Re-render the "X ago" label every 30s so it stays accurate without
+      // requiring a manual refresh.
+      _tickInterval = setInterval(() => { _nowTick = Date.now(); }, 30000);
+    }
+    return () => {
+      if (_syncStoreUnsub) _syncStoreUnsub();
+      if (_tickInterval) clearInterval(_tickInterval);
+    };
   });
 </script>
 
@@ -1996,6 +2098,19 @@
               <span class="material-symbols-rounded" style="color:var(--success, #22c55e);font-size:22px">cloud_done</span>
             </div>
             <div class="setting-divider"></div>
+            <div class="setting-row">
+              <div>
+                <span class="setting-label">Last synced</span>
+                <div class="setting-desc">
+                  {#key _nowTick}{_fmtTimeAgo(lastSyncAt)}{/key}
+                </div>
+              </div>
+              <button class="btn btn-secondary" style="height:32px;font-size:12px;padding:0 12px;display:flex;align-items:center;gap:6px" on:click={manualSync} disabled={_syncing}>
+                <span class="material-symbols-rounded" class:spin={_syncing} style="font-size:16px">{_syncing ? 'autorenew' : 'sync'}</span>
+                {_syncing ? 'Syncing…' : 'Sync now'}
+              </button>
+            </div>
+            <div class="setting-divider"></div>
             <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
               <button class="btn btn-ghost w-full" on:click={logoutServer}>
                 <span class="material-symbols-rounded" style="font-size:18px">logout</span>
@@ -2068,6 +2183,17 @@
     {#if sectionOpen(openSections, settingsQuery, 'nutritionImport') && sectionVisible(settingsQuery, 'nutritionImport')}
       <SettingsNutritionImport />
     {/if}
+    {/if}
+
+    <!-- ── My Profile (native local mode only — simpler than the full
+         User Management section, just gives the user a way to edit
+         name/gender/dob/avatar after the wizard) ──────────────────────── -->
+    {#if isNativeLocal}
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'users')} on:click={() => push('/profile')}>
+      <span class="material-symbols-rounded si">person</span>
+      <span>My Profile</span>
+      <span class="material-symbols-rounded chevron">chevron_right</span>
+    </button>
     {/if}
 
     <!-- ── User Management (hidden in native local mode — single user) ────── -->
@@ -2252,8 +2378,8 @@
         <div class="card settings-card">
           <div class="setting-row">
             <div>
-              <span class="setting-label">Verbose diagnostic logging</span>
-              <div class="setting-desc">Enables detailed app-internal logs (sync, settings, notifications, Health Connect). Off by default — turn on while reproducing a bug, then export below.</div>
+              <span class="setting-label">Diagnostic mode</span>
+              <div class="setting-desc">Enables detailed app-internal logs (sync, settings, notifications, Health Connect) and{isNative ? ' writes them to a daily log file on disk so they survive crashes and reloads.' : ' enables verbose console output.'} Off by default — turn on while reproducing a bug, then export below.</div>
             </div>
             <Toggle checked={_verboseLogging} on:change={e => _toggleVerbose(e.detail)} />
           </div>
@@ -2261,11 +2387,11 @@
           <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
             <span class="setting-label">View diagnostic logs</span>
             <p class="setting-desc" style="line-height:1.5">
-              Last 500 lines from the app's console. Useful for bug reports — copy and paste into a <a href="https://github.com/traceapps/nutritrace/issues" target="_blank" rel="noopener" class="about-link">GitHub issue</a>. The buffer holds in-memory only; nothing is sent anywhere automatically.
+              Recent log lines from the app's console. Useful for bug reports — copy / share into a <a href="https://github.com/traceapps/nutritrace/issues" target="_blank" rel="noopener" class="about-link">GitHub issue</a>.{isNative ? ' On Android with Diagnostic mode on, you can also share the persisted log file or any captured crash report.' : ''} Nothing is sent anywhere automatically.
             </p>
             <button class="btn btn-secondary" style="height:40px;font-size:13px" on:click={_openLogsSheet}>
               <span class="material-symbols-rounded" style="font-size:16px">terminal</span>
-              View logs
+              View logs{hasCrashReport() ? ' · crash report available' : ''}
             </button>
           </div>
           <div class="setting-divider"></div>
@@ -2559,24 +2685,53 @@
 <Sheet bind:open={_logsSheet} title="Diagnostic Logs">
   <div style="padding:0 4px 8px">
     <p class="setting-desc" style="line-height:1.5;margin-bottom:10px">
-      Last 500 lines captured. Copy and paste into a bug report. <strong>Redact</strong> any HRV / RHR / weight / calorie values before posting publicly — they're personal health data.
+      Recent log lines (capped at 500 normally, 1000 in verbose mode). Header shows app version + platform so the recipient knows what they're looking at. <strong>Redact</strong> any HRV / RHR / weight / calorie values before posting publicly — they're personal health data.
     </p>
     <textarea readonly style="width:100%;height:280px;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm,6px);background:var(--surface-2);color:var(--text-1);resize:vertical;white-space:pre">{_logsText}</textarea>
-    <div style="display:flex;gap:8px;margin-top:10px">
-      <button class="btn btn-primary" style="flex:1;height:40px;font-size:13px" on:click={_copyLogs}>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn btn-primary" style="flex:1;min-width:120px;height:40px;font-size:13px" on:click={_copyLogs}>
         {#if _logsCopied}
           <span class="material-symbols-rounded" style="font-size:16px">check</span> Copied
         {:else}
           <span class="material-symbols-rounded" style="font-size:16px">content_copy</span> Copy
         {/if}
       </button>
-      <button class="btn btn-secondary" style="flex:1;height:40px;font-size:13px" on:click={_shareLogs}>
-        <span class="material-symbols-rounded" style="font-size:16px">share</span> Share
+      <button class="btn btn-secondary" style="flex:1;min-width:120px;height:40px;font-size:13px" on:click={_shareLogs}>
+        <span class="material-symbols-rounded" style="font-size:16px">share</span> Share text
       </button>
-      <button class="btn btn-secondary" style="flex:1;height:40px;font-size:13px" on:click={_clearLogs}>
+      <button class="btn btn-secondary" style="flex:1;min-width:120px;height:40px;font-size:13px" on:click={_clearLogs}>
         <span class="material-symbols-rounded" style="font-size:16px">delete</span> Clear
       </button>
     </div>
+    {#if isNative && _verboseLogging}
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-secondary" style="flex:1;height:40px;font-size:13px" on:click={_shareLogFile}>
+          <span class="material-symbols-rounded" style="font-size:16px">description</span> Share log file
+        </button>
+      </div>
+      <p class="setting-desc" style="margin-top:6px;font-size:11px">
+        Today's persisted log on disk (rotates daily, last 7 days kept). Better for long sessions or after a crash — the in-memory buffer above resets every reload.
+      </p>
+    {/if}
+    {#if isNative && _hasCrashReport}
+      <div style="margin-top:14px;padding:10px;background:color-mix(in srgb,var(--danger) 8%, transparent);border-left:3px solid var(--danger);border-radius:var(--radius-sm,6px)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span class="material-symbols-rounded" style="font-size:18px;color:var(--danger)">warning</span>
+          <strong style="color:var(--danger);font-size:14px">Crash report available</strong>
+        </div>
+        <p class="setting-desc" style="margin:0 0 8px;font-size:12px">
+          The app captured an uncaught error. Share the report to help track it down, then dismiss it.
+        </p>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary" style="flex:1;height:36px;font-size:12px" on:click={_shareCrashReport}>
+            <span class="material-symbols-rounded" style="font-size:14px">share</span> Share crash report
+          </button>
+          <button class="btn btn-ghost" style="flex:1;height:36px;font-size:12px" on:click={_clearCrashReport}>
+            Dismiss
+          </button>
+        </div>
+      </div>
+    {/if}
   </div>
 </Sheet>
 
@@ -3094,4 +3249,5 @@
     transition: width 0.2s ease;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
 </style>

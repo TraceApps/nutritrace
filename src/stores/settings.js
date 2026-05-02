@@ -40,7 +40,11 @@ export const USER_PREFS = new Set([
   // User profile (collected by Wizard, used for goal calculation; sync so multi-device
   // users see the same body profile)
   'gender','dob','height_cm','weight_kg','target_weight','activity','tdee',
-  'aiEnabled','aiProvider','aiApiKey','aiModel','aiAssistantName','quickLogEnabled','aiGoalInsights',
+  // Native local-mode profile fields (no auth → no users table; these stand in for
+  // the server's full_name / nickname / avatar_url). In USER_PREFS so they're
+  // captured by the local full-backup ZIP. In server mode they're unused.
+  'localUserName','localUserNickname','localUserAvatar',
+  'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','quickLogEnabled','aiGoalInsights',
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'wellnessEnabled','fitbitEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
@@ -579,6 +583,11 @@ export const aiEnabled       = createSettingStore('aiEnabled',       false);
 export const aiProvider      = createSettingStore('aiProvider',      'claude');
 export const aiApiKey        = createSettingStore('aiApiKey',        '');
 export const aiModel         = createSettingStore('aiModel',         '');
+// Base URL for the OpenAI-compatible (custom) provider — Ollama, LM Studio,
+// LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq, Together AI, Mistral La
+// Plateforme, etc. Stored as a setting so users can point at any
+// /v1/chat/completions-compatible endpoint without rebuilding the app.
+export const aiBaseUrl       = createSettingStore('aiBaseUrl',       '');
 export const aiAssistantName = createSettingStore('aiAssistantName', 'Trace');
 
 // One-time migration: existing installs that never customized the assistant

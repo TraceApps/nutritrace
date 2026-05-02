@@ -3,7 +3,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import DatePicker from '../components/ui/DatePicker.svelte';
-  import { resolveAssetUrl } from '../lib/platform.js';
+  import { resolveAssetUrl, isNative, getServerUrl } from '../lib/platform.js';
   import { fade, slide, fly } from 'svelte/transition';
   import { tweened } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
@@ -807,9 +807,26 @@
       if (newToday !== stored) loadEntry(newToday);
     }
     document.addEventListener('visibilitychange', _onVisibility);
+
+    // Native server mode: NtApiCached.getDiaryDate is local-first, so a
+    // fresh post-connect mount can read empty SQLite before the background
+    // sync finishes pulling diary entries down. Refresh after each
+    // sync-complete event so the diary populates without requiring the
+    // user to force-stop and reopen the app.
+    let _onSyncComplete = null;
+    if (isNative && getServerUrl()) {
+      _onSyncComplete = () => {
+        let cur = null;
+        currentDate.subscribe(v => cur = v)();
+        if (cur) loadEntry(cur);
+      };
+      window.addEventListener('nt:sync-complete', _onSyncComplete);
+    }
+
     return () => {
       document.removeEventListener('visibilitychange', _onVisibility);
       window.removeEventListener('wl:setting', _reloadWaterSettings);
+      if (_onSyncComplete) window.removeEventListener('nt:sync-complete', _onSyncComplete);
     };
   });
 </script>

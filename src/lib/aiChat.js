@@ -104,12 +104,23 @@ export const TOOLS = [
 
 // ── Main entry point ─────────────────────────────────────────────────────────
 
-export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall }) {
-  if (!apiKey) throw new Error('No API key configured. Add one in Settings → AI Assistant.');
+export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl }) {
+  // The 'oai-compat' provider points at any /v1/chat/completions endpoint
+  // (Ollama, LM Studio, LocalAI, vLLM, DeepSeek, Groq, Together AI, etc.)
+  // Local endpoints don't need an API key; cloud ones do. Other providers
+  // still require a key.
+  if (!apiKey && provider !== 'oai-compat') {
+    throw new Error('No API key configured. Add one in Settings → AI Assistant.');
+  }
   switch (provider) {
-    case 'claude':  return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
-    case 'openai':  return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
-    case 'gemini':  return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
+    case 'claude':     return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
+    case 'openai':     return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, 'https://api.openai.com');
+    case 'gemini':     return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
+    case 'oai-compat': {
+      if (!baseUrl) throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
+      if (!model)   throw new Error('OpenAI Compatible provider needs a model name. Set one in Settings → AI Assistant.');
+      return _callOpenAIWithTools(apiKey || 'no-key', model, messages, systemPrompt, tools, onToolCall, baseUrl.replace(/\/+$/, ''));
+    }
     default: throw new Error(`Unknown AI provider: ${provider}`);
   }
 }
@@ -134,9 +145,10 @@ export async function callAIProxy({ messages, systemPrompt }) {
 
 // ── Default models per provider ───────────────────────────────────────────────
 export const AI_PROVIDERS = [
-  { value: 'claude', label: 'Anthropic Claude' },
-  { value: 'openai', label: 'OpenAI'           },
-  { value: 'gemini', label: 'Google Gemini'    },
+  { value: 'claude',     label: 'Anthropic Claude' },
+  { value: 'openai',     label: 'OpenAI'           },
+  { value: 'gemini',     label: 'Google Gemini'    },
+  { value: 'oai-compat', label: 'OpenAI Compatible' },
 ];
 
 export const AI_MODELS = {
@@ -219,7 +231,7 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
 
 // ── OpenAI (with function calling) ──────────────────────────────────────────
 
-async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall) {
+async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl = 'https://api.openai.com') {
   const openaiTools = (tools || []).map(t => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters },
@@ -239,16 +251,19 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     };
     if (openaiTools.length) body.tools = openaiTools;
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Some self-hosted endpoints (Ollama in particular) reject the
+    // Authorization header when it carries a placeholder key. Only send
+    // the header when we actually have a key.
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey && apiKey !== 'no-key') headers['Authorization'] = `Bearer ${apiKey}`;
+
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || `OpenAI API error ${res.status}`);
+    if (!res.ok) throw new Error(data.error?.message || `AI API error ${res.status}`);
 
     const choice = data.choices[0];
     const msg = choice.message;

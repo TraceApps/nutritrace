@@ -103,7 +103,11 @@ export async function parseInput(text, userMealNames) {
   const provider = DB.getSetting('aiProvider', 'claude');
   const apiKey   = DB.getSetting('aiApiKey', '');
   const model    = DB.getSetting('aiModel', '');
-  if (!apiKey) throw new Error('AI provider not configured. Set up the AI Assistant in Settings first.');
+  const baseUrl  = DB.getSetting('aiBaseUrl', '');
+  // OpenAI-compatible endpoints (Ollama etc.) don't need an API key.
+  if (!apiKey && provider !== 'oai-compat') {
+    throw new Error('AI provider not configured. Set up the AI Assistant in Settings first.');
+  }
 
   const waterContainers = DB.getSetting('waterContainers', []);
 
@@ -111,6 +115,7 @@ export async function parseInput(text, userMealNames) {
     provider,
     apiKey,
     model,
+    baseUrl,
     messages: [{ role: 'user', content: text.trim() }],
     systemPrompt: _buildParsePrompt(userMealNames, waterContainers),
     tools: [],

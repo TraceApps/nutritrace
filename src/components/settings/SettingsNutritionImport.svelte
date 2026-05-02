@@ -1,8 +1,23 @@
 <script>
   import { showError, showSuccess } from '../../stores/toast.js';
-  import { apiUrl, resolveAssetUrl } from '../../lib/platform.js';
+  import { apiUrl, resolveAssetUrl, isNative, getServerUrl, getAuthToken } from '../../lib/platform.js';
   import { loadEntry, currentDate } from '../../stores/diary.js';
   import { get } from 'svelte/store';
+
+  // Auth headers for state-changing requests. PWA uses cookie + CSRF token
+  // (server enforces both for write endpoints); native server mode uses
+  // the Bearer JWT instead. Same shape as SettingsBackup.svelte's _fetchOpts.
+  function _authHeaders() {
+    const h = {};
+    if (isNative && getServerUrl()) {
+      const t = getAuthToken();
+      if (t) h['Authorization'] = `Bearer ${t}`;
+    } else {
+      const csrf = localStorage.getItem('nt:csrf');
+      if (csrf) h['X-CSRF-Token'] = csrf;
+    }
+    return h;
+  }
 
   // ── State ────────────────────────────────────────────────────────────────
   let source = 'spreadsheet';
@@ -60,7 +75,7 @@
       fd.append('file', file);
       fd.append('source', source);
       const res = await fetch(apiUrl('/api/nutrition-import/preview'), {
-        method: 'POST', credentials: 'include', body: fd,
+        method: 'POST', credentials: 'include', headers: _authHeaders(), body: fd,
       });
       const data = await res.json();
       if (!res.ok) { showError(data?.error || 'Preview failed'); return; }
@@ -79,7 +94,7 @@
       fd.append('source', source);
       fd.append('onDuplicate', onDuplicate);
       const res = await fetch(apiUrl('/api/nutrition-import/commit'), {
-        method: 'POST', credentials: 'include', body: fd,
+        method: 'POST', credentials: 'include', headers: _authHeaders(), body: fd,
       });
       const data = await res.json();
       if (!res.ok) { showError(data?.error || 'Import failed'); return; }

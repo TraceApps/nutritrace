@@ -38,6 +38,33 @@ async function _serverFetch(method, path, body, timeoutMs = 3000) {
 }
 
 // Field mapping helpers
+//
+// _fromApi resolves img_url through resolveAssetUrl so the device can show
+// a locally-cached copy when offline. That resolved URL (a Capacitor
+// `https://localhost/_capacitor_file_/...image_cache/...` path, or a
+// proxy URL) MUST be stripped back to the original server-relative path
+// before _toApi persists the food/meal — otherwise the cached path lands
+// on the server and breaks display on PWA + other devices that don't
+// share this device's filesystem. Mirrors what _stripCachedPaths does for
+// diary item snapshots in stores/diary.js.
+function _stripResolvedImgUrl(url) {
+  if (!url) return url;
+  // Capacitor cached path → restore original /uploads/<filename>.
+  if (url.includes('_capacitor_file_') || url.includes('/image_cache/')) {
+    const filename = url.split('/').pop();
+    if (filename && /\.\w{2,5}$/.test(filename)) return '/uploads/' + filename;
+    return ''; // can't recover original — clear rather than persist garbage
+  }
+  // Proxy URL (`/api/proxy?url=https://...`) → restore the inner URL.
+  if (url.includes('/api/proxy?url=')) {
+    try {
+      const inner = new URL(url, 'https://x').searchParams.get('url');
+      if (inner) return inner;
+    } catch {}
+  }
+  return url;
+}
+
 function _foodFromApi(row) {
   if (!row) return null;
   const { img_url, category, ...rest } = row;
@@ -46,7 +73,11 @@ function _foodFromApi(row) {
 
 function _foodToApi(food) {
   const { imgUrl, img_url, categories, category, ...rest } = food;
-  return { ...rest, img_url: imgUrl || img_url || null, category: (categories && categories[0]) || category || null };
+  return {
+    ...rest,
+    img_url: _stripResolvedImgUrl(imgUrl || img_url) || null,
+    category: (categories && categories[0]) || category || null,
+  };
 }
 
 function _mealFromApi(row) {
@@ -57,7 +88,7 @@ function _mealFromApi(row) {
 
 function _mealToApi(meal) {
   const { imgUrl, img_url, ...rest } = meal;
-  return { ...rest, img_url: imgUrl || img_url || null };
+  return { ...rest, img_url: _stripResolvedImgUrl(imgUrl || img_url) || null };
 }
 
 export const NtApiCached = {

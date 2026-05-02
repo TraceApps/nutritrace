@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.12] — 2026-05-02
+
+### AI Assistant
+- New "OpenAI Compatible" provider — point at Ollama, LM Studio, DeepSeek, Groq, or any `/v1/chat/completions` endpoint. Local endpoints don't need an API key.
+- Trace greets you by name when you've set one in your Profile.
+
+### Diary
+- Portable JSON export now has a self-describing header (version, counts) and restores Activity entries on import.
+
+### Profile
+- Polish on linked accounts, security card, and danger zone — content fits properly at any viewport size.
+
+### Diagnostics
+- Exported logs lead with a version + platform header so recipients know what they're looking at.
+
+### Fixed
+- Nutrition Import "Invalid CSRF token" on Preview — the upload was missing its auth header. Reported by the community.
+
+---
+
 ## [1.0.0-rc.11] — 2026-05-02
 
 ### Wellness

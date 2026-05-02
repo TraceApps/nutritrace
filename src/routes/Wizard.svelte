@@ -28,8 +28,13 @@
   const _forceAccountCreation = _isPwa && $setupRequired;
 
   // Steps: usermgmt (optional on native, mandatory on PWA), welcome, units, ...
+  // Native local mode: drops usermgmt (no auth needed) but inserts a single
+  // 'name' step right after welcome so we can still personalize the UI
+  // (Trace greetings, Sidebar header, etc.) without a full user account.
   const BASE_STEPS = ['welcome','units','gender','dob','height','weight','target','activity','integrations','notifications','summary'];
-  const ALL_STEPS  = _isNativeLocal ? BASE_STEPS : ['usermgmt', ...BASE_STEPS];
+  const ALL_STEPS  = _isNativeLocal
+    ? ['welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','summary']
+    : ['usermgmt', ...BASE_STEPS];
 
   let step = 0;
   let dir  = 1;
@@ -50,6 +55,13 @@
   let adminEmail     = '';
   let umError        = '';
   let umLoading      = false;
+
+  // ── Name (native local mode only) ────────────────────────────────────────
+  // Replaces the auth-only fields the user-management step would have asked
+  // for in server mode. Stored as a `localUserName` setting and hydrated
+  // back into the synthetic LOCAL_USER's full_name in auth.js so the rest
+  // of the UI doesn't need to know about local vs server mode.
+  let localName = '';
 
   // ── Unit system ───────────────────────────────────────────────────────────
   let unitSystem = ''; // 'metric' | 'imperial'
@@ -342,7 +354,14 @@
       setupComplete: true,
     };
     if (waterGoal) batch.waterGoalMl = waterGoal;
+    if (_isNativeLocal && localName.trim()) batch.localUserName = localName.trim();
     await bulkSet(batch);
+
+    // Refresh the synthetic LOCAL_USER so Sidebar / Trace / etc. pick up the
+    // new name without a page reload.
+    if (_isNativeLocal && localName.trim()) {
+      try { await loadAuthState(); } catch {}
+    }
 
     push('/');
   }
@@ -458,6 +477,20 @@
               I'll do this later
             </button>
           {/if}
+        </div>
+
+      <!-- ── Name (native local mode only) ── -->
+      {:else if currentStepName === 'name'}
+        <h2 class="step-title">{$_('wizard.name.title')}</h2>
+        <p class="step-desc">{$_('wizard.name.desc')}</p>
+        <div style="max-width:380px;margin:8px auto 0">
+          <input
+            class="input"
+            type="text"
+            placeholder={$_('wizard.name.placeholder')}
+            bind:value={localName}
+            autocomplete="given-name"
+            style="width:100%;font-size:18px;padding:14px 16px;text-align:center" />
         </div>
 
       <!-- ── Units ── -->

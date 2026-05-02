@@ -20,7 +20,10 @@ export const userMgmtActive = writable(false);
 /** True when the server has no users yet — PWA must show setup screen */
 export const setupRequired = writable(false);
 
-// Synthetic local user for native standalone mode (no server configured)
+// Synthetic local user for native standalone mode (no server configured).
+// full_name is overridden at load time from the localUserName setting (set
+// in the Wizard's name step) so the rest of the UI (Sidebar, Trace, etc.)
+// can read $currentUser.full_name uniformly across server and local modes.
 const LOCAL_USER = {
   id:        1,
   username:  'local',
@@ -35,10 +38,30 @@ const LOCAL_USER = {
 
 /** Load auth state — handles both server mode and native standalone mode */
 export async function loadAuthState() {
-  // Native standalone: use the synthetic local user, skip all HTTP calls
+  // Native standalone: use the synthetic local user, skip all HTTP calls.
+  // Hydrate full_name / nickname / birthday / gender / avatar from settings
+  // so Sidebar / Trace / Profile / etc. read $currentUser.* uniformly across
+  // server and local modes. Wizard + Profile.svelte write to these keys.
   if (isNative && !getServerUrl()) {
     userMgmtActive.set(false);
-    currentUser.set(LOCAL_USER);
+    let fullName = 'Local User';
+    let nickname = null;
+    let birthday = null;
+    let gender   = null;
+    let avatar   = null;
+    try {
+      const { DB } = await import('../lib/db.js');
+      const _s = (k) => {
+        const v = DB.getSetting(k, null);
+        return (typeof v === 'string' && v.trim()) ? v.trim() : null;
+      };
+      fullName = _s('localUserName')     || fullName;
+      nickname = _s('localUserNickname') || null;
+      birthday = _s('dob')               || null;
+      gender   = _s('gender')            || null;
+      avatar   = _s('localUserAvatar')   || null;
+    } catch {}
+    currentUser.set({ ...LOCAL_USER, full_name: fullName, nickname, birthday, gender, avatar_url: avatar });
     localStorage.setItem('wl:userId', String(LOCAL_USER.id));
     return;
   }

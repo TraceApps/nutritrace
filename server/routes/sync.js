@@ -57,45 +57,52 @@ router.get('/pull', wrap((req, res) => {
   const userFilter = u != null ? 'AND user_id = ?' : '';
   const params = u != null ? [sinceSql, u] : [sinceSql];
 
+  // Boundary inclusive (>= not >): SQLite's datetime('now') has 1-second
+  // precision, so a row inserted in the same second as the previous pull's
+  // serverTime can fall through the cracks of an exclusive boundary check.
+  // Re-pulling the boundary second every time costs trivial bandwidth and
+  // the client's ON CONFLICT DO UPDATE upserts handle the duplicates
+  // idempotently. Eliminates the race that caused withings body-comp rows
+  // to silently drop on partial pulls (issue diagnosed 2026-05-02).
   const foods = db.prepare(
-    `SELECT * FROM foods WHERE updated_at > ? ${userFilter} ORDER BY updated_at`
+    `SELECT * FROM foods WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
   ).all(...params).map(parse);
 
   const meals = db.prepare(
-    `SELECT * FROM meals WHERE updated_at > ? ${userFilter} ORDER BY updated_at`
+    `SELECT * FROM meals WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
   ).all(...params).map(parse);
 
   const diary = db.prepare(
-    `SELECT * FROM diary WHERE updated_at > ? ${userFilter} ORDER BY updated_at`
+    `SELECT * FROM diary WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
   ).all(...params).map(parseDiary);
 
   const settings = u != null
-    ? db.prepare('SELECT * FROM user_settings WHERE updated_at > ? AND user_id = ? ORDER BY updated_at').all(sinceSql, u)
+    ? db.prepare('SELECT * FROM user_settings WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at').all(sinceSql, u)
         .filter(s => !isServerOnlyKey(s.key)) // SECURITY: never push admin keys to clients
     : [];
 
   // Wellness data — pull only (server-generated from Fitbit/Withings/Garmin syncs)
   const wellnessParams = u != null ? [sinceSql, u] : [sinceSql];
   const wellness = db.prepare(
-    `SELECT * FROM wellness_data WHERE synced_at > ? ${u != null ? 'AND user_id = ?' : ''} ORDER BY synced_at`
+    `SELECT * FROM wellness_data WHERE synced_at >= ? ${u != null ? 'AND user_id = ?' : ''} ORDER BY synced_at`
   ).all(...wellnessParams).map(parse);
 
   // Workouts — pull only (server-generated from Fitbit activity log syncs)
   const workoutsParams = u != null ? [sinceSql, u] : [sinceSql];
   const workouts = db.prepare(
-    `SELECT * FROM workouts WHERE updated_at > ? ${u != null ? 'AND user_id = ?' : ''} ORDER BY updated_at`
+    `SELECT * FROM workouts WHERE updated_at >= ? ${u != null ? 'AND user_id = ?' : ''} ORDER BY updated_at`
   ).all(...workoutsParams).map(parse);
 
   // AI chat history — pull only (client posts via /api/ai/history directly)
   const chatParams = u != null ? [sinceSql, u] : [sinceSql];
   const chat_history = db.prepare(
-    `SELECT id, role, content, created_at FROM ai_chat_history WHERE created_at > ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY created_at`
+    `SELECT id, role, content, created_at FROM ai_chat_history WHERE created_at >= ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY created_at`
   ).all(...chatParams);
 
   // Activity log — server-side updates pulled to clients
   const activityParams = u != null ? [sinceSql, u] : [sinceSql];
   const activity = db.prepare(
-    `SELECT * FROM activity_log WHERE updated_at > ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY updated_at`
+    `SELECT * FROM activity_log WHERE updated_at >= ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY updated_at`
   ).all(...activityParams);
 
   logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length}`);

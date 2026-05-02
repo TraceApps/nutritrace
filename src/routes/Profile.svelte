@@ -6,7 +6,13 @@
   import { NtApi } from '../lib/api.js';
   import { apiUrl, isNative, getServerUrl, getAuthToken, resolveAssetUrl } from '../lib/platform.js';
   import { takePhoto } from '../lib/camera.js';
-  import { localDateStr } from '../lib/db.js';
+  import { localDateStr, DB } from '../lib/db.js';
+
+  // True in native standalone mode (Capacitor + no server URL configured).
+  // The page collapses to a local-only editor: name + nickname + birthday +
+  // gender, all stored in user_settings. Server-only sections (linked
+  // accounts, change password, delete account) are hidden.
+  const _isLocal = isNative && !getServerUrl();
   import DateInput from '../components/ui/DateInput.svelte';
 
   function _headers(extra = {}) {
@@ -60,6 +66,18 @@
   let uploading  = false;
 
   onMount(() => {
+    if (_isLocal) {
+      // Read profile fields from user_settings (where the wizard wrote them).
+      // localUserName + localUserNickname are local-mode-only keys; gender +
+      // dob are shared with the wizard.
+      full_name  = DB.getSetting('localUserName',     '') || '';
+      nickname   = DB.getSetting('localUserNickname', '') || '';
+      birthday   = DB.getSetting('dob',               '') || '';
+      gender     = DB.getSetting('gender',            '') || '';
+      avatar_url = DB.getSetting('localUserAvatar',   '') || '';
+      email      = '';
+      return;
+    }
     const u = $currentUser;
     if (!u) { pop(); return; }
     full_name  = u.full_name  || '';
@@ -74,6 +92,19 @@
   async function save() {
     saving = true;
     try {
+      if (_isLocal) {
+        // Write each field to its corresponding setting, then refresh
+        // currentUser so Sidebar/Trace/etc. pick up the new name + avatar.
+        DB.setSetting('localUserName',     full_name.trim() || '');
+        DB.setSetting('localUserNickname', nickname.trim()  || '');
+        DB.setSetting('dob',               birthday         || '');
+        DB.setSetting('gender',            gender           || '');
+        if (avatar_url) DB.setSetting('localUserAvatar', avatar_url);
+        try { await loadAuthState(); } catch {}
+        showSuccess($_('profile.saved'));
+        saving = false;
+        return;
+      }
       const res = await fetch(apiUrl('/api/auth/profile'), {
         method: 'PUT',
         credentials: 'include',
@@ -228,8 +259,10 @@
       </button>
       <input bind:this={fileInput} type="file" accept="image/*" style="display:none" on:change={onFileChange} />
       <div class="avatar-meta">
-        <span class="text-1" style="font-weight:600">{$currentUser?.nickname || $currentUser?.username || ''}</span>
-        <span class="text-3 text-sm">@{$currentUser?.username || ''}</span>
+        <span class="text-1" style="font-weight:600">{$currentUser?.nickname || $currentUser?.full_name || $currentUser?.username || ''}</span>
+        {#if !_isLocal && $currentUser?.username}
+          <span class="text-3 text-sm">@{$currentUser.username}</span>
+        {/if}
       </div>
     </div>
 
@@ -241,11 +274,13 @@
         <label class="form-label">{$_('profile.full_name')}</label>
         <input class="input" type="text" placeholder={$_('profile.full_name_placeholder')} bind:value={full_name} />
       </div>
+      {#if !_isLocal}
       <div class="form-group">
         <label class="form-label">{$_('forgot_password.email_label')}</label>
         <input class="input" type="email" autocomplete="email"
           placeholder={$_('profile.email_placeholder')} bind:value={email} />
       </div>
+      {/if}
       <div class="form-group">
         <label class="form-label">{$_('profile.nickname')}</label>
         <input class="input" type="text" placeholder={$_('profile.nickname_placeholder')} bind:value={nickname} />
@@ -265,7 +300,7 @@
       </div>
     </div>
 
-    {#if oidcProviders.length || linkedProviders.length}
+    {#if !_isLocal && (oidcProviders.length || linkedProviders.length)}
       <div class="card settings-card">
         <div class="editor-card-title">{$_('profile.linked_accounts')}</div>
         {#if linkedProviders.length}
@@ -309,7 +344,8 @@
       </div>
     {/if}
 
-    <!-- Change password -->
+    <!-- Change password (server mode only — no auth in local mode) -->
+    {#if !_isLocal}
     <div class="card settings-card">
       <div class="editor-card-title">{$_('profile.security')}</div>
       {#if !changingPassword}
@@ -352,8 +388,11 @@
         </div>
       {/if}
     </div>
+    {/if}
 
-    <!-- Danger zone: delete my account -->
+    <!-- Danger zone: delete my account (server mode only — local users
+         use Settings → Backup & Restore → Clear all data instead) -->
+    {#if !_isLocal}
     <div class="card settings-card danger-zone-card">
       <div class="editor-card-title" style="color:var(--danger)">{$_('profile.danger_zone')}</div>
       <p class="text-3 text-sm" style="margin:0;line-height:1.5">
@@ -365,13 +404,22 @@
         <span>{deletingAccount ? $_('profile.deleting') : $_('profile.delete_account')}</span>
       </button>
     </div>
+    {/if}
   </div>
 </div>
 
 <style>
   .page-wrap { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
   .danger-zone-card { border-color: color-mix(in srgb, var(--danger) 25%, transparent) !important; }
-  .profile-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .profile-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    padding-bottom: 80px; /* clear nav / FAB on mobile */
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
   .avatar-section {
     display: flex;
     flex-direction: column;
@@ -402,7 +450,18 @@
   }
   .avatar-btn:hover .avatar-overlay { opacity: 1; }
   .avatar-meta { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-  .profile-body .settings-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  /* Override the base .card { overflow: hidden } — was clipping icon
+     descenders + button content on the bottom rows. Also drop the
+     hover-lift transform; settings pages don't need it and it was
+     nudging things 2px out of place when the cursor passed through. */
+  .profile-body .settings-card {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: visible;
+  }
+  .profile-body .settings-card:hover { transform: none; box-shadow: none; }
   .profile-body .editor-card-title { font-size: 16px; font-weight: 600; margin: 0; }
 
   /* Password strength indicator — shared pattern */
@@ -423,7 +482,7 @@
      competing with the outer card and clipping the meta line). */
   .oidc-link-row {
     display: flex; align-items: center; gap: 12px;
-    padding: 10px 4px;
+    padding: 10px 8px;
     border-bottom: 1px solid var(--border);
   }
   .oidc-link-row:last-child { border-bottom: none; }
@@ -440,7 +499,7 @@
      rest of the app. */
   .security-row {
     display: flex; align-items: center; gap: 12px;
-    width: 100%; padding: 10px 4px;
+    width: 100%; padding: 10px 8px;
     background: none; border: none; cursor: pointer;
     color: var(--text-1); font-family: inherit; font-size: 14px;
     text-align: left;

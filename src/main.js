@@ -1,6 +1,8 @@
 // Install console.* wrappers BEFORE any other import logs anything,
 // so the in-app diagnostic-log buffer captures the full app lifecycle.
-import './lib/log-capture.js';
+import { setAppVersion } from './lib/log-capture.js';
+import { APP_VERSION } from './lib/version.js';
+setAppVersion(APP_VERSION);
 
 import './styles/tokens.css';
 import './styles/base.css';

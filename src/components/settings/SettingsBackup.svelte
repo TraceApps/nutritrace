@@ -58,13 +58,51 @@
         NtApi.getRecipes(),
         NtApi.getAllDiary(),
       ]);
-      // Activity entries: pull a wide range covering all known dates so a JSON
-      // export carries the full history. Best-effort — older instances 404.
+      // Activity entries: the user's manual exercise log on the Diary
+      // (which may also be synced from Health Connect / wearable per the
+      // user's policy). NOT the wellness-tab data — Fitbit/Garmin/Withings
+      // metrics live in wellness_data and intentionally aren't part of the
+      // portable export (they'd be re-pulled if reconnected on a new
+      // device, and a JSON dump of those rows isn't useful in isolation).
       let activity = [];
-      try {
-        activity = await NtApi.getActivityRange('1900-01-01', '2999-12-31');
-      } catch {}
-      const data = { foodList, meals, recipes, diary, activity, settings: DB.getAllSettings(), exportedAt: new Date().toISOString() };
+      try { activity = await NtApi.getActivityRange('1900-01-01', '2999-12-31') || []; } catch {}
+
+      const settings = DB.getAllSettings() || {};
+
+      // Manifest header — self-describing, version-tagged, with counts. Lets
+      // future importers branch on schema_version without guessing, and lets
+      // users see what they're sharing before they hit send.
+      const { APP_VERSION } = await import('../../lib/version.js').catch(() => ({ APP_VERSION: 'unknown' }));
+      const _manifest = {
+        format: 'nutritrace-portable-export',
+        schema_version: 1,
+        app_version: APP_VERSION,
+        exported_at: new Date().toISOString(),
+        source: isNative ? (getServerUrl() ? 'native-server' : 'native-local') : 'web',
+        includes_images: false,
+        scope: 'foods, meals, recipes, diary (with notes), activity, settings — wellness-tab data and workouts excluded by design.',
+        note: 'For a comprehensive backup with embedded image files, use Local Full Backup (.zip).',
+        counts: {
+          foods:     foodList?.length || 0,
+          meals:     meals?.length    || 0,
+          recipes:   recipes?.length  || 0,
+          diary:     diary?.length    || 0,
+          activity:  activity?.length || 0,
+          settings:  Object.keys(settings).length,
+        },
+      };
+
+      const data = {
+        _manifest,
+        foodList,
+        meals,
+        recipes,
+        diary,
+        activity,
+        settings,
+        // Legacy field — kept so older importers that only read this still work
+        exportedAt: _manifest.exported_at,
+      };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       _downloadBlob(blob, `nutritrace-backup-${new Date().toISOString().slice(0,10)}.json`);
       showSuccess('Backup exported');
@@ -265,13 +303,17 @@
         ]);
 
         if (isNativeLocal) {
-          const { dbCreateFood, dbCreateMeal, dbSaveDiaryDate } = await import('../../lib/db-native.js');
-          for (const food of (foodList || [])) await dbCreateFood(food).catch(() => {});
-          for (const meal of (meals || [])) await dbCreateMeal(meal).catch(() => {});
-          for (const meal of (recipes || [])) await dbCreateMeal({ ...meal, is_recipe: 1 }).catch(() => {});
+          const dbm = await import('../../lib/db-native.js');
+          for (const food of (foodList || [])) await dbm.dbCreateFood(food).catch(() => {});
+          for (const meal of (meals || [])) await dbm.dbCreateMeal(meal).catch(() => {});
+          for (const meal of (recipes || [])) await dbm.dbCreateMeal({ ...meal, is_recipe: 1 }).catch(() => {});
           for (const entry of (data.diary || [])) {
-            if (entry.date) await dbSaveDiaryDate(entry.date, entry).catch(() => {});
+            if (entry.date) await dbm.dbSaveDiaryDate(entry.date, entry).catch(() => {});
           }
+          // Activity entries — restore the user's manual exercise log on the
+          // Diary (may also be synced from Health Connect / wearable, but the
+          // backed-up rows are restored verbatim regardless of source).
+          for (const a of (data.activity || [])) await dbm.dbCreateActivity(a).catch(() => {});
         } else {
           await NtApi.post('/api/data/import', { ...data, foodList, meals, recipes });
         }
