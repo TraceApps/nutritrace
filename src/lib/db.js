@@ -171,6 +171,36 @@ const DB = (() => {
     removeSetting(key) {
       localStorage.removeItem(this._settingKey(key));
     },
+    /** Move every setting from one user-prefix to another. Used by the
+     *  enable/disable user-management flows so wizard-configured settings
+     *  (mealNames, dob, gender, goals, etc.) follow the user across the
+     *  prefix change instead of getting orphaned. Pass `null` for the
+     *  anonymous prefix (`wl_<key>`). Existing target keys are NOT
+     *  overwritten — the new owner's choices win on collision. */
+    migrateSettingsPrefix(fromUserId, toUserId) {
+      const fromPrefix = fromUserId == null ? 'wl_' : `wl_u${fromUserId}_`;
+      const toPrefix   = toUserId   == null ? 'wl_' : `wl_u${toUserId}_`;
+      if (fromPrefix === toPrefix) return 0;
+      let moved = 0;
+      const orphans = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(fromPrefix)) continue;
+        // Exclude longer-prefixed keys like `wl_u12_*` from the bare `wl_` scan.
+        if (fromPrefix === 'wl_' && /^wl_u\d+_/.test(k)) continue;
+        orphans.push(k);
+      }
+      for (const fromKey of orphans) {
+        const bare = fromKey.slice(fromPrefix.length);
+        const toKey = toPrefix + bare;
+        if (localStorage.getItem(toKey) === null) {
+          localStorage.setItem(toKey, localStorage.getItem(fromKey));
+          moved++;
+        }
+        localStorage.removeItem(fromKey);
+      }
+      return moved;
+    },
     async searchFoods(query) {
       const all = await this.getAll('foodList');
       const q = query.toLowerCase();

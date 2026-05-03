@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.13] — 2026-05-03
+
+### Authentication (OIDC SSO)
+- Configure providers entirely from `.env` or `docker-compose.yml`. Single-provider shorthand uses `OIDC_*`; multi-provider uses `OIDC_PROVIDER_<N>_*`. Anything you define this way shows up in the Settings UI with a lock badge and is read-only there, so the source of truth stays in your config.
+- OIDC moved out of User Management into its own top-level Settings section called **Authentication**. README walkthrough rewritten to call out the prerequisite (User Management must be on) up front.
+
+### Settings
+- **My Profile** is now a hero card at the very top of Settings, showing your avatar, display name, and an admin pill when applicable. Tap to edit.
+- **Log Out** lives inside Profile, next to your name and avatar.
+- Profile editing now works in single-user mode (was previously unreachable — the page bounced back).
+- Switching between single-user and multi-user no longer loses your wizard-configured settings or profile data.
+
+### AI Assistant
+- Trace now has always-available access to your profile: name, nickname, age, gender, height, weight, target weight, activity level. Ask "what's my name" or "how old am I" and you get an answer without a tool round-trip.
+
+---
+
 ## [1.0.0-rc.12] — 2026-05-02
 
 ### AI Assistant

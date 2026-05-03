@@ -31,6 +31,7 @@ import { csrfProtect } from './middleware/csrf.js';
 import { makeRateLimiter } from './middleware/rate-limit.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv } from './ai.js';
+import { seedOidcFromEnv } from './lib/oidc-env.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -38,6 +39,7 @@ import db from './db.js';
 // Seed config from env vars if provided (env vars take priority over UI)
 seedSmtpFromEnv();
 seedAiFromEnv();
+seedOidcFromEnv();
 
 const app  = express();
 const PORT = process.env.PORT || 3001;

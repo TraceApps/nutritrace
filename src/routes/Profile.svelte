@@ -2,17 +2,19 @@
   import { onMount } from 'svelte';
   import { pop } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
-  import { currentUser } from '../stores/auth.js';
+  import { get } from 'svelte/store';
+  import { currentUser, userMgmtActive, logout as logoutAuth } from '../stores/auth.js';
   import { NtApi } from '../lib/api.js';
   import { apiUrl, isNative, getServerUrl, getAuthToken, resolveAssetUrl } from '../lib/platform.js';
   import { takePhoto } from '../lib/camera.js';
   import { localDateStr, DB } from '../lib/db.js';
 
-  // True in native standalone mode (Capacitor + no server URL configured).
-  // The page collapses to a local-only editor: name + nickname + birthday +
-  // gender, all stored in user_settings. Server-only sections (linked
-  // accounts, change password, delete account) are hidden.
-  const _isLocal = isNative && !getServerUrl();
+  // "Local" editor mode = no server-backed user account exists. Covers two
+  // cases: (a) Capacitor standalone with no server URL, and (b) PWA / server
+  // mode without user management enabled (single-user instance). In both,
+  // name/nickname/birthday/gender/avatar are stored in user_settings under
+  // localUser* keys + dob + gender (same keys the wizard writes).
+  const _isLocal = (isNative && !getServerUrl()) || !get(userMgmtActive);
   import DateInput from '../components/ui/DateInput.svelte';
 
   function _headers(extra = {}) {
@@ -27,6 +29,18 @@
   import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { loadAuthState } from '../stores/auth.js';
+
+  // Logout — only meaningful when there's a server-backed session, so the
+  // template gates the button on `!_isLocal && $userMgmtActive`.
+  let loggingOut = false;
+  async function doLogout() {
+    if (loggingOut) return;
+    loggingOut = true;
+    document.body.style.transition = 'opacity 0.3s';
+    document.body.style.opacity = '0';
+    try { await logoutAuth(); } catch {}
+    setTimeout(() => window.location.reload(), 300);
+  }
 
   let deletingAccount = false;
   async function deleteMyAccount() {
@@ -68,8 +82,10 @@
   onMount(() => {
     if (_isLocal) {
       // Read profile fields from user_settings (where the wizard wrote them).
-      // localUserName + localUserNickname are local-mode-only keys; gender +
-      // dob are shared with the wizard.
+      // localUserName + localUserNickname + localUserAvatar are local-only
+      // keys; dob + gender are shared with the wizard. Same code path for
+      // native standalone and PWA single-user — both lack a server-backed
+      // user account and store profile data client-side.
       full_name  = DB.getSetting('localUserName',     '') || '';
       nickname   = DB.getSetting('localUserNickname', '') || '';
       birthday   = DB.getSetting('dob',               '') || '';
@@ -387,6 +403,18 @@
           </button>
         </div>
       {/if}
+    </div>
+    {/if}
+
+    <!-- Log Out — only when there's a real session (multi-user / server mode).
+         Single-user / native standalone has no session to log out of. -->
+    {#if !_isLocal && $userMgmtActive}
+    <div class="card settings-card">
+      <button class="security-row" on:click={doLogout} disabled={loggingOut}>
+        <span class="material-symbols-rounded security-icon">logout</span>
+        <span class="security-label">{loggingOut ? $_('common.signing_out') : $_('common.log_out')}</span>
+        <span class="material-symbols-rounded security-chev">chevron_right</span>
+      </button>
     </div>
     {/if}
 

@@ -828,11 +828,51 @@
     const eUnit  = energyUnit.get();
     // Prefer nickname → full_name. Skip the synthetic 'Local User' default
     // and the 'local' username so we don't tell the AI to greet someone by
-    // a placeholder.
+    // a placeholder. Falls back to the localUserName setting (PWA single-
+    // user / native standalone write to that key directly).
     const u       = $currentUser || {};
-    const _nick   = (u.nickname || '').trim();
-    const _full   = (u.full_name || '').trim();
-    const userName = (_nick || (_full && _full !== 'Local User' ? _full : '')) || '';
+    const _nick   = (u.nickname || '').trim() || (DB.getSetting('localUserNickname', '') || '').trim();
+    const _full   = (u.full_name || '').trim() || (DB.getSetting('localUserName', '') || '').trim();
+    const _name   = (_full && _full !== 'Local User') ? _full : '';
+    const userName = _nick || _name || '';
+
+    // Profile fields the AI should always have at hand without a tool call.
+    // Pull from $currentUser first (server-backed), fall back to settings
+    // (single-user / standalone). Compute age from dob when present.
+    const _dob    = u.birthday || DB.getSetting('dob', '') || '';
+    const _gender = u.gender   || DB.getSetting('gender', '') || '';
+    let _age = null;
+    if (_dob) {
+      const ms = Date.now() - new Date(_dob).getTime();
+      const a  = Math.floor(ms / (365.25 * 24 * 3600 * 1000));
+      if (a > 0 && a < 130) _age = a;
+    }
+    const _hCm = Number(DB.getSetting('height_cm',     null)) || null;
+    const _wKg = Number(DB.getSetting('weight_kg',     null)) || null;
+    const _tKg = Number(DB.getSetting('target_weight', null)) || null;
+    const _act = DB.getSetting('activity', '') || '';
+    const _wu = DB.getSetting('weightUnit', 'lb');
+    const _hu = DB.getSetting('heightUnit', 'ft');
+    const _fmtW = (kg) => kg == null ? null : (_wu === 'lb' ? `${(kg*2.20462).toFixed(1)} lb` : `${kg.toFixed(1)} kg`);
+    const _fmtH = (cm) => {
+      if (cm == null) return null;
+      if (_hu === 'cm') return `${cm} cm`;
+      const totalIn = cm / 2.54;
+      const ft = Math.floor(totalIn / 12);
+      const inches = Math.round(totalIn - ft * 12);
+      return `${ft}'${inches}"`;
+    };
+    const profileBits = [];
+    if (_full)              profileBits.push(`name: ${_full}`);
+    if (_nick && _nick !== _full) profileBits.push(`nickname: ${_nick}`);
+    if (_age != null)       profileBits.push(`age: ${_age}`);
+    if (_dob)               profileBits.push(`dob: ${_dob}`);
+    if (_gender)            profileBits.push(`gender: ${_gender}`);
+    if (_fmtH(_hCm))        profileBits.push(`height: ${_fmtH(_hCm)}`);
+    if (_fmtW(_wKg))        profileBits.push(`weight: ${_fmtW(_wKg)}`);
+    if (_fmtW(_tKg))        profileBits.push(`target weight: ${_fmtW(_tKg)}`);
+    if (_act)               profileBits.push(`activity level: ${_act}`);
+    const profileText = profileBits.join(', ');
 
     let diaryText = 'No food logged today yet.';
     if (entry && entry.items?.length) {
@@ -1018,7 +1058,7 @@
       }
     } catch {}
 
-    return { today, userName, diaryText, goalsText, statsText, wellnessText, waterText,
+    return { today, userName, profileText, diaryText, goalsText, statsText, wellnessText, waterText,
       weightUnit: DB.getSetting('weightUnit', 'lb'),
       distUnit: DB.getSetting('distUnit', 'km'),
       heightUnit: DB.getSetting('heightUnit', 'ft'),
@@ -1066,10 +1106,13 @@ IMPORTANT — User's preferred units (ALWAYS use these when presenting data):
 - Energy: ${ctx.energyUnit === 'kJ' ? 'kilojoules (kJ)' : 'kilocalories (kcal)'}
 Convert all values to these units before presenting. ONLY show the preferred unit — do NOT show both or include the original metric/imperial value.
 
-Be warm, encouraging, and concise. Give practical, evidence-based advice. Use the data to personalize your responses.${ctx.userName ? `\n\nThe user's name is ${ctx.userName}. Use it naturally — greet them by name occasionally, reference it when celebrating progress — but don't overdo it (every other sentence is too much).` : ''}
+Be warm, encouraging, and concise. Give practical, evidence-based advice. Use the data to personalize your responses.
 
 Current date: ${ctx.today}
 
+USER PROFILE (always-available context — these are facts about the user, not numbers to hallucinate around. When asked "what's my name / age / gender / how tall am I", answer directly from this block. Don't fetch a tool, don't say you don't know.):
+${ctx.profileText || '(no profile data set yet — politely tell the user to fill it in via Settings → My Profile if they ask about their name, age, gender, height, or weight)'}
+${ctx.userName ? `\nGreet them by name occasionally and reference it when celebrating progress — but don't overdo it (every other sentence is too much).\n` : ''}
 TODAY'S SUMMARY (for quick reference — use tools for detailed or historical data):
 ${ctx.diaryText}
 Goals: ${ctx.goalsText}

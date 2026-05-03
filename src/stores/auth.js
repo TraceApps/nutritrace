@@ -36,6 +36,37 @@ const LOCAL_USER = {
   gender:    null,
 };
 
+/** Read profile fields from local settings and set $currentUser to the
+ *  synthetic LOCAL_USER. Used by both native standalone and PWA single-user
+ *  so the rest of the UI can read $currentUser uniformly.
+ *
+ *  `setUserId` controls whether to also write `wl:userId`. Native standalone
+ *  always sets it (LOCAL_USER.id=1) — its settings are keyed `wl_u1_<key>`
+ *  from day one. PWA single-user does NOT set it: existing installs already
+ *  have settings under the anonymous `wl_<key>` prefix, and switching to a
+ *  per-user key would orphan them. */
+async function _hydrateLocalUser({ setUserId = true } = {}) {
+  let fullName = 'Local User';
+  let nickname = null;
+  let birthday = null;
+  let gender   = null;
+  let avatar   = null;
+  try {
+    const { DB } = await import('../lib/db.js');
+    const _s = (k) => {
+      const v = DB.getSetting(k, null);
+      return (typeof v === 'string' && v.trim()) ? v.trim() : null;
+    };
+    fullName = _s('localUserName')     || fullName;
+    nickname = _s('localUserNickname') || null;
+    birthday = _s('dob')               || null;
+    gender   = _s('gender')            || null;
+    avatar   = _s('localUserAvatar')   || null;
+  } catch {}
+  currentUser.set({ ...LOCAL_USER, full_name: fullName, nickname, birthday, gender, avatar_url: avatar });
+  if (setUserId) localStorage.setItem('wl:userId', String(LOCAL_USER.id));
+}
+
 /** Load auth state — handles both server mode and native standalone mode */
 export async function loadAuthState() {
   // Native standalone: use the synthetic local user, skip all HTTP calls.
@@ -44,25 +75,7 @@ export async function loadAuthState() {
   // server and local modes. Wizard + Profile.svelte write to these keys.
   if (isNative && !getServerUrl()) {
     userMgmtActive.set(false);
-    let fullName = 'Local User';
-    let nickname = null;
-    let birthday = null;
-    let gender   = null;
-    let avatar   = null;
-    try {
-      const { DB } = await import('../lib/db.js');
-      const _s = (k) => {
-        const v = DB.getSetting(k, null);
-        return (typeof v === 'string' && v.trim()) ? v.trim() : null;
-      };
-      fullName = _s('localUserName')     || fullName;
-      nickname = _s('localUserNickname') || null;
-      birthday = _s('dob')               || null;
-      gender   = _s('gender')            || null;
-      avatar   = _s('localUserAvatar')   || null;
-    } catch {}
-    currentUser.set({ ...LOCAL_USER, full_name: fullName, nickname, birthday, gender, avatar_url: avatar });
-    localStorage.setItem('wl:userId', String(LOCAL_USER.id));
+    await _hydrateLocalUser();
     return;
   }
 
@@ -97,8 +110,24 @@ async function _fetchAuthFromServer() {
     const statusData = await statusRes.json();
     const meData     = await meRes.json();
     const user       = meData.user || null;
-    userMgmtActive.set(!!statusData.active);
+    const active     = !!statusData.active;
+    userMgmtActive.set(active);
     setupRequired.set(!!statusData.setup_required);
+
+    // PWA single-user mode (server reachable, user mgmt off): hydrate the
+    // synthetic LOCAL_USER from local settings so $currentUser is never
+    // null. Mirrors native standalone — keeps Sidebar / Trace / gates that
+    // read $currentUser.role === 'admin' working uniformly. Don't touch
+    // `wl:userId`: settings already live under the anonymous `wl_<key>`
+    // prefix and switching to per-user keys would silently orphan them.
+    if (!active && !user) {
+      await _hydrateLocalUser({ setUserId: false });
+      localStorage.removeItem('wl:userId');
+      if (meData.csrf) localStorage.setItem('nt:csrf', meData.csrf);
+      else             localStorage.removeItem('nt:csrf');
+      return;
+    }
+
     currentUser.set(user);
     if (user) localStorage.setItem('wl:userId', String(user.id));
     else       localStorage.removeItem('wl:userId');

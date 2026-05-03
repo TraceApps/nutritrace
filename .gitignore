@@ -34,4 +34,14 @@ data/
 *.swp
 *.swo
 
+# Android — build artifacts and generated files (keep source, ignore generated)
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/.idea/
+*.apk
+*.aab
+*.keystore
 android/keystore.properties

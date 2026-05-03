@@ -18,8 +18,14 @@ const ALLOWED_KEYS = new Set([
 
 // ── GET /api/app-config/env-locks — which sections are locked by env vars ──
 // Any authenticated user can read this (needed to disable UI fields)
-router.get('/env-locks', requireAuth, wrap((req, res) => {
-  res.json({ smtp: isSmtpEnvLocked(), ai: isAiEnvLocked() });
+router.get('/env-locks', requireAuth, wrap(async (req, res) => {
+  // Lazy import — oidc-env is only meaningful when OIDC is configured.
+  const { getEnvLockedProviderIds } = await import('../lib/oidc-env.js');
+  res.json({
+    smtp: isSmtpEnvLocked(),
+    ai: isAiEnvLocked(),
+    oidc_provider_ids: getEnvLockedProviderIds(),
+  });
 }));
 
 // ── GET /api/app-config/sharing — sharing status + per-category counts (any auth user) ───

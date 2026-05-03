@@ -11,6 +11,7 @@
   import SettingsTrace from '../components/settings/SettingsTrace.svelte';
   import SettingsNotifications from '../components/settings/SettingsNotifications.svelte';
   import SettingsUserManagement from '../components/settings/SettingsUserManagement.svelte';
+  import SettingsAuth from '../components/settings/SettingsAuth.svelte';
   import SettingsBackup from '../components/settings/SettingsBackup.svelte';
   import SettingsNutritionImport from '../components/settings/SettingsNutritionImport.svelte';
   import { APP_VERSION } from '../lib/version.js';
@@ -64,7 +65,7 @@
   let openSections = { serverConnection: false, appearance: false, regional: false, diary: false, foods: false, water: false,
                        categories: false, nutrients: false, goals: false, bodyStats: false, statistics: false,
                        connectedServices: false, ai: false, notifications: false, wellness: false, sharing: false,
-                       backup: false, nutritionImport: false, email: false, users: false, helpImprove: false, about: false };
+                       authentication: false, backup: false, nutritionImport: false, email: false, users: false, helpImprove: false, about: false };
 
   // ── Sync state + manual trigger ────────────────────────────────────────
   // Native server mode only. lastSyncAt comes from sync_meta on mount and is
@@ -296,6 +297,7 @@
 
   const SECTION_KEYWORDS = {
     serverConnection:  ['server','connection','sync','cloud','local','remote','connect','disconnect','url'],
+    authentication:    ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group'],
     appearance:        ['appearance','theme','dark','light','accent','color','navigation','sidebar','persistent','start page','animations','celebrations','reduce motion','banner','page banner'],
     regional:          ['regional','language','translation','date format','time format','locale','date','time','12h','24h','units','energy unit','weight unit','height','circumference','distance','temperature','imperial','metric'],
     diary:             ['diary','brands','timestamps','thumbnails','nutrients','nutrition units','macros','macro summary','prompt quantity','portion size','nutrition bar','goals progress','meal names','meals'],
@@ -314,7 +316,8 @@
     backup:            ['backup','export','import','restore','csv','clear data','json','full backup','images','zip','reset','defaults','clear settings','danger zone'],
     nutritionImport:   ['import','nutrition import','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','csv','migrate','migration','from another app'],
     email:             ['email','smtp','mail','password reset','invites','notifications'],
-    users:             ['users','user management','accounts','login','password','admin','register','profile'],
+    profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','avatar','log out','logout','sign out','password','change password'],
+    users:             ['users','user management','accounts','login','admin','register','invite'],
     helpImprove:       ['diagnostics','logs','verbose','calibration','export','bug','report','troubleshoot'],
     about:             ['about','version','nutritrace'],
   };
@@ -943,6 +946,10 @@
   let userMgmtRef;
   $: if (openSections.users && $userMgmtActive) userMgmtRef?.loadData();
 
+  // ── Authentication (OIDC SSO) ref ─────────────────────────────────────────
+  let authRef;
+  $: if (openSections.authentication && $userMgmtActive && $currentUser?.role === 'admin') authRef?.loadData();
+
   // ── Diagnostics: in-app log capture ──────────────────────────────────────
   let _logsSheet = false;
   let _logsText = '';
@@ -1207,6 +1214,39 @@
   </div>
 
   <div class="page-content settings-content">
+
+    <!-- ── Profile hero — identity card at the top of Settings.
+         Avatar + name (nickname → full name → "My Profile" fallback) +
+         optional admin pill. Click → /profile. Hidden during search
+         when no profile keyword matches so it doesn't dilute results. -->
+    {#if sectionVisible(settingsQuery, 'profile')}
+    {@const _u = $currentUser || {}}
+    {@const _nick = (_u.nickname || '').trim()}
+    {@const _full = (_u.full_name || '').trim()}
+    {@const _displayName = _nick || (_full && _full !== 'Local User' ? _full : '') || $_('settings.profile_hero.label_fallback')}
+    {@const _hasName = _displayName !== $_('settings.profile_hero.label_fallback')}
+    {@const _initial = (_displayName[0] || '?').toUpperCase()}
+    <button class="profile-hero" on:click={() => push('/profile')}>
+      <div class="profile-hero-avatar">
+        {#if _u.avatar_url}
+          <img src={resolveAssetUrl(_u.avatar_url)} alt="" />
+        {:else if _hasName}
+          <span class="profile-hero-initial">{_initial}</span>
+        {:else}
+          <span class="material-symbols-rounded">person</span>
+        {/if}
+      </div>
+      <div class="profile-hero-info">
+        <span class="profile-hero-name">{_displayName}</span>
+        {#if _hasName && _u.role === 'admin' && $userMgmtActive}
+          <span class="profile-hero-role">{$_('common.admin')}</span>
+        {:else if !_hasName}
+          <span class="profile-hero-sub">{$_('settings.profile_hero.subtitle_empty')}</span>
+        {/if}
+      </div>
+      <span class="material-symbols-rounded profile-hero-chev">chevron_right</span>
+    </button>
+    {/if}
 
     <p class="settings-group-label">Display</p>
     <!-- ── Appearance ──────────────────────────────────────────────────────── -->
@@ -2079,7 +2119,9 @@
 
     <p class="settings-group-label">App</p>
 
-    <!-- ── Server Connection (native app only — most fundamental on Android) ── -->
+    <!-- ── Server Connection (native only — manages connection to a remote
+         NutriTrace server). PWA users have no "server connection" concept;
+         their Log Out lives in My Profile. -->
     {#if isNative}
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'serverConnection')} on:click={() => toggleSection('serverConnection')}>
       <span class="material-symbols-rounded si">cloud_sync</span>
@@ -2185,16 +2227,8 @@
     {/if}
     {/if}
 
-    <!-- ── My Profile (native local mode only — simpler than the full
-         User Management section, just gives the user a way to edit
-         name/gender/dob/avatar after the wizard) ──────────────────────── -->
-    {#if isNativeLocal}
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'users')} on:click={() => push('/profile')}>
-      <span class="material-symbols-rounded si">person</span>
-      <span>My Profile</span>
-      <span class="material-symbols-rounded chevron">chevron_right</span>
-    </button>
-    {/if}
+    <!-- My Profile lives at the top of Settings as the profile-hero card;
+         User Management (admin features) follows here. -->
 
     <!-- ── User Management (hidden in native local mode — single user) ────── -->
     {#if !isNativeLocal}
@@ -2205,6 +2239,18 @@
     </button>
     {#if sectionOpen(openSections, settingsQuery, 'users') && sectionVisible(settingsQuery, 'users')}
       <SettingsUserManagement bind:this={userMgmtRef} />
+    {/if}
+    {/if}
+
+    <!-- ── Authentication (OIDC SSO + password-login toggle) ──────────────── -->
+    {#if !isNativeLocal && $userMgmtActive && $currentUser?.role === 'admin'}
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'authentication')} on:click={() => toggleSection('authentication')}>
+      <span class="material-symbols-rounded si">vpn_key</span>
+      <span>{$_('settings.authentication.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.authentication}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'authentication') && sectionVisible(settingsQuery, 'authentication')}
+      <SettingsAuth bind:this={authRef} />
     {/if}
     {/if}
 
@@ -2790,6 +2836,47 @@
   }
   .settings-search-input:focus { border-color: var(--accent); }
   .settings-search-clear { color: var(--text-3); }
+
+  /* Profile hero — identity card at the top of Settings */
+  .profile-hero {
+    display: flex; align-items: center; gap: 14px;
+    width: 100%;
+    margin: 4px var(--page-px) 14px;
+    padding: 14px 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg, 14px);
+    color: var(--text-1);
+    cursor: pointer;
+    font-family: inherit; text-align: left;
+    transition: background var(--dur-fast), transform var(--dur-fast);
+    width: calc(100% - var(--page-px) * 2);
+  }
+  .profile-hero:hover  { background: var(--surface-3); }
+  .profile-hero:active { transform: scale(0.99); }
+  .profile-hero-avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2, var(--accent)));
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; overflow: hidden;
+  }
+  .profile-hero-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .profile-hero-avatar :global(.material-symbols-rounded) { font-size: 26px; }
+  .profile-hero-initial { font-size: 20px; font-weight: 700; line-height: 1; }
+  .profile-hero-info { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .profile-hero-name {
+    font-size: 17px; font-weight: 700; color: var(--text-1);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .profile-hero-role {
+    align-self: flex-start;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--accent); background: var(--accent-dim);
+    padding: 2px 8px; border-radius: var(--radius-full, 999px);
+  }
+  .profile-hero-sub { font-size: 13px; color: var(--text-3); }
+  .profile-hero-chev { color: var(--text-3); flex-shrink: 0; }
 
   /* Section toggle button */
   .section-toggle {

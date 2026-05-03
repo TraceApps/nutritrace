@@ -17,6 +17,8 @@
   },
   "common": {
     "sign_out":     "Sign out",
+    "log_out":      "Log Out",
+    "signing_out":  "Signing out…",
     "experimental": "Experimental",
     "hide":         "Hide",
     "save":         "Save",
@@ -32,6 +34,7 @@
     "signed_out":   "Signed out",
     "linked":       "Linked",
     "unlinked":     "Unlinked",
+    "admin":        "admin",
     "errors": {
       "cant_reach_server": "Could not reach server",
       "failed":            "Failed",
@@ -62,6 +65,11 @@
     "notifications":      { "section": "Notifications" },
     "wellness":           { "section": "Wellness" },
     "sharing":            { "section": "Food Sharing" },
+    "profile_hero": {
+      "label_fallback":  "My Profile",
+      "subtitle_empty":  "Tap to add your name and photo"
+    },
+    "authentication":     { "section": "Authentication" },
     "users":              {
       "section":              "User Management",
       "users_heading":        "Users",

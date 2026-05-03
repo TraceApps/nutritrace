@@ -14,6 +14,11 @@ services:
       # Required if using user management — set a long random secret
       - JWT_SECRET=${JWT_SECRET}
       # Or mount a Swarm/Docker secret and set JWT_SECRET_FILE=/run/secrets/<name>
+      # Optional — at-rest encryption key for OIDC client secrets and wearable
+      # OAuth tokens. Defaults to a key derived from JWT_SECRET, which means
+      # rotating JWT_SECRET also invalidates every encrypted secret. Set this
+      # explicitly if you want to rotate session tokens independently.
+      # - TOKEN_ENC_KEY=${TOKEN_ENC_KEY:-}
       # Optional — lockout recovery token (required for login page recovery)
       - RECOVERY_TOKEN=${RECOVERY_TOKEN:-}
       # Optional — mount at a subpath instead of root (for reverse-proxy setups)
@@ -27,7 +32,38 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM=${SMTP_FROM:-}
+      # Optional — AI Assistant (shared key for all users). When set, AI calls
+      # are proxied through the server (key never reaches the browser) and the
+      # provider/model/key fields are locked in Settings for all users.
+      # NOTE: only the cloud providers below are server-proxied. The "OpenAI
+      # Compatible" provider (Ollama, LM Studio, DeepSeek, Groq, etc.) runs
+      # entirely client-side and is configured per-user in Settings, not here.
+      # - AI_PROVIDER=${AI_PROVIDER:-}            # claude | openai | gemini
+      # - AI_API_KEY=${AI_API_KEY:-}
+      # - AI_MODEL=${AI_MODEL:-}
+      # - AI_ENABLED=${AI_ENABLED:-}
+      # Optional — OIDC Single Sign-On declared in env instead of the Settings UI.
+      # Single-provider shorthand (`OIDC_*` is an alias for `OIDC_PROVIDER_1_*`):
+      # - OIDC_ISSUER=${OIDC_ISSUER:-}
+      # - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      # - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      # - OIDC_DISPLAY_NAME=${OIDC_DISPLAY_NAME:-}
+      # - OIDC_REDIRECT_URIS=${OIDC_REDIRECT_URIS:-}        # comma-separated for multi
+      # - OIDC_SCOPE=${OIDC_SCOPE:-}
+      # - OIDC_ADMIN_GROUP_CLAIM=${OIDC_ADMIN_GROUP_CLAIM:-}
+      # - OIDC_ADMIN_GROUP_VALUE=${OIDC_ADMIN_GROUP_VALUE:-}
+      # - OIDC_AUTO_LINK=${OIDC_AUTO_LINK:-1}
+      # - OIDC_AUTO_REGISTER=${OIDC_AUTO_REGISTER:-0}
+      # Multi-provider — repeat with the numbered prefix:
+      # - OIDC_PROVIDER_2_ISSUER=${OIDC_PROVIDER_2_ISSUER:-}
+      # - OIDC_PROVIDER_2_CLIENT_ID=${OIDC_PROVIDER_2_CLIENT_ID:-}
+      # - OIDC_PROVIDER_2_CLIENT_SECRET=${OIDC_PROVIDER_2_CLIENT_SECRET:-}
+      # - OIDC_PROVIDER_2_DISPLAY_NAME=${OIDC_PROVIDER_2_DISPLAY_NAME:-}
+      # Env-defined providers show with a lock badge in Settings → Authentication
+      # and are read-only there — edit via .env / docker-compose / k8s secrets.
       # Any server env var may also be supplied via <NAME>_FILE, for example:
       # - SMTP_PASS_FILE=/run/secrets/nutritrace_smtp_pass
       # - AI_API_KEY_FILE=/run/secrets/nutritrace_ai_api_key
+      # - TOKEN_ENC_KEY_FILE=/run/secrets/nutritrace_token_enc_key
+      # - RECOVERY_TOKEN_FILE=/run/secrets/nutritrace_recovery_token
     restart: unless-stopped

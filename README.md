@@ -318,7 +318,36 @@ All external API calls are proxied server-side — no keys are exposed to the br
 
 Optional. Connect any OpenID Connect 1.0 compliant identity provider — **Authentik**, **Keycloak**, **Authelia**, **Pocket ID**, **Auth0**, **Google**, etc. — to sign in to NutriTrace with credentials your IdP already manages. Existing password login keeps working alongside SSO; admins can also disable password login entirely once SSO is set up.
 
-**To configure** (admin-only): **Settings → User Management → OIDC providers (Single Sign-On)**. The form has a card picker for the most common IdPs that pre-fills sensible defaults (issuer-URL pattern, scope, claim names, branded logo). Custom / Generic OIDC is the fallback for anything not on the list. Enter your provider's `issuer URL`, `client ID`, and `client secret`, save, then test discovery with the network-check button before letting users sign in.
+**Prerequisite**: User Management must be enabled and you must be signed in as an admin. If your instance is single-user, run **Settings → User Management → Set Up** first to create your admin account (skip this step if you already enabled User Management).
+
+**Two ways to configure**:
+
+1. **UI** (admin-only): **Settings → Authentication → OIDC providers**. Has a card picker for common IdPs that pre-fills sensible defaults (issuer-URL pattern, scope, claim names, branded logo). Custom / Generic OIDC is the fallback for anything not on the list. Enter your provider's `issuer URL`, `client ID`, and `client secret`, save, then test discovery with the network-check button before letting users sign in.
+
+2. **Environment variables** (for IaC / docker-compose / k8s deployments): define providers in your `.env` and the server bootstraps them on startup. Mirrors how SMTP and AI provider creds are env-locked today.
+
+   ```env
+   # Single provider — most common case
+   OIDC_ISSUER=https://auth.example.com
+   OIDC_CLIENT_ID=nutritrace
+   OIDC_CLIENT_SECRET=...
+   OIDC_DISPLAY_NAME=Authentik
+
+   # Optional fields (per-provider)
+   OIDC_SCOPE=openid profile email
+   OIDC_ADMIN_GROUP_CLAIM=groups
+   OIDC_ADMIN_GROUP_VALUE=NutriTraceAdmins
+   OIDC_AUTO_LINK=1
+   OIDC_AUTO_REGISTER=0
+
+   # Multi-provider — use numbered prefix instead
+   OIDC_PROVIDER_2_ISSUER=https://other-idp.example.com
+   OIDC_PROVIDER_2_CLIENT_ID=...
+   OIDC_PROVIDER_2_CLIENT_SECRET=...
+   OIDC_PROVIDER_2_DISPLAY_NAME=Keycloak
+   ```
+
+   `OIDC_*` (unnumbered) is an alias for `OIDC_PROVIDER_1_*`. Numbered providers can be added independently of the first. Env-defined providers show with a lock badge in the Settings UI and are read-only — managed entirely from your config files.
 
 **Per-provider toggles**:
 - **Auto-link existing users (verified email)** — when the IdP says `email_verified=true` and the email matches an existing NutriTrace user, link them silently on first SSO sign-in. Defaults ON; safe for any IdP you trust to verify emails.

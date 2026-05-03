@@ -13,6 +13,12 @@ import {
   encryptClientSecret, invalidateDiscovery,
   isPasswordLoginEnabled, setPasswordLoginEnabled,
 } from '../lib/oidc.js';
+import { isProviderEnvLocked, getEnvLockedProviderIds } from '../lib/oidc-env.js';
+
+// Refuse mutation when the provider was defined via OIDC_PROVIDER_*_* env
+// vars. The client (Settings UI) tags these rows with a lock badge so the
+// admin can see why the form fields are read-only.
+const ENV_LOCKED_MSG = 'This provider is configured via environment variables and cannot be edited from the UI.';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -67,8 +73,11 @@ function _coerceProvider(body, existing) {
 
 router.get('/providers', wrap((req, res) => {
   res.json({
-    providers: listProviders({ activeOnly: false }).map(adminProvider),
+    providers: listProviders({ activeOnly: false })
+      .map(adminProvider)
+      .map(p => ({ ...p, env_locked: isProviderEnvLocked(p.id) })),
     enable_email_password_login: isPasswordLoginEnabled(),
+    env_locked_provider_ids: getEnvLockedProviderIds(),
   });
 }));
 
@@ -112,6 +121,7 @@ router.post('/providers', wrap((req, res) => {
 
 router.put('/providers/:id', wrap((req, res) => {
   const id = Number(req.params.id);
+  if (isProviderEnvLocked(id)) return res.status(403).json({ error: ENV_LOCKED_MSG });
   const existing = getProvider(id);
   if (!existing) return res.status(404).json({ error: 'Provider not found' });
   const fields = _coerceProvider(req.body, existing);
@@ -156,6 +166,7 @@ router.put('/providers/:id', wrap((req, res) => {
 
 router.delete('/providers/:id', wrap((req, res) => {
   const id = Number(req.params.id);
+  if (isProviderEnvLocked(id)) return res.status(403).json({ error: ENV_LOCKED_MSG });
   const r = db.prepare(`DELETE FROM oidc_providers WHERE id = ?`).run(id);
   invalidateDiscovery(id);
   if (r.changes === 0) return res.status(404).json({ error: 'Provider not found' });

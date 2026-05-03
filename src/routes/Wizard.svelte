@@ -31,10 +31,16 @@
   // Native local mode: drops usermgmt (no auth needed) but inserts a single
   // 'name' step right after welcome so we can still personalize the UI
   // (Trace greetings, Sidebar header, etc.) without a full user account.
+  // PWA single-user (user opts out of UM at the usermgmt step): same 'name'
+  // step gets inserted so they can still set a display name. Multi-user
+  // doesn't need it — the admin's full_name was captured on the usermgmt
+  // step itself.
   const BASE_STEPS = ['welcome','units','gender','dob','height','weight','target','activity','integrations','notifications','summary'];
-  const ALL_STEPS  = _isNativeLocal
+  $: ALL_STEPS = _isNativeLocal
     ? ['welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','summary']
-    : ['usermgmt', ...BASE_STEPS];
+    : (enableUserMgmt
+        ? ['usermgmt', ...BASE_STEPS]
+        : ['usermgmt', 'welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','summary']);
 
   let step = 0;
   let dir  = 1;
@@ -354,12 +360,16 @@
       setupComplete: true,
     };
     if (waterGoal) batch.waterGoalMl = waterGoal;
-    if (_isNativeLocal && localName.trim()) batch.localUserName = localName.trim();
+    // Save the localUserName setting whenever the 'name' step appeared in
+    // the flow — covers both native standalone and PWA single-user. Multi-
+    // user doesn't reach the 'name' step (full_name is on the user row).
+    const _useLocalProfile = _isNativeLocal || (_isPwa && !enableUserMgmt);
+    if (_useLocalProfile && localName.trim()) batch.localUserName = localName.trim();
     await bulkSet(batch);
 
     // Refresh the synthetic LOCAL_USER so Sidebar / Trace / etc. pick up the
     // new name without a page reload.
-    if (_isNativeLocal && localName.trim()) {
+    if (_useLocalProfile && localName.trim()) {
       try { await loadAuthState(); } catch {}
     }
 
