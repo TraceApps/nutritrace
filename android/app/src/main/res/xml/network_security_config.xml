@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  RELEASE config (used by assembleRelease — Play Store + signed APK).
+  - HTTPS only: protects auth tokens on open WiFi.
+  - System + user CAs trusted: self-hosters can install their own CA
+    for self-signed certs via Settings → Security → Install certificate,
+    no APK rebuild needed.
+  Debug builds get a permissive override at android/app/src/debug/res/xml/
+  so `http://192.168.x.x` dev workflows keep working.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

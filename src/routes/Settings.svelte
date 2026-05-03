@@ -1329,7 +1329,7 @@
           <div class="setting-row">
             <div>
               <span class="setting-label">Goal pulse animation</span>
-              <div class="setting-desc">Pulse effect on the diary nutrition bar when you hit a goal. (For "celebration" notifications, see Notifications.)</div>
+              <div class="setting-desc">Pulse the diary's nutrition bar when you hit a daily goal. For push notifications on goal hits, see Notifications.</div>
             </div>
             <Toggle checked={$goalCelebrations} on:change={e => goalCelebrations.set(e.detail)} />
           </div>
@@ -1337,7 +1337,7 @@
           <div class="setting-row">
             <div>
               <span class="setting-label">Page banners</span>
-              <div class="setting-desc">Animated page header illustrations</div>
+              <div class="setting-desc">Decorative animated illustrations at the top of every page</div>
             </div>
             <Toggle checked={$pageBanners} on:change={e => pageBanners.set(e.detail)} />
           </div>
@@ -1689,7 +1689,7 @@
           </div>
           <div class="setting-divider"></div>
           <div class="setting-row">
-            <div><span class="setting-label">Show yesterday's meals</span><div class="setting-desc">In the Meals tab, surface yesterday's meals as quick-add cards (with item-list info button)</div></div>
+            <div><span class="setting-label">Show yesterday's meals</span><div class="setting-desc">Pin yesterday's meals as quick-add cards in the Meals tab. Tap the info icon to see what's in each one.</div></div>
             <Toggle checked={$foodsShowYesterdayMeals} on:change={e => foodsShowYesterdayMeals.set(e.detail)} />
           </div>
           <div class="setting-divider"></div>
@@ -1717,107 +1717,6 @@
     {/if}
 
     <p class="settings-group-label">Data &amp; Tracking</p>
-    <!-- ── Categories ─────────────────────────────────────────────────────── -->
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'categories')} on:click={() => toggleSection('categories')}>
-      <span class="material-symbols-rounded si">tag</span>
-      <span>{$_('settings.categories.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.categories}>expand_more</span>
-    </button>
-    {#if sectionOpen(openSections, settingsQuery, 'categories') && sectionVisible(settingsQuery, 'categories')}
-      <div class="section-body" transition:slide={{ duration: 180 }}>
-        <div class="card settings-card">
-          <div class="cat-chips-wrap">
-            {#each ($foodCategories || []) as cat}
-              <div class="chip">
-                {_catDisplay(cat)}
-                <button class="chip-x" on:click={() => removeCategory(cat)} aria-label="Remove">
-                  <span class="material-symbols-rounded" style="font-size:14px">close</span>
-                </button>
-              </div>
-            {/each}
-            {#if ($foodCategories || []).length === 0}
-              <span class="text-3 text-sm">No categories yet</span>
-            {/if}
-          </div>
-          <div class="setting-divider"></div>
-          <div class="cat-add-row">
-            <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;position:relative">
-              <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);text-align:center">Label</span>
-              <button class="input emoji-btn" title="Pick an emoji label"
-                on:click={openEmojiPicker}>
-                {newCategoryLabel || '🏷️'}
-              </button>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:3px;flex:1">
-              <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">Category name *</span>
-              <input class="input" style="height:40px" placeholder="e.g. Dairy, Proteins…"
-                bind:value={newCategoryName} on:keydown={e => e.key==='Enter' && addCategory()} />
-            </div>
-            <button class="btn btn-secondary" style="height:40px;padding:0 16px;align-self:flex-end" on:click={addCategory}>Add</button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- ── Nutrients ───────────────────────────────────────────────────────── -->
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'nutrients')} on:click={() => toggleSection('nutrients')}>
-      <span class="material-symbols-rounded si">science</span>
-      <span>{$_('settings.nutrients.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.nutrients}>expand_more</span>
-    </button>
-    {#if sectionOpen(openSections, settingsQuery, 'nutrients') && sectionVisible(settingsQuery, 'nutrients')}
-      <div class="section-body" transition:slide={{ duration: 180 }}>
-        <p class="sub-label">Visible nutrients (shown in diary & food editor)</p>
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="card settings-card drag-list"
-          on:pointermove={onNutDragMove}
-          on:pointerup={onNutDragUp}
-          on:pointercancel={onNutDragUp}>
-          {#each orderedNutriments as n, i}
-            {#if i > 0}<div class="setting-divider"></div>{/if}
-            <div class="setting-row drag-row"
-              class:dragging={nutDragFrom === i}
-              class:drag-target={nutDragFrom !== null && nutDragFrom !== i && nutDragOver === i}
-              style={nutDragFrom !== null
-                ? nutDragFrom === i
-                  ? `transform:scale(1.04) translateY(${nutDragDelta}px);transition:box-shadow 200ms ease,opacity 200ms ease`
-                  : `transform:translateY(${dragShift(i,nutDragFrom,nutDragOver,nutRowHeights)}px)`
-                : ''}>
-              <!-- svelte-ignore a11y-no-static-element-interactions -->
-              <span class="drag-handle material-symbols-rounded" on:pointerdown={e => onNutDragDown(e, i)}>drag_indicator</span>
-              <span class="setting-label">{n.label} <span class="text-3 text-sm">({n.unit})</span></span>
-              <Toggle checked={isNutrientVisible(n.id)} on:change={() => toggleNutrientVisible(n.id)} />
-            </div>
-          {/each}
-        </div>
-
-        <p class="sub-label">Custom nutrients</p>
-        <div class="card settings-card">
-          {#each ($customNutriments || []) as cn, i}
-            {#if i > 0}<div class="setting-divider"></div>{/if}
-            <div class="setting-row">
-              <span class="setting-label">{cn.label} ({cn.unit})</span>
-              <button class="btn-icon" style="width:32px;height:32px;color:var(--danger)"
-                on:click={() => removeCustomNutrient(cn.id)} title="Remove nutrient">
-                <span class="material-symbols-rounded" style="font-size:18px">delete</span>
-              </button>
-            </div>
-          {/each}
-          {#if ($customNutriments || []).length === 0}
-            <div class="setting-row"><span class="text-3 text-sm">No custom nutrients</span></div>
-            <div class="setting-divider"></div>
-          {/if}
-          <div style="padding:8px 16px 14px">
-            <button class="btn btn-secondary" style="height:36px;font-size:13px"
-              on:click={() => showNutrientSheet = true}>
-              <span class="material-symbols-rounded" style="font-size:18px">add</span>
-              Add custom nutrient
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
     <!-- ── Goals ───────────────────────────────────────────────────────────── -->
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'goals')} on:click={() => toggleSection('goals')}>
       <span class="material-symbols-rounded si">flag</span>
@@ -1930,6 +1829,107 @@
               <div class="setting-desc">For cumulative metrics (calories, water, steps, etc.) today is partial until the day ends. Off by default — the chart looks cleaner. Statistics page also has an inline toggle for one-off overrides.</div>
             </div>
             <Toggle checked={statsIncludeTodayLocal} on:change={e => { statsIncludeTodayLocal = e.detail; set('statsIncludeToday', e.detail); }} />
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- ── Nutrients ───────────────────────────────────────────────────────── -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'nutrients')} on:click={() => toggleSection('nutrients')}>
+      <span class="material-symbols-rounded si">science</span>
+      <span>{$_('settings.nutrients.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.nutrients}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'nutrients') && sectionVisible(settingsQuery, 'nutrients')}
+      <div class="section-body" transition:slide={{ duration: 180 }}>
+        <p class="sub-label">Visible nutrients (shown in diary & food editor)</p>
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div class="card settings-card drag-list"
+          on:pointermove={onNutDragMove}
+          on:pointerup={onNutDragUp}
+          on:pointercancel={onNutDragUp}>
+          {#each orderedNutriments as n, i}
+            {#if i > 0}<div class="setting-divider"></div>{/if}
+            <div class="setting-row drag-row"
+              class:dragging={nutDragFrom === i}
+              class:drag-target={nutDragFrom !== null && nutDragFrom !== i && nutDragOver === i}
+              style={nutDragFrom !== null
+                ? nutDragFrom === i
+                  ? `transform:scale(1.04) translateY(${nutDragDelta}px);transition:box-shadow 200ms ease,opacity 200ms ease`
+                  : `transform:translateY(${dragShift(i,nutDragFrom,nutDragOver,nutRowHeights)}px)`
+                : ''}>
+              <!-- svelte-ignore a11y-no-static-element-interactions -->
+              <span class="drag-handle material-symbols-rounded" on:pointerdown={e => onNutDragDown(e, i)}>drag_indicator</span>
+              <span class="setting-label">{n.label} <span class="text-3 text-sm">({n.unit})</span></span>
+              <Toggle checked={isNutrientVisible(n.id)} on:change={() => toggleNutrientVisible(n.id)} />
+            </div>
+          {/each}
+        </div>
+
+        <p class="sub-label">Custom nutrients</p>
+        <div class="card settings-card">
+          {#each ($customNutriments || []) as cn, i}
+            {#if i > 0}<div class="setting-divider"></div>{/if}
+            <div class="setting-row">
+              <span class="setting-label">{cn.label} ({cn.unit})</span>
+              <button class="btn-icon" style="width:32px;height:32px;color:var(--danger)"
+                on:click={() => removeCustomNutrient(cn.id)} title="Remove nutrient">
+                <span class="material-symbols-rounded" style="font-size:18px">delete</span>
+              </button>
+            </div>
+          {/each}
+          {#if ($customNutriments || []).length === 0}
+            <div class="setting-row"><span class="text-3 text-sm">No custom nutrients</span></div>
+            <div class="setting-divider"></div>
+          {/if}
+          <div style="padding:8px 16px 14px">
+            <button class="btn btn-secondary" style="height:36px;font-size:13px"
+              on:click={() => showNutrientSheet = true}>
+              <span class="material-symbols-rounded" style="font-size:18px">add</span>
+              Add custom nutrient
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- ── Categories ─────────────────────────────────────────────────────── -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'categories')} on:click={() => toggleSection('categories')}>
+      <span class="material-symbols-rounded si">tag</span>
+      <span>{$_('settings.categories.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.categories}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'categories') && sectionVisible(settingsQuery, 'categories')}
+      <div class="section-body" transition:slide={{ duration: 180 }}>
+        <div class="card settings-card">
+          <div class="cat-chips-wrap">
+            {#each ($foodCategories || []) as cat}
+              <div class="chip">
+                {_catDisplay(cat)}
+                <button class="chip-x" on:click={() => removeCategory(cat)} aria-label="Remove">
+                  <span class="material-symbols-rounded" style="font-size:14px">close</span>
+                </button>
+              </div>
+            {/each}
+            {#if ($foodCategories || []).length === 0}
+              <span class="text-3 text-sm">No categories yet</span>
+            {/if}
+          </div>
+          <div class="setting-divider"></div>
+          <div class="cat-add-row">
+            <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;position:relative">
+              <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);text-align:center">Label</span>
+              <button class="input emoji-btn" title="Pick an emoji label"
+                on:click={openEmojiPicker}>
+                {newCategoryLabel || '🏷️'}
+              </button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+              <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">Category name *</span>
+              <input class="input" style="height:40px" placeholder="e.g. Dairy, Proteins…"
+                bind:value={newCategoryName} on:keydown={e => e.key==='Enter' && addCategory()} />
+            </div>
+            <button class="btn btn-secondary" style="height:40px;padding:0 16px;align-self:flex-end" on:click={addCategory}>Add</button>
           </div>
         </div>
       </div>
@@ -2096,16 +2096,7 @@
       <SettingsTrace envLocks={envLocks} />
     {/if}
 
-    <!-- ── Notifications ────────────────────────────────────────────────────── -->
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'notifications')} on:click={() => toggleSection('notifications')}>
-      <span class="material-symbols-rounded si">notifications</span>
-      <span>{$_('settings.notifications.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.notifications}>expand_more</span>
-    </button>
-    {#if sectionOpen(openSections, settingsQuery, 'notifications') && sectionVisible(settingsQuery, 'notifications')}
-      <SettingsNotifications />
-    {/if}
-
+    <!-- Notifications moved to App group (it's internal scheduling, not an external integration). -->
 
     <!-- ── Wellness ──────────────────────────────────────────────────────────── -->
     <button class="section-toggle wellness-toggle" class:hidden={!sectionVisible(settingsQuery, 'wellness')} on:click={() => { toggleSection('wellness'); wellnessRef?.loadWellnessConfig(); }}>
@@ -2204,6 +2195,16 @@
     {/if}
     {/if}
 
+    <!-- ── Notifications ────────────────────────────────────────────────────── -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'notifications')} on:click={() => toggleSection('notifications')}>
+      <span class="material-symbols-rounded si">notifications</span>
+      <span>{$_('settings.notifications.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.notifications}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'notifications') && sectionVisible(settingsQuery, 'notifications')}
+      <SettingsNotifications />
+    {/if}
+
     <!-- ── Backup & Restore ────────────────────────────────────────────────── -->
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'backup')} on:click={() => toggleSection('backup')}>
       <span class="material-symbols-rounded si">backup</span>
@@ -2227,34 +2228,9 @@
     {/if}
     {/if}
 
-    <!-- My Profile lives at the top of Settings as the profile-hero card;
-         User Management (admin features) follows here. -->
+    <!-- Users / Authentication / Email moved to the Admin group below Diagnostics. -->
 
-    <!-- ── User Management (hidden in native local mode — single user) ────── -->
-    {#if !isNativeLocal}
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'users')} on:click={() => toggleSection('users')}>
-      <span class="material-symbols-rounded si">group</span>
-      <span>{$_('settings.users.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.users}>expand_more</span>
-    </button>
-    {#if sectionOpen(openSections, settingsQuery, 'users') && sectionVisible(settingsQuery, 'users')}
-      <SettingsUserManagement bind:this={userMgmtRef} />
-    {/if}
-    {/if}
-
-    <!-- ── Authentication (OIDC SSO + password-login toggle) ──────────────── -->
-    {#if !isNativeLocal && $userMgmtActive && $currentUser?.role === 'admin'}
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'authentication')} on:click={() => toggleSection('authentication')}>
-      <span class="material-symbols-rounded si">vpn_key</span>
-      <span>{$_('settings.authentication.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.authentication}>expand_more</span>
-    </button>
-    {#if sectionOpen(openSections, settingsQuery, 'authentication') && sectionVisible(settingsQuery, 'authentication')}
-      <SettingsAuth bind:this={authRef} />
-    {/if}
-    {/if}
-
-    <!-- ── Food Sharing (hidden in native local mode — no one to share with) ─ -->
+    <!-- ── Food Sharing (per-user; hidden in native local mode — no one to share with) ─ -->
     {#if $userMgmtActive && !isNativeLocal}
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'sharing')} on:click={() => toggleSection('sharing')}>
         <span class="material-symbols-rounded si">group</span>
@@ -2327,8 +2303,85 @@
       {/if}
     {/if}
 
-    <!-- ── Email (hidden in native local mode — no server to send from) ───── -->
-    {#if $currentUser?.role === 'admin' && !isNativeLocal}
+    <!-- Diagnostics -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'helpImprove')} on:click={() => toggleSection('helpImprove')}>
+      <span class="material-symbols-rounded si">troubleshoot</span>
+      <span>{$_('settings.diagnostics.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.helpImprove}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'helpImprove') && sectionVisible(settingsQuery, 'helpImprove')}
+      <div class="section-body" transition:slide={{ duration: 180 }}>
+        <div class="card settings-card">
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Diagnostic mode</span>
+              <div class="setting-desc">Enables detailed app-internal logs (sync, settings, notifications, Health Connect) and{isNative ? ' writes them to a daily log file on disk so they survive crashes and reloads.' : ' enables verbose console output.'} Off by default — turn on while reproducing a bug, then export below.</div>
+            </div>
+            <Toggle checked={_verboseLogging} on:change={e => _toggleVerbose(e.detail)} />
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+            <span class="setting-label">View diagnostic logs</span>
+            <p class="setting-desc" style="line-height:1.5">
+              Recent log lines from the app's console. Useful for bug reports — copy / share into a <a href="https://github.com/traceapps/nutritrace/issues" target="_blank" rel="noopener" class="about-link">GitHub issue</a>.{isNative ? ' On Android with Diagnostic mode on, you can also share the persisted log file or any captured crash report.' : ''} Nothing is sent anywhere automatically.
+            </p>
+            <button class="btn btn-secondary" style="height:40px;font-size:13px" on:click={_openLogsSheet}>
+              <span class="material-symbols-rounded" style="font-size:16px">terminal</span>
+              View logs{hasCrashReport() ? ' · crash report available' : ''}
+            </button>
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+            <span class="setting-label">Calibration export</span>
+            <p class="setting-desc" style="line-height:1.5">
+              Anonymized 30-day JSON of your wellness data (HRV, RHR, sleep, calculated Trace scores). Useful for tracking how Trace scores compare to your device's own scores over time, or for attaching to a wellness-related bug report. Held in-memory until you copy it — nothing is sent anywhere automatically. Review the JSON before sharing.
+            </p>
+            <div class="form-group" style="width:100%;padding:0">
+              <label class="form-label" for="calib-device">Your device (optional, free text)</label>
+              <input id="calib-device" class="input" placeholder="e.g. Pixel Watch 4, Fitbit Charge 6, Sense 2"
+                bind:value={_calibDeviceLabel} />
+            </div>
+            <button class="btn btn-primary" style="height:40px;font-size:13px" on:click={() => { _generateCalibExport(); _calibExportSheet = true; }}>
+              <span class="material-symbols-rounded" style="font-size:16px">data_object</span>
+              Generate calibration export
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- ── Admin group (server-side users / auth / SMTP — only meaningful
+         when there's a real server with user management to administer).
+         Shown when: not native standalone AND (single-user → Users
+         on-ramp visible to the synthetic admin, or multi-user admin
+         viewer). Hidden entirely for non-admin members on multi-user. -->
+    {#if !isNativeLocal && (!$userMgmtActive || $currentUser?.role === 'admin')}
+    <p class="settings-group-label">Admin</p>
+
+    <!-- ── Users (was "User Management" — admin features for the user directory) -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'users')} on:click={() => toggleSection('users')}>
+      <span class="material-symbols-rounded si">group</span>
+      <span>{$_('settings.users.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.users}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'users') && sectionVisible(settingsQuery, 'users')}
+      <SettingsUserManagement bind:this={userMgmtRef} />
+    {/if}
+
+    <!-- ── Authentication (OIDC SSO + password-login toggle) ──────────────── -->
+    {#if $userMgmtActive && $currentUser?.role === 'admin'}
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'authentication')} on:click={() => toggleSection('authentication')}>
+      <span class="material-symbols-rounded si">vpn_key</span>
+      <span>{$_('settings.authentication.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.authentication}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'authentication') && sectionVisible(settingsQuery, 'authentication')}
+      <SettingsAuth bind:this={authRef} />
+    {/if}
+    {/if}
+
+    <!-- ── Email (SMTP — admin only, for password resets and invites) ────── -->
+    {#if $currentUser?.role === 'admin'}
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'email')} on:click={() => toggleSection('email')}>
       <span class="material-symbols-rounded si">mail</span>
       <span>{$_('settings.email.section')}</span>
@@ -2412,55 +2465,9 @@
       </div>
     {/if}
     {/if}
-
-    <!-- Diagnostics -->
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'helpImprove')} on:click={() => toggleSection('helpImprove')}>
-      <span class="material-symbols-rounded si">troubleshoot</span>
-      <span>{$_('settings.diagnostics.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.helpImprove}>expand_more</span>
-    </button>
-    {#if sectionOpen(openSections, settingsQuery, 'helpImprove') && sectionVisible(settingsQuery, 'helpImprove')}
-      <div class="section-body" transition:slide={{ duration: 180 }}>
-        <div class="card settings-card">
-          <div class="setting-row">
-            <div>
-              <span class="setting-label">Diagnostic mode</span>
-              <div class="setting-desc">Enables detailed app-internal logs (sync, settings, notifications, Health Connect) and{isNative ? ' writes them to a daily log file on disk so they survive crashes and reloads.' : ' enables verbose console output.'} Off by default — turn on while reproducing a bug, then export below.</div>
-            </div>
-            <Toggle checked={_verboseLogging} on:change={e => _toggleVerbose(e.detail)} />
-          </div>
-          <div class="setting-divider"></div>
-          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-            <span class="setting-label">View diagnostic logs</span>
-            <p class="setting-desc" style="line-height:1.5">
-              Recent log lines from the app's console. Useful for bug reports — copy / share into a <a href="https://github.com/traceapps/nutritrace/issues" target="_blank" rel="noopener" class="about-link">GitHub issue</a>.{isNative ? ' On Android with Diagnostic mode on, you can also share the persisted log file or any captured crash report.' : ''} Nothing is sent anywhere automatically.
-            </p>
-            <button class="btn btn-secondary" style="height:40px;font-size:13px" on:click={_openLogsSheet}>
-              <span class="material-symbols-rounded" style="font-size:16px">terminal</span>
-              View logs{hasCrashReport() ? ' · crash report available' : ''}
-            </button>
-          </div>
-          <div class="setting-divider"></div>
-          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-            <span class="setting-label">Calibration export</span>
-            <p class="setting-desc" style="line-height:1.5">
-              Anonymized 30-day JSON of your wellness data (HRV, RHR, sleep, calculated Trace scores). Useful for tracking how Trace scores compare to your device's own scores over time, or for attaching to a wellness-related bug report. Held in-memory until you copy it — nothing is sent anywhere automatically. Review the JSON before sharing.
-            </p>
-            <div class="form-group" style="width:100%;padding:0">
-              <label class="form-label" for="calib-device">Your device (optional, free text)</label>
-              <input id="calib-device" class="input" placeholder="e.g. Pixel Watch 4, Fitbit Charge 6, Sense 2"
-                bind:value={_calibDeviceLabel} />
-            </div>
-            <button class="btn btn-primary" style="height:40px;font-size:13px" on:click={() => { _generateCalibExport(); _calibExportSheet = true; }}>
-              <span class="material-symbols-rounded" style="font-size:16px">data_object</span>
-              Generate calibration export
-            </button>
-          </div>
-        </div>
-      </div>
     {/if}
 
-    <!-- About -->
+    <!-- About — standalone footer item, no group label. Always last. -->
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'about')} on:click={() => toggleSection('about')}>
       <span class="material-symbols-rounded si">info</span>
       <span>{$_('settings.about.section')}</span>

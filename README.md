@@ -2,7 +2,7 @@
 
 **Trace Every Bite** — A self-hosted personal nutrition tracker built for privacy and full data ownership.
 
-NutriTrace runs entirely in a single Docker container on your own hardware. No accounts on external services, no data leaving your network, no subscriptions.
+NutriTrace runs as a single Docker container on your own hardware, with a PWA for the browser and a native Android app for your phone. No accounts on external services, no data leaving your network, no subscriptions.
 
 ---
 
@@ -149,6 +149,23 @@ Smart Log uses a tightly-constrained prompt (~150 tokens in, ~50 out) so it's ch
 - Use the words **"meal"** and **"recipe"** explicitly when you want one of those records — otherwise the AI will look for individual foods first.
 - The first time Smart Log fires on Android, you'll see a permission prompt for the microphone. Grant it.
 - If voice recognition picks up the wrong words, just type into the text input on the modal (after the parser opens) — same matching pipeline runs.
+
+---
+
+## Apps
+
+### Web (PWA)
+NutriTrace runs as a Progressive Web App in any modern browser. Add it to your home screen for an app-like, full-screen experience. Requires your NutriTrace server to be reachable.
+
+### Android
+A native Android app built on the same Svelte codebase, wrapped in Capacitor. Use it standalone or connect it to a NutriTrace server for sync.
+
+**Install** — download the signed APK from the [Releases page](https://github.com/traceapps/nutritrace/releases/latest) and install it on your device. You may need to enable "Install from unknown sources" in Android settings.
+
+**What you get on Android** — Health Connect for steps / sleep / heart rate / weight, native barcode scanning, native notifications (water reminders, meal prompts, goal celebrations), and OIDC SSO via deep link.
+
+### iOS
+Not currently available. iOS development requires a Mac, an iPhone, and a paid Apple Developer account. If you'd like to see this happen, see [Support](#support).
 
 ---
 

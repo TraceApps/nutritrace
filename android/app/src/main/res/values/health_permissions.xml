@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <array name="health_permissions">
+        <item>android.permission.health.READ_STEPS</item>
+        <item>android.permission.health.READ_DISTANCE</item>
+        <item>android.permission.health.READ_TOTAL_CALORIES_BURNED</item>
+        <item>android.permission.health.READ_ACTIVE_CALORIES_BURNED</item>
+        <item>android.permission.health.READ_HEART_RATE</item>
+        <item>android.permission.health.READ_RESTING_HEART_RATE</item>
+        <item>android.permission.health.READ_SLEEP</item>
+        <item>android.permission.health.READ_WEIGHT</item>
+        <item>android.permission.health.READ_EXERCISE</item>
+        <item>android.permission.health.READ_BLOOD_PRESSURE</item>
+        <item>android.permission.health.READ_OXYGEN_SATURATION</item>
+        <item>android.permission.health.READ_BODY_FAT</item>
+        <item>android.permission.health.READ_RESPIRATORY_RATE</item>
+        <item>android.permission.health.READ_FLOORS_CLIMBED</item>
+        <item>android.permission.health.READ_HYDRATION</item>
+        <item>android.permission.health.READ_BONE_MASS</item>
+        <item>android.permission.health.READ_LEAN_BODY_MASS</item>
+        <item>android.permission.health.READ_BODY_TEMPERATURE</item>
+        <item>android.permission.health.READ_BASAL_METABOLIC_RATE</item>
+        <item>android.permission.health.READ_VO2_MAX</item>
+    </array>
+</resources>

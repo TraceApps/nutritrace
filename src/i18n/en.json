@@ -71,7 +71,7 @@
     },
     "authentication":     { "section": "Authentication" },
     "users":              {
-      "section":              "User Management",
+      "section":              "Users",
       "users_heading":        "Users",
       "add_user":             "+ Add User",
       "username":             "Username",

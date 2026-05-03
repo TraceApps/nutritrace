@@ -78,13 +78,13 @@
       weightUnit.set('lb');
       heightUnit.set('ft');
       energyUnit.set('kcal');
-      weight = 155; targetW = 145;
+      weight = 155; targetW = 155;
       heightFt = 5; heightIn = 9;
     } else {
       weightUnit.set('kg');
       heightUnit.set('cm');
       energyUnit.set('kcal');
-      weight = 70; targetW = 65;
+      weight = 70; targetW = 70;
       heightCm = 170;
     }
   }
@@ -96,8 +96,15 @@
   let heightFt = 5;
   let heightIn = 9;
   let weight   = 70;
-  let targetW  = 65;
+  let targetW  = 70;
   let activity = '';
+
+  // Auto-mirror weight → targetW until the user explicitly edits the target.
+  // Maintenance (target = current) is the most common case, so default to it.
+  // Once the user types in the target field, _targetTouched flips on and we
+  // stop overwriting their value.
+  let _targetTouched = false;
+  $: if (!_targetTouched) targetW = weight;
 
   // ── Integrations step ─────────────────────────────────────────────────────
   let intOFFUser     = '';
@@ -586,9 +593,10 @@
       <!-- ── Target Weight ── -->
       {:else if currentStepName === 'target'}
         <h2 class="step-title">{$_('wizard.target.title')}</h2>
-        <p class="step-desc">Your goal weight ({wUnit}). Leave same as current to maintain.</p>
+        <p class="step-desc">Your goal weight ({wUnit}). Defaults to your current weight — change it if you're trying to lose or gain.</p>
         <input class="input" type="number" min="20" max="500" step="0.1"
-          bind:value={targetW} style="margin-top:24px;font-size:16px" />
+          bind:value={targetW} on:input={() => _targetTouched = true}
+          style="margin-top:24px;font-size:16px" />
 
       <!-- ── Activity Level ── -->
       {:else if currentStepName === 'activity'}

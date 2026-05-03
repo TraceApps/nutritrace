@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG override (used by assembleDebug only). Resource overlay merging
+  swaps this in for debug-signed APKs; release builds use the strict
+  config in src/main/res/xml/.
+  - Cleartext permitted: connect to `http://192.168.x.x:3000` and
+    emulator dev servers without HTTPS setup.
+  - User CAs trusted: install your own CA for testing self-signed certs.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

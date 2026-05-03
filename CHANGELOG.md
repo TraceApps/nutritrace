@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.14] — 2026-05-03 — Android app available
+
+### Android app
+- NutriTrace is now available as a native Android app, alongside the existing PWA. Download the signed APK directly from the GitHub Releases page.
+- **Standalone or connected** — use it pure-offline with everything stored on the device, or connect it to a NutriTrace server for sync.
+- **Wellness via deep links** — Fitbit, Garmin, and Withings OAuth flows open the system browser and return to the app via `nutritrace://`.
+- **Health Connect** — read steps, sleep, heart rate, body weight, and more from any Health Connect-compatible source. No external account required.
+- **Native barcode scanning** via Google's ML Kit, with a Code Scanner fallback.
+- **Native notifications** — water reminders, meal reminders, weigh-in prompts, and goal celebrations all schedule through Android's notification system, including in deep doze.
+- **OIDC SSO on Android** — Authentik / Keycloak / Pocket ID / etc. open in Chrome Custom Tabs and return via deep link. Same SSO setup as the PWA.
+
+Issues and feedback welcome on GitHub.
+
+### Settings
+- **New layout** — Settings now groups sections by frequency-of-use rather than by accident. Goals leads Data & Tracking (was hidden behind setup-and-forget customizations). Notifications moves into the App group. Admins get a dedicated **Admin** group containing Users, Authentication, and Email (SMTP), shown only when relevant. About is the standalone footer.
+- **"User Management" → "Users"** since the section is admin-gated and the longer label was redundant.
+- **"Delete my account"** is no longer duplicated under Backup & Restore — Profile → Danger zone is the single source.
+- **Page banners**, **Show yesterday's meals**, and **Goal pulse animation** descriptions tightened for clarity.
+
+### Wizard
+- Target weight now defaults to your current weight instead of a hardcoded "lose 10" placeholder. Tap Next to maintain; nudge it up or down if you're trying to gain or lose.
+
+---
+
 ## [1.0.0-rc.13] — 2026-05-03
 
 ### Authentication (OIDC SSO)
