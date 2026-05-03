@@ -41,6 +41,13 @@ export function parseCronometer(text) {
     const calories = parseNumber(getField(row, 'energy (kcal)', 'energy'));
     if (calories == null) continue;
 
+    // Cronometer's "Amount" field is the consumed amount ("750.00 g",
+    // "1 cup"); the row's nutrition is the TOTAL for that consumption, not
+    // per-100g and not per-serving. So the diary item should be a single
+    // serving (quantity=1) with the parsed amount as a numeric `portion` +
+    // separate `unit`. Setting quantity to the gram count would let
+    // Nutrition.calculate multiply nutrition × grams (the bug behind
+    // "NaNg · 722903 kcal" reports).
     const split = splitAmount(getField(row, 'amount'));
 
     const nutrition = { calories };
@@ -83,8 +90,9 @@ export function parseCronometer(text) {
       mealLabel: getField(row, 'group') || '',
       name,
       brand: null, // Cronometer smashes brand into Food Name
-      quantity: split.quantity ?? 1,
-      portion: getField(row, 'amount') || null,
+      quantity: 1,
+      portion: split.quantity,        // numeric — diary multiplies portion × quantity for display
+      unit:    split.unit,            // unit string — "g", "cup", etc.
       nutrition,
       notes: null,
       sourceRow: row._rowNum,

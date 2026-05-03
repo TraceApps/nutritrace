@@ -233,7 +233,7 @@
           </div>
         {/if}
 
-        <div style="display:flex;gap:8px;width:100%">
+        <div style="display:flex;gap:8px;width:100%;margin-top:6px;padding-top:10px;border-top:1px solid var(--border)">
           <button class="btn btn-ghost" style="flex:1" on:click={reset} disabled={busy}>Cancel</button>
           <button class="btn btn-primary" style="flex:2" on:click={runCommit} disabled={busy}>
             {busy ? 'Importing…' : `Import ${preview.items} item${preview.items === 1 ? '' : 's'}`}

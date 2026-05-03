@@ -31,6 +31,10 @@ Issues and feedback welcome on GitHub.
 - Settings → About now shows a platform tag (Android / PWA) next to the version, useful at a glance and for bug reports.
 - README Roadmap and Experimental features list updated to reflect what's actually shipping vs still in flight.
 
+### Nutrition Import (Cronometer + Spreadsheet)
+- Fixed a bug where imported items had calories multiplied by their gram weight (a 750g entry showed `722,903 kcal` instead of `964 kcal`). Cronometer and Spreadsheet adapters were treating the parsed gram count as a serving multiplier; now each row imports as one diary item with totals already in nutrition. The "NaNg" portion display had the same root cause and is also fixed.
+- Visual separation between the duplicate-day radio options and the Cancel / Import buttons in the import preview.
+
 ---
 
 ## [1.0.0-rc.13] — 2026-05-03

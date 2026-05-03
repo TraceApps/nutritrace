@@ -54,10 +54,6 @@ export function parseSpreadsheet(text) {
     }
     if (quantity == null) quantity = 1;
 
-    const portionStr = unit
-      ? (Number.isFinite(quantity) ? `${quantity} ${unit}` : unit)
-      : null;
-
     const nutrition = { calories };
     _maybeNum(nutrition, 'fat',                  getField(row, 'fat (g)', 'fat', 'total fat (g)', 'total fat'));
     _maybeNum(nutrition, 'saturated-fat',        getField(row, 'saturated fat (g)', 'saturated fat', 'sat fat (g)', 'sat fat'));
@@ -76,14 +72,19 @@ export function parseSpreadsheet(text) {
     _maybeNum(nutrition, 'iron',                 getField(row, 'iron (mg)', 'iron'));
     _maybeNum(nutrition, 'caffeine',             getField(row, 'caffeine (mg)', 'caffeine'));
 
+    // Each spreadsheet row is one consumed item; nutrition columns are the
+    // TOTAL for that consumption. quantity stays at 1 so diary's
+    // Nutrition.calculate doesn't multiply (which would inflate calories).
+    // The parsed numeric quantity becomes `portion`, with `unit` separate.
     out.push({
       date: dateStr,
       time: _normalizeTime(getField(row, 'time')),
       mealLabel: getField(row, 'meal', 'type', 'category', 'group') || '',
       name,
       brand: getField(row, 'brand', 'manufacturer') || null,
-      quantity,
-      portion: portionStr,
+      quantity: 1,
+      portion: Number.isFinite(quantity) ? quantity : null,
+      unit,
       nutrition,
       notes: getField(row, 'notes', 'note', 'comment') || null,
       sourceRow: row._rowNum,
