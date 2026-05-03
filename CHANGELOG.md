@@ -27,6 +27,10 @@ Issues and feedback welcome on GitHub.
 ### Wizard
 - Target weight now defaults to your current weight instead of a hardcoded "lose 10" placeholder. Tap Next to maintain; nudge it up or down if you're trying to gain or lose.
 
+### About + docs
+- Settings → About now shows a platform tag (Android / PWA) next to the version, useful at a glance and for bug reports.
+- README Roadmap and Experimental features list updated to reflect what's actually shipping vs still in flight.
+
 ---
 
 ## [1.0.0-rc.13] — 2026-05-03

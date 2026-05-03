@@ -2480,7 +2480,10 @@
             <img src={resolveAssetUrl('/icons/logo.png')} alt="NutriTrace" class="about-icon" />
             <div>
               <div class="about-name">NutriTrace</div>
-              <div class="about-version text-3 text-sm">{APP_VERSION}</div>
+              <div class="about-version text-3 text-sm">
+                {APP_VERSION}
+                <span class="platform-tag">{isNative ? 'Android' : 'PWA'}</span>
+              </div>
             </div>
           </div>
           <div class="setting-divider"></div>
@@ -2498,7 +2501,7 @@
           <div class="setting-divider"></div>
           <div class="about-row">
             <span class="material-symbols-rounded about-feat-icon">phone_android</span>
-            <span>PWA + native Android app with offline support</span>
+            <span>Native Android app with offline support, plus a PWA for any browser</span>
           </div>
           <div class="setting-divider"></div>
           <div class="about-row">
@@ -3225,7 +3228,12 @@
   }
   .about-icon { width: 56px; height: 56px; border-radius: 12px; }
   .about-name { font-size: 18px; font-weight: 700; color: var(--text-1); }
-  .about-version { margin-top: 2px; }
+  .about-version { margin-top: 2px; display: flex; align-items: center; gap: 8px; }
+  .platform-tag {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--accent); background: var(--accent-dim);
+    padding: 2px 8px; border-radius: var(--radius-full, 999px);
+  }
   .about-desc {
     font-size: 13px; color: var(--text-2); line-height: 1.5;
     padding: 12px 16px;

@@ -395,11 +395,12 @@ Server-side strings (email subjects, push-notification bodies, AI system prompts
 ## Roadmap
 
 **Coming soon:**
-- **Android app** — works server-connected or fully local/offline, with Health Connect support. Currently in development and testing; public release planned during the v1.x cycle. Distribution channels will be announced before public release. *Server-mode users:* release-signed APKs require HTTPS for the connection to your NutriTrace server (auth-token protection on open WiFi). See [DEPLOY.md → Connecting from Android](DEPLOY.md#connecting-from-android) for the four supported paths (Let's Encrypt, Cloudflare/Tailscale tunnels, self-signed CA install, or building the debug APK yourself).
 - **Adaptive TDEE** — learn your true energy expenditure from intake + weight trend over time
 
 **Future:**
-- **iOS app** — pending hardware and Apple Developer account access (see Support).
+- **iOS app** — pending hardware and Apple Developer account access (see [Support](#support)).
+
+For Android install instructions, see [Apps](#apps). Recent releases live on the [Releases page](https://github.com/traceapps/nutritrace/releases).
 
 ---
 
@@ -421,7 +422,7 @@ If a wellness integration on your device behaves wrong (missing data, weird numb
 
 ## Experimental features
 
-Features marked **Experimental** in Settings (Smart Log, Goal Insights, Food Sharing, Dynamic Calorie Goal, Garmin integration) work but haven't been hammered enough to drop the label. Real-world bug reports help promote them to stable. The badge comes off when edge-case handling is solid, not on a calendar.
+Features marked **Experimental** in Settings (Smart Log, Goal Insights, Food Sharing, Dynamic Calorie Goal, Garmin integration, Nutrition Import, Health Connect on Android) work but haven't been hammered enough to drop the label. Real-world bug reports help promote them to stable. The badge comes off when edge-case handling is solid, not on a calendar.
 
 ---
 
