@@ -2,6 +2,8 @@
   import { showError, showSuccess } from '../../stores/toast.js';
   import { apiUrl, resolveAssetUrl, isNative, getServerUrl, getAuthToken } from '../../lib/platform.js';
   import { loadEntry, currentDate } from '../../stores/diary.js';
+  import { energyUnit } from '../../stores/settings.js';
+  import { Nutrition } from '../../lib/nutrition.js';
   import { get } from 'svelte/store';
 
   // Auth headers for state-changing requests. PWA uses cookie + CSRF token
@@ -203,11 +205,12 @@
           <div class="sample-list">
             <div class="text-3 text-sm" style="margin-bottom:4px">First {preview.sample.length} items:</div>
             {#each preview.sample as s}
+              {@const _e = Nutrition.displayEnergy(s.calories, $energyUnit)}
               <div class="sample-row">
                 <span class="text-3 text-sm" style="flex-shrink:0">{s.date}</span>
                 <span class="text-3 text-sm" style="flex-shrink:0;width:80px">{s.meal || '—'}</span>
                 <span style="flex:1;min-width:0;overflow-wrap:anywhere">{s.brand ? s.brand + ' · ' : ''}{s.name}</span>
-                <span class="text-3 text-sm" style="flex-shrink:0">{Math.round(s.calories)} kcal</span>
+                <span class="text-3 text-sm" style="flex-shrink:0">{_e.value.toLocaleString()} {_e.unit}</span>
               </div>
             {/each}
           </div>

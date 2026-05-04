@@ -1,12 +1,19 @@
 <script>
   import { tweened } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
+  import { energyUnit } from '../../stores/settings.js';
+  import { Nutrition } from '../../lib/nutrition.js';
 
   export let calories    = 0;
   export let caloriesGoal = 2000;
   export let fat     = 0;
   export let carbs   = 0;
   export let protein = 0;
+
+  // Display values switch to user's chosen energy unit (kcal | kJ).
+  // Internal arithmetic stays in kcal for the macro arc math.
+  $: _displayCals = Nutrition.displayEnergy($aCals, $energyUnit);
+  $: _displayGoal = Nutrition.displayEnergy(caloriesGoal, $energyUnit);
 
   const SIZE = 200;
   const STROKE = 14;
@@ -107,10 +114,10 @@
 
   <!-- Centre text -->
   <div class="ring-center">
-    <span class="ring-cals">{Math.round($aCals)}</span>
-    <span class="ring-unit">kcal</span>
+    <span class="ring-cals">{_displayCals.value.toLocaleString()}</span>
+    <span class="ring-unit">{_displayCals.unit}</span>
     {#if caloriesGoal}
-      <span class="ring-goal">of {caloriesGoal}</span>
+      <span class="ring-goal">of {_displayGoal.value.toLocaleString()}</span>
     {/if}
   </div>
 </div>

@@ -32,7 +32,9 @@
   let range = '30';   // '7','14','30','90','180','365','all','custom'
   let customStart = '';
   let customEnd   = localDateStr(); // today
-  let metric = 'calories';
+  // Default energy metric matches the user's chosen energy unit so AU/NZ
+  // users see kJ out of the box instead of having to switch every time.
+  let metric = ($energyUnit === 'kJ') ? 'kilojoules' : 'calories';
   let data   = [];    // [{ date, val }]
   let loading = false;
   let summary = null; // { avg, min, max, total, daysWithData }

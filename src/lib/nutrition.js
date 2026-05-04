@@ -154,6 +154,24 @@ const Nutrition = {
   kcalToKj(kcal) { return (parseFloat(kcal) || 0) * 4.184; },
   kjToKcal(kj)   { return (parseFloat(kj) || 0) / 4.184; },
 
+  /** Format a kcal value for display in the user's chosen energy unit.
+   *  Internal storage is always kcal; this is purely a display-layer
+   *  conversion.
+   *
+   *  Returns { value, unit } so templates can format their own numbers
+   *  (with commas, leading symbols, etc.) while still picking up the
+   *  right unit label.
+   *
+   *  Example:
+   *    const e = Nutrition.displayEnergy(2000, $energyUnit);
+   *    `${e.value.toLocaleString()} ${e.unit}`   // "2,000 kcal" or "8,368 kJ"
+   */
+  displayEnergy(kcal, unit) {
+    const n = parseFloat(kcal) || 0;
+    if (unit === 'kJ') return { value: Math.round(n * 4.184), unit: 'kJ' };
+    return { value: Math.round(n), unit: 'kcal' };
+  },
+
   calculateTDEE({ gender, age, height_cm, weight_kg, activity }) {
     const h = parseFloat(height_cm) || 170;
     const wt = parseFloat(weight_kg) || 70;

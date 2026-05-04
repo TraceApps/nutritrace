@@ -5,7 +5,7 @@
   import { cubicOut } from 'svelte/easing';
   import { DB, localDateStr } from '../lib/db.js';
   import { Nutrition } from '../lib/nutrition.js';
-  import { mealNames, energyUnit, goals, weightUnit, heightUnit, bulkSet } from '../stores/settings.js';
+  import { mealNames, energyUnit, goals, weightUnit, heightUnit, lengthUnit, distUnit, tempUnit, waterUnit, bulkSet } from '../stores/settings.js';
   import { currentUser, userMgmtActive, setupRequired, loadAuthState } from '../stores/auth.js';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { showError } from '../stores/toast.js';
@@ -72,18 +72,38 @@
   // ── Unit system ───────────────────────────────────────────────────────────
   let unitSystem = ''; // 'metric' | 'imperial'
 
+  // Australia and NZ default to kilojoules on food labels and in everyday use;
+  // every other locale (incl. UK, Canada, EU) uses kcal. Pre-select kJ for
+  // those two locales as a UX nicety; the user can still toggle it manually.
+  function _localeDefaultEnergyUnit() {
+    try {
+      const lang = (navigator.language || '').toLowerCase();
+      if (lang === 'en-au' || lang === 'en-nz' || lang.startsWith('en-au-') || lang.startsWith('en-nz-')) return 'kJ';
+    } catch {}
+    return 'kcal';
+  }
+
   function applyUnitSystem(sys) {
     unitSystem = sys;
+    const _energy = _localeDefaultEnergyUnit();
     if (sys === 'imperial') {
       weightUnit.set('lb');
       heightUnit.set('ft');
-      energyUnit.set('kcal');
+      lengthUnit.set('in');
+      distUnit.set('mi');
+      tempUnit.set('F');
+      waterUnit.set('oz');
+      energyUnit.set(_energy);
       weight = 155; targetW = 155;
       heightFt = 5; heightIn = 9;
     } else {
       weightUnit.set('kg');
       heightUnit.set('cm');
-      energyUnit.set('kcal');
+      lengthUnit.set('cm');
+      distUnit.set('km');
+      tempUnit.set('C');
+      waterUnit.set('ml');
+      energyUnit.set(_energy);
       weight = 70; targetW = 70;
       heightCm = 170;
     }
@@ -825,19 +845,21 @@
 
       <!-- ── Summary ── -->
       {:else if currentStepName === 'summary'}
+        {@const _tdeeDisp = Nutrition.displayEnergy(tdee, $energyUnit)}
+        {@const _goalDisp = Nutrition.displayEnergy(goalKcal, $energyUnit)}
         <h2 class="step-title">{$_('wizard.summary.title')}</h2>
         <p class="step-desc">{$_('wizard.summary.desc')}</p>
         <div class="summary-card">
           <div class="tdee-row">
             <div class="tdee-label">Estimated TDEE</div>
-            <div class="tdee-value">{tdee}</div>
-            <div class="tdee-unit">kcal / day</div>
+            <div class="tdee-value">{_tdeeDisp.value.toLocaleString()}</div>
+            <div class="tdee-unit">{_tdeeDisp.unit} / day</div>
           </div>
           <hr style="border:none;border-top:1px solid var(--border);margin:16px 0" />
           <div class="summary-rows">
             <div class="summary-row">
-              <span class="text-3">Calorie goal</span>
-              <strong>{goalKcal} kcal/day</strong>
+              <span class="text-3">{$energyUnit === 'kJ' ? 'Energy goal' : 'Calorie goal'}</span>
+              <strong>{_goalDisp.value.toLocaleString()} {_goalDisp.unit}/day</strong>
             </div>
             <div class="summary-row">
               <span class="text-3">Water goal</span>

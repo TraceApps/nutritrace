@@ -967,7 +967,10 @@
             const _du = DB.getSetting('distUnit', 'km');
             details.push(`${_du === 'mi' ? (w.distance_km * 0.621371).toFixed(2) + ' mi' : w.distance_km.toFixed(2) + ' km'}`);
           }
-          if (w.calories) details.push(`${w.calories} kcal`);
+          if (w.calories) {
+            const _e = Nutrition.displayEnergy(w.calories, $energyUnit);
+            details.push(`${_e.value} ${_e.unit}`);
+          }
           if (w.avg_hr) details.push(`avg HR ${w.avg_hr} bpm`);
           if (w.max_hr) details.push(`max HR ${w.max_hr} bpm`);
           if (w.steps) details.push(`${w.steps.toLocaleString()} steps`);
@@ -1025,7 +1028,10 @@
         if (wd.lean_mass_kg?.value != null)   parts.push(`Lean mass: ${_wFmt(wd.lean_mass_kg.value)}`);
         if (wd.fat_mass_kg?.value != null)    parts.push(`Fat mass: ${_wFmt(wd.fat_mass_kg.value)}`);
 
-        if (wd.basal_metabolic_rate?.value != null) parts.push(`BMR: ${Math.round(wd.basal_metabolic_rate.value)} kcal/day`);
+        if (wd.basal_metabolic_rate?.value != null) {
+          const _bmr = Nutrition.displayEnergy(wd.basal_metabolic_rate.value, $energyUnit);
+          parts.push(`BMR: ${_bmr.value} ${_bmr.unit}/day`);
+        }
         if (wd.nerve_health_score?.value != null) parts.push(`Nerve health: ${Math.round(wd.nerve_health_score.value)}`);
         if (wd.pulse_wave_velocity?.value != null) parts.push(`Pulse wave velocity: ${wd.pulse_wave_velocity.value.toFixed(1)} m/s`);
         if (wd.ecg_heart_rate?.value != null)  parts.push(`ECG HR: ${Math.round(wd.ecg_heart_rate.value)} bpm`);

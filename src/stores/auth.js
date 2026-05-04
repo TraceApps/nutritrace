@@ -20,6 +20,11 @@ export const userMgmtActive = writable(false);
 /** True when the server has no users yet — PWA must show setup screen */
 export const setupRequired = writable(false);
 
+/** Server-controlled feature flags (mirrors process.env on the server).
+ *  Off by default so dev-only / preview features stay invisible until the
+ *  operator opts in. Populated from /api/auth/me responses. */
+export const serverFeatures = writable({ apiTokens: false });
+
 // Synthetic local user for native standalone mode (no server configured).
 // full_name is overridden at load time from the localUserName setting (set
 // in the Wizard's name step) so the rest of the UI (Sidebar, Trace, etc.)
@@ -113,6 +118,7 @@ async function _fetchAuthFromServer() {
     const active     = !!statusData.active;
     userMgmtActive.set(active);
     setupRequired.set(!!statusData.setup_required);
+    if (meData.features) serverFeatures.set(meData.features);
 
     // PWA single-user mode (server reachable, user mgmt off): hydrate the
     // synthetic LOCAL_USER from local settings so $currentUser is never
@@ -190,6 +196,7 @@ async function _refreshAuthFromServer() {
       if (!meRes.ok) return; // actual server error — keep cached auth
       const meData     = await meRes.json();
       const user       = meData.user || null;
+      if (meData.features) serverFeatures.set(meData.features);
       if (!user) return; // don't clear auth on native — keep cached user
       currentUser.set(user);
       localStorage.setItem('wl:userId', String(user.id));

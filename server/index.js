@@ -24,6 +24,8 @@ import garminRoutes     from './routes/garmin.js';
 import syncRoutes       from './routes/sync.js';
 import oidcRoutes       from './routes/oidc.js';
 import oidcAdminRoutes  from './routes/oidc-admin.js';
+import apiTokensRoutes  from './routes/api-tokens.js';
+import apiV1Routes      from './routes/api/v1/index.js';
 import nutritionImportRoutes from './routes/nutrition-import.js';
 import { logger }   from './logger.js';
 import { authenticate, userMgmtActive } from './middleware/auth.js';
@@ -137,6 +139,13 @@ router.use('/api/auth',   authRoutes);
 // the router; setup-required gate blocks it until a user exists, which is
 // the right ordering (no admin UI before the first user).
 router.use('/api/admin/oidc', oidcAdminRoutes);
+// Federation API token management (the Settings UI, not the federation
+// clients themselves). Admin-only.
+router.use('/api/admin/api-tokens', apiTokensRoutes);
+// Federation API itself — Bearer-token auth, scope-gated. Mounted at
+// /api/v1 so the version is part of the contract URL. See
+// docs/federation.md for the wire format.
+router.use('/api/v1', apiV1Routes);
 // proxy already registered before auth (line 64)
 router.use('/api/data',   dataRoutes);
 router.use('/api/foods',  foodsRoutes);

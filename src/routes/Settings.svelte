@@ -12,6 +12,7 @@
   import SettingsNotifications from '../components/settings/SettingsNotifications.svelte';
   import SettingsUserManagement from '../components/settings/SettingsUserManagement.svelte';
   import SettingsAuth from '../components/settings/SettingsAuth.svelte';
+  import SettingsApiTokens from '../components/settings/SettingsApiTokens.svelte';
   import SettingsBackup from '../components/settings/SettingsBackup.svelte';
   import SettingsNutritionImport from '../components/settings/SettingsNutritionImport.svelte';
   import { APP_VERSION } from '../lib/version.js';
@@ -43,7 +44,7 @@
   import { DB } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { NUTRIMENTS } from '../lib/nutrition.js';
-  import { currentUser, userMgmtActive } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, serverFeatures } from '../stores/auth.js';
   import { isNative, getServerUrl, setServerUrl, setNativeMode, getNativeMode, setAuthToken, apiUrl, getAuthToken, resolveAssetUrl, explainConnectError } from '../lib/platform.js';
   import { _ } from 'svelte-i18n';
   import { AVAILABLE_LOCALES } from '../i18n/index.js';
@@ -65,7 +66,7 @@
   let openSections = { serverConnection: false, appearance: false, regional: false, diary: false, foods: false, water: false,
                        categories: false, nutrients: false, goals: false, bodyStats: false, statistics: false,
                        connectedServices: false, ai: false, notifications: false, wellness: false, sharing: false,
-                       authentication: false, backup: false, nutritionImport: false, email: false, users: false, helpImprove: false, about: false };
+                       authentication: false, apiTokens: false, backup: false, nutritionImport: false, email: false, users: false, helpImprove: false, about: false };
 
   // ── Sync state + manual trigger ────────────────────────────────────────
   // Native server mode only. lastSyncAt comes from sync_meta on mount and is
@@ -300,17 +301,17 @@
     authentication:    ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group'],
     appearance:        ['appearance','theme','dark','light','accent','color','navigation','sidebar','persistent','start page','animations','celebrations','reduce motion','banner','page banner'],
     regional:          ['regional','language','translation','date format','time format','locale','date','time','12h','24h','units','energy unit','weight unit','height','circumference','distance','temperature','imperial','metric'],
-    diary:             ['diary','brands','timestamps','thumbnails','nutrients','nutrition units','macros','macro summary','prompt quantity','portion size','nutrition bar','goals progress','meal names','meals'],
+    diary:             ['diary','brands','timestamps','thumbnails','nutrients','nutrition units','macros','macro summary','prompt quantity','portion size','nutrition bar','goals progress','meal names','meals','activity','activity section','exercise'],
     foods:             ['foods','thumbnails','category','notes','yesterday meals','sort order','sort','barcode','scan','beep','flashlight','crop photos'],
     water:             ['water','display unit','daily goal','containers','bottle','cup','glass'],
     categories:        ['categories','food categories','tags','labels'],
     nutrients:         ['nutrients','nutriments','custom nutrients','vitamins','minerals'],
-    goals:             ['goals','calorie goal','dynamic calorie','tdee','burn','calories out','factor','lose','gain','maintain'],
+    goals:             ['goals','calorie goal','dynamic calorie','tdee','burn','calories out','factor','lose','gain','maintain','activity','exercise'],
     bodyStats:         ['body stats','body','weight','measurements','stats'],
     statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
     connectedServices: ['food sources','connected services','usda','open food facts','mealie','recipe','search language','country','api key','credentials','username','password'],
-    ai:                ['ai','trace','assistant','provider','model','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights'],
-    notifications:     ['notifications','reminders','water reminder','meal reminder','gotify','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
+    ai:                ['ai','trace','assistant','provider','model','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights','claude','openai','gemini','ollama','lm studio','deepseek','groq','openai compatible','oai-compat','base url'],
+    notifications:     ['notifications','reminders','water reminder','meal reminder','weigh-in','weigh in','gotify','apprise','ntfy','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
     wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress'],
     sharing:           ['sharing','share','group','catalogue','catalog','visibility','private','members','food sharing'],
     backup:            ['backup','export','import','restore','csv','clear data','json','full backup','images','zip','reset','defaults','clear settings','danger zone'],
@@ -318,6 +319,7 @@
     email:             ['email','smtp','mail','password reset','invites','notifications'],
     profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','avatar','log out','logout','sign out','password','change password'],
     users:             ['users','user management','accounts','login','admin','register','invite'],
+    apiTokens:         ['api','api tokens','token','federation','cooktrace','lifttrace','bearer','integration','integrations','external','third-party','third party'],
     helpImprove:       ['diagnostics','logs','verbose','calibration','export','bug','report','troubleshoot'],
     about:             ['about','version','nutritrace'],
   };
@@ -2220,7 +2222,7 @@
     {#if !isNativeLocal}
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'nutritionImport')} on:click={() => toggleSection('nutritionImport')}>
       <span class="material-symbols-rounded si">file_upload</span>
-      <span>{$_('settings.nutritionImport.section')} <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">{$_('common.experimental')}</span></span>
+      <span>{$_('settings.nutritionImport.section')}</span>
       <span class="material-symbols-rounded chevron" class:rotated={openSections.nutritionImport}>expand_more</span>
     </button>
     {#if sectionOpen(openSections, settingsQuery, 'nutritionImport') && sectionVisible(settingsQuery, 'nutritionImport')}
@@ -2463,6 +2465,18 @@
           </div>
         </div>
       </div>
+    {/if}
+    {/if}
+
+    <!-- ── API Tokens (federation API access — admin only on multi-user, gated by NT_FEATURES_API=1) ── -->
+    {#if $serverFeatures.apiTokens && $userMgmtActive && $currentUser?.role === 'admin'}
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} on:click={() => toggleSection('apiTokens')}>
+      <span class="material-symbols-rounded si">key</span>
+      <span>API Tokens</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.apiTokens}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'apiTokens') && sectionVisible(settingsQuery, 'apiTokens')}
+      <SettingsApiTokens expanded={openSections.apiTokens} />
     {/if}
     {/if}
     {/if}

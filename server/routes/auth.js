@@ -90,11 +90,21 @@ router.get('/status', wrap((req, res) => {
   });
 }));
 
+// ── Server-controlled feature flags surfaced to the client UI ────────────
+// Off-by-default so the public build doesn't expose half-baked features;
+// operators flip these on per-deployment via env vars.
+function _serverFeatures() {
+  return {
+    apiTokens: process.env.NT_FEATURES_API === '1',
+  };
+}
+
 // ── Who am I? ─────────────────────────────────────────────────────────────
 router.get('/me', wrap((req, res) => {
-  if (!req.user) return res.json({ user: null, csrf: null });
+  const features = _serverFeatures();
+  if (!req.user) return res.json({ user: null, csrf: null, features });
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  res.json({ user: user ? safeUser(user) : null, csrf: req.user.csrf || null });
+  res.json({ user: user ? safeUser(user) : null, csrf: req.user.csrf || null, features });
 }));
 
 // ── Login ──────────────────────────────────────────────────────────────────

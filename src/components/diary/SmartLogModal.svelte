@@ -12,7 +12,8 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
-  import { mealNames } from '../../stores/settings.js';
+  import { mealNames, energyUnit } from '../../stores/settings.js';
+  import { Nutrition } from '../../lib/nutrition.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { parseInput, matchItems, saveItems, resolveMealSlot } from '../../lib/quick-log.js';
   import { isNative } from '../../lib/platform.js';
@@ -268,7 +269,6 @@
   <div class="ql-header">
     <span class="material-symbols-rounded" style="color:var(--accent)">auto_awesome</span>
     <span class="ql-title">Smart Log</span>
-    <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">Experimental</span>
     <button class="btn-icon" on:click={close} aria-label={$_('common.close')} style="margin-left:auto">
       <span class="material-symbols-rounded">close</span>
     </button>
@@ -353,7 +353,8 @@
                 <div class="ql-row-meta">
                   Expands to {m.food.items.length} item{m.food.items.length === 1 ? '' : 's'}
                   {#if m.food.nutrition?.calories}
-                    · ~{Math.round(m.food.nutrition.calories)} kcal total
+                    {@const _e = Nutrition.displayEnergy(m.food.nutrition.calories, $energyUnit)}
+                    · ~{_e.value.toLocaleString()} {_e.unit} total
                   {/if}
                 </div>
                 <details class="ql-swap">
@@ -365,8 +366,10 @@
                   </div>
                 </details>
               {:else if m.food}
+                {@const _kcal = (m.food.nutrition?.calories || 0) * (m.quantity / (m.food.portion || 100))}
+                {@const _e2 = Nutrition.displayEnergy(_kcal, $energyUnit)}
                 <div class="ql-row-meta">
-                  {Math.round((m.food.nutrition?.calories || 0) * (m.quantity / (m.food.portion || 100)))} kcal · {m.quantity}{m.food.unit || 'g'}
+                  {_e2.value.toLocaleString()} {_e2.unit} · {m.quantity}{m.food.unit || 'g'}
                 </div>
               {:else}
                 <div class="ql-row-meta">No nutrition data — remove or add manually</div>

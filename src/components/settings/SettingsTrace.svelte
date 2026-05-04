@@ -136,10 +136,7 @@
       <div class="setting-divider"></div>
       <div class="setting-row">
         <div>
-          <span class="setting-label">
-            Smart Log
-            <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);vertical-align:middle">Experimental</span>
-          </span>
+          <span class="setting-label">Smart Log</span>
           <div class="setting-desc">Hold the assistant button, speak what you ate — AI parses the items and meal slot, matches your food database, then confirms before saving</div>
         </div>
         <Toggle checked={quickLogEnabledVal} on:change={e => quickLogEnabledVal = e.detail} />
@@ -175,9 +172,7 @@
       <div class="setting-divider"></div>
       <div class="setting-row">
         <div>
-          <span class="setting-label">Goal Insights
-            <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);vertical-align:middle">Experimental</span>
-          </span>
+          <span class="setting-label">Goal Insights</span>
           <div class="setting-desc">The assistant analyzes your intake trends and proactively suggests goal adjustments when patterns are consistent</div>
         </div>
         <Toggle checked={$aiGoalInsights} on:change={e => aiGoalInsights.set(e.detail)} />

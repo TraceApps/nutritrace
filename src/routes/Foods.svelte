@@ -18,7 +18,7 @@
   import { Nutrition } from '../lib/nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
   import { resolveAssetUrl } from '../lib/platform.js';
-  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, catName as _catName, catDisplay as _catDisplay, pageBanners } from '../stores/settings.js';
+  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, catName as _catName, catDisplay as _catDisplay, pageBanners, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
   import FoodsBanner from '../components/banners/FoodsBanner.svelte';
 
@@ -674,6 +674,7 @@
     {#if !$foodsYesterdayCollapsed}
     <div class="card" style="margin-bottom:12px">
       {#each yesterdayMeals as group, gi}
+        {@const _grpEnergy = Nutrition.displayEnergy(group.totalKcal, $energyUnit)}
         {#if gi > 0}<div style="height:1px;background:var(--border);margin:0 16px"></div>{/if}
         <div style="display:flex;align-items:center;padding-right:8px">
           <button class="food-item-btn" style="padding:12px 14px;flex:1" on:click={() => addYesterdayMeal(group)}>
@@ -682,7 +683,7 @@
             </div>
             <div class="food-info">
               <span class="food-name">{group.mealName}</span>
-              <span class="food-kcal text-sm">{group.items.length} items · {group.totalKcal} kcal</span>
+              <span class="food-kcal text-sm">{group.items.length} items · {_grpEnergy.value.toLocaleString()} {_grpEnergy.unit}</span>
             </div>
           </button>
           <button class="btn-icon" on:click|stopPropagation={() => yesterdayInfoGroup = group}
@@ -770,8 +771,9 @@
                     <span class="food-kcal text-sm">{food.portion || 100}{food.unit || 'g'}{#if food._shared_by} · <span style="color:var(--accent)">by {food._shared_by}</span>{/if}</span>
                   {:else}
                     {@const _kcal = Math.round(Nutrition.sum((food.items||[]).map(i => Nutrition.calculate(i))).calories || food.nutrition?.calories || 0)}
+                    {@const _mealEnergy = Nutrition.displayEnergy(_kcal, $energyUnit)}
                     <span class="food-brand text-3 text-sm">{mealServing(food.items)}{#if food._shared_by} · <span style="color:var(--accent)">by {food._shared_by}</span>{/if}</span>
-                    <span class="food-kcal text-sm">{_kcal.toLocaleString()} kcal</span>
+                    <span class="food-kcal text-sm">{_mealEnergy.value.toLocaleString()} {_mealEnergy.unit}</span>
                   {/if}
                 </div>
                 <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
@@ -807,6 +809,7 @@
           <ul class="food-list">
             {#each apiResults as food (food.id || food.barcode)}
               {@const _sel = selectedFoods.has(food)}
+              {@const _foodEnergy = Nutrition.displayEnergy(food.nutrition?.calories || food.calories || 0, $energyUnit)}
               <li class="food-item card" class:food-selected={_sel}>
                 {#if pickMode}
                   <button class="food-select-btn" on:click={() => toggleSelect(food)} aria-label="Select">
@@ -828,7 +831,7 @@
                   <div class="food-info">
                     <span class="food-name">{food.name}</span>
                     {#if food.brand}<span class="food-brand text-3 text-sm">{food.brand}</span>{/if}
-                    <span class="food-kcal text-sm">{Math.round(food.nutrition?.calories || food.calories || 0).toLocaleString()} kcal</span>
+                    <span class="food-kcal text-sm">{_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}</span>
                   </div>
                 </button>
               </li>
@@ -952,8 +955,10 @@
   title={yesterdayInfoGroup ? `${yesterdayInfoGroup.mealName} — yesterday` : ''}
   on:close={() => yesterdayInfoGroup = null}>
   {#if yesterdayInfoGroup}
+    {@const _yTotEnergy = Nutrition.displayEnergy(yesterdayInfoGroup.totalKcal, $energyUnit)}
     <div style="padding:0 4px 8px">
       {#each yesterdayInfoGroup.items as it}
+        {@const _itEnergy = Nutrition.displayEnergy((it.nutrition?.calories || it.calories || 0) * (it.quantity || 1), $energyUnit)}
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)">
           {#if it.imgUrl && !_yesterdayImgFailed.has(it)}
             <img src={resolveAssetUrl(it.imgUrl)} alt="" loading="lazy" referrerpolicy="no-referrer"
@@ -972,13 +977,13 @@
             </span>
           </div>
           <span class="text-2 text-sm" style="font-variant-numeric:tabular-nums;margin-left:8px;flex-shrink:0">
-            {Math.round((it.nutrition?.calories || it.calories || 0) * (it.quantity || 1))} kcal
+            {_itEnergy.value.toLocaleString()} {_itEnergy.unit}
           </span>
         </div>
       {/each}
       <div style="display:flex;justify-content:space-between;padding:12px;font-weight:600">
         <span>Total</span>
-        <span>{yesterdayInfoGroup.totalKcal} kcal</span>
+        <span>{_yTotEnergy.value.toLocaleString()} {_yTotEnergy.unit}</span>
       </div>
       <button class="btn btn-primary w-full" style="margin-top:8px"
         on:click={() => { const g = yesterdayInfoGroup; yesterdayInfoGroup = null; addYesterdayMeal(g); }}>

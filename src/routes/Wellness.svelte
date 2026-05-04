@@ -160,6 +160,11 @@
       const d = fmtDistance(rawValue);
       return d ? { value: d.value, unit: d.unit } : null;
     }
+    // Energy: calories burned — wearables always report kcal; convert to user's chosen unit
+    if (m.id === 'calories_out') {
+      const e = Nutrition.displayEnergy(rawValue, $energyUnit);
+      return { value: e.value.toLocaleString(), unit: e.unit };
+    }
     if (SLEEP_TIME_IDS.has(m.id)) {
       return fmtSleep(rawValue);
     }
@@ -215,6 +220,11 @@
       return fmtWeight(raw);
     }
     if (m.id === 'body_water_pct') return { value: raw.toFixed(1), unit: '%' };
+    // BMR is stored in kcal/day; convert to user's chosen energy unit
+    if (m.id === 'basal_metabolic_rate') {
+      const e = Nutrition.displayEnergy(raw, $energyUnit);
+      return { value: e.value.toLocaleString(), unit: `${e.unit}/day` };
+    }
     if (m.fmt) return { value: m.fmt(raw), unit: m.unit };
     return { value: String(raw), unit: m.unit };
   }
@@ -1037,7 +1047,8 @@
   $: if (activeTab === 'sleep' && !_insightsLoaded) loadSleepInsights();
 
   // ── Integration availability ───────────────────────────────────────────────
-  import { healthConnectEnabled, workoutsEnabled } from '../stores/settings.js';
+  import { healthConnectEnabled, workoutsEnabled, energyUnit } from '../stores/settings.js';
+  import { Nutrition } from '../lib/nutrition.js';
   $: fitbitAvailable   = $fitbitEnabled;
   $: withingsAvailable = $withingsEnabled;
   $: garminAvailable   = $garminEnabled;
@@ -1674,7 +1685,10 @@
                       <span class="workout-meta">
                         {_fmtDuration(w.duration_ms)}
                         {#if w.distance_km != null} · {_fmtWorkoutDist(w.distance_km)}{/if}
-                        {#if w.calories} · {w.calories.toLocaleString()} kcal{/if}
+                        {#if w.calories}
+                          {@const _wkE = Nutrition.displayEnergy(w.calories, $energyUnit)}
+                          · {_wkE.value.toLocaleString()} {_wkE.unit}
+                        {/if}
                       </span>
                       {#if w.avg_hr}
                         <span class="workout-hr">
@@ -2236,9 +2250,10 @@
           </div>
         {/if}
         {#if w.calories}
+          {@const _wkdE = Nutrition.displayEnergy(w.calories, $energyUnit)}
           <div class="workout-stat">
-            <span class="workout-stat-val">{w.calories.toLocaleString()}</span>
-            <span class="workout-stat-lbl">kcal</span>
+            <span class="workout-stat-val">{_wkdE.value.toLocaleString()}</span>
+            <span class="workout-stat-lbl">{_wkdE.unit}</span>
           </div>
         {/if}
         {#if w.steps}

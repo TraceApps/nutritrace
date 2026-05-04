@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.15] — 2026-05-04
+
+### Energy units (kJ vs kcal)
+- The energy-unit setting is now respected throughout the UI. Previously it was honored for goals and storage, but Diary food rows, the daily summary, the macro ring, the Foods picker, Meal editor, Smart Log, Wizard summary, the Wellness "Calories Burned" tile, the Withings BMR tile, and the Nutrition Import preview all rendered "kcal" regardless of the setting. Reported by an Australian user on Lemmy. Internal storage stays in kcal, only the display layer flips.
+- The AI assistant (Trace) now speaks in your chosen energy unit when summarizing workouts and basal metabolic rate, instead of always saying "kcal".
+- Statistics now defaults its energy metric to **Kilojoules** when your energy unit is kJ, instead of always defaulting to Calories.
+
+### Wizard
+- Now auto-detects your device locale on first run. If your locale is `en-AU` or `en-NZ`, kilojoules are pre-selected; everywhere else still defaults to kcal. You can still toggle either way manually.
+
+---
+
 ## [1.0.0-rc.14] — 2026-05-03 — Android app available
 
 ### Android app

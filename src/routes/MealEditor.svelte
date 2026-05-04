@@ -10,7 +10,7 @@
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearMealEditorState } from '../stores/editorState.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
-  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, catName as _catName, catDisplay as _catDisplay } from '../stores/settings.js';
+  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, catName as _catName, catDisplay as _catDisplay, energyUnit } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
 
   export let params = {};
@@ -522,8 +522,9 @@
         <div class="editor-card-title">
           {isRecipe ? 'Foods' : 'Foods & Recipes'}
           {#if meal.items.length > 0}
+            {@const _hdrEnergy = Nutrition.displayEnergy(totals.calories || 0, $energyUnit)}
             <span style="font-weight:400;color:var(--accent)">
-              — {Math.round(totals.calories||0).toLocaleString()} kcal total
+              — {_hdrEnergy.value.toLocaleString()} {_hdrEnergy.unit} total
             </span>
           {/if}
         </div>
@@ -544,6 +545,7 @@
           on:pointerup={onDragPointerUp}
           on:pointercancel={onDragPointerUp}>
           {#each meal.items as item, i}
+            {@const _ingEnergy = Nutrition.displayEnergy(Nutrition.calculate(item).calories || 0, $energyUnit)}
             <div class="ingredient-row"
               class:drag-over={dragOver === i && dragFrom !== null && dragFrom !== i}
               class:dragging={dragFrom === i}>
@@ -564,7 +566,7 @@
                 <span class="ingredient-name">{item.name}</span>
                 <span class="text-3" style="font-size:12px">{item.portion} {item.unit}</span>
               </div>
-              <span class="text-3 text-sm">{Math.round((Nutrition.calculate(item).calories)||0).toLocaleString()} kcal</span>
+              <span class="text-3 text-sm">{_ingEnergy.value.toLocaleString()} {_ingEnergy.unit}</span>
               <button class="btn-icon btn-sm" on:click={() => openEditIngredient(i)}
                 style="color:var(--text-3)" title="Edit ingredient">
                 <span class="material-symbols-rounded" style="font-size:18px">edit</span>
@@ -577,8 +579,9 @@
           {/each}
         </div>
         <!-- Running total + inline "add another" so users don't scroll back up -->
+        {@const _ftrEnergy = Nutrition.displayEnergy(totals.calories || 0, $energyUnit)}
         <div class="ingredient-list-footer">
-          <span class="ingredient-list-total">{Math.round(totals.calories||0).toLocaleString()} kcal · {meal.items.length} {meal.items.length === 1 ? 'item' : 'items'}</span>
+          <span class="ingredient-list-total">{_ftrEnergy.value.toLocaleString()} {_ftrEnergy.unit} · {meal.items.length} {meal.items.length === 1 ? 'item' : 'items'}</span>
           <button class="ingredient-add-row" on:click={openPicker}>
             <span class="material-symbols-rounded">add</span>
             <span>Add ingredient</span>
@@ -640,6 +643,7 @@
       {:else}
         {#each pickerFiltered as food (food.id)}
           {@const _sel = selectedIngredients.has(food)}
+          {@const _pickEnergy = Nutrition.displayEnergy(food.nutrition?.calories || 0, $energyUnit)}
           <div class="picker-item-row" class:picker-item-selected={_sel}>
             <button class="picker-select-btn" on:click={() => toggleIngredient(food)} aria-label="Select">
               <span class="material-symbols-rounded picker-check" class:picker-check-on={_sel}>
@@ -661,9 +665,9 @@
                 <span class="picker-name">{food.name}</span>
                 {#if food.brand}<span class="text-3" style="font-size:12px">{food.brand}</span>{/if}
                 {#if pickerTab === 0}
-                  <span class="text-3" style="font-size:12px">{food.portion||100}{food.unit||'g'} · {Math.round(food.nutrition?.calories||0).toLocaleString()} kcal</span>
+                  <span class="text-3" style="font-size:12px">{food.portion||100}{food.unit||'g'} · {_pickEnergy.value.toLocaleString()} {_pickEnergy.unit}</span>
                 {:else}
-                  <span class="text-3" style="font-size:12px">{Math.round(food.nutrition?.calories||0).toLocaleString()} kcal</span>
+                  <span class="text-3" style="font-size:12px">{_pickEnergy.value.toLocaleString()} {_pickEnergy.unit}</span>
                 {/if}
               </div>
               <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent);flex-shrink:0">add_circle</span>

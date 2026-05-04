@@ -142,6 +142,7 @@
       : editItem.nutrition;
     return Nutrition.calculate({ ...editItem, nutrition: scaledNutrition, quantity: parseFloat(editQuantity) || 1 });
   })();
+  $: _editEnergy = Nutrition.displayEnergy(editCalc.calories || 0, $energyUnit);
   // Only use currentEntry if it belongs to the currently-displayed date;
   // this prevents stale data from a previous date from showing when navigating
   $: entry = ($currentEntry && $currentEntry.date === $currentDate)
@@ -199,6 +200,8 @@
   const _carbTween = tweened(0, { duration: 400, easing: cubicOut });
   const _fatTween  = tweened(0, { duration: 400, easing: cubicOut });
   $: _calTween.set(Math.round(totals.calories || 0),       { duration: $disableAnimations ? 0 : 500 });
+  // Animated calorie total formatted for the user's chosen energy unit (kcal/kJ)
+  $: _sumEnergy = Nutrition.displayEnergy($_calTween, $energyUnit);
 
   // Restore scroll position after food added from Foods page
   $: if (editorState.lastMealAdded != null) {
@@ -901,8 +904,10 @@
           <span class="meal-type-icon material-symbols-rounded">{mealIcon(meal)}</span>
           <span class="meal-name">{meal}</span>
           {#if items.length > 0 && !$diaryShowMacroSummary}
+            {@const _mealKcal = items.reduce((s,it) => s + formatKcal(it), 0)}
+            {@const _mealEnergy = Nutrition.displayEnergy(_mealKcal, $energyUnit)}
             <span class="meal-kcal text-3 text-sm">
-              {items.reduce((s,it) => s + formatKcal(it), 0)} kcal
+              {_mealEnergy.value.toLocaleString()} {_mealEnergy.unit}
             </span>
           {/if}
           <button class="btn-icon ml-auto meal-menu-btn" on:click={() => openMealActionSheet(mealIdx)} aria-label="Meal actions for {meal}" title="Meal actions">
@@ -921,6 +926,7 @@
         {:else}
           <div class="meal-items">
             {#each items as item (item._i)}
+              {@const _itemEnergy = Nutrition.displayEnergy(formatKcal(item), $energyUnit)}
               <div class="diary-item" in:fly={{ y: 6, duration: 180 }}
                 class:item-selected={selectMode && selectedItems.has(item._i)}
                 on:touchstart|passive={e => onItemTouchStart(e, item)}
@@ -947,7 +953,7 @@
                     <span class="item-meta text-3 text-sm">
                       {Math.round((item.portion || item.amount || 100) * (item.quantity || 1) * 10) / 10}{item.unit || 'g'}{#if $diaryShowPortionSize && Math.abs((item.quantity || 1) - 1) > 0.001} ({item.quantity || 1} × {item.portion || item.amount || 100}{item.unit || 'g'}){/if}
                       {#if $diaryShowBrands && item.brand} · {item.brand}{/if}
-                      · {formatKcal(item)} kcal
+                      · {_itemEnergy.value.toLocaleString()} {_itemEnergy.unit}
                       {#if $diaryShowTimestamps && item.addedAt}
                         · {formatTime(item.addedAt)}
                       {/if}
@@ -968,6 +974,7 @@
         {#if $diaryShowMacroSummary && items.length > 0}
           {@const mt = getMealTotals(items)}
           {#if mt}
+            {@const _mtEnergy = Nutrition.displayEnergy(mt.cal, $energyUnit)}
             <button type="button" class="meal-macro-footer" on:click={() => mealTotalsIdx = mealIdx}
               aria-label="Show {meal} nutrition totals" title="Show nutrition totals">
               <div class="meal-macro-bar">
@@ -975,7 +982,7 @@
                 <div class="mmb-c" style="width:{mt.c}%" title="Carbs {mt.c}%"></div>
                 <div class="mmb-f" style="width:{mt.f}%" title="Fat {mt.f}%"></div>
               </div>
-              <span class="meal-macro-text text-3 text-sm"><span style="color:var(--macro-protein)">{mt.p}% P</span> · <span style="color:var(--macro-carbs)">{mt.c}% C</span> · <span style="color:var(--macro-fat)">{mt.f}% F</span> · <span style="color:var(--macro-calories)">{mt.cal} kcal</span></span>
+              <span class="meal-macro-text text-3 text-sm"><span style="color:var(--macro-protein)">{mt.p}% P</span> · <span style="color:var(--macro-carbs)">{mt.c}% C</span> · <span style="color:var(--macro-fat)">{mt.f}% F</span> · <span style="color:var(--macro-calories)">{_mtEnergy.value.toLocaleString()} {_mtEnergy.unit}</span></span>
             </button>
           {/if}
         {/if}
@@ -1011,13 +1018,14 @@
         {:else}
           <div class="meal-items">
             {#each acts as a (a.id)}
+              {@const _aEnergy = Nutrition.displayEnergy(a.kcal || 0, $energyUnit)}
               <div class="diary-item" in:fly={{ y: 6, duration: 180 }}
                 on:contextmenu|preventDefault={() => openActivityActionSheet(a)}>
                 <button class="diary-item-btn" on:click={() => { editingActivity = a; showActivitySheet = true; }}>
                   <div class="item-info">
                     <span class="item-name truncate">{a.name}</span>
                     <span class="item-meta text-3 text-sm">
-                      {#if a.duration_min}{a.duration_min} min{/if}{#if a.duration_min && a.distance} · {/if}{#if a.distance}{a.distance}{/if}{#if (a.duration_min || a.distance)} · {/if}<span style="color:#4FFFB0">−{a.kcal} kcal</span>{#if a.source === 'ai_estimated'} · <span class="text-3" title="Estimated by Trace">{$_('diary.activity.estimated_short')}</span>{/if}
+                      {#if a.duration_min}{a.duration_min} min{/if}{#if a.duration_min && a.distance} · {/if}{#if a.distance}{a.distance}{/if}{#if (a.duration_min || a.distance)} · {/if}<span style="color:#4FFFB0">−{_aEnergy.value.toLocaleString()} {_aEnergy.unit}</span>{#if a.source === 'ai_estimated'} · <span class="text-3" title="Estimated by Trace">{$_('diary.activity.estimated_short')}</span>{/if}
                     </span>
                   </div>
                 </button>
@@ -1028,6 +1036,7 @@
             <span class="material-symbols-rounded">add</span>
             <span>{$_('diary.activity.add')}</span>
           </button>
+          {@const _totActEnergy = Nutrition.displayEnergy(totalActKcal, $energyUnit)}
           <div class="meal-macro-footer activity-footer" aria-label={$_('diary.activity.section')}>
             <div class="meal-macro-bar">
               {#each acts as a (a.id)}
@@ -1035,7 +1044,7 @@
               {/each}
             </div>
             <span class="meal-macro-text text-3 text-sm">
-              <span style="color:#4FFFB0">−{totalActKcal} kcal</span>
+              <span style="color:#4FFFB0">−{_totActEnergy.value.toLocaleString()} {_totActEnergy.unit}</span>
               {#if wearablePresent && !manualCounted}
                 · <span title={$_('diary.activity.policy_chip')}>{$_('diary.activity.not_counted')}</span>
               {/if}
@@ -1104,7 +1113,7 @@
   <!-- Text summary row — taps to expand/collapse -->
   <button class="dbb-summary-row" on:click={() => barExpanded = !barExpanded}
     aria-label="{barExpanded ? 'Collapse' : 'Expand'} nutrition panel">
-    <span class="dbb-summary-text"><span style="color:var(--macro-protein)">{_mp.protein}% P</span> · <span style="color:var(--macro-carbs)">{_mp.carbs}% C</span> · <span style="color:var(--macro-fat)">{_mp.fat}% F</span> · <span style="color:var(--macro-calories)">{Math.round($_calTween).toLocaleString()} kcal</span>{#if _waterShowInDiary} · <span style="color:var(--water-blue)"><span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">water_drop</span> {_waterDisplay(_waterTotal)}</span>{/if}</span>
+    <span class="dbb-summary-text"><span style="color:var(--macro-protein)">{_mp.protein}% P</span> · <span style="color:var(--macro-carbs)">{_mp.carbs}% C</span> · <span style="color:var(--macro-fat)">{_mp.fat}% F</span> · <span style="color:var(--macro-calories)">{_sumEnergy.value.toLocaleString()} {_sumEnergy.unit}</span>{#if _waterShowInDiary} · <span style="color:var(--water-blue)"><span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">water_drop</span> {_waterDisplay(_waterTotal)}</span>{/if}</span>
     <span class="dbb-chevron material-symbols-rounded">{barExpanded ? 'expand_more' : 'expand_less'}</span>
   </button>
 
@@ -1123,11 +1132,13 @@
       <div class="dbb-detail-row">
         <div class="dbb-kcal">
           {#if _totalsMode === 'remaining'}
-            <span class="dbb-num">{(caloriesGoalAdjusted - Math.round($_calTween)).toLocaleString()}</span>
-            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}{#if _effectiveActive > 0}<span class="material-symbols-rounded dbb-activity-cue" title="Adjusted for activity">directions_run</span> {/if}kcal left</span>
+            {@const _remEnergy = Nutrition.displayEnergy(caloriesGoalAdjusted - Math.round($_calTween), $energyUnit)}
+            <span class="dbb-num">{_remEnergy.value.toLocaleString()}</span>
+            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}{#if _effectiveActive > 0}<span class="material-symbols-rounded dbb-activity-cue" title="Adjusted for activity">directions_run</span> {/if}{_remEnergy.unit} left</span>
           {:else}
-            <span class="dbb-num">{Math.round($_calTween).toLocaleString()}</span>
-            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}kcal eaten</span>
+            {@const _eatEnergy = Nutrition.displayEnergy($_calTween, $energyUnit)}
+            <span class="dbb-num">{_eatEnergy.value.toLocaleString()}</span>
+            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}{_eatEnergy.unit} eaten</span>
           {/if}
         </div>
         <div class="dbb-macros">
@@ -1146,8 +1157,11 @@
         </div>
       </div>
       {#if _effectiveActive > 0 && _totalsMode === 'remaining'}
+        {@const _gE = Nutrition.displayEnergy(caloriesGoal, $energyUnit)}
+        {@const _aE = Nutrition.displayEnergy(_effectiveActive, $energyUnit)}
+        {@const _adjE = Nutrition.displayEnergy(caloriesGoalAdjusted, $energyUnit)}
         <div class="dbb-activity-breakdown text-3 text-sm">
-          Goal {caloriesGoal.toLocaleString()} <span style="color:#4FFFB0">+ Activity {_effectiveActive.toLocaleString()}</span> = {caloriesGoalAdjusted.toLocaleString()} kcal
+          Goal {_gE.value.toLocaleString()} <span style="color:#4FFFB0">+ Activity {_aE.value.toLocaleString()}</span> = {_adjE.value.toLocaleString()} {_adjE.unit}
         </div>
       {/if}
       <!-- Water row -->
@@ -1375,8 +1389,8 @@
       </div>
       <div class="edit-macros">
         <div class="edit-macro-pill">
-          <span class="edit-macro-val">{Math.round(editCalc.calories || 0).toLocaleString()}</span>
-          <span class="edit-macro-label">kcal</span>
+          <span class="edit-macro-val">{_editEnergy.value.toLocaleString()}</span>
+          <span class="edit-macro-label">{_editEnergy.unit}</span>
         </div>
         <div class="edit-macro-pill">
           <span class="edit-macro-val">{Math.round((editCalc.proteins || 0) * 10)/10}g</span>
@@ -1603,6 +1617,7 @@
 
 <!-- Nutrition Summary Modal -->
 {#if $diaryShowNutritionSummary}
+  {@const _nsTotEnergy = Nutrition.displayEnergy(totals.calories || 0, $energyUnit)}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
     on:click={() => { if (!_sheetLock) diaryShowNutritionSummary.set(false); }} on:keydown={() => {}}>
     <div class="ns-sheet" on:click|stopPropagation on:keydown={() => {}}>
@@ -1637,8 +1652,8 @@
             <span class="ns-macro-lbl">Fat</span>
           </div>
           <div class="ns-macro-pill" style="background:var(--macro-calories-dim)">
-            <span class="ns-macro-val" style="color:var(--macro-calories)">{Math.round(totals.calories || 0).toLocaleString()}</span>
-            <span class="ns-macro-lbl">kcal</span>
+            <span class="ns-macro-val" style="color:var(--macro-calories)">{_nsTotEnergy.value.toLocaleString()}</span>
+            <span class="ns-macro-lbl">{_nsTotEnergy.unit}</span>
           </div>
         </div>
         <!-- All nutrients -->
@@ -1658,6 +1673,7 @@
 <!-- Per-meal nutrition totals sheet -->
 <Sheet open={mealTotalsIdx != null} title={mealTotalsIdx != null ? `${meals[mealTotalsIdx]} totals` : ''}
   on:close={() => mealTotalsIdx = null}>
+  {@const _nsMealEnergy = Nutrition.displayEnergy(_mealTotals.calories || 0, $energyUnit)}
   <div class="ns-body">
     <div class="ns-macros">
       <div class="ns-macro-pill" style="background:var(--macro-protein-dim)">
@@ -1673,8 +1689,8 @@
         <span class="ns-macro-lbl">Fat</span>
       </div>
       <div class="ns-macro-pill" style="background:var(--macro-calories-dim)">
-        <span class="ns-macro-val" style="color:var(--macro-calories)">{Math.round(_mealTotals.calories || 0).toLocaleString()}</span>
-        <span class="ns-macro-lbl">kcal</span>
+        <span class="ns-macro-val" style="color:var(--macro-calories)">{_nsMealEnergy.value.toLocaleString()}</span>
+        <span class="ns-macro-lbl">{_nsMealEnergy.unit}</span>
       </div>
     </div>
     <div class="ns-rows">
