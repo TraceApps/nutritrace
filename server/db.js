@@ -271,6 +271,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_user_oidc_links_user ON user_oidc_links(user_id);
 `);
 
+// The rebuild below SELECTs `email` from the old users table. Fresh installs
+// create users without an email column (see CREATE TABLE IF NOT EXISTS above),
+// so we must add it BEFORE the rebuild runs or the INSERT SELECT crashes with
+// "no such column: email". The redundant ALTER further down is a no-op once
+// this has fired.
+if (!db.prepare(`PRAGMA table_info(users)`).all().some(r => r.name === 'email')) {
+  db.exec(`ALTER TABLE users ADD COLUMN email TEXT`);
+}
+
 // Allow password_hash to be NULL for OIDC-only users (legacy schemas had NOT NULL).
 // SQLite doesn't support ALTER COLUMN; we rebuild the table.
 //

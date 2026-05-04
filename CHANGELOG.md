@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.16] — 2026-05-04
+
+### Fixed
+- **Fresh Docker installs failed at startup with `SqliteError: no such column: email`** in rc.14 and rc.15. A schema-rebuild migration ran before the `email` column was added, so its `INSERT … SELECT email FROM users` couldn't find the column on a brand-new database. Existing installs were unaffected. Reported by @Skilly2, confirmed by @cearum — thanks both.
+
+---
+
 ## [1.0.0-rc.15] — 2026-05-04
 
 ### Energy units (kJ vs kcal)
