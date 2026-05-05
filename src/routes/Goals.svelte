@@ -7,6 +7,7 @@
   import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, wellnessEnabled, fitbitEnabled, garminEnabled, calorieGoalMode, calorieGoalFactor, healthConnectEnabled } from '../stores/settings.js';
   import GoalsBanner from '../components/banners/GoalsBanner.svelte';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
+  import { readBodyStat } from '../lib/body-stats-unit.js';
   import { loadEntry } from '../stores/diary.js';
   import { showSuccess } from '../stores/toast.js';
 
@@ -272,7 +273,7 @@
     const b = bodyStats ?? todayBodyStats;
     const w = wellness  ?? todayWellness;
     if (stat.isWellness) return w[stat.id] ?? null;
-    if (stat.isBody) return b[stat.id] ?? null;
+    if (stat.isBody) return readBodyStat(b, stat.id, $weightUnit, $lengthUnit);
     return t[stat.id] ?? null;
   }
 

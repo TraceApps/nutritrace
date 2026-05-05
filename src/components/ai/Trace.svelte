@@ -7,6 +7,7 @@
   import { NtApi }     from '../../lib/api.js';
   import { DB, localDateStr } from '../../lib/db.js';
   import { Nutrition } from '../../lib/nutrition.js';
+  import { readBodyStat, LENGTH_KEYS } from '../../lib/body-stats-unit.js';
   import { callAI, callAIProxy, TOOLS, setToolHandler } from '../../lib/aiChat.js';
   import { aiEnabled, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
@@ -166,9 +167,11 @@
         case 'get_diary': {
           try {
             const entry = await NtApi.getDiaryDate(args.date);
+            // Manual activity is its own table — fetch alongside the diary
+            // row so the AI sees the full picture for the day, not just food.
+            const activities = await NtApi.getActivity(args.date).catch(() => []);
             const hasItems = entry?.items?.length > 0;
             const notes = (entry?.notes || '').trim();
-            if (!hasItems && !notes) return { date: args.date, items: [], totals: null };
             const totals = hasItems ? Nutrition.sum(entry.items.map(i => Nutrition.calculate(i))) : {};
             const names = mealNames.get();
             const meals = {};
@@ -185,13 +188,38 @@
                 (meals[mName] = meals[mName] || []).push(row);
               }
             }
+            // Body-stats values are stored tagged with the unit at write
+            // time. Convert into the user's current display unit + add the
+            // unit hint so the AI doesn't misread "180" as kg/cm.
+            const wu = DB.getSetting('weightUnit', 'lb');
+            const lu = DB.getSetting('lengthUnit', 'in');
+            const rawBs = entry?.body_stats || entry?.bodyStats || {};
+            const bodyStats = {};
+            if (rawBs.weight != null && rawBs.weight !== '') {
+              bodyStats.weight = readBodyStat(rawBs, 'weight', wu, lu);
+              bodyStats.weight_unit = wu;
+            }
+            if (rawBs.body_fat != null && rawBs.body_fat !== '') bodyStats.body_fat_pct = Number(rawBs.body_fat);
+            for (const k of LENGTH_KEYS) {
+              if (rawBs[k] != null && rawBs[k] !== '') bodyStats[k] = readBodyStat(rawBs, k, wu, lu);
+            }
+            if (LENGTH_KEYS.some(k => k in bodyStats)) bodyStats.length_unit = lu;
             const result = {
               date: args.date, meals,
               totals: hasItems ? { calories: Math.round(totals.calories || 0), protein: Math.round(totals.proteins || 0), carbs: Math.round(totals.carbohydrates || 0), fat: Math.round(totals.fat || 0) } : null,
-              body_stats: entry?.body_stats || entry?.bodyStats || {},
+              body_stats: bodyStats,
               water_ml: (entry?.water || []).reduce((s, l) => s + (l.amount || 0), 0),
             };
             if (notes) result.day_notes = notes;
+            if (Array.isArray(activities) && activities.length) {
+              result.activities = activities.map(a => ({
+                name: a.name,
+                kcal: a.kcal,
+                duration_min: a.duration_min,
+                distance: a.distance,
+                source: a.source,
+              }));
+            }
             return result;
           } catch { return { date: args.date, error: 'Could not load diary' }; }
         }
@@ -282,7 +310,9 @@
                   sums.fat            += tot.fat            || 0;
                   sums.water_ml       += (entry.water || []).reduce((s, l) => s + (l.amount || 0), 0);
                   const bs = entry.body_stats || entry.bodyStats || {};
-                  const w  = bs.weight ?? null;
+                  // Force conversion to kg so diff arithmetic is unit-stable
+                  // even when the user toggled their display unit mid-period.
+                  const w  = readBodyStat(bs, 'weight', 'kg', 'in');
                   if (w != null) { if (firstWeight == null) firstWeight = { date, value: w }; lastWeight = { date, value: w }; }
                 }
               } catch {}
@@ -908,8 +938,11 @@
 
     let statsText = '';
     const bs = entry?.bodyStats || entry?.body_stats || {};
+    const _wuStat = DB.getSetting('weightUnit', 'lb');
+    const _luStat = DB.getSetting('lengthUnit', 'in');
     const bsParts = [];
-    if (bs.weight)   bsParts.push(`Weight: ${bs.weight}`);
+    const _w = readBodyStat(bs, 'weight', _wuStat, _luStat);
+    if (_w != null) bsParts.push(`Weight: ${_w} ${_wuStat}`);
     if (bs.body_fat) bsParts.push(`Body fat: ${bs.body_fat}%`);
     if (bsParts.length) statsText = bsParts.join(', ');
 

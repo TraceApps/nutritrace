@@ -553,12 +553,37 @@
       }, 0)).toLocaleString()
     }));
   }
+  // Resolve the live imgUrl for a diary item — same source the food picker
+  // uses (the user's foods catalog), looked up at render time. Returns
+  // food.imgUrl if a match is found, else the item's own (possibly stale)
+  // imgUrl as a fallback. No async, no preprocessing — the foods list is
+  // already loaded by the time yesterday-meal cards are visible.
+  function liveImgFor(item) {
+    const foods = localFoods || [];
+    if (item.id) {
+      const f = foods.find(f => f.id === item.id);
+      if (f?.imgUrl) return f.imgUrl;
+    }
+    if (item.name) {
+      const brand = (item.brand || '').toLowerCase().trim();
+      const f = foods.find(f =>
+        f.name === item.name && (f.brand || '').toLowerCase().trim() === brand);
+      if (f?.imgUrl) return f.imgUrl;
+    }
+    return item.imgUrl;
+  }
 
   async function addYesterdayMeal(group) {
     const targetMeal = Number(pickMeal) || 0;
     const { addDiaryItem } = await import('../stores/diary.js');
+    // Same lookup as the popup rendering — pull each item's live imgUrl
+    // from the user's foods catalog before writing to today's diary, so
+    // the new diary row uses the food's current image (just like the
+    // food picker does) instead of whatever stale value yesterday's
+    // diary item is carrying.
     for (const item of group.items) {
-      await addDiaryItem({ ...item }, targetMeal, pickDate);
+      const imgUrl = liveImgFor(item);
+      await addDiaryItem({ ...item, imgUrl }, targetMeal, pickDate);
     }
     import('../stores/toast.js').then(m => m.showSuccess('Added ' + group.mealName));
     editorState.lastMealAdded = targetMeal;
@@ -959,9 +984,10 @@
     <div style="padding:0 4px 8px">
       {#each yesterdayInfoGroup.items as it}
         {@const _itEnergy = Nutrition.displayEnergy((it.nutrition?.calories || it.calories || 0) * (it.quantity || 1), $energyUnit)}
+        {@const _img = liveImgFor(it)}
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)">
-          {#if it.imgUrl && !_yesterdayImgFailed.has(it)}
-            <img src={resolveAssetUrl(it.imgUrl)} alt="" loading="lazy" referrerpolicy="no-referrer"
+          {#if _img && !_yesterdayImgFailed.has(it)}
+            <img src={resolveAssetUrl(_img)} alt="" loading="lazy" referrerpolicy="no-referrer"
               style="width:40px;height:40px;border-radius:var(--radius-sm,6px);object-fit:cover;flex-shrink:0"
               on:error={() => { _yesterdayImgFailed.add(it); _yesterdayImgFailed = _yesterdayImgFailed; }} />
           {:else}

@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.18] — 2026-05-05
+
+### Statistics
+
+- **(#10) Mouse users can now scroll the metric and range chip rows** by click-drag or vertical mouse wheel. The hidden scrollbars on those rows previously left desktop-mouse users unable to see the trailing chips. Reported by @cearum.
+
+### Unit system
+
+- **(#11) Water "Add Custom" entry** now respects your water-unit setting. Imperial users typing "8" get 8 fl oz, not 8 ml. Previously the input was always treated as ml regardless of the unit shown.
+- **Activity entry** kcal/kJ input on the Diary Activity sheet honors your energy unit. The distance placeholder now uses your distance unit (mi vs km).
+- **Diary "Calves" body-stat field** is properly labeled with your length unit (was a hardcoded "cm / in" placeholder with no label).
+- **Body stats** (Weight + neck/waist/hips/chest/thighs/biceps/calves) are tagged with the unit at write time. Toggling kg↔lb or cm↔in no longer reinterprets historical entries in the new unit.
+
+### Foods, Meals, Recipes
+
+- **Auto-scale toggle in the food editor now defaults to OFF.** Editing one nutrition value no longer silently rescales every other field. Click the link icon to opt in when you want proportional scaling.
+- **"Edit Food" / "Edit Meal" / "Edit Recipe"** correctly shows when editing an existing item — was always saying "Add" because the route doesn't carry an /:id segment.
+- **Food editor nutrition section**: sub-nutrients (saturated fat, sugars, salt, etc.) are now indented under their parent for easier scanning.
+
+### Diary — yesterday's meals
+
+- Thumbnails now refresh when you change a food's image. The day-card preview, info popup, and "yesterday's meals" pull all read the live image URL from the foods table at render time, instead of caching the URL from when the item was originally logged. Affected both PWA and Android.
+
+### AI Assistant (Trace)
+
+- The `get_diary` tool now also returns same-day manually-logged activities, so the assistant can answer "what did I do yesterday" accurately.
+- Body-stats payload to the AI now carries explicit `weight_unit` / `length_unit` hints so the model doesn't have to guess whether "180" means lb or kg.
+
+### Settings
+
+- **Title Case sweep** across section headers, ~50 individual setting labels, and 9 i18n keys. Examples: "Show thumbnails" → "Show Thumbnails", "Import from another app" → "Import From Another App", "Reset password" → "Reset Password". Descriptions and toast messages stay sentence case.
+- **Diary action sheets** ("⋮" on item or meal headers) follow the same rule: "Move to Meal", "Copy Items to…", "Save as Meal…", "Add Food", etc.
+
+---
+
 ## [1.0.0-rc.17] — 2026-05-04
 
 ### Food Sources

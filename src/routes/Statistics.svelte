@@ -3,10 +3,12 @@
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { portal } from '../lib/portal.js';
+  import { dragScroll } from '../lib/drag-scroll.js';
   import Chart from 'chart.js/auto';
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
+  import { readBodyStat } from '../lib/body-stats-unit.js';
   import { goals, energyUnit, weightUnit, lengthUnit, statsChartType, statsYZero,
            statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday,
            hiddenBodyStats, dateFormat, pageBanners,
@@ -209,7 +211,7 @@
           } else {
             const entry = entryMap[date];
             const bs = entry?.body_stats || entry?.bodyStats || {};
-            val = bs[metric] ? Number(bs[metric]) : null;
+            val = readBodyStat(bs, metric, $weightUnit, $lengthUnit);
           }
         } else {
           const entry = entryMap[date];
@@ -219,7 +221,7 @@
               val = total > 0 ? total : null;
             } else if (isBodyStat) {
               const bs = entry.body_stats || entry.bodyStats || {};
-              val = bs[metric] ? Number(bs[metric]) : null;
+              val = readBodyStat(bs, metric, $weightUnit, $lengthUnit);
             } else {
               const totals = Nutrition.sum((entry.items || []).map(i => Nutrition.calculate(i)));
               val = totals[metric] ? Math.round(totals[metric] * 10) / 10 : null;
@@ -486,7 +488,7 @@
 
   <div class="stats-content">
     <!-- Metric selector (scrollable) -->
-    <div class="metric-scroll">
+    <div class="metric-scroll" use:dragScroll>
       {#each METRICS as m}
         <button class="pill-btn" class:active={metric === (m.id || m.value)}
           on:click={() => metric = m.id || m.value}>
@@ -497,7 +499,7 @@
 
     <!-- Range + chart-type row -->
     <div class="ctrl-row">
-      <div class="range-pills">
+      <div class="range-pills" use:dragScroll>
         {#each RANGES as r}
           <button class="range-btn" class:active={range === r.value} on:click={() => range = r.value}>
             {r.label}

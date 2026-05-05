@@ -71,7 +71,7 @@
     {#if aiEnabledVal}
       <div class="setting-divider"></div>
       <div class="setting-row">
-        <span class="setting-label">Assistant name</span>
+        <span class="setting-label">Assistant Name</span>
         <input class="input" style="width:130px;text-align:right"
           placeholder="Trace"
           bind:value={aiAssistantNameVal} />
@@ -162,7 +162,7 @@
         <div class="setting-divider"></div>
         <div class="setting-row">
           <div>
-            <span class="setting-label">Estimate activity calories</span>
+            <span class="setting-label">Estimate Activity Calories</span>
             <div class="setting-desc">When you log a workout via Trace without a calorie number ("I hiked 10 miles"), let Trace estimate the burn from your body profile. Estimations need your <strong>weight, height, age, and sex</strong> on file — missing any pauses the estimator and Trace will ask for a number instead.</div>
           </div>
           <Toggle checked={$activityAutoEstimate} on:change={e => activityAutoEstimate.set(e.detail)} />

@@ -6,21 +6,24 @@ const NUTRIMENTS = [
   // Energy
   { id: 'calories',      label: 'Calories',      unit: 'kcal', category: 'energy',  default: true },
   { id: 'kilojoules',    label: 'Kilojoules',    unit: 'kJ',   category: 'energy',  default: false },
-  // Total Fat
+  // Total Fat + sub-rows. `subOf` indicates the indented sub-row position
+  // on the FDA Nutrition Facts label (Saturated Fat / Trans Fat / etc. are
+  // indented under Total Fat). The FoodEditor renders these with extra
+  // padding-left so the parent-child relationship is visible at a glance.
   { id: 'fat',                 label: 'Fat',                 unit: 'g',    category: 'macro',   default: true },
-  { id: 'saturated-fat',       label: 'Saturated Fat',       unit: 'g',    category: 'macro',   default: true },
-  { id: 'trans-fat',           label: 'Trans Fat',           unit: 'g',    category: 'macro',   default: false },
-  { id: 'polyunsaturated-fat', label: 'Polyunsaturated Fat', unit: 'g',    category: 'macro',   default: false },
-  { id: 'monounsaturated-fat', label: 'Monounsaturated Fat', unit: 'g',    category: 'macro',   default: false },
+  { id: 'saturated-fat',       label: 'Saturated Fat',       unit: 'g',    category: 'macro',   default: true,  subOf: 'fat' },
+  { id: 'trans-fat',           label: 'Trans Fat',           unit: 'g',    category: 'macro',   default: false, subOf: 'fat' },
+  { id: 'polyunsaturated-fat', label: 'Polyunsaturated Fat', unit: 'g',    category: 'macro',   default: false, subOf: 'fat' },
+  { id: 'monounsaturated-fat', label: 'Monounsaturated Fat', unit: 'g',    category: 'macro',   default: false, subOf: 'fat' },
   // Cholesterol & Sodium
   { id: 'cholesterol',   label: 'Cholesterol',   unit: 'mg',   category: 'other',   default: false },
   { id: 'sodium',        label: 'Sodium',        unit: 'mg',   category: 'mineral', default: true },
   { id: 'salt',          label: 'Salt',          unit: 'g',    category: 'macro',   default: false },
-  // Total Carbohydrate
+  // Total Carbohydrate + sub-rows
   { id: 'carbohydrates', label: 'Carbs',         unit: 'g',    category: 'macro',   default: true },
-  { id: 'fiber',         label: 'Fiber',         unit: 'g',    category: 'macro',   default: true },
-  { id: 'sugars',        label: 'Sugars',        unit: 'g',    category: 'macro',   default: true },
-  { id: 'added-sugars',   label: 'Added Sugars',  unit: 'g',    category: 'macro',   default: true },
+  { id: 'fiber',         label: 'Fiber',         unit: 'g',    category: 'macro',   default: true,  subOf: 'carbohydrates' },
+  { id: 'sugars',        label: 'Sugars',        unit: 'g',    category: 'macro',   default: true,  subOf: 'carbohydrates' },
+  { id: 'added-sugars',  label: 'Added Sugars',  unit: 'g',    category: 'macro',   default: true,  subOf: 'carbohydrates' },
   // Protein
   { id: 'proteins',      label: 'Protein',       unit: 'g',    category: 'macro',   default: true },
   // Vitamins & Minerals (Nutrition Facts order)

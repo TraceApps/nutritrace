@@ -3,6 +3,8 @@
   import { _ } from 'svelte-i18n';
   import Sheet from '../ui/Sheet.svelte';
   import { addActivity, updateActivity } from '../../stores/activity.js';
+  import { energyUnit, distUnit } from '../../stores/settings.js';
+  import { Nutrition } from '../../lib/nutrition.js';
 
   export let open = false;
   export let date = '';        // YYYY-MM-DD
@@ -22,7 +24,10 @@
   $: {
     if (open && !_wasOpen) {
       name        = entry?.name        ?? '';
-      kcal        = entry?.kcal        != null ? String(entry.kcal) : '';
+      // entry.kcal is stored in kcal; if user prefers kJ, show in kJ.
+      kcal = entry?.kcal != null
+        ? String($energyUnit === 'kJ' ? Math.round(entry.kcal * 4.184) : entry.kcal)
+        : '';
       durationMin = entry?.duration_min != null ? String(entry.duration_min) : '';
       distance    = entry?.distance    ?? '';
       error       = '';
@@ -36,7 +41,10 @@
     error = '';
     const trimmed = name.trim();
     if (!trimmed) { error = $_('diary.activity.errors.name_required'); return; }
-    const kcalNum = Math.max(0, Math.round(Number(kcal) || 0));
+    // Input is in the user's chosen energyUnit (kcal or kJ); storage is
+    // always kcal, so convert kJ → kcal here.
+    const rawNum = Math.max(0, Number(kcal) || 0);
+    const kcalNum = Math.round($energyUnit === 'kJ' ? rawNum / 4.184 : rawNum);
     if (!kcalNum) { error = $_('diary.activity.errors.kcal_required'); return; }
     const dur = durationMin === '' ? null : Math.max(0, Math.round(Number(durationMin) || 0));
     const dist = distance.trim() || null;
@@ -69,8 +77,8 @@
     </label>
 
     <label class="field">
-      <span class="field-label">{$_('diary.activity.field_kcal')}</span>
-      <input class="input" type="number" bind:value={kcal} inputmode="numeric" min="0" placeholder={$_('diary.activity.field_kcal_placeholder')} />
+      <span class="field-label">{$_('diary.activity.field_kcal')} ({$energyUnit || 'kcal'})</span>
+      <input class="input" type="number" bind:value={kcal} inputmode="numeric" min="0" placeholder={$energyUnit === 'kJ' ? '500' : '120'} />
     </label>
 
     <div class="row-2">
@@ -80,7 +88,7 @@
       </label>
       <label class="field">
         <span class="field-label">{$_('diary.activity.field_distance')} <span class="hint">{$_('diary.activity.field_optional')}</span></span>
-        <input class="input" type="text" bind:value={distance} placeholder={$_('diary.activity.field_distance_placeholder')} maxlength="40" />
+        <input class="input" type="text" bind:value={distance} placeholder={`e.g. 10 ${$distUnit || 'mi'}`} maxlength="40" />
       </label>
     </div>
 

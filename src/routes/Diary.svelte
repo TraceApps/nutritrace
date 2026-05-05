@@ -38,6 +38,7 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { portal } from '../lib/portal.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
+  import { readBodyStat, tagBodyStats, LENGTH_KEYS } from '../lib/body-stats-unit.js';
 
   let addMealIdx = 0;
   let showAddAction = false;
@@ -89,14 +90,28 @@
     _sheetLockTimer = setTimeout(() => _sheetLock = false, 400);
   }
 
-  // Body stats
+  // Body stats — values are stored in whatever unit the user was in when
+  // they last saved (tagged via weight_unit / lengths_unit). On open, we
+  // convert into the user's CURRENT unit so the inputs read sensibly even
+  // after a unit toggle; on save, we re-tag with the current unit.
   let bodyStatsData = {};
   function openBodyStats() {
-    bodyStatsData = { ...(entry.bodyStats || {}) };
+    const raw = entry.bodyStats || {};
+    const wu = $weightUnit || 'kg';
+    const lu = $lengthUnit || 'in';
+    const out = { ...raw };
+    if (raw.weight != null && raw.weight !== '') out.weight = readBodyStat(raw, 'weight', wu, lu);
+    for (const k of LENGTH_KEYS) {
+      if (raw[k] != null && raw[k] !== '') out[k] = readBodyStat(raw, k, wu, lu);
+    }
+    delete out.weight_unit;
+    delete out.lengths_unit;
+    bodyStatsData = out;
     _lockAndOpen(() => diaryShowBodyStats.set(true));
   }
   async function saveBodyStatsLocal() {
-    await saveBodyStats(bodyStatsData);
+    const payload = tagBodyStats(bodyStatsData, $weightUnit || 'kg', $lengthUnit || 'in');
+    await saveBodyStats(payload);
     diaryShowBodyStats.set(false);
     showSuccess($_('diary.toast.body_stats_saved'));
   }
@@ -667,6 +682,21 @@
     if (_waterUnit === 'L')  return (cont.volumeMl / 1000).toFixed(2)    + ' L';
     if (_waterUnit === 'G')  return (cont.volumeMl / 3785.41).toFixed(3) + ' G';
     return cont.volumeMl + ' ml';
+  }
+
+  // Custom water input — input value is in the user's chosen waterUnit
+  // (fl oz / L / G / ml). Convert to ml before logging since storage is
+  // always ml. Reported by cearum (#11) when in Imperial mode the input
+  // was treated as ml regardless of the unit label.
+  async function _addWaterCustom() {
+    const raw = Number(_waterCustomAmt);
+    if (!raw || raw <= 0) return;
+    let ml = raw;
+    if      (_waterUnit === 'oz') ml = raw * 29.5735;
+    else if (_waterUnit === 'L')  ml = raw * 1000;
+    else if (_waterUnit === 'G')  ml = raw * 3785.41;
+    await _addWaterFromDiary(Math.round(ml));
+    _waterCustomAmt = '';
   }
 
   async function _addWaterFromDiary(volumeMl) {
@@ -1301,10 +1331,11 @@
 
     {#if _waterShowCustom}
       <div class="wc-custom-row" transition:slide={{ duration: 160 }}>
-        <input class="input" type="number" min="1" step="1" placeholder="Amount (ml)"
+        <input class="input" type="number" min="0" step={_waterUnit === 'ml' ? '1' : '0.01'}
+          placeholder={`Amount (${_waterUnit === 'oz' ? 'fl oz' : _waterUnit})`}
           bind:value={_waterCustomAmt}
-          on:keydown={e => e.key === 'Enter' && _addWaterFromDiary(_waterCustomAmt)} />
-        <button class="btn btn-primary" on:click={() => _addWaterFromDiary(_waterCustomAmt)}>Add</button>
+          on:keydown={e => e.key === 'Enter' && _addWaterCustom()} />
+        <button class="btn btn-primary" on:click={_addWaterCustom}>Add</button>
       </div>
     {/if}
 
@@ -1440,8 +1471,8 @@
   actions={[
     { label: 'Edit',            icon: 'edit',          value: 'edit'    },
     { label: 'Replace',         icon: 'find_replace',  value: 'replace' },
-    { label: 'Move to meal',    icon: 'swap_horiz',    value: 'move'    },
-    { label: 'Select multiple', icon: 'checklist',     value: 'select'  },
+    { label: 'Move to Meal',    icon: 'swap_horiz',    value: 'move'    },
+    { label: 'Select Multiple', icon: 'checklist',     value: 'select'  },
     { label: 'Delete',          icon: 'delete',        value: 'delete', danger: true },
   ]}
   on:select={onItemAction}
@@ -1450,7 +1481,7 @@
 <!-- Move to meal action sheet -->
 <ActionSheet
   bind:open={showMoveToMeal}
-  title="Move to meal"
+  title="Move to Meal"
   actions={meals.map((m, i) => ({ label: m, icon: mealIcon(m), value: i }))}
   on:select={moveItemToMeal}
 />
@@ -1463,13 +1494,13 @@
     bind:open={showMealAction}
     title={meals[actionMealIdx] + (_hasItems ? ` · ${_mealItems.length} item${_mealItems.length === 1 ? '' : 's'}` : ' · empty')}
     actions={_hasItems ? [
-      { label: 'Copy items to…',          icon: 'content_copy', value: 'copy'      },
-      { label: 'Move items to…',          icon: 'swap_horiz',   value: 'move'      },
-      { label: 'Copy meal to another date…', icon: 'event_repeat', value: 'copy_date' },
-      { label: 'Save as meal…',           icon: 'bookmark_add', value: 'save_meal' },
-      { label: 'Clear all items',         icon: 'delete_sweep', value: 'clear', danger: true },
+      { label: 'Copy Items to…',          icon: 'content_copy', value: 'copy'      },
+      { label: 'Move Items to…',          icon: 'swap_horiz',   value: 'move'      },
+      { label: 'Copy Meal to Another Date…', icon: 'event_repeat', value: 'copy_date' },
+      { label: 'Save as Meal…',           icon: 'bookmark_add', value: 'save_meal' },
+      { label: 'Clear All Items',         icon: 'delete_sweep', value: 'clear', danger: true },
     ] : [
-      { label: 'Add food', icon: 'add', value: 'add' },
+      { label: 'Add Food', icon: 'add', value: 'add' },
     ]}
     on:select={(e) => {
       if (e.detail?.value === 'add') openAddFood(actionMealIdx);
@@ -1603,8 +1634,8 @@
             <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.biceps} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('calves')}
-          <div><label class="form-label">Calves</label>
-            <input class="input" type="number" step="0.1" min="0" placeholder="cm / in" bind:value={bodyStatsData.calves} /></div>
+          <div><label class="form-label">Calves ({$lengthUnit||'in'})</label>
+            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.calves} /></div>
           {/if}
         </div>
       </div>

@@ -37,7 +37,7 @@ export const TOOLS = [
   },
   {
     name: 'get_diary',
-    description: 'Get food diary for a specific date. Returns all meals with food items (portions, quantities, brand, per-item notes like prep/serving info) and nutrition breakdown (calories, protein, carbs, fat). Also returns body stats, water intake, and any free-text "day notes" the user wrote (e.g. how they felt, sleep, cravings, context for why they ate what they ate).',
+    description: 'Get food diary for a specific date. Returns all meals with food items (portions, quantities, brand, per-item notes like prep/serving info) and nutrition breakdown (calories, protein, carbs, fat). Also returns body stats (with explicit `weight_unit` / `length_unit` so you don\'t guess), water intake (ml), any free-text "day notes" the user wrote (sleep, energy, cravings, context), and any manually-logged activities for that day (name, kcal burned, duration, distance, source).',
     parameters: {
       type: 'object',
       properties: {

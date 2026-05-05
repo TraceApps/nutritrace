@@ -700,7 +700,7 @@
     <button class="setting-row setting-action" on:click={exportCSV}>
       <span class="material-symbols-rounded si" style="color:var(--info)">table_chart</span>
       <div>
-        <span class="setting-label">Export diary as CSV</span>
+        <span class="setting-label">Export Diary As CSV</span>
         <div class="setting-desc">Downloads your full diary history as a spreadsheet. Useful for analysis in Excel or Google Sheets.</div>
       </div>
       <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>

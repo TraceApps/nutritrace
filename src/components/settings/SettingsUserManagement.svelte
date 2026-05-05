@@ -23,7 +23,7 @@
   let umError        = '';
   // showDisableUmDialog removed — use confirmDialog() store instead
 
-  // Enable user management from Settings
+  // Enable User Management from Settings
   let showEnableUm    = false;
   let enableAdminUser = '';
   let enableAdminPass = '';
@@ -33,7 +33,7 @@
   let enableUmError   = '';
   let enableUmLoading = false;
 
-  // Session duration (admin-only)
+  // Session Duration (admin-only)
   let sessionHours = '720';
   let sessionSaved = false;
 
@@ -445,7 +445,7 @@
         <div class="setting-divider"></div>
         <div class="setting-row">
           <div>
-            <span class="setting-label">Session duration</span>
+            <span class="setting-label">Session Duration</span>
             <div class="setting-desc">How long users stay signed in. Applies to new logins.</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -470,7 +470,7 @@
         <button class="setting-row setting-action danger" on:click={disableUserManagement}>
           <span class="material-symbols-rounded si" style="color:var(--danger)">no_accounts</span>
           <div>
-            <span class="setting-label" style="color:var(--danger)">Disable user management</span>
+            <span class="setting-label" style="color:var(--danger)">Disable User Management</span>
             <div class="setting-desc">Removes all user accounts and returns to single-user mode</div>
           </div>
         </button>
@@ -480,7 +480,7 @@
       <button class="setting-row setting-action" on:click={() => { showEnableUm = !showEnableUm; enableUmError = ''; }}>
         <span class="material-symbols-rounded si" style="color:var(--accent)">group_add</span>
         <div>
-          <span class="setting-label">Enable user management</span>
+          <span class="setting-label">Enable User Management</span>
           <div class="setting-desc">Add multiple user accounts with separate data &amp; settings</div>
         </div>
         <span class="material-symbols-rounded text-3" style="font-size:18px">{showEnableUm ? 'expand_less' : 'expand_more'}</span>

@@ -171,7 +171,10 @@
   let showAllNutrients = false;
   let contributing = false;
   let offSuccess = false;
-  let linked = true;          // scale all fields proportionally on change
+  // Off by default — proportional scaling can surprise users editing a single
+  // value (e.g. correcting a typo'd protein gram). User opts in via the link
+  // toggle next to the unit selector.
+  let linked = false;
   let _snapshot = null;       // snapshot of all values when editor was opened (never changes during edit)
   let downloading = false;
   let downloadSuccess = false;
@@ -475,7 +478,7 @@
     <button class="btn-icon" on:click={pop} aria-label={$_('common.back')} title={$_('common.back')}>
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
-    <h2 class="editor-title">{params && params.id ? 'Edit Food' : 'Add Food'}</h2>
+    <h2 class="editor-title">{food.id ? 'Edit Food' : 'Add Food'}</h2>
     <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
       on:click={save} disabled={saving}>
       {saving ? 'Saving…' : 'Save'}
@@ -697,7 +700,7 @@
     <div class="card editor-card">
       <div class="editor-card-title">Nutrition</div>
       {#each displayFields as n}
-        <div class="form-group">
+        <div class="form-group" class:nutrient-sub={n.subOf}>
           <label class="form-label">
             {n.label} ({n.unit})
             {#if (n.id === 'sodium' || n.id === 'salt') && food._derived && food._derived[n.id]}
@@ -732,6 +735,12 @@
 <BarcodeScanner bind:open={editorScannerOpen} on:scan={onEditorScan} on:close={() => editorScannerOpen = false} />
 
 <style>
+  /* Indented sub-nutrient rows — Saturated Fat under Total Fat, Sugars
+     under Carbs, etc. Mirrors the FDA Nutrition Facts label hierarchy
+     and matches CookTrace's PantryEditor for cross-app consistency. */
+  .nutrient-sub { padding-left: 12px; }
+  .nutrient-sub .form-label { color: var(--text-3); font-weight: 500; }
+
   /* Barcode field — scan button absolutely positioned inside the input
      wrapper, mirroring the search-bar pattern in Foods.svelte. */
   .barcode-input-wrap {

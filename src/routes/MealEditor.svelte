@@ -417,7 +417,7 @@
     <button class="btn-icon" on:click={pop} aria-label={$_('common.back')} title={$_('common.back')}>
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
-    <h2 class="editor-title">{params && params.id ? 'Edit' : 'New'} {isRecipe ? 'Recipe' : 'Meal'}</h2>
+    <h2 class="editor-title">{meal.id ? 'Edit' : 'New'} {isRecipe ? 'Recipe' : 'Meal'}</h2>
     <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
       on:click={save} disabled={saving}>
       {saving ? 'Saving…' : 'Save'}

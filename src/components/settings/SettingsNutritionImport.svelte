@@ -125,7 +125,7 @@
 
     <!-- Source picker -->
     <div class="setting-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-      <span class="setting-label">Source app</span>
+      <span class="setting-label">Source App</span>
       <div class="select-wrap" style="width:100%">
         <select class="select" bind:value={source} on:change={reset}>
           {#each SOURCE_OPTIONS as o (o.id)}

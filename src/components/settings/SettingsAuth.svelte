@@ -491,21 +491,21 @@
             </div>
             <div class="setting-row" style="padding:0">
               <div>
-                <span class="setting-label">Auto-link existing users (verified email)</span>
+                <span class="setting-label">Auto-Link Existing Users (Verified Email)</span>
                 <div class="setting-desc">When the IdP says <code>email_verified=true</code> and the email matches an existing NutriTrace user, link them silently on first SSO sign-in. Recommended ON for any IdP you trust to verify emails.</div>
               </div>
               <Toggle checked={!!oidcEditing.auto_link_verified_email} on:change={e => oidcEditing.auto_link_verified_email = e.detail ? 1 : 0} />
             </div>
             <div class="setting-row" style="padding:0">
               <div>
-                <span class="setting-label">Auto-register new users</span>
+                <span class="setting-label">Auto-Register New Users</span>
                 <div class="setting-desc">Allow anyone with an account at this IdP to create a brand-new NutriTrace account on first sign-in. OFF = admin must invite first. Leave OFF for shared IdPs (Google, work SSO) unless you actually want blanket onboarding.</div>
               </div>
               <Toggle checked={!!oidcEditing.auto_register_new_users} on:change={e => oidcEditing.auto_register_new_users = e.detail ? 1 : 0} />
             </div>
             <div class="setting-row" style="padding:0">
               <div>
-                <span class="setting-label">Provider active</span>
+                <span class="setting-label">Provider Active</span>
                 <div class="setting-desc">Inactive providers won't show on the Login page.</div>
               </div>
               <Toggle checked={!!oidcEditing.is_active} on:change={e => oidcEditing.is_active = e.detail ? 1 : 0} />
@@ -541,7 +541,7 @@
       <div class="setting-divider"></div>
       <div class="setting-row">
         <div>
-          <span class="setting-label">Allow password login</span>
+          <span class="setting-label">Allow Password Login</span>
           <div class="setting-desc">When off, users sign in only via OIDC. Recovery still works via the <code>RECOVERY_TOKEN</code> env var.</div>
         </div>
         <Toggle checked={enablePasswordLogin} on:change={togglePasswordLogin} />
