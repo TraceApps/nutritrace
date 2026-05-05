@@ -18,7 +18,7 @@
   import { Nutrition } from '../lib/nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
   import { resolveAssetUrl } from '../lib/platform.js';
-  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, catName as _catName, catDisplay as _catDisplay, pageBanners, energyUnit } from '../stores/settings.js';
+  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, catName as _catName, catDisplay as _catDisplay, pageBanners, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
   import FoodsBanner from '../components/banners/FoodsBanner.svelte';
 
@@ -80,7 +80,7 @@
   const _mealieEnabled = DB.getSetting('mealieEnabled',  false);
   $: availableSources = [
     { value: 'local',  label: $_('foods.sources.local')  },
-    { value: 'off',    label: 'OFF'                       },
+    ...($offEnabled    ? [{ value: 'off',    label: 'OFF' }] : []),
     ...($usdaEnabled   ? [{ value: 'usda',   label: 'USDA' }] : []),
     ...(_mealieEnabled ? [{ value: 'mealie', label: 'Mealie' }] : []),
     ...(_tabHasShared  ? [{ value: 'shared', label: $_('foods.sources.from_others') }] : []),
@@ -1078,17 +1078,18 @@
 
   .foods-sticky-bar {
     position: sticky;
-    /* page-top + 10 + 48 (--hamburger-row) + 40 (h1) + 12 (padding-bottom) = +110 */
-    top: calc(var(--page-top, var(--safe-top)) + 110px);
+    /* 62 + var(--hamburger-row): pins flush below header in both
+       hamburger-visible (48) and pinned-sidebar (0) modes. */
+    top: calc(var(--page-top, var(--safe-top)) + 62px + var(--hamburger-row, 0px));
     z-index: 20;
     background: var(--glass-surface);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     border-bottom: 1px solid var(--border);
   }
-  /* With banner: padding-bottom is 72, so total = 10+48+40+72 = +170 */
+  /* With banner: pad-bot is 72 → 122 + hamburger-row */
   :global(.page-header.has-banner) ~ .foods-sticky-bar {
-    top: calc(var(--page-top, var(--safe-top)) + 170px);
+    top: calc(var(--page-top, var(--safe-top)) + 122px + var(--hamburger-row, 0px));
   }
   .foods-tabs { padding: 12px var(--page-px) 12px; }
   .foods-search {

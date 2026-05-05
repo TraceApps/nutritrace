@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.17] — 2026-05-04
+
+### Food Sources
+- **Open Food Facts** now has its own enable/disable toggle in Settings → Food Sources, defaulting on. Privacy-conscious users can opt out of OFF queries; the source picker on the Foods page hides OFF when disabled.
+- OFF moved above USDA in the Food Sources section to reflect that it's the primary search source.
+- USDA description now links directly to the free API key signup at `fdc.nal.usda.gov`.
+- The OFF account section clarifies that an account is only required to upload edits — searching works without one — and links to the OFF account signup.
+
+### Wizard
+- Integrations step gets the same signup links on the OFF and USDA cards, and the OFF subtitle now describes it as a search source rather than just an upload destination.
+- Integration summary at the bottom of the step no longer mis-labels cards as "Skipped" when you simply hadn't filled in credentials yet. Only cards you explicitly clicked "Skip this" on count as skipped now.
+
+### Persistent sidebar (tablet / desktop)
+- Fixed a layout bug where pinning the sidebar caused page banners and the right edge of content to clip. Affected Diary, Foods, Wellness, Statistics, Goals, and Settings.
+- Fixed a gap between the page header and sticky sub-bars (Foods filter, Diary date picker, Settings search, Wellness date + tab bars) when the sidebar was pinned.
+- Fixed the persistent-sidebar toggle silently flipping itself off after about 30 seconds. Cause: form-factor preferences were being overwritten by stale server values on every settings sync.
+- Persistent-sidebar toggle is now correctly hidden on phones (768px viewport required) and reacts to live tablet rotation between portrait and landscape.
+
+---
+
 ## [1.0.0-rc.16] — 2026-05-04
 
 ### Fixed

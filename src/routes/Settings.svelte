@@ -456,6 +456,15 @@
   let disableAnimations        = DB.getSetting('disableAnimations', false);
   let sidebarPersistentVal     = DB.getSetting('sidebarPersistent', false);
 
+  // Track viewport width reactively so the persistent-sidebar toggle hides on
+  // phones (and reappears if the user rotates a tablet to landscape, etc.).
+  // Threshold matches App.svelte's _persistentAllowed (768px = standard tablet).
+  let _viewportW = typeof window !== 'undefined' ? window.innerWidth : 1024;
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', () => { _viewportW = window.innerWidth; });
+  }
+  $: _persistentAllowed = _viewportW >= 768;
+
   // ── Water ──────────────────────────────────────────────────────────────────
   function _mlToDisplay(ml, unit) {
     if (unit === 'oz') return +(ml / 29.5735).toFixed(1);
@@ -508,6 +517,7 @@
   let offPassword   = DB.getSetting('offPassword',   '');
   let offShowPass   = false;
   let usdaEnabled   = DB.getSetting('usdaEnabled',   false);
+  let offEnabled    = DB.getSetting('offEnabled',    true);
 
   const OFF_LANGUAGE_OPTS = [
     ['en','English'],['fr','French'],['de','German'],['es','Spanish'],['it','Italian'],
@@ -1150,6 +1160,7 @@
   $: set('distUnit',           distUnitVal);
   $: set('tempUnit',           tempUnitVal);
   $: set('usdaEnabled',        usdaEnabled);
+  $: set('offEnabled',         offEnabled);
   $: set('offSearchLanguage',  offSearchLanguage);
   $: set('offSearchCountry',   offSearchCountry);
   $: set('offUploadCountry',   offUploadCountry);
@@ -1303,7 +1314,7 @@
               </select>
             </div>
           </div>
-          {#if (navStyle === 'sidebar' || navStyle === 'both') && (typeof window === 'undefined' || window.innerWidth >= 768)}
+          {#if (navStyle === 'sidebar' || navStyle === 'both') && _persistentAllowed}
             <div class="setting-divider"></div>
             <div class="setting-row">
               <div>
@@ -1948,12 +1959,81 @@
     {#if sectionOpen(openSections, settingsQuery, 'connectedServices') && sectionVisible(settingsQuery, 'connectedServices')}
       <div class="section-body" transition:slide={{ duration: 180 }}>
 
+        <p class="sub-label">Open Food Facts</p>
+        <div class="card settings-card">
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Enable Open Food Facts</span>
+              <div class="setting-desc">
+                Search the global crowd-sourced food database when adding foods. No account needed for searches; one is only required to upload edits.
+              </div>
+            </div>
+            <Toggle checked={offEnabled} on:change={e => { offEnabled = e.detail; set('offEnabled', e.detail); }} />
+          </div>
+          {#if offEnabled}
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <span class="setting-label">Search language</span>
+              <div class="select-wrap" style="width:120px">
+                <select class="select sel-sm" bind:value={offSearchLanguage}>
+                  {#each OFF_LANGUAGE_OPTS as [v,l]}<option value={v}>{l}</option>{/each}
+                </select>
+              </div>
+            </div>
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <span class="setting-label">Search country</span>
+              <div class="select-wrap" style="width:150px">
+                <select class="select sel-sm" bind:value={offSearchCountry}>
+                  {#each OFF_COUNTRY_OPTS as c}<option value={c}>{c}</option>{/each}
+                </select>
+              </div>
+            </div>
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <span class="setting-label">Upload country</span>
+              <div class="select-wrap" style="width:150px">
+                <select class="select sel-sm" bind:value={offUploadCountry}>
+                  <option value="Auto">Auto</option>
+                  {#each OFF_COUNTRY_OPTS.filter(c => c !== 'World') as c}<option value={c}>{c}</option>{/each}
+                </select>
+              </div>
+            </div>
+            <div class="setting-divider"></div>
+            <div class="form-group" style="padding:10px 16px 14px">
+              <label class="form-label" for="off-user">Account username</label>
+              <div class="setting-desc" style="margin:0 0 8px 0;line-height:1.4">
+                Optional — only needed to upload edits.
+                <a href="https://world.openfoodfacts.org/cgi/user.pl" target="_blank" rel="noopener" class="about-link">Create an OFF account →</a>
+              </div>
+              <input id="off-user" class="input" style="margin-bottom:8px" placeholder="OFF account username" bind:value={offUsername} />
+              <label class="form-label" for="off-pass">Account password</label>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+                {#if offShowPass}
+                  <input id="off-pass" class="input" type="text" style="flex:1" placeholder="OFF account password" bind:value={offPassword} />
+                {:else}
+                  <input id="off-pass" class="input" type="password" style="flex:1" placeholder="OFF account password" bind:value={offPassword} />
+                {/if}
+                <button class="btn-icon" on:click={() => offShowPass = !offShowPass} title={offShowPass ? 'Hide' : 'Show'}>
+                  <span class="material-symbols-rounded">{offShowPass ? 'visibility_off' : 'visibility'}</span>
+                </button>
+              </div>
+              <button class="btn btn-primary" style="height:36px;font-size:13px;align-self:flex-start" on:click={saveOff}>
+                {#if offSaved}<span class="material-symbols-rounded" style="font-size:16px">check</span> Saved{:else}Save{/if}
+              </button>
+            </div>
+          {/if}
+        </div>
+
         <p class="sub-label">USDA FoodData Central</p>
         <div class="card settings-card">
           <div class="setting-row">
             <div>
               <span class="setting-label">Enable USDA FoodData</span>
-              <div class="setting-desc">Search the USDA nutrition database when adding foods</div>
+              <div class="setting-desc">
+                Search the USDA nutrition database when adding foods.
+                <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener" class="about-link">Get a free API key →</a>
+              </div>
             </div>
             <Toggle checked={usdaEnabled} on:change={e => { usdaEnabled = e.detail; set('usdaEnabled', e.detail); }} />
           </div>
@@ -1962,63 +2042,13 @@
             <div class="form-group" style="padding:10px 16px 14px">
               <label class="form-label" for="usda-key">API Key</label>
               <div style="display:flex;gap:8px;align-items:center">
-                <input id="usda-key" class="input" style="flex:1" placeholder="Get a free key at api.nal.usda.gov" bind:value={usdaApiKey} />
+                <input id="usda-key" class="input" style="flex:1" placeholder="Paste your USDA API key here" bind:value={usdaApiKey} />
                 <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveUsda}>
                   {#if usdaSaved}<span class="material-symbols-rounded" style="font-size:16px">check</span>{:else}Save{/if}
                 </button>
               </div>
             </div>
           {/if}
-        </div>
-
-        <p class="sub-label">Open Food Facts</p>
-        <div class="card settings-card">
-          <div class="setting-row">
-            <span class="setting-label">Search language</span>
-            <div class="select-wrap" style="width:120px">
-              <select class="select sel-sm" bind:value={offSearchLanguage}>
-                {#each OFF_LANGUAGE_OPTS as [v,l]}<option value={v}>{l}</option>{/each}
-              </select>
-            </div>
-          </div>
-          <div class="setting-divider"></div>
-          <div class="setting-row">
-            <span class="setting-label">Search country</span>
-            <div class="select-wrap" style="width:150px">
-              <select class="select sel-sm" bind:value={offSearchCountry}>
-                {#each OFF_COUNTRY_OPTS as c}<option value={c}>{c}</option>{/each}
-              </select>
-            </div>
-          </div>
-          <div class="setting-divider"></div>
-          <div class="setting-row">
-            <span class="setting-label">Upload country</span>
-            <div class="select-wrap" style="width:150px">
-              <select class="select sel-sm" bind:value={offUploadCountry}>
-                <option value="Auto">Auto</option>
-                {#each OFF_COUNTRY_OPTS.filter(c => c !== 'World') as c}<option value={c}>{c}</option>{/each}
-              </select>
-            </div>
-          </div>
-          <div class="setting-divider"></div>
-          <div class="form-group" style="padding:10px 16px 14px">
-            <label class="form-label" for="off-user">Account username</label>
-            <input id="off-user" class="input" style="margin-bottom:8px" placeholder="Optional — required to contribute edits" bind:value={offUsername} />
-            <label class="form-label" for="off-pass">Account password</label>
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-              {#if offShowPass}
-                <input id="off-pass" class="input" type="text" style="flex:1" placeholder="OFF account password" bind:value={offPassword} />
-              {:else}
-                <input id="off-pass" class="input" type="password" style="flex:1" placeholder="OFF account password" bind:value={offPassword} />
-              {/if}
-              <button class="btn-icon" on:click={() => offShowPass = !offShowPass} title={offShowPass ? 'Hide' : 'Show'}>
-                <span class="material-symbols-rounded">{offShowPass ? 'visibility_off' : 'visibility'}</span>
-              </button>
-            </div>
-            <button class="btn btn-primary" style="height:36px;font-size:13px;align-self:flex-start" on:click={saveOff}>
-              {#if offSaved}<span class="material-symbols-rounded" style="font-size:16px">check</span> Saved{:else}Save{/if}
-            </button>
-          </div>
         </div>
 
         <p class="sub-label">Mealie</p>
@@ -2831,8 +2861,10 @@
   /* Settings search bar */
   .settings-search-bar {
     position: sticky;
-    /* page-top + 10 + 48 (--hamburger-row) + 40 (h1) + 12 (padding-bottom) = +110 */
-    top: calc(var(--page-top, var(--safe-top)) + 110px);
+    /* page-top + 10 (top inset) + var(--hamburger-row) + 40 (h1) + 12 (pad-bot)
+       = 62 + hamburger-row. Persistent-sidebar mode sets --hamburger-row to 0
+       so the search bar pins flush against the (shorter) header. */
+    top: calc(var(--page-top, var(--safe-top)) + 62px + var(--hamburger-row, 0px));
     z-index: 20;
     display: flex;
     align-items: center;
@@ -2843,9 +2875,9 @@
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     border-bottom: 1px solid var(--border);
   }
-  /* With banner: padding-bottom is 72, so total = 10+48+40+72 = +170 */
+  /* With banner: pad-bot is 72 instead of 12 → 122 + hamburger-row */
   :global(.page-header.has-banner) + .settings-search-bar {
-    top: calc(var(--page-top, var(--safe-top)) + 170px);
+    top: calc(var(--page-top, var(--safe-top)) + 122px + var(--hamburger-row, 0px));
   }
   .settings-search-icon { font-size: 20px; color: var(--text-3); flex-shrink: 0; }
   .settings-search-input {

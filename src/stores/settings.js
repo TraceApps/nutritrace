@@ -32,7 +32,7 @@ export const USER_PREFS = new Set([
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
   'foodsShowYesterdayMeals','foodsYesterdayCollapsed','foodsSavedCollapsed','foodsSort',
   'barcodeBeep','cropPhotos',
-  'offSearchLanguage','offSearchCountry','offUploadCountry',
+  'offEnabled','offSearchLanguage','offSearchCountry','offUploadCountry',
   'weightUnit','heightUnit','lengthUnit','distUnit','tempUnit',
   'waterGoalMl','waterUnit','waterContainers','waterShowInStats','waterShowInDiary',
   'dateFormat','timeFormat','timezone',
@@ -256,18 +256,28 @@ export async function loadServerSettings() {
     // entries survived the logout. Without the forced dispatch, subscribed
     // components (Trace FAB, Wellness section, theme application, etc.)
     // never get woken up to re-read the now-correct values.
+    //
+    // CRITICAL: skip DEVICE_PREFS keys. These are local-only (form-factor or
+    // hardware specific) and should never be overwritten by server values.
+    // Stale rows can exist from before the device-pref filter was added on
+    // the write path — without this filter every settings poll would
+    // overwrite a phone's `sidebarPersistent: true` with the desktop's
+    // `false`, and the persistent-sidebar toggle would silently turn off.
     for (const [key, value] of Object.entries(serverSettings)) {
+      if (DEVICE_PREFS.has(key)) continue;
       DB.setSetting(key, value, true);
     }
 
     // Native: also mirror into the native SQLite user_settings table so the
     // WorkManager / background workers have access to fresh values. Mark as
     // 'synced' so the differential sync doesn't try to re-push them.
+    // Same DEVICE_PREFS skip as the localStorage loop above.
     if (isNative) {
       try {
         const { dbUpsertSetting, dbMarkSettingsSynced } = await import('../lib/db-native.js');
         const keys = [];
         for (const [key, value] of Object.entries(serverSettings)) {
+          if (DEVICE_PREFS.has(key)) continue;
           await dbUpsertSetting(key, value);
           keys.push(key);
         }
@@ -425,6 +435,10 @@ export const foodsSort              = createSettingStore('foodsSort',           
 export const barcodeBeep            = createSettingStore('barcodeBeep',            false);
 export const barcodeFlashlight      = createSettingStore('barcodeFlashlight',      false);
 export const cropPhotos             = createSettingStore('cropPhotos',             false);
+// OFF search is enabled by default — it's the public crowd-sourced food
+// database and the primary search source. Users who don't want their queries
+// hitting OFF servers (privacy / offline-first) can disable it.
+export const offEnabled             = createSettingStore('offEnabled',             true);
 export const offSearchLanguage      = createSettingStore('offSearchLanguage',      'en');
 export const offSearchCountry       = createSettingStore('offSearchCountry',       'World');
 export const offUploadCountry       = createSettingStore('offUploadCountry',       'Auto');

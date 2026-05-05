@@ -295,6 +295,9 @@
 
   async function _saveIntegrations() {
     const batch = {};
+    // OFF: skip toggle drives the search-source on/off; credentials only persist
+    // when provided (search works fine without them — they're upload-only).
+    batch.offEnabled = !intSkipped.off;
     if (!intSkipped.off && (intOFFUser.trim() || intOFFPass.trim())) {
       batch.offUsername = intOFFUser.trim();
       batch.offPassword = intOFFPass.trim();
@@ -651,7 +654,7 @@
               <div class="int-card-icon">🥫</div>
               <div class="int-card-info">
                 <div class="int-card-title">Open Food Facts</div>
-                <div class="int-card-sub">Upload foods you create to the community database</div>
+                <div class="int-card-sub">Search the global crowd-sourced food database. An account is only needed to upload edits.</div>
               </div>
               {#if intSkipped.off}
                 <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, off: false}}>Configure</button>
@@ -661,8 +664,9 @@
             </div>
             {#if !intSkipped.off}
               <div class="int-fields">
-                <input class="input" type="text"     placeholder="Username" bind:value={intOFFUser}  autocomplete="username" />
-                <input class="input" type="password" placeholder="Password" bind:value={intOFFPass}  autocomplete="current-password" />
+                <a href="https://world.openfoodfacts.org/cgi/user.pl" target="_blank" rel="noopener" class="about-link" style="font-size:13px">Create an OFF account →</a>
+                <input class="input" type="text"     placeholder="Username (optional)" bind:value={intOFFUser}  autocomplete="username" />
+                <input class="input" type="password" placeholder="Password (optional)" bind:value={intOFFPass}  autocomplete="current-password" />
               </div>
             {/if}
           </div>
@@ -683,7 +687,8 @@
             </div>
             {#if !intSkipped.usda}
               <div class="int-fields">
-                <input class="input" type="text" placeholder="API Key (get free key at fdc.nal.usda.gov)" bind:value={intUSDARKey} />
+                <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener" class="about-link" style="font-size:13px">Get a free API key →</a>
+                <input class="input" type="text" placeholder="Paste your USDA API key here" bind:value={intUSDARKey} />
               </div>
             {/if}
           </div>
@@ -751,15 +756,19 @@
 
         </div>
 
-        <!-- Integration summary: shows what's configured vs. skipped -->
+        <!-- Integration summary: three states — Configured, Skipped, or Open
+             but blank (in neither list). Don't label a card "Skipped" unless
+             the user actually clicked Skip. OFF is a special case: search
+             works without credentials, so just having the card open counts
+             as configured (an account is upload-only). -->
         {@const _intCfg = [
-          { k: 'off',    label: 'Open Food Facts', on: !intSkipped.off    && !!(intOFFUser.trim() || intOFFPass.trim()) },
-          { k: 'usda',   label: 'USDA',            on: !intSkipped.usda   && !!intUSDARKey.trim() },
-          { k: 'mealie', label: 'Mealie',          on: !intSkipped.mealie && !!(intMealieUrl.trim() || intMealieToken.trim()) },
-          { k: 'ai',     label: 'AI Assistant',    on: !intSkipped.ai     && (intAILocked || !!intAIKey.trim()) },
+          { k: 'off',    label: 'Open Food Facts', configured: !intSkipped.off,                                                              skipped: intSkipped.off    },
+          { k: 'usda',   label: 'USDA',            configured: !intSkipped.usda   && !!intUSDARKey.trim(),                                   skipped: intSkipped.usda   },
+          { k: 'mealie', label: 'Mealie',          configured: !intSkipped.mealie && !!(intMealieUrl.trim() && intMealieToken.trim()),       skipped: intSkipped.mealie },
+          { k: 'ai',     label: 'AI Assistant',    configured: !intSkipped.ai     && (intAILocked || !!intAIKey.trim()),                     skipped: intSkipped.ai     },
         ]}
-        {@const _configured = _intCfg.filter(x => x.on).map(x => x.label)}
-        {@const _skipped    = _intCfg.filter(x => !x.on).map(x => x.label)}
+        {@const _configured = _intCfg.filter(x => x.configured).map(x => x.label)}
+        {@const _skipped    = _intCfg.filter(x => x.skipped).map(x => x.label)}
         <div class="int-summary">
           {#if _configured.length > 0}
             <div class="int-summary-row">

@@ -1758,12 +1758,13 @@
 
   /* H1 height/alignment now lives in base.css .page-header h1 (uniform 40px). */
 
-  /* Sticky date navigation sub-bar — sits directly below the page-header.
-     top = page-top + 10 (padding-top) + 48 (--hamburger-row) + 40 (h1) + 12 (padding-bottom) = +110
-     With banner: padding-bottom is 72 (base.css), so total = 10+48+40+72 = +170 */
+  /* Sticky date navigation sub-bar — pins flush below the page-header.
+     62 + var(--hamburger-row): hamburger-row is 48 normally and 0 when the
+     persistent sidebar is pinned, so the bar tracks the actual header height
+     in both modes. With banner: 122 + hamburger-row. */
   .diary-date-bar {
     position: sticky;
-    top: calc(var(--page-top, var(--safe-top)) + 110px);
+    top: calc(var(--page-top, var(--safe-top)) + 62px + var(--hamburger-row, 0px));
     z-index: 9;
     background: var(--glass-surface);
     backdrop-filter: blur(20px) saturate(180%);
@@ -1775,7 +1776,7 @@
     padding: 8px var(--page-px);
   }
   .diary-date-bar.has-banner {
-    top: calc(var(--page-top, var(--safe-top)) + 170px);
+    top: calc(var(--page-top, var(--safe-top)) + 122px + var(--hamburger-row, 0px));
   }
 
   .date-btn {

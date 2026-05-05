@@ -2,10 +2,11 @@
    Animations & Transitions — NutriTrace
    ============================================================ */
 
-/* Page transition wrapper */
+/* Page transition wrapper.
+   Positioning lives in App.svelte (:global rule with sidebar offset).
+   We only set will-change here — keeping position rules in this file
+   would override the sidebar offset via `inset: 0`. */
 .page-transition {
-  position: absolute;
-  inset: 0;
   will-change: transform, opacity;
 }
 
