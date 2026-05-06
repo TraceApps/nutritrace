@@ -135,9 +135,32 @@ export async function addDiaryItem(foodItem, meal, date) {
   }
   if (!entry) entry = { date: targetDate, items: [], bodyStats: {}, water: [] };
 
-  const item = { ...foodItem, meal: meal != null ? Number(meal) : 0, addedAt: new Date().toISOString() };
+  // food_server_id — the stable, cross-device identifier for the source
+  // food. PWA's food rows omit a `server_id` key entirely and their `id`
+  // IS the server's id. Android cache rows have an explicit `server_id`
+  // column that may be a number (synced) or null (local-only). Detecting
+  // by key presence avoids guessing which of the two ids is stable.
+  // Stored on the diary item so liveImgFor and friends can look up the
+  // correct food regardless of any local-autoincrement renumbering that
+  // happens after an Android re-install.
+  const food_server_id = ('server_id' in foodItem)
+    ? foodItem.server_id
+    : (typeof foodItem.id === 'number' ? foodItem.id : null);
+  const item = {
+    ...foodItem,
+    meal: meal != null ? Number(meal) : 0,
+    addedAt: new Date().toISOString(),
+    food_server_id,
+  };
   const updated = { ...entry, items: [...(entry.items || []), item] };
   const saved = await _save(updated);
+
+  // Bump usage_count + last_used_at on the source food so it can rise in
+  // the "Most Used" / "Recently Used" sort modes. Fire-and-forget; a failed
+  // bump shouldn't block the diary save the user already saw succeed.
+  if (typeof item.id === 'number') {
+    NtApi.markFoodUsed(item.id, targetDate).catch(() => {});
+  }
 
   currentDate.subscribe(v => viewDate = v)();
   if (targetDate === viewDate) currentEntry.set(saved);

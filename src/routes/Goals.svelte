@@ -620,7 +620,7 @@
         </div>
         <div class="toggle-row">
           <div class="toggle-label-wrap">
-            <label class="toggle-label">Minimum goal</label>
+            <label class="toggle-label">Minimum Goal</label>
             <span class="toggle-hint">{editIsMin ? 'Must reach at least this value' : 'Must not exceed this value'}</span>
           </div>
           <label class="toggle-switch">
@@ -704,7 +704,7 @@
       <div class="sheet-handle"></div>
       <div class="sheet-header"><h3 class="sheet-title">Save as Template</h3></div>
       <div class="sheet-body">
-        <label class="form-label">Template name</label>
+        <label class="form-label">Template Name</label>
         <input class="input" placeholder="e.g. Cut — Summer 2025" bind:value={templateName}
           on:keydown={e => e.key === 'Enter' && saveTemplate()} />
         <p class="text-3 text-sm" style="margin-top:4px">

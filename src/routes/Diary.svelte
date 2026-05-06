@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import DatePicker from '../components/ui/DatePicker.svelte';
@@ -95,6 +95,7 @@
   // convert into the user's CURRENT unit so the inputs read sensibly even
   // after a unit toggle; on save, we re-tag with the current unit.
   let bodyStatsData = {};
+  let weightInput;            // focus target when the sheet opens
   function openBodyStats() {
     const raw = entry.bodyStats || {};
     const wu = $weightUnit || 'kg';
@@ -108,6 +109,9 @@
     delete out.lengths_unit;
     bodyStatsData = out;
     _lockAndOpen(() => diaryShowBodyStats.set(true));
+    // Land cursor in the weight input — most common reason to open the
+    // sheet. Falls through silently if the user has hidden the weight row.
+    tick().then(() => weightInput?.focus());
   }
   async function saveBodyStatsLocal() {
     const payload = tagBodyStats(bodyStatsData, $weightUnit || 'kg', $lengthUnit || 'in');
@@ -371,6 +375,7 @@
   let showSaveAsMeal       = false;
   let saveAsMealName       = '';
   let saveAsMealSaving     = false;
+  let saveAsMealNameInput;        // focus target on open
 
   function openMealActionSheet(mealIdx) {
     actionMealIdx = mealIdx;
@@ -385,6 +390,7 @@
     else if (val === 'save_meal') {
       saveAsMealName = meals[actionMealIdx] || '';
       _lockAndOpen(() => showSaveAsMeal = true);
+      tick().then(() => saveAsMealNameInput?.focus());
     }
     else if (val === 'clear') { _lockAndOpen(() => showClearMealDialog = true); }
   }
@@ -645,6 +651,11 @@
   // Water card state
   let _waterCustomAmt  = '';
   let _waterShowCustom = false;
+  let _waterCustomInput;          // focus target when Custom panel opens
+  function _toggleWaterCustom() {
+    _waterShowCustom = !_waterShowCustom;
+    if (_waterShowCustom) tick().then(() => _waterCustomInput?.focus());
+  }
   let _waterEditIndex  = -1;   // which log row is being edited (-1 = none)
   let _waterEditAmt    = '';   // edit field value (in display unit)
 
@@ -778,6 +789,12 @@
     await loadEntry($currentDate);
   }
 
+  // Whether this mount is a genuine first load (no cached entry yet) or a
+  // re-mount triggered by App.svelte's {#key $location}. The fly-in
+  // transitions on meal sections and diary items only fire when this is
+  // true — otherwise every nav back to /diary plays a 300-600ms staggered
+  // cascade that reads as "the page is refreshing" on slower WebViews.
+  let _isInitialMount = false;
   onMount(async () => {
     const today = localDateStr();
     let storedDate;
@@ -792,6 +809,7 @@
     // or user picked a different day).
     let cur = null;
     currentEntry.subscribe(v => cur = v)();
+    _isInitialMount = !cur;
     // Always re-fetch if the previous load errored (e.g. 401 before login)
     // — otherwise the "Could not reach server" banner can stick around even
     // after the user authenticates, because a synthetic empty entry from the
@@ -884,7 +902,7 @@
       <button class="btn-icon accent" on:click={() => diaryShowNutritionSummary.set(true)} aria-label={$_('diary.actions.nutrition_summary')} title={$_('diary.actions.nutrition_summary_long')}>
         <span class="material-symbols-rounded">monitoring</span>
       </button>
-      <button class="btn-icon accent" on:click={() => diaryShowBodyStats.set(true)} aria-label={$_('diary.actions.body_stats')} title={$_('diary.actions.body_stats_long')}>
+      <button class="btn-icon accent" on:click={openBodyStats} aria-label={$_('diary.actions.body_stats')} title={$_('diary.actions.body_stats_long')}>
         <span class="material-symbols-rounded">scale</span>
       </button>
     {/if}
@@ -923,13 +941,13 @@
 {#if $diaryLoadError}
       <div class="server-error-banner">
         <span class="material-symbols-rounded">cloud_off</span>
-        <span>Could not reach server — <button class="server-error-retry" on:click={() => loadEntry($currentDate)}>retry</button></span>
+        <span>Could not reach server — <button class="server-error-retry" on:click={() => loadEntry($currentDate)}>Retry</button></span>
       </div>
     {/if}
     <!-- Meal groups -->
     {#each meals as meal, mealIdx}
       {@const items = getMealItems(entry.items, mealIdx)}
-      <section class="meal-group card" id="meal-{mealIdx}" in:fly={{ y: 18, duration: 280, delay: 60 + mealIdx * 55 }}>
+      <section class="meal-group card" id="meal-{mealIdx}" in:fly={{ y: 18, duration: _isInitialMount && !$disableAnimations ? 280 : 0, delay: _isInitialMount && !$disableAnimations ? 60 + mealIdx * 55 : 0 }}>
         <div class="meal-header" style="--meal-color:{mealColor(mealIdx)}">
           <span class="meal-type-icon material-symbols-rounded">{mealIcon(meal)}</span>
           <span class="meal-name">{meal}</span>
@@ -957,7 +975,7 @@
           <div class="meal-items">
             {#each items as item (item._i)}
               {@const _itemEnergy = Nutrition.displayEnergy(formatKcal(item), $energyUnit)}
-              <div class="diary-item" in:fly={{ y: 6, duration: 180 }}
+              <div class="diary-item" in:fly={{ y: 6, duration: _isInitialMount && !$disableAnimations ? 180 : 0 }}
                 class:item-selected={selectMode && selectedItems.has(item._i)}
                 on:touchstart|passive={e => onItemTouchStart(e, item)}
                 on:touchmove|passive={onItemTouchMove}
@@ -1026,7 +1044,7 @@
       {@const wearablePresent = (sum.wearable || 0) > 0}
       {@const manualCounted   = !wearablePresent || policy !== 'wearable_wins'}
       {@const totalActKcal = acts.reduce((s, a) => s + (a.kcal || 0), 0)}
-      <section class="meal-group card activity-group" id="activity-group" in:fly={{ y: 18, duration: 280, delay: 60 + meals.length * 55 }}>
+      <section class="meal-group card activity-group" id="activity-group" in:fly={{ y: 18, duration: _isInitialMount && !$disableAnimations ? 280 : 0, delay: _isInitialMount && !$disableAnimations ? 60 + meals.length * 55 : 0 }}>
         <div class="meal-header" style="--meal-color:#4FFFB0">
           <span class="meal-type-icon material-symbols-rounded">directions_run</span>
           <div class="activity-name-stack">
@@ -1049,7 +1067,7 @@
           <div class="meal-items">
             {#each acts as a (a.id)}
               {@const _aEnergy = Nutrition.displayEnergy(a.kcal || 0, $energyUnit)}
-              <div class="diary-item" in:fly={{ y: 6, duration: 180 }}
+              <div class="diary-item" in:fly={{ y: 6, duration: _isInitialMount && !$disableAnimations ? 180 : 0 }}
                 on:contextmenu|preventDefault={() => openActivityActionSheet(a)}>
                 <button class="diary-item-btn" on:click={() => { editingActivity = a; showActivitySheet = true; }}>
                   <div class="item-info">
@@ -1089,7 +1107,7 @@
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <div class="diary-notes-header" on:click={toggleNotes}>
           <span class="material-symbols-rounded diary-notes-icon">edit_note</span>
-          <span class="diary-notes-label">Day notes</span>
+          <span class="diary-notes-label">Day Notes</span>
           {#if _notesText && !notesExpanded}
             <span class="diary-notes-preview text-3 text-sm truncate">{_notesText}</span>
           {/if}
@@ -1323,7 +1341,7 @@
           </button>
         {/each}
       {/if}
-      <button class="wc-btn wc-btn-custom" on:click={() => _waterShowCustom = !_waterShowCustom}>
+      <button class="wc-btn wc-btn-custom" on:click={_toggleWaterCustom}>
         <span class="material-symbols-rounded">edit</span>
         <span class="wc-btn-name">Custom</span>
       </button>
@@ -1333,7 +1351,7 @@
       <div class="wc-custom-row" transition:slide={{ duration: 160 }}>
         <input class="input" type="number" min="0" step={_waterUnit === 'ml' ? '1' : '0.01'}
           placeholder={`Amount (${_waterUnit === 'oz' ? 'fl oz' : _waterUnit})`}
-          bind:value={_waterCustomAmt}
+          bind:value={_waterCustomAmt} bind:this={_waterCustomInput}
           on:keydown={e => e.key === 'Enter' && _addWaterCustom()} />
         <button class="btn btn-primary" on:click={_addWaterCustom}>Add</button>
       </div>
@@ -1563,8 +1581,8 @@
       <p class="sheet-title">Save {actionMealIdx != null ? meals[actionMealIdx] : 'meal'} to library</p>
       <label class="copy-date-label">
         <span>Meal name</span>
-        <input type="text" bind:value={saveAsMealName} class="copy-date-input"
-          placeholder="e.g. Usual breakfast" autofocus />
+        <input type="text" bind:value={saveAsMealName} bind:this={saveAsMealNameInput}
+          class="copy-date-input" placeholder="e.g. Usual breakfast" />
       </label>
       <p class="text-3 text-sm" style="margin:8px 0 0">
         {#if actionMealIdx != null}{getMealItems(entry.items, actionMealIdx).length} item{getMealItems(entry.items, actionMealIdx).length === 1 ? '' : 's'} will be saved{/if}
@@ -1599,11 +1617,12 @@
       <div class="sheet-header-row">
         <h3 class="sheet-title">Body Stats</h3>
       </div>
+      <form on:submit|preventDefault={saveBodyStatsLocal}>
       <div class="bs-sheet-body">
         <div class="bs-grid">
           {#if !($hiddenBodyStats||[]).includes('weight')}
           <div><label class="form-label">Weight ({$weightUnit||'kg'})</label>
-            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.weight} /></div>
+            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.weight} bind:this={weightInput} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('body_fat')}
           <div><label class="form-label">Body Fat %</label>
@@ -1640,8 +1659,9 @@
         </div>
       </div>
       <div class="bs-sheet-footer">
-        <button class="btn btn-primary w-full" on:click={saveBodyStatsLocal}>Save</button>
+        <button class="btn btn-primary w-full" type="submit">Save</button>
       </div>
+      </form>
     </div>
   </div>
 {/if}

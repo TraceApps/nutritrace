@@ -418,6 +418,14 @@
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
     <h2 class="editor-title">{meal.id ? 'Edit' : 'New'} {isRecipe ? 'Recipe' : 'Meal'}</h2>
+    {#if meal.id}
+      <button class="btn-icon fav-btn" class:on={!!meal.favorite}
+        on:click={() => { meal.favorite = meal.favorite ? 0 : 1; meal = meal; }}
+        aria-label={meal.favorite ? 'Unfavorite' : 'Favorite'}
+        title={meal.favorite ? 'Unfavorite' : 'Add to favorites'}>
+        <span class="material-symbols-rounded">{meal.favorite ? 'favorite' : 'favorite_border'}</span>
+      </button>
+    {/if}
     <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
       on:click={save} disabled={saving}>
       {saving ? 'Saving…' : 'Save'}
@@ -584,7 +592,7 @@
           <span class="ingredient-list-total">{_ftrEnergy.value.toLocaleString()} {_ftrEnergy.unit} · {meal.items.length} {meal.items.length === 1 ? 'item' : 'items'}</span>
           <button class="ingredient-add-row" on:click={openPicker}>
             <span class="material-symbols-rounded">add</span>
-            <span>Add ingredient</span>
+            <span>Add Ingredient</span>
           </button>
         </div>
       {/if}
@@ -808,6 +816,8 @@
     position: sticky; top: 0; z-index: 10;
   }
   .editor-title { font-size: 17px; font-weight: 600; flex: 1; }
+  .fav-btn { color: var(--text-3); }
+  .fav-btn.on { color: var(--macro-protein, #ec4899); }
   .editor-content { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 32px; }
   .editor-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   .editor-card-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }

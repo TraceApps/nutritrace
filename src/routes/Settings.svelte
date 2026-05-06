@@ -30,7 +30,7 @@
     diaryShowNotes,
     diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
     diaryShowNutritionBar,
-    foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsShowThumbnails, foodsShowYesterdayMeals, foodsSort,
+    foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsShowThumbnails, foodsShowYesterdayMeals, foodsSort, mealsSort, recipesSort,
     barcodeBeep, barcodeFlashlight, cropPhotos,
     foodCategories, visibleNutriments, nutrimentsOrder, customNutriments,
     bodyStatsOrder, hiddenBodyStats,
@@ -498,6 +498,7 @@
   let statsChartType = DB.getSetting('statsChartType', 'bar');
   let statsYZero     = DB.getSetting('statsYZero',     true);
   let statsIncludeTodayLocal = DB.getSetting('statsIncludeToday', false);
+  let statsShowEmptyDaysLocal = DB.getSetting('statsShowEmptyDays', true);
   let statsAvgLine   = DB.getSetting('statsAvgLine',   true);
   let statsGoalLine  = DB.getSetting('statsGoalLine',  true);
   let statsTrendLine = DB.getSetting('statsTrendLine', true);
@@ -1707,10 +1708,42 @@
           </div>
           <div class="setting-divider"></div>
           <div class="setting-row">
-            <span class="setting-label">Sort Order</span>
-            <div class="select-wrap" style="width:140px">
+            <div>
+              <span class="setting-label">Foods Sort</span>
+              <div class="setting-desc">How items are ordered in the Foods tab. Favorites are always pinned at the top regardless of sort.</div>
+            </div>
+            <div class="select-wrap" style="width:160px">
               <select class="select sel-sm" value={$foodsSort} on:change={e => foodsSort.set(e.target.value)}>
-                <option value="date">Recently added</option>
+                <option value="recent">Recently Used</option>
+                <option value="most">Most Used</option>
+                <option value="alpha">Alphabetical</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Meals Sort</span>
+              <div class="setting-desc">How items are ordered in the Meals tab.</div>
+            </div>
+            <div class="select-wrap" style="width:160px">
+              <select class="select sel-sm" value={$mealsSort} on:change={e => mealsSort.set(e.target.value)}>
+                <option value="recent">Recently Used</option>
+                <option value="most">Most Used</option>
+                <option value="alpha">Alphabetical</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Recipes Sort</span>
+              <div class="setting-desc">How items are ordered in the Recipes tab.</div>
+            </div>
+            <div class="select-wrap" style="width:160px">
+              <select class="select sel-sm" value={$recipesSort} on:change={e => recipesSort.set(e.target.value)}>
+                <option value="recent">Recently Used</option>
+                <option value="most">Most Used</option>
                 <option value="alpha">Alphabetical</option>
               </select>
             </div>
@@ -1842,6 +1875,14 @@
               <div class="setting-desc">For cumulative metrics (calories, water, steps, etc.) today is partial until the day ends. Off by default — the chart looks cleaner. Statistics page also has an inline toggle for one-off overrides.</div>
             </div>
             <Toggle checked={statsIncludeTodayLocal} on:change={e => { statsIncludeTodayLocal = e.detail; set('statsIncludeToday', e.detail); }} />
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Show Empty Days</span>
+              <div class="setting-desc">Keep every date in the chart's range visible even when nothing was logged that day. Lets gaps in logging show up rather than collapsing into a denser chart that hides them. Applies to both bar and line charts.</div>
+            </div>
+            <Toggle checked={statsShowEmptyDaysLocal} on:change={e => { statsShowEmptyDaysLocal = e.detail; set('statsShowEmptyDays', e.detail); }} />
           </div>
         </div>
       </div>
@@ -2466,7 +2507,7 @@
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">From address</label>
+            <label class="form-label">From Address</label>
             <input class="input" type="email" placeholder='NutriTrace <noreply@example.com>'
               bind:value={smtpFrom} disabled={envLocks.smtp} />
           </div>
@@ -2742,7 +2783,7 @@
     </div>
     <!-- Hex input -->
     <div class="cp-slider-group">
-      <label class="form-label">Hex code</label>
+      <label class="form-label">Hex Code</label>
       <div class="cp-hex-row">
         <span class="cp-hex-dot" style="background:{/^#[0-9a-fA-F]{6}$/.test(customHexInput) ? customHexInput : '#ccc'}"></span>
         <input class="input" type="text" placeholder="#rrggbb" maxlength="7"

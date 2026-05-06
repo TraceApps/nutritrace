@@ -10,7 +10,7 @@
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
   import { goals, energyUnit, weightUnit, lengthUnit, statsChartType, statsYZero,
-           statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday,
+           statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday, statsShowEmptyDays,
            hiddenBodyStats, dateFormat, pageBanners,
            fitbitEnabled, garminEnabled, withingsEnabled, healthConnectEnabled, wellnessMetrics,
            calorieGoalMode } from '../stores/settings.js';
@@ -285,9 +285,15 @@
     const accentColor = isDark ? '#4FFFB0' : '#00C47A';
 
     const isBar = $statsChartType === 'bar';
-    // Bar mode: filter to only dates with data (no empty bars)
-    // Line mode: keep all dates for continuous time axis
-    const displayData = isBar ? data.filter(d => d.val !== null && d.val > 0) : data;
+    // statsShowEmptyDays controls whether dates without a logged value stay
+    // on the chart. Default ON keeps gaps visible (an empty day next to a
+    // logged one is honest, collapsing them out makes a sparse week look
+    // full). Same rule for both chart types: bar charts hide / show the
+    // bar slot, line charts hide / show the gap. Toggle lives both inline
+    // on the Statistics page and in Settings → Statistics.
+    const displayData = $statsShowEmptyDays
+      ? data
+      : data.filter(d => d.val !== null && d.val > 0);
     const labels = displayData.map(d => {
       const dt = new Date(d.date + 'T12:00:00');
       return dt.toLocaleDateString(undefined, { month:'short', day:'numeric' });
@@ -404,7 +410,11 @@
   }
 
   function getMetricLabel() {
-    const m = METRICS.find(x => x.value === metric);
+    // NUTRIMENTS items expose `id` while body-stats / wellness items expose
+    // `value` — match either. Without this, nutrient labels fell through to
+    // the raw lowercase metric ID (e.g. "calories" instead of "Calories")
+    // in the chart legend and tooltips.
+    const m = METRICS.find(x => x.value === metric || x.id === metric);
     return m ? m.label : metric;
   }
 
@@ -425,7 +435,7 @@
     return m ? (m.unit || '') : '';
   })();
 
-  $: { metric; range; customStart; customEnd; $statsIncludeToday; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine;
+  $: { metric; range; customStart; customEnd; $statsIncludeToday; $statsShowEmptyDays; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine;
        if (canvasEl) loadData(); }
 
   onDestroy(() => { if (chart) chart.destroy(); });
@@ -524,8 +534,8 @@
           <button class="quick-chip" on:click={() => { const t = localDateStr(); const d = new Date(); d.setDate(d.getDate() - 6); customStart = localDateStr(d); customEnd = t; showCalFor = null; }}>Last 7d</button>
           <button class="quick-chip" on:click={() => { const t = localDateStr(); const d = new Date(); d.setDate(d.getDate() - 29); customStart = localDateStr(d); customEnd = t; showCalFor = null; }}>Last 30d</button>
           <button class="quick-chip" on:click={() => { const t = localDateStr(); const d = new Date(); d.setDate(d.getDate() - 89); customStart = localDateStr(d); customEnd = t; showCalFor = null; }}>Last 90d</button>
-          <button class="quick-chip" on:click={() => { const t = new Date(); customStart = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-01`; customEnd = localDateStr(); showCalFor = null; }}>This month</button>
-          <button class="quick-chip" on:click={() => { const t = new Date(); t.setMonth(t.getMonth() - 1); const start = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-01`; const end = new Date(t.getFullYear(), t.getMonth() + 1, 0); customStart = start; customEnd = localDateStr(end); showCalFor = null; }}>Last month</button>
+          <button class="quick-chip" on:click={() => { const t = new Date(); customStart = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-01`; customEnd = localDateStr(); showCalFor = null; }}>This Month</button>
+          <button class="quick-chip" on:click={() => { const t = new Date(); t.setMonth(t.getMonth() - 1); const start = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-01`; const end = new Date(t.getFullYear(), t.getMonth() + 1, 0); customStart = start; customEnd = localDateStr(end); showCalFor = null; }}>Last Month</button>
           <button class="quick-chip" on:click={() => { const y = new Date().getFullYear(); customStart = `${y}-01-01`; customEnd = localDateStr(); showCalFor = null; }}>YTD</button>
         </div>
         <div class="custom-range-row">
@@ -576,14 +586,18 @@
       </div>
     {/if}
 
-    {#if isCumulative(metric)}
-      <div class="include-today-row">
+    <div class="include-today-row">
+      {#if isCumulative(metric)}
         <label class="include-today-label">
           <input type="checkbox" checked={$statsIncludeToday} on:change={e => statsIncludeToday.set(e.target.checked)} />
           <span>Include today (partial day)</span>
         </label>
-      </div>
-    {/if}
+      {/if}
+      <label class="include-today-label">
+        <input type="checkbox" checked={$statsShowEmptyDays} on:change={e => statsShowEmptyDays.set(e.target.checked)} />
+        <span>Show empty days</span>
+      </label>
+    </div>
 
     <!-- Chart -->
     <div class="chart-card card">

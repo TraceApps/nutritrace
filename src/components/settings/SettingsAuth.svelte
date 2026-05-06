@@ -421,7 +421,7 @@
           <div class="oidc-form" transition:slide={{ duration: 180 }}>
             {#if !oidcEditing.id}
               <div class="form-group">
-                <label class="form-label">Provider type</label>
+                <label class="form-label">Provider Type</label>
                 <div class="oidc-preset-grid">
                   {#each PROVIDER_PRESETS as preset (preset.id)}
                     <button
@@ -449,7 +449,7 @@
               </div>
             {/if}
             <div class="form-group">
-              <label class="form-label">Display name</label>
+              <label class="form-label">Display Name</label>
               <input class="input" bind:value={oidcEditing.display_name} placeholder={oidcPreset.defaults.display_name || 'Authentik / Pocket ID / Google'} />
             </div>
             <div class="form-group">

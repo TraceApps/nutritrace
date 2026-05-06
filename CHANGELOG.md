@@ -5,6 +5,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.19] — 2026-05-06
+
+### Favorites + sort across Foods, Meals, and Recipes
+- Tap the heart on any food, meal, or recipe to favorite it. Favorites pin to the top of their tab.
+- Each tab now has its own sort — Alphabetical (default), Recently Used, or Most Used — applied under your favorites.
+- Usage counters now sync across your devices without overwriting other fields like the food's image, brand, or nutrition.
+
+### Food images on diary
+- Diary thumbnails could show the wrong food after reinstalling the Android app, because the diary referenced a local id the rebuilt database had renumbered. Diary items now carry a stable, server-side reference, and a one-time migration backfills it for existing entries, so older diary days correct themselves on first open.
+- When the stable reference isn't present (very old items), image lookup falls back to name + brand match across foods, meals, *and* recipes, instead of stopping at foods.
+- Adding a diary item on Android no longer pushes a stale image URL back to the server, so the same day viewed on the PWA stays correct.
+
+### Food editor
+- Heart toggle in the header for quick favorite / unfavorite without leaving the page.
+- "Scale by serving size" no longer fights with manual nutrient edits — the link freezes a snapshot when you toggle it on and only fires when you change the serving size itself.
+- Sodium / salt is now last-edited-wins: type one and the other recalculates, type the other and it flips.
+- Macro ring legend reads as percentages summing to 100, in the same Protein / Carbs / Fat order as the pill cards beneath.
+
+### Diary
+- Switching to the Diary tab no longer replays the mount fly-in every time. Animations only run on initial app launch.
+
+### Statistics
+- New **Show empty days** inline toggle keeps zero-value days visible on bar and line charts instead of collapsing them out.
+- Nutrient labels now resolve correctly on the chart legend — a handful of nutrients were rendering as their internal id.
+
+### Sync
+- Server now self-heals food and meal rows with `NULL updated_at`, which had been blocking some accounts from pulling updates after restoring a backup. Closes #13 (thanks @tellis82).
+
+### Polish
+- Title Case sweep continued from rc.18, now covering button labels and form labels.
+- Sheets that lead with an input field (Add Activity, Save as Meal, custom water amount) auto-focus that input on open.
+- Activity name field on the manual-activity sheet auto-completes from your prior entries.
+- **Body Stats sheet** now re-loads the saved values for the date you're viewing every time you open it. Previously the dialog carried over whatever was last typed, which made it look like the wrong date was being edited.
+- **Pressing Enter** on any input in the Body Stats sheet now saves the entry.
+
+---
+
 ## [1.0.0-rc.18] — 2026-05-05
 
 ### Statistics

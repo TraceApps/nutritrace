@@ -79,16 +79,35 @@ router.put('/:id', wrap(async (req, res) => {
   const existing = db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   if (u != null && existing.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
-  const { name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility } = req.body;
+  const { name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, favorite } = req.body;
   const localImg = (img_url && isExternalUrl(img_url)) ? await localizeImage(img_url) : (img_url ?? existing.img_url);
+  const fav = favorite != null ? (favorite ? 1 : 0) : existing.favorite;
   db.prepare(
-    `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, visibility=?, updated_at=datetime('now') WHERE id=?`
+    `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, visibility=?, favorite=?, updated_at=datetime('now') WHERE id=?`
   ).run(name ?? existing.name, brand ?? existing.brand,
     JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
     portion ?? existing.portion, unit ?? existing.unit, localImg,
     notes ?? existing.notes, category ?? existing.category, barcode ?? existing.barcode,
-    visibility ?? existing.visibility, req.params.id);
+    visibility ?? existing.visibility, fav, req.params.id);
   res.json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id)));
+}));
+
+// ── POST /:id/used — bump usage_count + last_used_at ──────────────────────
+// Called by the client whenever a food is added to a diary entry. Cheap,
+// idempotent, increments by 1 each call. last_used_at uses the diary date
+// from the request body (or today if missing) so historical add-to-diary
+// flows backfill correctly.
+router.post('/:id/used', wrap((req, res) => {
+  const u = uid(req);
+  const food = db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id);
+  if (!food) return res.status(404).json({ error: 'Not found' });
+  if (u != null && !canRead(food, u)) return res.status(403).json({ error: 'Forbidden' });
+  const date = (req.body?.date && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date))
+    ? req.body.date
+    : new Date().toISOString().slice(0, 10);
+  db.prepare(`UPDATE foods SET usage_count = usage_count + 1, last_used_at = MAX(COALESCE(last_used_at, ''), ?) WHERE id = ?`)
+    .run(date, req.params.id);
+  res.json({ ok: true });
 }));
 
 // ── DELETE /:id ───────────────────────────────────────────────────────────

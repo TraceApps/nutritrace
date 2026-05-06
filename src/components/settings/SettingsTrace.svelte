@@ -145,7 +145,7 @@
         <div class="setting-divider"></div>
         <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:6px">
           <div class="setting-desc" style="line-height:1.55">
-            <strong style="color:var(--text-2)">Trigger words</strong>
+            <strong style="color:var(--text-2)">Trigger Words</strong>
             <div style="margin-top:4px">
               • <em>"my X <strong>meal</strong>"</em> → saved meals<br/>
               • <em>"my X <strong>recipe</strong>"</em> → saved recipes<br/>

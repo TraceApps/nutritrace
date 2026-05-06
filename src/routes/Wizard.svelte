@@ -469,12 +469,12 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label">Full name</label>
+              <label class="form-label">Full Name</label>
               <input class="input" type="text" bind:value={adminFullName} placeholder="Optional" />
             </div>
 
             <div class="form-group">
-              <label class="form-label">Email address</label>
+              <label class="form-label">Email Address</label>
               <input class="input" type="email" bind:value={adminEmail}
                 placeholder="Used for password resets (optional)" autocomplete="email" />
             </div>
@@ -659,7 +659,7 @@
               {#if intSkipped.off}
                 <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, off: false}}>Configure</button>
               {:else}
-                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, off: true}}>Skip this</button>
+                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, off: true}}>Skip This</button>
               {/if}
             </div>
             {#if !intSkipped.off}
@@ -682,7 +682,7 @@
               {#if intSkipped.usda}
                 <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, usda: false}}>Configure</button>
               {:else}
-                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, usda: true}}>Skip this</button>
+                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, usda: true}}>Skip This</button>
               {/if}
             </div>
             {#if !intSkipped.usda}
@@ -704,7 +704,7 @@
               {#if intSkipped.mealie}
                 <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, mealie: false}}>Configure</button>
               {:else}
-                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, mealie: true}}>Skip this</button>
+                <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, mealie: true}}>Skip This</button>
               {/if}
             </div>
             {#if !intSkipped.mealie}
@@ -738,7 +738,7 @@
                 {#if intSkipped.ai}
                   <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, ai: false}}>Configure</button>
                 {:else}
-                  <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, ai: true}}>Skip this</button>
+                  <button class="int-skip-btn" on:click={() => intSkipped = {...intSkipped, ai: true}}>Skip This</button>
                 {/if}
               </div>
               {#if !intSkipped.ai}
@@ -871,19 +871,19 @@
               <strong>{_goalDisp.value.toLocaleString()} {_goalDisp.unit}/day</strong>
             </div>
             <div class="summary-row">
-              <span class="text-3">Water goal</span>
+              <span class="text-3">Water Goal</span>
               <strong>{waterGoal >= 1000 ? (waterGoal / 1000).toFixed(1) + ' L' : waterGoal + ' ml'}/day</strong>
             </div>
             <div class="summary-row">
-              <span class="text-3">Current weight</span>
+              <span class="text-3">Current Weight</span>
               <span>{weight} {wUnit}</span>
             </div>
             <div class="summary-row">
-              <span class="text-3">Target weight</span>
+              <span class="text-3">Target Weight</span>
               <span>{targetW} {wUnit}</span>
             </div>
             <div class="summary-row">
-              <span class="text-3">Activity level</span>
+              <span class="text-3">Activity Level</span>
               <span>{ACTIVITY_LEVELS.find(l=>l.value===activity)?.label || activity}</span>
             </div>
           </div>

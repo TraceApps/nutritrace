@@ -10,8 +10,8 @@
  */
 
 import {
-  dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood,
-  dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal,
+  dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood, dbBumpFoodUsage,
+  dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal, dbBumpMealUsage,
   dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary,
 } from './db-native.js';
 import { getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
@@ -156,6 +156,16 @@ export const NtApiCached = {
     }
   },
 
+  // Local-first usage bump — keeps sort order responsive offline; the
+  // server-side counter catches up on next sync via /:id/used.
+  async markFoodUsed(id, date) {
+    const food = await dbGetFood(id).catch(() => null);
+    await dbBumpFoodUsage(id, date);
+    const serverId = food?.server_id || id;
+    _serverFetch('POST', `/api/foods/${serverId}/used`, { date }).catch(() => schedulePush());
+    return { ok: true };
+  },
+
   // ── Meals & Recipes — always local-first ──────────────────────────────
 
   async getMeals() {
@@ -215,6 +225,14 @@ export const NtApiCached = {
   async copyMeal(id) {
     try { return _mealFromApi(await _serverFetch('POST', `/api/meals/${id}/copy`, {})); }
     catch { return _mealFromApi(await dbCopyMeal(id)); }
+  },
+
+  async markMealUsed(id, date) {
+    const meal = await dbGetMeal(id).catch(() => null);
+    await dbBumpMealUsage(id, date);
+    const serverId = meal?.server_id || id;
+    _serverFetch('POST', `/api/meals/${serverId}/used`, { date }).catch(() => schedulePush());
+    return { ok: true };
   },
 
   // ── Diary — always local-first ────────────────────────────────────────

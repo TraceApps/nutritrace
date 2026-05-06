@@ -18,7 +18,7 @@
   import { Nutrition } from '../lib/nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
   import { resolveAssetUrl } from '../lib/platform.js';
-  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, catName as _catName, catDisplay as _catDisplay, pageBanners, energyUnit } from '../stores/settings.js';
+  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, catName as _catName, catDisplay as _catDisplay, pageBanners, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
   import FoodsBanner from '../components/banners/FoodsBanner.svelte';
 
@@ -201,6 +201,31 @@
     ? filteredBySearch.filter(f => (f.categories||[]).includes(activeCategoryFilter))
     : filteredBySearch;
 
+  function _applySort(arr, mode) {
+    if (mode === 'recent') {
+      // Recently Used: most recent last_used_at first; items never used
+      // sort to the end alphabetically.
+      arr.sort((a, b) => {
+        const al = a.last_used_at || '';
+        const bl = b.last_used_at || '';
+        if (al && bl) return bl.localeCompare(al);
+        if (al) return -1;
+        if (bl) return 1;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    } else if (mode === 'most') {
+      // Most Used: highest usage_count first; ties broken alphabetically.
+      arr.sort((a, b) => {
+        const d = (b.usage_count || 0) - (a.usage_count || 0);
+        if (d !== 0) return d;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    } else {
+      // Alphabetical (default)
+      arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+  }
+
   async function load() {
     loadError = false;
     try {
@@ -209,11 +234,9 @@
         NtApi.getMeals(),
         NtApi.getRecipes(),
       ]);
-      const sort = foodsSort.get();
-      if (sort === 'alpha') {
-        [localFoods, localMeals, localRecipes].forEach(arr =>
-          arr.sort((a,b) => (a.name||'').localeCompare(b.name||'')));
-      }
+      _applySort(localFoods,   foodsSort.get());
+      _applySort(localMeals,   mealsSort.get());
+      _applySort(localRecipes, recipesSort.get());
     } catch(e) {
       console.error('[foods] load error:', e);
       loadError = true;
@@ -321,6 +344,14 @@
 
   async function _expandMealToDiary(meal) {
     const { addDiaryItem } = await import('../stores/diary.js');
+    // Bump usage on the meal itself before expanding into individual food
+    // items. addDiaryItem only sees the foods it logs (and bumps those),
+    // so without this the saved meal's own counter would never move and
+    // "Most Used" on the Meals tab would stay at zero. Fire-and-forget;
+    // counter inaccuracy isn't worth blocking the user's add.
+    if (typeof meal.id === 'number') {
+      NtApi.markMealUsed(meal.id, pickDate || undefined).catch(() => {});
+    }
     for (const item of meal.items) {
       await addDiaryItem(
         { ...item, quantity: item.quantity || 1 },
@@ -559,16 +590,37 @@
   // imgUrl as a fallback. No async, no preprocessing — the foods list is
   // already loaded by the time yesterday-meal cards are visible.
   function liveImgFor(item) {
-    const foods = localFoods || [];
-    if (item.id) {
-      const f = foods.find(f => f.id === item.id);
-      if (f?.imgUrl) return f.imgUrl;
+    // Search across foods + meals + recipes. Diary items can reference
+    // any of the three (recipes are added as single-line entries
+    // carrying the recipe's id, not expanded into ingredients).
+    const all = [...(localFoods || []), ...(localMeals || []), ...(localRecipes || [])];
+    // foodStableId — server_id when set (Android cache rows), else id
+    // (PWA rows use the server's id directly as `id`). itemStableId —
+    // food_server_id (set explicitly by addDiaryItem post-fix), or
+    // item.id for legacy items (PWA-written items already use the
+    // server's id; Android-pre-fix items have local ids that may have
+    // renumbered after a re-install — those fall through to name match).
+    const foodStableId = (f) => (typeof f.server_id === 'number') ? f.server_id : f.id;
+    const itemStableId = (typeof item.food_server_id === 'number')
+      ? item.food_server_id
+      : item.id;
+
+    if (typeof itemStableId === 'number') {
+      const m = all.find(f => foodStableId(f) === itemStableId);
+      if (m?.imgUrl) return m.imgUrl;
     }
-    if (item.name) {
-      const brand = (item.brand || '').toLowerCase().trim();
-      const f = foods.find(f =>
-        f.name === item.name && (f.brand || '').toLowerCase().trim() === brand);
-      if (f?.imgUrl) return f.imgUrl;
+    const itemName = (item.name || '').trim();
+    const itemBrand = (item.brand || '').toLowerCase().trim();
+    if (itemName) {
+      const exact = all.filter(f =>
+        f.name === itemName && (f.brand || '').toLowerCase().trim() === itemBrand);
+      const m = exact.find(f => f.imgUrl) || exact[0] || null;
+      if (m?.imgUrl) return m.imgUrl;
+    }
+    if (itemName && !itemBrand) {
+      const nameOnly = all.filter(f => f.name === itemName);
+      const m = nameOnly.find(f => f.imgUrl) || nameOnly[0] || null;
+      if (m?.imgUrl) return m.imgUrl;
     }
     return item.imgUrl;
   }
@@ -739,7 +791,7 @@
   {#if loadError}
     <div class="server-error-banner">
       <span class="material-symbols-rounded">cloud_off</span>
-      <span>Could not reach server — <button class="server-error-retry" on:click={load}>retry</button></span>
+      <span>Could not reach server — <button class="server-error-retry" on:click={load}>Retry</button></span>
     </div>
   {/if}
 
@@ -768,8 +820,11 @@
           {/if}
         </div>
       {:else if !_hideSavedMealsList}
+        {@const _renderList = (search || activeCategoryFilter)
+          ? filteredList
+          : [...filteredList.filter(f => f.favorite), ...filteredList.filter(f => !f.favorite)]}
         <ul class="food-list">
-          {#each filteredList as food (food.id)}
+          {#each _renderList as food (food.id)}
             {@const _sel = selectedFoods.has(food)}
             <li class="food-item card" class:food-selected={_sel} in:fade={{ duration: 160 }}>
               {#if pickMode}
@@ -790,7 +845,10 @@
                   </div>
                 {/if}
                 <div class="food-info">
-                  <span class="food-name">{food.name}</span>
+                  <span class="food-name">
+                    {#if food.favorite}<span class="material-symbols-rounded fav-mark" title="Favorite">favorite</span>{/if}
+                    {food.name}
+                  </span>
                   {#if activeTab === 0}
                     {#if food.brand}<span class="food-brand text-3 text-sm">{food.brand}</span>{/if}
                     <span class="food-kcal text-sm">{food.portion || 100}{food.unit || 'g'}{#if food._shared_by} · <span style="color:var(--accent)">by {food._shared_by}</span>{/if}</span>
@@ -1194,6 +1252,7 @@
   }
   .food-info  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .food-name  { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fav-mark   { font-size: 14px; vertical-align: -2px; color: var(--macro-protein, #ec4899); margin-right: 4px; }
   .food-brand { }
   .food-kcal  { color: var(--text-2); }
 

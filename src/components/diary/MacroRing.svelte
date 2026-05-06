@@ -47,6 +47,25 @@
   $: carbsOffset   = arc(fatKcal, total);
   $: proteinOffset = arc(fatKcal + carbsKcal, total);
 
+  // Macro percentages of total macro calories. Largest-remainder rounding
+  // so the three values sum to exactly 100 even when individual rounds
+  // would drift to 99 or 101. Falls back to all-zero when no macros are
+  // logged yet.
+  $: macroPcts = (() => {
+    if (total <= 0) return { fat: 0, carbs: 0, protein: 0 };
+    const raw = { fat: fatKcal / total * 100, carbs: carbsKcal / total * 100, protein: proteinKcal / total * 100 };
+    const floored = { fat: Math.floor(raw.fat), carbs: Math.floor(raw.carbs), protein: Math.floor(raw.protein) };
+    let leftover = 100 - floored.fat - floored.carbs - floored.protein;
+    const remainders = [
+      ['fat',     raw.fat     - floored.fat],
+      ['carbs',   raw.carbs   - floored.carbs],
+      ['protein', raw.protein - floored.protein],
+    ].sort((a, b) => b[1] - a[1]);
+    const out = { ...floored };
+    for (const [k] of remainders) { if (leftover <= 0) break; out[k]++; leftover--; }
+    return out;
+  })();
+
   // Rotation so segments appear in order: fat -> carbs -> protein
   $: fatRotate     = -90;
   $: carbsRotate   = fatRotate + (fatKcal / (total || 1)) * 360;
@@ -122,22 +141,23 @@
   </div>
 </div>
 
-<!-- Macro legend -->
+<!-- Macro legend — percentage of total macro calories, ordered to match
+     the macro-pill cards below the ring (Protein, Carbs, Fat). -->
 <div class="macro-legend">
   <div class="macro-item">
-    <span class="dot fat"></span>
-    <span class="macro-val">{Math.round($aFat)}g</span>
-    <span class="macro-lbl">Fat</span>
+    <span class="dot protein"></span>
+    <span class="macro-val">{macroPcts.protein}%</span>
+    <span class="macro-lbl">Protein</span>
   </div>
   <div class="macro-item">
     <span class="dot carbs"></span>
-    <span class="macro-val">{Math.round($aCarbs)}g</span>
+    <span class="macro-val">{macroPcts.carbs}%</span>
     <span class="macro-lbl">Carbs</span>
   </div>
   <div class="macro-item">
-    <span class="dot protein"></span>
-    <span class="macro-val">{Math.round($aProtein)}g</span>
-    <span class="macro-lbl">Protein</span>
+    <span class="dot fat"></span>
+    <span class="macro-val">{macroPcts.fat}%</span>
+    <span class="macro-lbl">Fat</span>
   </div>
 </div>
 

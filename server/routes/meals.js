@@ -73,15 +73,30 @@ router.put('/:id', wrap((req, res) => {
   const existing = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   if (u != null && existing.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
-  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, visibility } = req.body;
+  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, visibility, favorite } = req.body;
+  const fav = favorite != null ? (favorite ? 1 : 0) : existing.favorite;
   db.prepare(
-    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, visibility=?, updated_at=datetime('now') WHERE id=?`
+    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, visibility=?, favorite=?, updated_at=datetime('now') WHERE id=?`
   ).run(name ?? existing.name, JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
     JSON.stringify(items ?? JSON.parse(existing.items || '[]')), img_url ?? existing.img_url,
     notes ?? existing.notes, is_recipe != null ? (is_recipe ? 1 : 0) : existing.is_recipe,
     portion ?? existing.portion, unit ?? existing.unit,
-    visibility ?? existing.visibility, req.params.id);
+    visibility ?? existing.visibility, fav, req.params.id);
   res.json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id)));
+}));
+
+// ── POST /:id/used — bump usage_count + last_used_at on a saved meal ─────
+router.post('/:id/used', wrap((req, res) => {
+  const u = uid(req);
+  const meal = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
+  if (!meal) return res.status(404).json({ error: 'Not found' });
+  if (u != null && meal.user_id !== u && meal.visibility === 'private') return res.status(403).json({ error: 'Forbidden' });
+  const date = (req.body?.date && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date))
+    ? req.body.date
+    : new Date().toISOString().slice(0, 10);
+  db.prepare(`UPDATE meals SET usage_count = usage_count + 1, last_used_at = MAX(COALESCE(last_used_at, ''), ?) WHERE id = ?`)
+    .run(date, req.params.id);
+  res.json({ ok: true });
 }));
 
 // ── DELETE /:id ───────────────────────────────────────────────────────────

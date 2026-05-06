@@ -175,7 +175,13 @@
   // value (e.g. correcting a typo'd protein gram). User opts in via the link
   // toggle next to the unit selector.
   let linked = false;
-  let _snapshot = null;       // snapshot of all values when editor was opened (never changes during edit)
+  // Snapshot of values used as the baseline for proportional scaling.
+  // Captured the moment the user flips `linked` on, NOT at mount: at
+  // mount the food may be empty (new food), and even for edit-food the
+  // user may have started typing before flipping linked on. Re-taking
+  // it on toggle means the snapshot reflects the user's "lock these
+  // proportions in" intent, not whatever was loaded.
+  let _snapshot = null;
   let downloading = false;
   let downloadSuccess = false;
   let editorScannerOpen = false;
@@ -318,7 +324,11 @@
 
   function onPortionInput() { scheduleScale('__portion__', () => parseFloat(food.portion) || 0); }
   function onNutInput(id)   {
-    scheduleScale(id, () => parseFloat(food[id]) || 0);
+    // Per-nutrient typing does NOT trigger proportional scaling. The
+    // link toggle is for "scale all nutrients to a new serving size",
+    // not "rescale everything when I correct a single value." Keeping
+    // scale on nutrient edits would surprise users fixing a typo'd
+    // protein gram with a cascade across every other field.
     if (id === 'sodium' || id === 'salt') _handleSaltSodiumDerivation(id);
   }
 
@@ -334,10 +344,15 @@
 
     const otherId = changedId === 'sodium' ? 'salt' : 'sodium';
     const changedVal = parseFloat(food[changedId]);
-    const otherVal   = parseFloat(food[otherId]);
-    const otherEmpty = food[otherId] === '' || food[otherId] == null || (!otherVal && otherVal !== 0);
 
-    if (Number.isFinite(changedVal) && changedVal > 0 && otherEmpty) {
+    // Last-edited-wins. Sodium and salt are the same datum in different
+    // units, so any edit to either side should recompute the other —
+    // including over a value the user previously typed or that was
+    // imported from a source with internally-inconsistent label data
+    // (OFF / USDA sometimes reports both with values that don't agree).
+    // Other nutrients keep the standard "preserve user input" rule;
+    // only this pair gets last-edited-wins.
+    if (Number.isFinite(changedVal) && changedVal > 0) {
       if (changedId === 'sodium') {
         food.salt   = Math.round((changedVal / 400) * 1000) / 1000;
         food._derived = { ...food._derived, salt: true };
@@ -394,7 +409,8 @@
         food = { ...food, ...existing, ...flatNutrition };
       }
     }
-    takeSnapshot();
+    // Snapshot is taken when the user flips `linked` on, not here —
+    // see the link-btn click handler.
 
   });
 
@@ -479,6 +495,14 @@
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
     <h2 class="editor-title">{food.id ? 'Edit Food' : 'Add Food'}</h2>
+    {#if food.id}
+      <button class="btn-icon fav-btn" class:on={!!food.favorite}
+        on:click={() => { food.favorite = food.favorite ? 0 : 1; food = food; }}
+        aria-label={food.favorite ? 'Unfavorite' : 'Favorite'}
+        title={food.favorite ? 'Unfavorite' : 'Add to favorites'}>
+        <span class="material-symbols-rounded">{food.favorite ? 'favorite' : 'favorite_border'}</span>
+      </button>
+    {/if}
     <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
       on:click={save} disabled={saving}>
       {saving ? 'Saving…' : 'Save'}
@@ -603,7 +627,7 @@
           </div>
         </div>
         <button class="btn-icon link-btn" class:linked title={linked ? 'All fields scale proportionally' : 'Fields are independent'}
-          on:click={() => linked = !linked}>
+          on:click={() => { linked = !linked; if (linked) takeSnapshot(); }}>
           <span class="material-symbols-rounded" style="font-size:20px">{linked ? 'link' : 'link_off'}</span>
         </button>
       </div>
@@ -808,6 +832,8 @@
     z-index: 10;
   }
   .editor-title { font-size: 17px; font-weight: 600; flex: 1; }
+  .fav-btn { color: var(--text-3); }
+  .fav-btn.on { color: var(--macro-protein, #ec4899); }
   .editor-content { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 32px; }
   .editor-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   .editor-card-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }

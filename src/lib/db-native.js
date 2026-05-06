@@ -19,44 +19,50 @@ let _initPromise = null;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS foods (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    server_id   INTEGER,
-    user_id     INTEGER DEFAULT 1,
-    name        TEXT NOT NULL,
-    brand       TEXT,
-    nutrition   TEXT DEFAULT '{}',
-    portion     REAL DEFAULT 100,
-    unit        TEXT DEFAULT 'g',
-    img_url     TEXT,
-    notes       TEXT,
-    category    TEXT,
-    barcode     TEXT,
-    visibility  TEXT NOT NULL DEFAULT 'private',
-    source_id   INTEGER,
-    created_at  TEXT DEFAULT (datetime('now')),
-    updated_at  TEXT DEFAULT (datetime('now')),
-    deleted_at  TEXT DEFAULT NULL,
-    sync_status TEXT DEFAULT 'synced'
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id    INTEGER,
+    user_id      INTEGER DEFAULT 1,
+    name         TEXT NOT NULL,
+    brand        TEXT,
+    nutrition    TEXT DEFAULT '{}',
+    portion      REAL DEFAULT 100,
+    unit         TEXT DEFAULT 'g',
+    img_url      TEXT,
+    notes        TEXT,
+    category     TEXT,
+    barcode      TEXT,
+    visibility   TEXT NOT NULL DEFAULT 'private',
+    source_id    INTEGER,
+    favorite     INTEGER NOT NULL DEFAULT 0,
+    usage_count  INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT DEFAULT NULL,
+    created_at   TEXT DEFAULT (datetime('now')),
+    updated_at   TEXT DEFAULT (datetime('now')),
+    deleted_at   TEXT DEFAULT NULL,
+    sync_status  TEXT DEFAULT 'synced'
   );
 
   CREATE TABLE IF NOT EXISTS meals (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    server_id   INTEGER,
-    user_id     INTEGER DEFAULT 1,
-    name        TEXT NOT NULL,
-    nutrition   TEXT DEFAULT '{}',
-    items       TEXT DEFAULT '[]',
-    img_url     TEXT,
-    notes       TEXT,
-    is_recipe   INTEGER DEFAULT 0,
-    portion     REAL DEFAULT 100,
-    unit        TEXT DEFAULT 'g',
-    visibility  TEXT NOT NULL DEFAULT 'private',
-    source_id   INTEGER,
-    created_at  TEXT DEFAULT (datetime('now')),
-    updated_at  TEXT DEFAULT (datetime('now')),
-    deleted_at  TEXT DEFAULT NULL,
-    sync_status TEXT DEFAULT 'synced'
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id    INTEGER,
+    user_id      INTEGER DEFAULT 1,
+    name         TEXT NOT NULL,
+    nutrition    TEXT DEFAULT '{}',
+    items        TEXT DEFAULT '[]',
+    img_url      TEXT,
+    notes        TEXT,
+    is_recipe    INTEGER DEFAULT 0,
+    portion      REAL DEFAULT 100,
+    unit         TEXT DEFAULT 'g',
+    visibility   TEXT NOT NULL DEFAULT 'private',
+    source_id    INTEGER,
+    favorite     INTEGER NOT NULL DEFAULT 0,
+    usage_count  INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT DEFAULT NULL,
+    created_at   TEXT DEFAULT (datetime('now')),
+    updated_at   TEXT DEFAULT (datetime('now')),
+    deleted_at   TEXT DEFAULT NULL,
+    sync_status  TEXT DEFAULT 'synced'
   );
 
   CREATE TABLE IF NOT EXISTS diary (
@@ -189,6 +195,75 @@ async function _applySchema(db) {
     }
   } catch (e) {
     console.debug('[db-native] diary.notes migration skipped:', e?.message);
+  }
+
+  // Favorites + usage tracking — mirror of the server-side migration.
+  // Ensures the native cache has the same shape so synced rows from the
+  // server don't get rejected when we INSERT/UPDATE here.
+  for (const tbl of ['foods', 'meals']) {
+    try {
+      const info = await db.query(`PRAGMA table_info(${tbl})`);
+      const cols = (info?.values || []).map(r => r.name);
+      if (!cols.includes('favorite')) {
+        await db.execute(`ALTER TABLE ${tbl} ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`);
+      }
+      if (!cols.includes('usage_count')) {
+        await db.execute(`ALTER TABLE ${tbl} ADD COLUMN usage_count INTEGER NOT NULL DEFAULT 0`);
+      }
+      if (!cols.includes('last_used_at')) {
+        await db.execute(`ALTER TABLE ${tbl} ADD COLUMN last_used_at TEXT DEFAULT NULL`);
+      }
+    } catch (e) {
+      console.debug(`[db-native] ${tbl} favorites/usage migration skipped:`, e?.message);
+    }
+  }
+
+  // One-shot heal: clear `sync_status='pending'` on any row that was
+  // already server-synced (has a server_id). An earlier version of
+  // `dbBumpFoodUsage` / `dbBumpMealUsage` (pre-ee1e7b8) marked rows
+  // pending on every diary add, which then blocked
+  // `dbUpsertFromServer` from applying server-side image / nutrition
+  // corrections (because the upsert refuses to overwrite locally-pending
+  // rows). Now that bumps no longer mark rows pending, we need to free
+  // the rows that got falsely stuck. Local-only rows (no server_id) keep
+  // their pending state so they still push on the next sync.
+  try {
+    const fBefore = await db.query(`SELECT COUNT(*) AS n FROM foods WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
+    const mBefore = await db.query(`SELECT COUNT(*) AS n FROM meals WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
+    await db.run(`UPDATE foods SET sync_status = 'synced' WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
+    await db.run(`UPDATE meals SET sync_status = 'synced' WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
+    const fc = (fBefore?.values || [])[0]?.n ?? 0;
+    const mc = (mBefore?.values || [])[0]?.n ?? 0;
+    console.log(`[db-native] sync_status heal: cleared ${fc} foods + ${mc} meals from falsely-pending state`);
+  } catch (e) {
+    console.warn('[db-native] sync_status heal failed:', e?.message);
+  }
+
+  // Cleanup for the removed food_server_id diary heal: if the heal flag
+  // is set ('done'), an earlier build of this app marked diary rows
+  // sync_status='pending' with stale items[] when backfilling
+  // food_server_id. Those rows would push back to the server on the
+  // next sync and clobber any newer additions made on PWA / other
+  // clients. Clear the pending state on synced diary rows ONCE.
+  // Subsequent boots skip this so genuine offline diary edits still
+  // push normally. Local-only rows (no server_id) are left pending so
+  // they still push on first sync.
+  try {
+    const healFlag = await db.query(`SELECT value FROM sync_meta WHERE key = 'diary_food_server_id_v1'`);
+    const healDone = (healFlag?.values || [])[0]?.value === 'done';
+    const cleanupFlag = await db.query(`SELECT value FROM sync_meta WHERE key = 'diary_pending_cleanup_v1'`);
+    const cleanupDone = (cleanupFlag?.values || [])[0]?.value === 'done';
+    if (healDone && !cleanupDone) {
+      const before = await db.query(`SELECT COUNT(*) AS n FROM diary WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
+      await db.run(`UPDATE diary SET sync_status = 'synced' WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
+      const dc = (before?.values || [])[0]?.n ?? 0;
+      console.log(`[db-native] diary pending cleanup: cleared ${dc} rows left over from removed food_server_id heal`);
+    }
+    await db.run(
+      `INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('diary_pending_cleanup_v1', 'done')`
+    );
+  } catch (e) {
+    console.warn('[db-native] diary pending cleanup failed:', e?.message);
   }
 
   // Sodium ↔ salt backfill: server-side backfill doesn't bump updated_at, so
@@ -378,6 +453,27 @@ export async function dbDeleteFood(id) {
   await db.run(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now'), sync_status = 'pending' WHERE id = ? AND user_id = ?`, [id, LOCAL_USER_ID]);
 }
 
+// Bump usage counter on a food and lift last_used_at to the supplied date
+// (or today if missing). Uses MAX so out-of-order syncs don't roll back the
+// most-recent-use date. Mirror of server's POST /:id/used logic.
+//
+// IMPORTANT: does NOT touch updated_at or sync_status. The counter is a
+// derived field; pushing the full row through differential sync would
+// clobber server-authoritative columns (img_url, name, etc.) with whatever
+// the local cache happened to have. The HTTP /:id/used endpoint handles
+// the server-side bump independently. If the device is offline, the bump
+// is local-only — acceptable trade-off for derived counter data.
+export async function dbBumpFoodUsage(id, date) {
+  const d = (date && /^\d{4}-\d{2}-\d{2}$/.test(date))
+    ? date
+    : new Date().toISOString().slice(0, 10);
+  const db = await getDb();
+  await db.run(
+    `UPDATE foods SET usage_count = usage_count + 1, last_used_at = MAX(COALESCE(last_used_at, ''), ?) WHERE id = ?`,
+    [d, id]
+  );
+}
+
 export async function dbCopyFood(id) {
   const original = await dbGetFood(id);
   if (!original) throw new Error('Food not found');
@@ -458,6 +554,20 @@ export async function dbUpdateMeal(id, data) {
 export async function dbDeleteMeal(id) {
   const db = await getDb();
   await db.run(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now'), sync_status = 'pending' WHERE id = ? AND user_id = ?`, [id, LOCAL_USER_ID]);
+}
+
+// Mirror of dbBumpFoodUsage but on the meals table. Same rule:
+// no updated_at / sync_status changes — keep this strictly local so the
+// next differential push doesn't clobber server-authoritative columns.
+export async function dbBumpMealUsage(id, date) {
+  const d = (date && /^\d{4}-\d{2}-\d{2}$/.test(date))
+    ? date
+    : new Date().toISOString().slice(0, 10);
+  const db = await getDb();
+  await db.run(
+    `UPDATE meals SET usage_count = usage_count + 1, last_used_at = MAX(COALESCE(last_used_at, ''), ?) WHERE id = ?`,
+    [d, id]
+  );
 }
 
 export async function dbCopyMeal(id) {

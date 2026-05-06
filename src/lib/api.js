@@ -346,6 +346,7 @@ const _NtApiHttp = {
   deleteFood(id)                  { return this.del(`/api/foods/${id}`); },
   shareFood(id, visibility, user_ids) { return this.patch(`/api/foods/${id}/share`, { visibility, user_ids }); },
   async copyFood(id)              { const r = await this.post(`/api/foods/${id}/copy`, {}); return this._foodFromApi(r); },
+  markFoodUsed(id, date)          { return this.post(`/api/foods/${id}/used`, { date }); },
 
   // Meal field mapping: server uses img_url, app uses imgUrl
   _mealFromApi(row) {
@@ -369,6 +370,7 @@ const _NtApiHttp = {
   deleteMeal(id)                  { return this.del(`/api/meals/${id}`); },
   shareMeal(id, visibility, user_ids) { return this.patch(`/api/meals/${id}/share`, { visibility, user_ids }); },
   async copyMeal(id)              { const r = await this.post(`/api/meals/${id}/copy`, {}); return this._mealFromApi(r); },
+  markMealUsed(id, date)          { return this.post(`/api/meals/${id}/used`, { date }); },
 
   // Users list for sharing picker (non-admin, returns peers only)
   getUsersList()                  { return this.get('/api/auth/users/list'); },

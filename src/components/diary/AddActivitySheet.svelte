@@ -1,10 +1,11 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
   import { _ } from 'svelte-i18n';
   import Sheet from '../ui/Sheet.svelte';
   import { addActivity, updateActivity } from '../../stores/activity.js';
   import { energyUnit, distUnit } from '../../stores/settings.js';
   import { Nutrition } from '../../lib/nutrition.js';
+  import { NtApi } from '../../lib/api.js';
 
   export let open = false;
   export let date = '';        // YYYY-MM-DD
@@ -18,6 +19,8 @@
   let distance = '';
   let saving = false;
   let error = '';
+  let nameInput;             // <input> ref for auto-focus on open
+  let pastNames = [];        // distinct names from recent activity_log rows for <datalist>
   // Reset fields only on the false→true open transition; otherwise typing
   // in the inputs triggers a reactive cycle that wipes the user's edits.
   let _wasOpen = false;
@@ -31,6 +34,24 @@
       durationMin = entry?.duration_min != null ? String(entry.duration_min) : '';
       distance    = entry?.distance    ?? '';
       error       = '';
+      // Pull last ~90 days of activity-log names for the datalist suggestion list,
+      // deduped + capped. activity_log is small (manual entries only), so this is
+      // cheap. Fire-and-forget; if it fails, the input still works without
+      // suggestions.
+      const today = new Date();
+      const past = new Date(); past.setDate(past.getDate() - 90);
+      const fmt = d => d.toISOString().slice(0, 10);
+      NtApi.getActivityRange(fmt(past), fmt(today))
+        .then(rows => {
+          const seen = new Set();
+          pastNames = (rows || [])
+            .map(r => (r?.name || '').trim())
+            .filter(n => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()))
+            .slice(0, 50);
+        })
+        .catch(() => { pastNames = []; });
+      // Land cursor in the name input so the user can start typing right away.
+      tick().then(() => nameInput?.focus());
     }
     _wasOpen = open;
   }
@@ -73,7 +94,12 @@
   <div class="form" on:keydown={onKeydown}>
     <label class="field">
       <span class="field-label">{$_('diary.activity.field_name')}</span>
-      <input class="input" type="text" bind:value={name} placeholder={$_('diary.activity.field_name_placeholder')} maxlength="80" />
+      <input class="input" type="text" bind:value={name} bind:this={nameInput}
+        placeholder={$_('diary.activity.field_name_placeholder')} maxlength="80"
+        list="activity-name-suggestions" autocomplete="off" />
+      <datalist id="activity-name-suggestions">
+        {#each pastNames as n}<option value={n}></option>{/each}
+      </datalist>
     </label>
 
     <label class="field">

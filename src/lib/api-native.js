@@ -9,8 +9,8 @@
  */
 
 import {
-  dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood,
-  dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal,
+  dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood, dbBumpFoodUsage,
+  dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal, dbBumpMealUsage,
   dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary,
   dbGetActivity, dbGetActivityRange, dbSumActivity, dbWearableActiveCalories,
   dbCreateActivity, dbUpdateActivity, dbDeleteActivity,
@@ -94,6 +94,13 @@ export const NtApiNative = {
     return _foodFromDb(row);
   },
 
+  // Bump usage_count + last_used_at when this food is logged to a diary
+  // entry. Drives the "Most Used" / "Recently Used" sort modes.
+  async markFoodUsed(id, date) {
+    await dbBumpFoodUsage(id, date);
+    return { ok: true };
+  },
+
   // ── Meals & Recipes ───────────────────────────────────────────────────
 
   async getMeals() {
@@ -141,6 +148,11 @@ export const NtApiNative = {
   async copyMeal(id) {
     const row = await dbCopyMeal(id);
     return _mealFromDb(row);
+  },
+
+  async markMealUsed(id, date) {
+    await dbBumpMealUsage(id, date);
+    return { ok: true };
   },
 
   // ── Diary ─────────────────────────────────────────────────────────────

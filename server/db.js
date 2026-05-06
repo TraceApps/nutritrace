@@ -415,6 +415,15 @@ if (!columnExists('meals', 'updated_at')) {
   db.exec(`ALTER TABLE meals ADD COLUMN updated_at TEXT`);
   db.exec(`UPDATE meals SET updated_at = COALESCE(created_at, datetime('now'))`);
 }
+
+// Heal any rows where updated_at slipped through as NULL — possibly via
+// older POST /foods or POST /meals paths that didn't always set it.
+// Reported by tellis82 in #13: meals with null updated_at vanish from
+// the Android app because differential sync filters with `updated_at >= ?`
+// and SQLite's NULL never satisfies that comparison. Idempotent — only
+// rewrites NULL rows; existing non-null values are untouched.
+db.exec(`UPDATE foods SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL`);
+db.exec(`UPDATE meals SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL`);
 if (!columnExists('user_settings', 'updated_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN updated_at TEXT`);
   db.exec(`UPDATE user_settings SET updated_at = datetime('now')`);
@@ -435,6 +444,70 @@ if (!columnExists('diary', 'notes')) {
 }
 if (!columnExists('user_settings', 'deleted_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN deleted_at TEXT DEFAULT NULL`);
+}
+
+// ── Favorites + usage tracking (foods + meals) ─────────────────────────────
+// `favorite` pins items to the top of the picker; `usage_count` and
+// `last_used_at` drive the Most Used / Recently Used sort modes.
+// Backfill from existing diary items so users land with sensible values
+// instead of all-zeros (one-shot — only fires when the columns are added).
+function _backfillUsage(table) {
+  const rows = db.prepare(`SELECT id, items FROM diary`).all();
+  const counts = new Map(); // id → { count, last_date }
+  for (const r of rows) {
+    let items = [];
+    try { items = JSON.parse(r.items || '[]'); } catch {}
+    if (!Array.isArray(items)) continue;
+    for (const it of items) {
+      // Diary items reference foods via `foodId` and meals via `mealId`.
+      const id = table === 'foods' ? (it.foodId ?? it.food_id) : (it.mealId ?? it.meal_id);
+      if (id == null) continue;
+      const cur = counts.get(id) || { count: 0, last: '' };
+      cur.count++;
+      if (r.date > cur.last) cur.last = r.date;
+      counts.set(id, cur);
+    }
+  }
+  const upd = db.prepare(`UPDATE ${table} SET usage_count = ?, last_used_at = ? WHERE id = ?`);
+  const tx = db.transaction(() => {
+    for (const [id, { count, last }] of counts) upd.run(count, last || null, id);
+  });
+  tx();
+  return counts.size;
+}
+let _favColumnsAdded = false;
+if (!columnExists('foods', 'favorite')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`);
+  _favColumnsAdded = true;
+}
+if (!columnExists('foods', 'usage_count')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN usage_count INTEGER NOT NULL DEFAULT 0`);
+  _favColumnsAdded = true;
+}
+if (!columnExists('foods', 'last_used_at')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN last_used_at TEXT DEFAULT NULL`);
+  _favColumnsAdded = true;
+}
+if (!columnExists('meals', 'favorite')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`);
+  _favColumnsAdded = true;
+}
+if (!columnExists('meals', 'usage_count')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN usage_count INTEGER NOT NULL DEFAULT 0`);
+  _favColumnsAdded = true;
+}
+if (!columnExists('meals', 'last_used_at')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN last_used_at TEXT DEFAULT NULL`);
+  _favColumnsAdded = true;
+}
+if (_favColumnsAdded) {
+  try {
+    const n1 = _backfillUsage('foods');
+    const n2 = _backfillUsage('meals');
+    console.log(`[db] backfilled usage counters on ${n1} foods + ${n2} meals from existing diary items`);
+  } catch (e) {
+    console.warn('[db] usage backfill skipped:', e.message);
+  }
 }
 
 // Indexes for sync queries

@@ -30,13 +30,13 @@ export const USER_PREFS = new Set([
   'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes',
   'diaryShowActivity','manualActivityPolicy','activityAutoEstimate','calorieAdjustFromActivity',
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
-  'foodsShowYesterdayMeals','foodsYesterdayCollapsed','foodsSavedCollapsed','foodsSort',
+  'foodsShowYesterdayMeals','foodsYesterdayCollapsed','foodsSavedCollapsed','foodsSort','mealsSort','recipesSort',
   'barcodeBeep','cropPhotos',
   'offEnabled','offSearchLanguage','offSearchCountry','offUploadCountry',
   'weightUnit','heightUnit','lengthUnit','distUnit','tempUnit',
   'waterGoalMl','waterUnit','waterContainers','waterShowInStats','waterShowInDiary',
   'dateFormat','timeFormat','timezone',
-  'statsChartType','statsYZero','statsAvgLine','statsGoalLine','statsTrendLine','statsIncludeToday',
+  'statsChartType','statsYZero','statsAvgLine','statsGoalLine','statsTrendLine','statsIncludeToday','statsShowEmptyDays',
   // User profile (collected by Wizard, used for goal calculation; sync so multi-device
   // users see the same body profile)
   'gender','dob','height_cm','weight_kg','target_weight','activity','tdee',
@@ -430,7 +430,12 @@ export const foodsShowYesterdayMeals= createSettingStore('foodsShowYesterdayMeal
 // sections are visible — i.e. yesterday has items + user is in pick mode). Default expanded.
 export const foodsYesterdayCollapsed= createSettingStore('foodsYesterdayCollapsed',false);
 export const foodsSavedCollapsed    = createSettingStore('foodsSavedCollapsed',    false);
+// Sort order is per-tab so users can pick e.g. Recently Used for Foods (where
+// they speed-log) and Alphabetical for Recipes (where they browse a curated
+// library). Each defaults to 'alpha' to preserve the original behaviour.
 export const foodsSort              = createSettingStore('foodsSort',              'alpha');
+export const mealsSort              = createSettingStore('mealsSort',              'alpha');
+export const recipesSort            = createSettingStore('recipesSort',            'alpha');
 
 export const barcodeBeep            = createSettingStore('barcodeBeep',            false);
 export const barcodeFlashlight      = createSettingStore('barcodeFlashlight',      false);
@@ -515,6 +520,10 @@ export const statsAvgLine   = createSettingStore('statsAvgLine',   true);
 export const statsGoalLine  = createSettingStore('statsGoalLine',  true);
 export const statsTrendLine = createSettingStore('statsTrendLine', true);
 export const statsIncludeToday = createSettingStore('statsIncludeToday', false);
+// Show every date in the chart's range, even days with no logged value.
+// Default ON: an empty day is more honest than a hidden one — gaps in logging
+// are visible and the chart can't accidentally make a sparse week look full.
+export const statsShowEmptyDays = createSettingStore('statsShowEmptyDays', true);
 
 // Units
 export const weightUnit = createSettingStore('weightUnit', 'lb');
