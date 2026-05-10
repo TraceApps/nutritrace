@@ -182,6 +182,164 @@ export async function updateDiaryItem(index, changes) {
   currentEntry.set(await _save(updated));
 }
 
+/**
+ * Split a single recipe diary item into its constituent ingredients while
+ * preserving the recipe identity. The recipe row stays as a single line in
+ * the diary (with its name + image) but gets a `_splitItems` array of
+ * scaled children that the UI renders expandable underneath. Removing a
+ * child decrements the parent's totals; removing the last child collapses
+ * the parent back to a regular un-split entry.
+ *
+ * Mirrors Cronometer's "Explode Recipe" but keeps the parent visible —
+ * users still see "Chicken Stir Fry" with its picture, and can drill in
+ * via a chevron when they want to drop one ingredient. The saved recipe
+ * in the library is untouched.
+ *
+ * Sources for ingredients (in priority order):
+ *   1. The diary item's own `items[]` array — recipes added via Foods.svelte
+ *      spread the meal/recipe row in, so each diary item already carries
+ *      the full ingredient list.
+ *   2. Fallback: fetch the recipe by `food_server_id` (or `id`) via NtApi.
+ *
+ * Scale factor: (item portion × item quantity) / (recipe portion × recipe
+ * quantity). Logging 1.5 servings of a recipe produces 1.5x of every
+ * ingredient.
+ */
+export async function splitRecipeItem(index) {
+  let entry = null;
+  currentEntry.subscribe(v => entry = v)();
+  if (!entry || !Array.isArray(entry.items) || index < 0 || index >= entry.items.length) return false;
+
+  const item = entry.items[index];
+  // Already split — no-op. Avoids accidentally re-scaling.
+  if (Array.isArray(item._splitItems) && item._splitItems.length > 0) return false;
+
+  let recipe = item;
+  if (!Array.isArray(item.items) || item.items.length === 0) {
+    const recipeId = item.food_server_id ?? item.id;
+    if (typeof recipeId !== 'number') return false;
+    try { recipe = await NtApi.getMeal(recipeId); }
+    catch { return false; }
+  }
+  if (!Array.isArray(recipe.items) || recipe.items.length === 0) return false;
+
+  const itemMass = (item.portion || 100) * (item.quantity || 1);
+  // Derive the recipe's true total mass from the sum of its ingredients.
+  // recipe.portion is unreliable for scale math because users can hand-edit
+  // it after auto-fill (e.g., overwriting the 2299g auto-sum with a 300g
+  // per-serving value). The ingredient totals are what they actually are.
+  let ingredientsMass = 0;
+  for (const ing of recipe.items) {
+    const p = parseFloat(ing.portion);
+    const q = parseFloat(ing.quantity);
+    if (!Number.isFinite(p) || p <= 0) continue;
+    ingredientsMass += p * (Number.isFinite(q) && q > 0 ? q : 1);
+  }
+  const recipeMass = ingredientsMass > 0
+    ? ingredientsMass
+    : (recipe.portion || 100) * (recipe.quantity || 1);
+  const scale = recipeMass > 0 ? itemMass / recipeMass : 1;
+
+  const now  = new Date().toISOString();
+  // Bake the scale factor into portion + nutrition rather than into quantity.
+  // The display math works out the same either way (portion × quantity ×
+  // nutrition_per_unit), but storing scale-as-quantity (e.g. 454g × 0.13 =
+  // 59.245g logged) means the edit sheet shows "Serving Size: 454, # Servings:
+  // 0.13049151805132667" — opaque. With scale-as-portion the child carries
+  // the scaled gram-equivalent as portion, quantity=1, nutrition pre-scaled.
+  // Editing presents clean numbers and behaves like any other diary item.
+  //
+  // Portion rounded to 1 decimal (min 0.1) for readability — meat / pasta /
+  // sauce in typical 50-500g amounts read like whole numbers, while tiny
+  // ingredients (saffron 0.7g, vanilla 0.3g) keep their precision. Nutrition
+  // is rebalanced from the rounded portion so per-gram density stays
+  // accurate.
+  const _round1 = v => Math.round(v * 10) / 10;
+  const splitItems = recipe.items.map(ing => {
+    const food_server_id = ('server_id' in ing)
+      ? ing.server_id
+      : (typeof ing.id === 'number' ? ing.id : null);
+    const origPortion  = parseFloat(ing.portion)  || 100;
+    const origQuantity = parseFloat(ing.quantity) || 1;
+    const exactScaledMass = origPortion * origQuantity * scale;
+    const newPortion = Math.max(0.1, _round1(exactScaledMass));
+    // Nutrition was stored per (origPortion × origQuantity) of the
+    // ingredient. We want it per newPortion (with quantity=1), so the
+    // multiplier is newPortion / (origPortion × origQuantity).
+    const nutritionFactor = newPortion / (origPortion * origQuantity);
+    let scaledNutrition = ing.nutrition;
+    if (ing.nutrition && typeof ing.nutrition === 'object') {
+      scaledNutrition = Object.fromEntries(
+        Object.entries(ing.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * nutritionFactor])
+      );
+    }
+    return {
+      ...ing,
+      portion: newPortion,
+      quantity: 1,
+      nutrition: scaledNutrition,
+      addedAt: now,
+      food_server_id,
+    };
+  });
+
+  const updated = {
+    ...entry,
+    items: entry.items.map((it, i) => i === index ? { ...item, _splitItems: splitItems } : it),
+  };
+  currentEntry.set(await _save(updated));
+  return true;
+}
+
+/**
+ * Remove a single ingredient from a split recipe parent. Updates the
+ * parent's `_splitItems` array (and the parent's nutrition recomputes
+ * automatically via Nutrition.calculate). If the removal empties the
+ * children array, the entire parent is removed from the diary — the user
+ * has effectively dropped the whole recipe.
+ */
+export async function removeSplitChild(parentIndex, childIndex) {
+  let entry = null;
+  currentEntry.subscribe(v => entry = v)();
+  if (!entry || !Array.isArray(entry.items) || parentIndex < 0 || parentIndex >= entry.items.length) return;
+
+  const parent = entry.items[parentIndex];
+  if (!Array.isArray(parent._splitItems) || childIndex < 0 || childIndex >= parent._splitItems.length) return;
+
+  const remaining = parent._splitItems.filter((_, i) => i !== childIndex);
+  let newItems;
+  if (remaining.length === 0) {
+    newItems = entry.items.filter((_, i) => i !== parentIndex);
+  } else {
+    newItems = entry.items.map((it, i) =>
+      i === parentIndex ? { ...parent, _splitItems: remaining } : it
+    );
+  }
+  currentEntry.set(await _save({ ...entry, items: newItems }));
+}
+
+/**
+ * Update one ingredient inside a split recipe parent. Used when the user
+ * tweaks a child's quantity / portion — keeps the parent intact, only
+ * the child changes.
+ */
+export async function updateSplitChild(parentIndex, childIndex, changes) {
+  let entry = null;
+  currentEntry.subscribe(v => entry = v)();
+  if (!entry || !Array.isArray(entry.items) || parentIndex < 0 || parentIndex >= entry.items.length) return;
+
+  const parent = entry.items[parentIndex];
+  if (!Array.isArray(parent._splitItems) || childIndex < 0 || childIndex >= parent._splitItems.length) return;
+
+  const newChildren = parent._splitItems.map((c, i) =>
+    i === childIndex ? { ...c, ...changes } : c
+  );
+  const newItems = entry.items.map((it, i) =>
+    i === parentIndex ? { ...parent, _splitItems: newChildren } : it
+  );
+  currentEntry.set(await _save({ ...entry, items: newItems }));
+}
+
 export async function copyMealItems(fromMealIdx, toMealIdx) {
   let entry = null;
   currentEntry.subscribe(v => entry = v)();

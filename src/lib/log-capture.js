@@ -234,11 +234,6 @@ if (_verbose && _isNative) {
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-/** Returns the captured log lines as an array (most recent last). */
-export function getLogBuffer() {
-  return buffer.slice();
-}
-
 /** Returns the buffer joined into a single text blob with header — suitable for clipboard / download. */
 export function getLogBufferText() {
   return _buildHeader() + buffer.join('\n');

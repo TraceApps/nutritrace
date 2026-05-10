@@ -10,7 +10,7 @@
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearMealEditorState } from '../stores/editorState.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
-  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, catName as _catName, catDisplay as _catDisplay, energyUnit } from '../stores/settings.js';
+  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, catName as _catName, catDisplay as _catDisplay, energyUnit, foodsSort, mealsSort, recipesSort } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
 
   export let params = {};
@@ -190,11 +190,40 @@
   }
 
   $: _pickerList = pickerTab === 0 ? pickerFoods : pickerTab === 1 ? pickerMeals : pickerRecipes;
+  // Pull the per-tab sort mode from the same settings the Foods page reads,
+  // so the recipe ingredient picker honors whatever sort the user picked
+  // for browsing their library (default alpha).
+  $: _pickerSortMode = pickerTab === 0 ? $foodsSort : pickerTab === 1 ? $mealsSort : $recipesSort;
+  function _applyPickerSort(arr, mode) {
+    const sorted = [...arr];
+    if (mode === 'recent') {
+      sorted.sort((a, b) => {
+        const al = a.last_used_at || '';
+        const bl = b.last_used_at || '';
+        if (al && bl) return bl.localeCompare(al);
+        if (al) return -1;
+        if (bl) return 1;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    } else if (mode === 'most') {
+      sorted.sort((a, b) => {
+        const d = (b.usage_count || 0) - (a.usage_count || 0);
+        if (d !== 0) return d;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    } else {
+      sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+    // Favorites always pin to the top, regardless of sort mode (matches
+    // Foods page behavior).
+    return [...sorted.filter(f => f.favorite), ...sorted.filter(f => !f.favorite)];
+  }
+  $: _pickerListSorted = _applyPickerSort(_pickerList, _pickerSortMode);
   $: pickerFiltered = pickerSearch
-    ? _pickerList.filter(f =>
+    ? _pickerListSorted.filter(f =>
         (f.name||'').toLowerCase().includes(pickerSearch.toLowerCase()) ||
         (f.brand||'').toLowerCase().includes(pickerSearch.toLowerCase()))
-    : _pickerList;
+    : _pickerListSorted;
 
   $: { pickerTab; selectedIngredients = new Set(); }
 

@@ -175,12 +175,6 @@ export function notifyStepGoal(userId, steps, goal) {
   }
 }
 
-export function notifyCalorieGoal(userId, calories, goal) {
-  if (_firedToday(userId, 'cal_max')) return;
-  return pushNotify(userId, 'notifCalorieGoal', '🔥 Calorie Target Reached',
-    `${Math.round(calories).toLocaleString()} kcal — daily target is ${Math.round(goal).toLocaleString()} kcal`, 5);
-}
-
 export async function sendWeeklySummary(userId) {
   const rows = db.prepare(
     `SELECT metric_type, AVG(value) as avg FROM wellness_data

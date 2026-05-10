@@ -47,9 +47,10 @@ export const USER_PREFS = new Set([
   'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','quickLogEnabled','aiGoalInsights',
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
-  'wellnessEnabled','fitbitEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
+  'wellnessEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
   'wellnessSyncRange',
   'fitbitSyncMode','fitbitSyncInterval','fitbitSyncWindowStart','fitbitSyncWindowEnd',
+  'googleHealthSyncMode','googleHealthSyncInterval','googleHealthSyncWindowStart','googleHealthSyncWindowEnd',
   'withingsEnabled','withingsSyncRange',
   'withingsSyncMode','withingsSyncInterval','withingsSyncWindowStart','withingsSyncWindowEnd',
   'garminEnabled','garminSyncRange',
@@ -560,6 +561,7 @@ export const pageBanners          = createSettingStore('pageBanners',          t
 // Wellness (Activity Tracking)
 export const wellnessEnabled    = createSettingStore('wellnessEnabled',    false);
 export const fitbitEnabled      = createSettingStore('fitbitEnabled',      false);
+export const googleHealthEnabled = createSettingStore('googleHealthEnabled', false);
 export const healthConnectEnabled = createSettingStore('healthConnectEnabled', false);
 export const wellnessMetrics    = createSettingStore('wellnessMetrics',    null); // null = all visible
 export const workoutsEnabled   = createSettingStore('workoutsEnabled',   false); // show workout history + GPS maps in Movement tab

@@ -186,12 +186,27 @@
                 await loadAuthState();
                 window.location.hash = '#/';
               }
-            } else if (params.get('fitbit') === 'connected' || params.get('withings') === 'connected' || params.get('garmin') === 'connected') {
-              const provider = params.get('fitbit') ? 'fitbit' : params.get('withings') ? 'withings' : 'garmin';
-              import('./stores/toast.js').then(({ showSuccess }) => showSuccess(`${provider.charAt(0).toUpperCase() + provider.slice(1)} connected!`));
+            } else if (
+              params.get('fitbit')        === 'connected' ||
+              params.get('google_health') === 'connected' ||
+              params.get('withings')      === 'connected' ||
+              params.get('garmin')        === 'connected'
+            ) {
+              const provider =
+                params.get('fitbit')        ? 'fitbit' :
+                params.get('google_health') ? 'google_health' :
+                params.get('withings')      ? 'withings' : 'garmin';
+              const label = provider === 'google_health' ? 'Google Health' :
+                            provider.charAt(0).toUpperCase() + provider.slice(1);
+              import('./stores/toast.js').then(({ showSuccess }) => showSuccess(`${label} connected!`));
               // Navigate to Wellness page to pick up new connection
               window.location.hash = '#/wellness';
-            } else if (params.get('fitbit') === 'error' || params.get('withings') === 'error' || params.get('garmin') === 'error') {
+            } else if (
+              params.get('fitbit')        === 'error' ||
+              params.get('google_health') === 'error' ||
+              params.get('withings')      === 'error' ||
+              params.get('garmin')        === 'error'
+            ) {
               const msg = params.get('msg') || 'Authorization failed';
               import('./stores/toast.js').then(({ showError }) => showError(msg));
               window.location.hash = '#/wellness';

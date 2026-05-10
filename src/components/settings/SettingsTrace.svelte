@@ -245,19 +245,6 @@
   .form-group { display: flex; flex-direction: column; gap: 6px; }
   .form-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
 
-  .labs-badge {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    background: linear-gradient(135deg, #f59e0b, #ef4444);
-    color: #fff;
-    padding: 2px 6px;
-    border-radius: 99px;
-    margin-left: 6px;
-    vertical-align: middle;
-  }
-
   .env-lock-banner {
     display: flex;
     align-items: center;

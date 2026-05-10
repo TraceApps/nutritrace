@@ -586,19 +586,6 @@
       </div>
     {/if}
 
-    <div class="include-today-row">
-      {#if isCumulative(metric)}
-        <label class="include-today-label">
-          <input type="checkbox" checked={$statsIncludeToday} on:change={e => statsIncludeToday.set(e.target.checked)} />
-          <span>Include today (partial day)</span>
-        </label>
-      {/if}
-      <label class="include-today-label">
-        <input type="checkbox" checked={$statsShowEmptyDays} on:change={e => statsShowEmptyDays.set(e.target.checked)} />
-        <span>Show empty days</span>
-      </label>
-    </div>
-
     <!-- Chart -->
     <div class="chart-card card">
       {#if loading}
@@ -879,17 +866,6 @@
   .dp-day.dp-sel   { background: var(--accent) !important; color: #fff; font-weight: 600; }
 
   .chart-card { padding: 16px; position: relative; }
-  .include-today-row {
-    display: flex; justify-content: flex-end;
-    padding: 0 4px 6px;
-    margin-top: -4px;
-  }
-  .include-today-label {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 12px; color: var(--text-3);
-    cursor: pointer; user-select: none;
-  }
-  .include-today-label input[type="checkbox"] { margin: 0; cursor: pointer; }
   .chart-loading {
     position: absolute; inset: 0; z-index: 2;
     display: flex; align-items: center; justify-content: center;

@@ -18,9 +18,10 @@ import settingsRoutes  from './routes/settings.js';
 import appConfigRoutes  from './routes/app-config.js';
 import aiRoutes         from './routes/ai.js';
 import fullBackupRoutes from './routes/full-backup.js';
-import fitbitRoutes     from './routes/fitbit.js';
-import withingsRoutes   from './routes/withings.js';
-import garminRoutes     from './routes/garmin.js';
+import fitbitRoutes       from './routes/fitbit.js';
+import googleHealthRoutes from './routes/google-health.js';
+import withingsRoutes     from './routes/withings.js';
+import garminRoutes       from './routes/garmin.js';
 import syncRoutes       from './routes/sync.js';
 import oidcRoutes       from './routes/oidc.js';
 import oidcAdminRoutes  from './routes/oidc-admin.js';
@@ -162,10 +163,16 @@ router.use('/api/full-backup',        fullBackupRoutes);
 // Per-IP rate limit on OAuth callbacks — these run unauthenticated and trigger
 // expensive token-exchange round-trips with the OAuth provider.
 const oauthCallbackLimit = makeRateLimiter({ max: 10, windowMs: 60_000, label: 'oauth-callback' });
-router.use(['/api/wellness/fitbit/callback', '/api/wellness/withings/callback', '/api/wellness/garmin/callback'], oauthCallbackLimit);
-router.use('/api/wellness/fitbit',   fitbitRoutes);
-router.use('/api/wellness/withings', withingsRoutes);
-router.use('/api/wellness/garmin',  garminRoutes);
+router.use([
+  '/api/wellness/fitbit/callback',
+  '/api/wellness/google-health/callback',
+  '/api/wellness/withings/callback',
+  '/api/wellness/garmin/callback',
+], oauthCallbackLimit);
+router.use('/api/wellness/fitbit',        fitbitRoutes);
+router.use('/api/wellness/google-health', googleHealthRoutes);
+router.use('/api/wellness/withings',      withingsRoutes);
+router.use('/api/wellness/garmin',        garminRoutes);
 
 // Cross-source calories_out lookup — for Dynamic Calorie Goal
 // Returns yesterday's merged TDEE from fitbit/garmin/health_connect

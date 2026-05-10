@@ -704,24 +704,4 @@
   }
   .invite-link-row { display: flex; gap: 8px; }
 
-  /* Inline dialog (for disable user management) */
-  .dialog-overlay {
-    position: fixed; inset: 0; z-index: 500;
-    background: rgba(0,0,0,0.5);
-    display: flex; align-items: center; justify-content: center;
-    padding: 24px;
-  }
-  .dialog-box {
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 24px;
-    max-width: 380px;
-    width: 100%;
-  }
-  .dialog-title { font-size: 17px; font-weight: 600; margin: 0 0 8px; color: var(--text-1); }
-  .dialog-msg   { font-size: 13px; color: var(--text-3); margin: 0 0 20px; line-height: 1.5; }
-  .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; }
-  .btn-danger { background: var(--danger, #ef4444); color: #fff; border: none; border-radius: var(--radius-md); padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
-
 </style>

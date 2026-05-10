@@ -145,13 +145,19 @@ async function _syncWellness(userId) {
     return d.toISOString().slice(0, 10);
   }
 
-  // Fitbit
-  const hasFitbit = db.prepare('SELECT 1 FROM fitbit_tokens WHERE user_id=?').get(userId);
+  // Fitbit — prefer the new Google Health pipe if the user has those tokens.
+  // Falls back to the legacy fitbit.js path for users who haven't re-linked
+  // yet. Both modules export the same syncDate/syncWorkouts signatures so
+  // the rest of this block is unchanged.
+  const hasGoogleHealth = db.prepare('SELECT 1 FROM google_health_tokens WHERE user_id=?').get(userId);
+  const hasLegacyFitbit = db.prepare('SELECT 1 FROM fitbit_tokens WHERE user_id=?').get(userId);
+  const hasFitbit = hasGoogleHealth || hasLegacyFitbit;
+  const fitbitModulePath = hasGoogleHealth ? '../routes/google-health.js' : '../routes/fitbit.js';
   if (hasFitbit && _shouldDeviceSync(userId, 'fitbit', local)
       && !_ranRecently(userId, 'fitbit_sync', _dedupWindow(userId, 'fitbit'))) {
     const from = _fromDate('wellness'); // Fitbit uses shared wellnessSyncRange
     try {
-      const { syncDate, syncWorkouts } = await import('../routes/fitbit.js');
+      const { syncDate, syncWorkouts } = await import(fitbitModulePath);
       logger.info(`[scheduler] Fitbit sync for user ${userId}: ${from} → ${today}`);
       const start = new Date(from + 'T12:00:00');
       const end   = new Date(today + 'T12:00:00');
@@ -492,10 +498,15 @@ export async function forceSync(userId) {
   logger.info(`[scheduler] forced sync for user ${userId}`);
   const today = new Date().toISOString().slice(0, 10);
 
-  const hasFitbit = db.prepare('SELECT 1 FROM fitbit_tokens WHERE user_id=?').get(userId);
+  // Same dispatch logic as the periodic tick above: prefer the new Google
+  // Health pipe when the user has those tokens, fall back to legacy fitbit.
+  const hasGH = db.prepare('SELECT 1 FROM google_health_tokens WHERE user_id=?').get(userId);
+  const hasLegFitbit = db.prepare('SELECT 1 FROM fitbit_tokens WHERE user_id=?').get(userId);
+  const hasFitbit = hasGH || hasLegFitbit;
   if (hasFitbit) {
     try {
-      const { syncDate } = await import('../routes/fitbit.js');
+      const modulePath = hasGH ? '../routes/google-health.js' : '../routes/fitbit.js';
+      const { syncDate } = await import(modulePath);
       logger.info(`[scheduler] forced Fitbit sync for user ${userId}`);
       const { metrics, errors } = await syncDate(userId, today);
       logger.info(`[scheduler] Fitbit sync done: ${Object.keys(metrics || {}).length} metrics`);

@@ -99,6 +99,14 @@ const Nutrition = {
   SODIUM_MG_PER_SALT_G,
   calculate(item) {
     if (!item) return {};
+    // Split-recipe items: when a diary recipe has been "split" into its
+    // ingredients (Cronometer-style explode), the item's authoritative
+    // nutrition is the sum of its child ingredients, not its cached
+    // top-level nutrition. The recipe identity (name + image) stays on the
+    // parent for display but the math comes from the children.
+    if (Array.isArray(item._splitItems) && item._splitItems.length > 0) {
+      return Nutrition.sum(item._splitItems.map(c => Nutrition.calculate(c)));
+    }
     const quantity = parseFloat(item.quantity) || 1;
     const factor = quantity; // nutrition values are per serving; quantity = number of servings
     const result = {};

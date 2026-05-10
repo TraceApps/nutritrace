@@ -19,8 +19,8 @@ android {
         applicationId "com.nutritrace.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 87
-        versionName "1.0.0-rc.19"
+        versionCode 89
+        versionName "1.0.0-rc.20"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -39,6 +39,16 @@ android {
         }
     }
     buildTypes {
+        // Sign dev/debug builds with the release keystore too so `cap run android`
+        // produces APKs that share a cert with public release APKs. Without this,
+        // installing a dev build over a release install (or vice-versa) triggers
+        // an Android signature-mismatch and forces a fresh install — wiping the
+        // local SQLite DB and Capacitor Preferences.
+        debug {
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'

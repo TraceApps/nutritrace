@@ -67,7 +67,3 @@ export function decrypt(value) {
   }
 }
 
-/** True when a string is in our ciphertext format (useful for migration logging). */
-export function isEncrypted(s) {
-  return typeof s === 'string' && s.startsWith(PREFIX);
-}

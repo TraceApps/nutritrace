@@ -41,6 +41,19 @@
     { id: 'sleep_efficiency',   label: 'Sleep Efficiency', unit: '%',  group: 'sleep', icon: 'battery_charging_full', fmt: v => v.toFixed(0),  sources: ['fitbit'], desc: 'Percentage of time in bed actually spent asleep. Above 85% is generally considered good.' },
     // Sleep — Garmin (device-measured); Fitbit (estimated from stages + SpO2 + HRV)
     { id: 'sleep_score',        label: 'Sleep Score',    unit: '/100', group: 'sleep', icon: 'star',                  fmt: v => Math.round(v), sources: ['fitbit','garmin'], desc: 'Overall sleep quality score out of 100. Factors in duration, sleep stage balance, SpO2, and HRV.' },
+    // Sleep Quality (Fitbit Public Preview Sleep Score redesign).
+    // Order: Time to Sound Sleep, Sound Sleep, Restlessness, Interruptions.
+    // Full Awakenings count is folded into the Interruptions card display
+    // ("X min · N moments") rather than its own tile.
+    { id: 'sleep_time_to_fall_asleep_min', label: 'Time to Sound Sleep', unit: 'min', group: 'sleep_quality', icon: 'snooze',           fmt: v => Math.round(v), sources: ['fitbit'], desc: 'How long it took to settle into deep sleep after first falling asleep. Lower is generally better.' },
+    { id: 'sleep_sound_sleep_min',         label: 'Sound Sleep',          unit: '',    group: 'sleep_quality', icon: 'self_improvement', fmt: v => { const h = Math.floor(v / 60); const m = Math.round(v % 60); return h ? `${h}h ${m}m` : `${m}m`; }, sources: ['fitbit'], desc: 'Longest stretch of uninterrupted sleep (LIGHT, DEEP, and REM with no wake events). Approximation of Fitbit\'s Sound Sleep metric — Fitbit\'s exact algorithm is proprietary and may use motion data the API does not expose.' },
+    { id: 'sleep_restlessness_min',        label: 'Restlessness',         unit: 'min', group: 'sleep_quality', icon: 'vibration',        fmt: v => Math.round(v), sources: ['fitbit'], desc: 'Brief stirring during the night — short AWAKE segments under 5 minutes. Approximation of Fitbit\'s Restlessness metric, which also incorporates motion data the API does not expose.' },
+    { id: 'sleep_interruptions_min',       label: 'Interruptions',        unit: 'min', group: 'sleep_quality', icon: 'pause_circle',     fmt: v => Math.round(v), sources: ['fitbit'], desc: 'Wake events of 5 minutes or longer that you\'re likely to remember. Card shows total minutes and the count of awakenings.' },
+    // sleep_full_awakenings stays in the dataset (for chart plotting if the
+    // user adds it in Statistics) but doesn't render as its own card —
+    // pulled into the Interruptions card subtitle instead. Hidden via
+    // `hideTile: true` so the metric grid skips it.
+    { id: 'sleep_full_awakenings',         label: 'Full Awakenings',      unit: '',    group: 'sleep_quality', icon: 'notifications_active', fmt: v => Math.round(v), sources: ['fitbit'], desc: 'Number of distinct wake events of 5 minutes or longer. Shown alongside Interruptions on the same card.', hideTile: true },
     // Heart — both
     { id: 'resting_hr',        label: 'Resting Heart Rate', unit: 'bpm',  group: 'heart', icon: 'favorite',       fmt: v => Math.round(v), sources: ['fitbit','garmin'], desc: 'Heart rate when fully at rest. Lower is generally better — a downward trend over time reflects improving cardiovascular fitness.' },
     { id: 'spo2_avg',          label: 'SpO2',               unit: '%',    group: 'heart', icon: 'water_drop',     fmt: v => v.toFixed(1),  sources: ['fitbit','garmin'], desc: 'Blood oxygen saturation measured overnight. Healthy range is typically 95–100%. Dips below 90% may indicate sleep apnea.' },
@@ -775,94 +788,10 @@
   $: { activeTab; if (activeTab === 'heart') _readinessLoaded = false; }
   $: if (activeTab === 'heart' && !_readinessLoaded) loadReadiness();
 
-  // ── Stress Management Score ───────────────────────────────────────────────
-  // Reverse-engineered from Fitbit's model using 6 ground-truth data points.
-  // Key difference from readiness: sleep weighted more heavily, HRV gentler,
-  // and exponential smoothing (0.65 × prev_computed + 0.35 × raw) which is
-  // why the score moves slowly day-to-day. The smoothing chain is computed
-  // over 30 days of history so no prior score storage is needed.
-  let stressScore      = null;
-  let _stressLoaded    = false;
-
-  function _rawStressScore(hrv, rhr, sleepScore, hrvBaseline, rhrBaseline) {
-    if (hrv == null) return null;
-    // HRV component — very gentle (±40 per ratio unit). Stress is dominated by sleep.
-    const hrvRatio = hrv / hrvBaseline;
-    let hrv_s = 75 + (hrvRatio - 1.0) * 40;
-    hrv_s = _clamp(hrv_s, 0, 100);
-    // RHR component — mild modifier
-    let rhr_s = 75;
-    if (rhrBaseline != null && rhr != null) {
-      rhr_s = 75 + (rhrBaseline / rhr - 1.0) * 80;
-      rhr_s = _clamp(rhr_s, 0, 100);
-    }
-    // Sleep component — dominant weight (60%). Fitbit stress mgmt correlates heavily with sleep.
-    const sleep_s = sleepScore != null ? sleepScore : 75;
-    const raw = (0.15 * hrv_s) + (0.60 * sleep_s) + (0.10 * rhr_s) + 14; // tuned with 6 days of data, MAE 3.17
-    return { raw, hrv_s: Math.round(hrv_s), rhr_s: Math.round(rhr_s), sleep_s: Math.round(sleep_s) };
-  }
-
-  function _calcStressScore(todayHrv, todayRhr, todaySleepScore, history30d) {
-    if (todayHrv == null) return null;
-
-    const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
-
-    // Same separation as readiness: history-only baseline, today counted for threshold only.
-    const histHrvVals  = history30d.map(d => d.hrv_daily_rmssd).filter(v => v != null);
-    const totalHrvCount = histHrvVals.length + 1;
-    if (totalHrvCount < 3 || histHrvVals.length < 2) return { calibrating: true, data_days: histHrvVals.length, needed: 3 };
-
-    const hrvBaseline = mean(histHrvVals);
-    const rhrVals     = [...history30d.map(d => d.resting_hr).filter(v => v != null), ...(todayRhr != null ? [todayRhr] : [])];
-    const rhrBaseline = rhrVals.length >= 3 ? mean(rhrVals) : null;
-
-    // Build smoothed score chain over history (oldest → newest)
-    // Seed from first day with enough data — no stored scores needed.
-    let smoothed = null;
-    for (const d of history30d) {
-      const r = _rawStressScore(d.hrv_daily_rmssd, d.resting_hr, d.sleep_score, hrvBaseline, rhrBaseline);
-      if (r == null) continue;
-      smoothed = smoothed == null ? r.raw : 0.40 * smoothed + 0.60 * r.raw;
-    }
-
-    // Today's score — more responsive to today's raw (60% today, 40% history)
-    const today = _rawStressScore(todayHrv, todayRhr, todaySleepScore, hrvBaseline, rhrBaseline);
-    if (today == null) return null;
-    const todayRaw = today.raw;
-    const score = Math.round(_clamp(
-      smoothed != null ? 0.40 * smoothed + 0.60 * todayRaw : todayRaw,
-      1, 100
-    ));
-
-    // Fitbit: higher = better managed (less stressed)
-    const label = score >= 80 ? 'Well managed' : score >= 65 ? 'Balanced' : score >= 50 ? 'Moderate' : score >= 35 ? 'Elevated' : 'High';
-    const color = score >= 65 ? 'var(--accent)' : score >= 50 ? '#f59e0b' : '#ef4444';
-
-    console.debug('[stress]', JSON.stringify({
-      inputs: { todayHrv, todayRhr, todaySleepScore, historyDays: history30d.length },
-      baselines: { hrvBaseline: Math.round(hrvBaseline * 100) / 100, rhrBaseline: rhrBaseline != null ? Math.round(rhrBaseline * 10) / 10 : null },
-      todayRaw: Math.round(todayRaw * 10) / 10,
-      smoothedHistory: smoothed != null ? Math.round(smoothed * 10) / 10 : null,
-      formula: smoothed != null ? `0.40×${Math.round(smoothed*10)/10} + 0.60×${Math.round(todayRaw*10)/10} = ${score}` : `raw=${Math.round(todayRaw*10)/10} → ${score}`,
-    }, null, 2));
-
-    return {
-      score, label, color,
-      hrv_score:  today.hrv_s,
-      rhr_score:  today.rhr_s,
-      sleep_score_used: today.sleep_s,
-      hrv_baseline: Math.round(hrvBaseline * 10) / 10,
-      rhr_baseline: rhrBaseline != null ? Math.round(rhrBaseline) : null,
-      hrv_today:    Math.round(todayHrv * 10) / 10,
-      rhr_today:    todayRhr != null ? Math.round(todayRhr) : null,
-      data_days:    totalHrvCount,
-    };
-  }
-
-  // ── Readiness/Stress insight text ─────────────────────────────────────────
+  // ── Readiness insight text ─────────────────────────────────────────────────
   // Generate a band-driven lead + sub-score-driven driver line. Sub-scores
   // are 0-100 (the same numbers shown as HRV/RHR/Sleep under each card).
-  // Driver branches: penalty (readiness only) → lowest sub-score → holistic.
+  // Driver branches: penalty → lowest sub-score → holistic.
 
   function _readinessInsight(r) {
     if (!r || r.calibrating) return null;
@@ -911,94 +840,6 @@
 
     return { lead, driver };
   }
-
-  function _stressInsight(s) {
-    if (!s || s.calibrating) return null;
-
-    const lead =
-      s.score >= 80 ? "Your body's well-balanced today."
-    : s.score >= 65 ? "Moderate stress — manageable."
-    : s.score >= 50 ? "Elevated stress — your body's working harder than usual."
-    :                 "High physiological stress detected.";
-
-    const subs = [
-      { key: 'hrv',   val: s.hrv_score,        label: 'HRV' },
-      { key: 'rhr',   val: s.rhr_score,        label: 'Resting HR' },
-      { key: 'sleep', val: s.sleep_score_used, label: 'Sleep' },
-    ];
-    const lowest = subs.reduce((m, c) => c.val < m.val ? c : m);
-
-    let driver;
-    if (lowest.val < 50) {
-      if (lowest.key === 'sleep') {
-        driver = `Poor sleep (${s.sleep_score_used}) is amplifying this. The most reliable lever right now is an earlier bedtime.`;
-      } else if (lowest.key === 'hrv') {
-        driver = `HRV (${s.hrv_today}ms vs ${s.hrv_baseline}ms baseline) is depressed — sympathetic dominance. A wind-down routine tonight will help (low light, no caffeine after 2pm).`;
-      } else {
-        driver = `Resting HR (${s.rhr_today}) is up from your ${s.rhr_baseline} baseline. Watch for illness signals; consider a slower pace today.`;
-      }
-    } else if (lowest.val < 65) {
-      if (lowest.key === 'sleep') {
-        driver = `Sleep (${s.sleep_score_used}) is the weakest factor today. Catching up tonight will move this score more than anything else.`;
-      } else if (lowest.key === 'hrv') {
-        driver = `HRV (${s.hrv_today}ms) is below your ${s.hrv_baseline}ms baseline. A walk and a real lunch break help more than another coffee.`;
-      } else {
-        driver = `Resting HR (${s.rhr_today}) is slightly up from baseline. Easy day, real meals, water.`;
-      }
-    } else if (s.score >= 80) {
-      driver = "Every signal is calm. Keep the current rhythm working.";
-    } else if (s.score >= 65) {
-      driver = "Components are individually OK — likely accumulated load. A walk and a real lunch break will move the needle more than another coffee.";
-    } else {
-      driver = "Signals are mixed — the smoothed history is pulling the score down even though today's components look decent. Steady recovery habits this week will lift it.";
-    }
-
-    return { lead, driver };
-  }
-
-  async function loadStressScore() {
-    _stressLoaded = true;
-    const today = new Date();
-    const from  = new Date(today);
-    from.setDate(from.getDate() - 30);
-    const fromStr = from.toLocaleDateString('sv-SE');
-    const toStr   = today.toLocaleDateString('sv-SE');
-
-    const dates = [];
-    const cur   = new Date(fromStr + 'T12:00:00');
-    while (cur <= today) { dates.push(cur.toLocaleDateString('sv-SE')); cur.setDate(cur.getDate() + 1); }
-
-    let fitbitRows = {}, garminRows = {};
-    try { if ($fitbitEnabled) fitbitRows = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
-    try { if ($garminEnabled) garminRows = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
-
-    const history = dates.slice(0, -1).map(d => {
-      const g = garminRows[d] || {}, f = fitbitRows[d] || {};
-      return {
-        hrv_daily_rmssd: g.hrv_daily_rmssd ?? f.hrv_daily_rmssd ?? null,
-        resting_hr:      g.resting_hr      ?? f.resting_hr      ?? null,
-        // Prefer actual sleep when seeded for calibration; fall back to device-measured
-        sleep_score:     f.sleep_score_actual ?? g.sleep_score ?? f.sleep_score ?? null,
-      };
-    });
-
-    stressScore = _calcStressScore(
-      displayData.hrv_daily_rmssd,
-      displayData.resting_hr,
-      displayData.sleep_score,
-      history
-    );
-    // displayData.stress_score is already overridden with stress_score_actual when seeded.
-    if (displayData.stress_score != null) {
-      const s = Math.round(displayData.stress_score);
-      stressScore = { ...stressScore, score: s, stored: true };
-      stressScore.label = s >= 80 ? 'Excellent' : s >= 60 ? 'Good' : s >= 40 ? 'Fair' : 'Low';
-      stressScore.color = s >= 60 ? 'var(--accent)' : s >= 40 ? '#f59e0b' : '#ef4444';
-    }
-  }
-
-  $: { activeTab; if (activeTab === 'heart') _stressLoaded = false; }
-  $: if (activeTab === 'heart' && !_stressLoaded) loadStressScore();
 
   // ── 7-day sparklines ───────────────────────────────────────────────────────
   let _sparklineData = {}; // { [metricId]: (number|null)[] } — 7 values, oldest first
@@ -1338,9 +1179,13 @@
   }
 
   async function connect() {
+    // Routes through the Google Health API. The legacy dev.fitbit.com OAuth
+    // path stopped accepting new app registrations ahead of the Sept 2026
+    // cutoff. Settings → Wellness migrated already; this empty-state button
+    // was missed in that pass.
     connecting = true;
     try {
-      const { url } = await NtApi.get('/api/wellness/fitbit/authorize' + (isNative ? '?native=1' : ''));
+      const { url } = await NtApi.get('/api/wellness/google-health/authorize' + (isNative ? '?native=1' : ''));
       if (isNative) {
         const { openOAuth } = await import('../lib/oauth-native.js');
         await openOAuth(url);
@@ -1355,7 +1200,10 @@
 
   async function disconnect() {
     try {
-      await NtApi.del('/api/wellness/fitbit/disconnect');
+      await Promise.all([
+        NtApi.del('/api/wellness/google-health/disconnect'),
+        NtApi.del('/api/wellness/fitbit/disconnect'),
+      ]);
       status = { ...status, connected: false };
       data = {};
       showSuccess('Disconnected from Fitbit');
@@ -1449,9 +1297,10 @@
     // Calibration overrides — when actual Fitbit values are seeded, they take
     // precedence over our calculated/locked-in values. Keep the *_actual keys
     // intact so consumers can still distinguish actual vs calc if needed.
-    if (merged.sleep_score_actual     != null) merged.sleep_score     = merged.sleep_score_actual;
-    if (merged.readiness_score_actual != null) merged.readiness_score = merged.readiness_score_actual;
-    if (merged.stress_score_actual    != null) merged.stress_score    = merged.stress_score_actual;
+    if (merged.sleep_score_actual         != null) merged.sleep_score         = merged.sleep_score_actual;
+    if (merged.readiness_score_actual     != null) merged.readiness_score     = merged.readiness_score_actual;
+    if (merged.stress_score_actual        != null) merged.stress_score        = merged.stress_score_actual;
+    if (merged.sleep_duration_min_actual  != null) merged.sleep_duration_min  = merged.sleep_duration_min_actual;
     return merged;
   })();
 
@@ -1616,8 +1465,8 @@
               </div>
               <h2 class="connect-title">Connect Fitbit</h2>
               <p class="connect-desc">
-                Authorize NutriTrace to read your Fitbit data. You'll be redirected to
-                Fitbit to approve access, then brought back here.
+                Authorize NutriTrace to read your Fitbit data via Google Health. You'll be redirected
+                to Google to approve access, then brought back here.
               </p>
               <div class="connect-chips">
                 <span class="connect-chip"><span class="material-symbols-rounded">directions_walk</span> Steps &amp; Activity</span>
@@ -1790,6 +1639,47 @@
               {/each}
             </div>
 
+            <!-- Sleep Quality (Fitbit Public Preview Sleep Score redesign) -->
+            {@const _sqMetrics    = ALL_METRICS.filter(m => m.group === 'sleep_quality' && isSourceEnabled(m) && !m.hideTile)}
+            {@const _sqAllMetrics = ALL_METRICS.filter(m => m.group === 'sleep_quality' && isSourceEnabled(m))}
+            {@const _sqHasAny     = _sqAllMetrics.some(m => displayData[m.id] != null)}
+            {#if _sqHasAny}
+              <div class="section-title" style="margin-top:20px">
+                <span class="material-symbols-rounded" style="font-size:18px;vertical-align:middle;margin-right:4px">spa</span>
+                Sleep Quality
+              </div>
+              <div class="metric-grid">
+                {#each _sqMetrics as m}
+                  {@const fmt = fmtMetric(m, displayData[m.id])}
+                  {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
+                  {@const _interruptCount = m.id === 'sleep_interruptions_min' ? displayData['sleep_full_awakenings'] : null}
+                  <div class="metric-card" class:no-data={fmt == null && !loadingData} title={m.desc}>
+                    <div class="metric-icon-wrap">
+                      <span class="material-symbols-rounded metric-icon">{m.icon}</span>
+                    </div>
+                    <div class="metric-body">
+                      <span class="metric-label">{m.label}</span>
+                      {#if loadingData}
+                        <span class="metric-value skeleton">—</span>
+                      {:else if fmt}
+                        <span class="metric-value">{fmt.value}<span class="metric-unit">{fmt.unit}</span></span>
+                        {#if _interruptCount != null && _interruptCount > 0}
+                          <span class="metric-sub">{Math.round(_interruptCount)} {Math.round(_interruptCount) === 1 ? 'moment' : 'moments'}</span>
+                        {/if}
+                      {:else}
+                        <span class="metric-value no-val">—</span>
+                      {/if}
+                    </div>
+                    {#if spark}
+                      <svg class="sparkline" viewBox="0 0 56 24" preserveAspectRatio="none">
+                        <path d={spark} fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
             <!-- Sleep Debt card -->
             {#if sleepDebt != null}
               <div class="card sleep-insight-card" style="margin-bottom:10px" title="Sleep Debt — the total sleep you've missed relative to your goal over the selected window. Calculated as a rolling total from today backwards — always reflects the most recent nights, not the date you're viewing."  >
@@ -1959,62 +1849,43 @@
               </div>
             {/if}
 
-            <!-- Stress Management Score card -->
-            {#if stressScore != null}
-              <div class="card sleep-insight-card readiness-card" style="margin-top:10px" title="Stress Management — how well your body is handling stress, scored 1–100. Calculated from HRV, RHR, and sleep quality relative to your 30-day baseline, with exponential smoothing so the score moves gradually over time. Always reflects today's data — not the date you're viewing."  >
-                {#if stressScore.calibrating}
-                  <div class="si-header">
+            <!-- Resilience card -->
+            {@const _resCat       = displayData.resilience_category}
+            {@const _resCatLabel  = _resCat === 3 ? 'Optimal' : _resCat === 2 ? 'Balanced' : _resCat === 1 ? 'Low' : null}
+            {@const _resColor     = _resCatLabel === 'Optimal' ? 'var(--accent)' : _resCatLabel === 'Balanced' ? '#f59e0b' : _resCatLabel === 'Low' ? '#ef4444' : 'var(--text-3)'}
+            {@const _resText      = _resCatLabel === 'Optimal' ? "Your body is showing strong signs of recovery and balance. A great day to take on what matters to you."
+                                  : _resCatLabel === 'Balanced' ? "Your body is in a steady state today. A good day to maintain your routine and stay consistent."
+                                  : _resCatLabel === 'Low' ? "Your body is asking for a bit more rest today. Taking it easier is a kind way to help yourself recharge."
+                                  : null}
+            {#if _resCatLabel}
+              <div class="card sleep-insight-card readiness-card" style="margin-top:10px" title="Resilience — how your body is handling daily stress, classified as Optimal, Balanced, or Low. Combines physical calmness (HRV + resting heart rate), activity balance (step + active-minute target adherence), and sleep patterns (last night plus 7-day reservoir).">
+                <div class="readiness-header">
+                  <div class="readiness-header-left">
                     <span class="material-symbols-rounded si-icon">self_improvement</span>
                     <div class="si-title-wrap">
-                      <span class="si-title">Stress Management</span>
-                      <span class="si-sub">Calibrating… {stressScore.data_days}/{stressScore.needed} nights with HRV data</span>
+                      <span class="si-title">Resilience</span>
+                      <span class="si-sub">Score: {Math.round(displayData.resilience_score ?? 0)} / 100</span>
                     </div>
                   </div>
-                  <p class="si-desc">Needs {stressScore.needed} nights where your device recorded HRV during sleep. Fitbit only captures HRV on nights with a clean optical reading — wearing the device snugly helps.</p>
-                {:else}
-                  <div class="readiness-header">
-                    <div class="readiness-header-left">
-                      <span class="material-symbols-rounded si-icon">self_improvement</span>
-                      <div class="si-title-wrap">
-                        <span class="si-title">Stress Management</span>
-                        <span class="si-sub">
-                          HRV baseline {stressScore.hrv_baseline} ms{stressScore.rhr_baseline != null ? ` · RHR baseline ${stressScore.rhr_baseline} bpm` : ''} · {stressScore.data_days} days
-                        </span>
-                      </div>
-                    </div>
-                    <div class="readiness-score-wrap">
-                      <span class="readiness-score" style="color:{stressScore.color}">{stressScore.score}</span>
-                      <span class="readiness-label" style="color:{stressScore.color}">{stressScore.label}</span>
-                    </div>
+                  <div class="readiness-score-wrap">
+                    <span class="readiness-label" style="color:{_resColor};font-size:22px;font-weight:700">{_resCatLabel}</span>
                   </div>
-                  <div class="readiness-drivers">
-                    <div class="readiness-driver">
-                      <span class="rd-label">HRV</span>
-                      <span class="rd-val" style="color:{stressScore.hrv_score >= 65 ? 'var(--accent)' : stressScore.hrv_score >= 50 ? '#f59e0b' : '#ef4444'}">{stressScore.hrv_score}</span>
-                    </div>
-                    <div class="readiness-driver">
-                      <span class="rd-label">Resting HR</span>
-                      <span class="rd-val" style="color:{stressScore.rhr_score >= 65 ? 'var(--accent)' : stressScore.rhr_score >= 50 ? '#f59e0b' : '#ef4444'}">{stressScore.rhr_score}</span>
-                    </div>
-                    <div class="readiness-driver">
-                      <span class="rd-label">Sleep</span>
-                      <span class="rd-val" style="color:{stressScore.sleep_score_used >= 65 ? 'var(--accent)' : stressScore.sleep_score_used >= 50 ? '#f59e0b' : '#ef4444'}">{stressScore.sleep_score_used}</span>
-                    </div>
+                </div>
+                <p class="resilience-text">{_resText}</p>
+                <div class="readiness-drivers">
+                  <div class="readiness-driver">
+                    <span class="rd-label">Physical Calmness</span>
+                    <span class="rd-val">{Math.round(displayData.resilience_calmness ?? 0)}<span style="font-size:11px;font-weight:500;color:var(--text-3)"> / 30</span></span>
                   </div>
-                  {@const _sIns = _stressInsight(stressScore)}
-                  {#if _sIns}
-                    <div class="readiness-insight">
-                      <p class="ri-lead">{_sIns.lead}</p>
-                      <p class="ri-driver">{_sIns.driver}</p>
-                    </div>
-                  {/if}
-                  {#if stressScore.data_days < 30}
-                    <div class="si-calibration-note">
-                      <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
-                      Based on {stressScore.data_days} days — accuracy improves as more data is collected.
-                    </div>
-                  {/if}
-                {/if}
+                  <div class="readiness-driver">
+                    <span class="rd-label">Activity Balance</span>
+                    <span class="rd-val">{Math.round(displayData.resilience_activity ?? 0)}<span style="font-size:11px;font-weight:500;color:var(--text-3)"> / 40</span></span>
+                  </div>
+                  <div class="readiness-driver">
+                    <span class="rd-label">Sleep Patterns</span>
+                    <span class="rd-val">{Math.round(displayData.resilience_sleep ?? 0)}<span style="font-size:11px;font-weight:500;color:var(--text-3)"> / 30</span></span>
+                  </div>
+                </div>
               </div>
             {/if}
           {/if}
@@ -2417,57 +2288,6 @@
     justify-content: center;
   }
 
-  /* Sync bar */
-  .sync-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 14px;
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    margin-bottom: 4px;
-  }
-  .sync-info {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .sync-source-icon { font-size: 22px; color: var(--accent); }
-  .sync-source-text { display: flex; flex-direction: column; gap: 1px; }
-  .sync-source-label { font-size: 14px; font-weight: 600; color: var(--text-1); }
-  .sync-time { font-size: 11px; color: var(--text-3); }
-  .sync-actions { display: flex; align-items: center; gap: 8px; }
-
-  /* Prominent sync button */
-  .sync-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 18px;
-    background: var(--accent);
-    color: var(--accent-text, #fff);
-    border: none;
-    border-radius: var(--radius-md);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity var(--dur-fast), transform var(--dur-fast);
-    -webkit-tap-highlight-color: transparent;
-  }
-  .sync-btn:hover:not(:disabled) { opacity: 0.88; }
-  .sync-btn:active:not(:disabled) { transform: scale(0.96); }
-  .sync-btn:disabled { opacity: 0.6; cursor: default; }
-  .sync-btn-icon { font-size: 18px; }
-  .sync-btn.syncing .sync-btn-icon {
-    animation: wl-spin 0.8s linear infinite;
-  }
-  @keyframes wl-spin { to { transform: rotate(360deg); } }
-
-  .text-danger { color: var(--text-3); }
-  .text-danger:hover { color: var(--error, #f87171); }
-
   /* Fixed sync buttons — top-right, same row as hamburger */
   .wl-topbar-actions {
     position: fixed;
@@ -2511,6 +2331,8 @@
     font-size: 20px;
     animation: wl-spin 0.8s linear infinite;
   }
+  @keyframes wl-spin { to { transform: rotate(360deg); } }
+
   /* Tabs — sit below the date sub-bar (52px tall), so add 52 to its top calc */
   .tab-bar-wrap {
     position: sticky;
@@ -2633,6 +2455,12 @@
   }
   .metric-value.no-val { color: var(--text-3); font-size: 18px; }
   .metric-value.skeleton { color: var(--surface-3); }
+  .metric-sub {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-3);
+    margin-top: 2px;
+  }
 
   /* Sleep stages card */
   .sleep-stages-card {
@@ -2885,6 +2713,12 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin-top: 1px;
+  }
+  .resilience-text {
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 8px 0 12px;
   }
   .readiness-drivers {
     display: grid;

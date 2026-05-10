@@ -19,6 +19,7 @@
     currentDate, currentEntry, diaryTotals, macroPercents,
     prevDay, nextDay, loadEntry, removeDiaryItem, updateDiaryItem, saveBodyStats,
     copyMealItems, moveMealItems, clearMealItems, copyMealToDate, saveDiaryNote,
+    splitRecipeItem, removeSplitChild, updateSplitChild,
     diaryShowNutritionSummary, diaryShowBodyStats, diaryLoadError
   } from '../stores/diary.js';
   import { mealNames, goals, energyUnit, weightUnit, lengthUnit, navStyle,
@@ -125,8 +126,26 @@
     editPortion  = item.portion || item.amount || 100;
     editUnit     = item.unit || 'g';
     editQuantity = item.quantity || 1;
+    _editChildContext = null;
     _lockAndOpen(() => showEditSheet = true);
   }
+
+  // Open the same edit sheet but bound to a single ingredient inside a
+  // split recipe parent. Saving routes through updateSplitChild so the
+  // parent's _splitItems[] gets the change (and the parent's totals
+  // recompute via Nutrition.calculate sum-of-children).
+  function openEditChild(parentIdx, childIdx, child) {
+    editItem     = child;
+    editPortion  = child.portion || child.amount || 100;
+    editUnit     = child.unit || 'g';
+    editQuantity = child.quantity || 1;
+    _editChildContext = { parentIdx, childIdx };
+    _lockAndOpen(() => showEditSheet = true);
+  }
+
+  // null when editing a regular diary item; { parentIdx, childIdx } when
+  // editing a split-recipe ingredient.
+  let _editChildContext = null;
 
   async function saveEditItem() {
     if (!editItem) return;
@@ -139,14 +158,20 @@
         Object.entries(editItem.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * portionFactor])
       );
     }
-    await updateDiaryItem(editItem._i, {
+    const changes = {
       portion:   newPortion,
       unit:      editUnit,
       quantity:  parseFloat(editQuantity) || 1,
       nutrition: newNutrition,
-    });
+    };
+    if (_editChildContext) {
+      await updateSplitChild(_editChildContext.parentIdx, _editChildContext.childIdx, changes);
+    } else {
+      await updateDiaryItem(editItem._i, changes);
+    }
     showEditSheet = false;
     editItem = null;
+    _editChildContext = null;
     showSuccess($_('diary.toast.updated'));
   }
 
@@ -620,8 +645,48 @@
     if (val === 'replace') { replaceItem(actionItem); }
     if (val === 'move')    { _lockAndOpen(() => showMoveToMeal = true); }
     if (val === 'select')  { enterSelectMode(actionItem); }
+    if (val === 'split')   { splitRecipe(actionItem); }
     if (val === 'delete')  { confirmDelete(actionItem._i); }
   }
+
+  // Split a recipe diary item into its scaled ingredients. Saved recipe in
+  // the library stays intact; only this diary day changes. The recipe row
+  // stays visible (name + image) and its ingredients become an expandable
+  // sub-list below it.
+  async function splitRecipe(item) {
+    if (!item || item._i == null) return;
+    const ok = await splitRecipeItem(item._i);
+    if (ok) {
+      showSuccess('Recipe split into ingredients');
+      // Auto-expand the just-split parent so the user immediately sees
+      // what was unpacked and can act on individual ingredients.
+      _splitExpanded.add(item._i);
+      _splitExpanded = _splitExpanded;
+    } else {
+      showError("Couldn't split — no ingredients found on this item");
+    }
+  }
+
+  // Tracks which split-recipe parents are currently expanded by their
+  // diary index. Reset on date change since indices reshuffle.
+  let _splitExpanded = new Set();
+  function toggleSplitExpand(idx) {
+    if (_splitExpanded.has(idx)) _splitExpanded.delete(idx);
+    else                          _splitExpanded.add(idx);
+    _splitExpanded = _splitExpanded;
+  }
+  $: if ($currentDate) _splitExpanded = new Set();
+
+  async function onRemoveSplitChild(parentIdx, childIdx) {
+    await removeSplitChild(parentIdx, childIdx);
+  }
+
+  // Whether the currently-selected action item is a recipe (so we should
+  // surface the Split Recipe option in its action sheet). Recipes added to
+  // the diary spread their `items[]` and `is_recipe=1` onto the diary
+  // item; either signal is sufficient.
+  $: _actionItemIsRecipe = !!(actionItem?.is_recipe
+    || (Array.isArray(actionItem?.items) && actionItem.items.length > 0));
 
   function replaceItem(item) {
     // Store the item to replace, then navigate to food picker in pick mode
@@ -1008,8 +1073,34 @@
                     </span>
                   </div>
                 </button>
-
+                {#if Array.isArray(item._splitItems) && item._splitItems.length > 0}
+                  <button type="button" class="split-toggle" on:click|stopPropagation={() => toggleSplitExpand(item._i)}
+                    aria-label={_splitExpanded.has(item._i) ? 'Collapse ingredients' : 'Expand ingredients'}
+                    title={_splitExpanded.has(item._i) ? 'Collapse ingredients' : 'Expand ingredients'}>
+                    <span class="material-symbols-rounded split-chevron" class:split-chevron-open={_splitExpanded.has(item._i)}>expand_more</span>
+                  </button>
+                {/if}
               </div>
+              {#if Array.isArray(item._splitItems) && item._splitItems.length > 0 && _splitExpanded.has(item._i)}
+                <div class="split-children">
+                  {#each item._splitItems as child, ci (child.addedAt + '-' + ci + '-' + (child.name || ''))}
+                    {@const _ce = Nutrition.displayEnergy((Nutrition.calculate(child).calories || 0), $energyUnit)}
+                    <div class="split-child">
+                      <button type="button" class="split-child-btn" on:click={() => openEditChild(item._i, ci, child)}
+                        aria-label="Edit {child.name}" title="Edit serving size">
+                        <span class="split-child-name truncate">{child.name}</span>
+                        <span class="split-child-meta text-3 text-sm">
+                          {Math.round((child.portion || 100) * (child.quantity || 1) * 10) / 10}{child.unit || 'g'} · {_ce.value.toLocaleString()} {_ce.unit}
+                        </span>
+                      </button>
+                      <button type="button" class="btn-icon split-child-del" on:click|stopPropagation={() => onRemoveSplitChild(item._i, ci)}
+                        aria-label="Remove ingredient" title="Remove ingredient">
+                        <span class="material-symbols-rounded" style="font-size:16px">close</span>
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
             {/each}
           </div>
         {/if}
@@ -1491,6 +1582,7 @@
     { label: 'Replace',         icon: 'find_replace',  value: 'replace' },
     { label: 'Move to Meal',    icon: 'swap_horiz',    value: 'move'    },
     { label: 'Select Multiple', icon: 'checklist',     value: 'select'  },
+    ...(_actionItemIsRecipe ? [{ label: 'Split Recipe', icon: 'call_split', value: 'split' }] : []),
     { label: 'Delete',          icon: 'delete',        value: 'delete', danger: true },
   ]}
   on:select={onItemAction}
@@ -1616,6 +1708,9 @@
       <div class="sheet-handle"></div>
       <div class="sheet-header-row">
         <h3 class="sheet-title">Body Stats</h3>
+        <button class="btn-icon sheet-close-btn" on:click={() => diaryShowBodyStats.set(false)} aria-label="Close" title="Close">
+          <span class="material-symbols-rounded">close</span>
+        </button>
       </div>
       <form on:submit|preventDefault={saveBodyStatsLocal}>
       <div class="bs-sheet-body">
@@ -1675,7 +1770,12 @@
       <div class="sheet-handle"></div>
       <div class="sheet-header-row">
         <h3 class="sheet-title">Nutrition Summary</h3>
-        <span class="text-3 text-sm">{formatDateSub($currentDate, $dateFormat)}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="text-3 text-sm">{formatDateSub($currentDate, $dateFormat)}</span>
+          <button class="btn-icon sheet-close-btn" on:click={() => diaryShowNutritionSummary.set(false)} aria-label="Close" title="Close">
+            <span class="material-symbols-rounded">close</span>
+          </button>
+        </div>
       </div>
       <div class="ns-body">
         <!-- Macro ring -->
@@ -2140,7 +2240,6 @@
   .item-info  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .item-name  { font-size: 14px; font-weight: 500; }
   .item-meta  { }
-  .btn-sm     { width: 32px; height: 32px; }
 
 
   .diary-item-btn {
@@ -2165,6 +2264,63 @@
     justify-content: center;
     flex-shrink: 0;
   }
+  /* Split-recipe expand/collapse */
+  .split-toggle {
+    background: transparent;
+    border: 0;
+    padding: 4px 8px;
+    cursor: pointer;
+    color: var(--text-3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .split-toggle:hover { color: var(--text-1); }
+  .split-chevron {
+    font-size: 22px;
+    transition: transform 180ms ease;
+  }
+  .split-chevron-open { transform: rotate(180deg); }
+  .split-children {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 12px 8px 44px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+  }
+  .split-child {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+  }
+  .split-child:hover { background: var(--surface-3); }
+  .split-child-btn {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: 0;
+    padding: 4px 6px;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text-1);
+  }
+  .split-child-name { flex: 0 0 auto; font-size: 13px; max-width: 45%; }
+  .split-child-meta { flex: 1; min-width: 0; }
+  .split-child-del {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    color: var(--text-3);
+  }
+  .split-child-del:hover { color: var(--danger, #ef4444); }
+
   .edit-sheet-body { padding: 16px; }
   .edit-macros { display: flex; gap: 8px; flex-wrap: wrap; }
   .edit-macro-pill {
@@ -2221,7 +2377,6 @@
     gap: 12px;
     padding: 4px 0;
   }
-  .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
   /* Nutrition summary sheet */
   .ns-sheet {

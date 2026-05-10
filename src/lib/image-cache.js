@@ -194,7 +194,3 @@ export async function resolveFromCache(serverUrl) {
   return _cachedMap[serverUrl] || null;
 }
 
-/** Clear the in-memory cache (call after sync updates the map) */
-export function clearImageMapCache() {
-  _cachedMap = null;
-}

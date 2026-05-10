@@ -142,6 +142,15 @@
   let yesterdayMeals = []; // { mealIdx, mealName, items, totalKcal } — only in pick mode
   let yesterdayInfoGroup = null; // group whose detail sheet is currently open
   let _yesterdayImgFailed = new Set(); // items whose thumbnail failed to load — fall back to placeholder
+  let mealInfoGroup = null; // saved meal/recipe whose contents sheet is open
+  let _mealInfoImgFailed = new Set();
+
+  function openMealInfo(food) {
+    const items = food.items || [];
+    const totalKcal = Nutrition.sum(items.map(i => Nutrition.calculate(i))).calories || 0;
+    mealInfoGroup = { food, mealName: food.name, items, totalKcal, isRecipe: !!food.is_recipe };
+    _mealInfoImgFailed = new Set();
+  }
 
   // Multi-select (pick mode only)
   let selectedFoods = new Set();      // Set<food object reference>
@@ -859,8 +868,16 @@
                     <span class="food-kcal text-sm">{_mealEnergy.value.toLocaleString()} {_mealEnergy.unit}</span>
                   {/if}
                 </div>
-                <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
+                {#if activeTab !== 1 && activeTab !== 2}
+                  <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
+                {/if}
               </button>
+              {#if (activeTab === 1 || activeTab === 2) && (food.items || []).length > 0}
+                <button class="btn-icon meal-info-btn" on:click|stopPropagation={() => openMealInfo(food)}
+                  aria-label="Show items in {food.name}" title="Show items">
+                  <span class="material-symbols-rounded">info</span>
+                </button>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -1035,7 +1052,7 @@
 
 <!-- Yesterday's meal info sheet — list of items in that meal group -->
 <Sheet open={yesterdayInfoGroup != null}
-  title={yesterdayInfoGroup ? `${yesterdayInfoGroup.mealName} — yesterday` : ''}
+  title={yesterdayInfoGroup ? `Yesterday: ${yesterdayInfoGroup.mealName}` : ''}
   on:close={() => yesterdayInfoGroup = null}>
   {#if yesterdayInfoGroup}
     {@const _yTotEnergy = Nutrition.displayEnergy(yesterdayInfoGroup.totalKcal, $energyUnit)}
@@ -1073,6 +1090,52 @@
         on:click={() => { const g = yesterdayInfoGroup; yesterdayInfoGroup = null; addYesterdayMeal(g); }}>
         Add this meal
       </button>
+    </div>
+  {/if}
+</Sheet>
+
+<!-- Saved meal/recipe info sheet — list of items inside that meal/recipe -->
+<Sheet open={mealInfoGroup != null}
+  title={mealInfoGroup ? `${mealInfoGroup.isRecipe ? 'Recipe' : 'Meal'}: ${mealInfoGroup.mealName}` : ''}
+  on:close={() => mealInfoGroup = null}>
+  {#if mealInfoGroup}
+    {@const _mTotEnergy = Nutrition.displayEnergy(mealInfoGroup.totalKcal, $energyUnit)}
+    <div style="padding:0 4px 8px">
+      {#each mealInfoGroup.items as it}
+        {@const _itEnergy = Nutrition.displayEnergy((it.nutrition?.calories || it.calories || 0) * (it.quantity || 1), $energyUnit)}
+        {@const _img = liveImgFor(it)}
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border)">
+          {#if _img && !_mealInfoImgFailed.has(it)}
+            <img src={resolveAssetUrl(_img)} alt="" loading="lazy" referrerpolicy="no-referrer"
+              style="width:40px;height:40px;border-radius:var(--radius-sm,6px);object-fit:cover;flex-shrink:0"
+              on:error={() => { _mealInfoImgFailed.add(it); _mealInfoImgFailed = _mealInfoImgFailed; }} />
+          {:else}
+            <div style="width:40px;height:40px;border-radius:var(--radius-sm,6px);background:var(--surface-3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <span class="material-symbols-rounded" style="color:var(--text-3);font-size:18px">restaurant</span>
+            </div>
+          {/if}
+          <div style="display:flex;flex-direction:column;min-width:0;flex:1">
+            <span style="font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{it.name || 'Unnamed'}</span>
+            {#if it.brand}<span class="text-3 text-sm">{it.brand}</span>{/if}
+            <span class="text-3 text-sm">
+              {it.quantity ? `${it.quantity} × ` : ''}{it.portion || 100}{it.unit || 'g'}
+            </span>
+          </div>
+          <span class="text-2 text-sm" style="font-variant-numeric:tabular-nums;margin-left:8px;flex-shrink:0">
+            {_itEnergy.value.toLocaleString()} {_itEnergy.unit}
+          </span>
+        </div>
+      {/each}
+      <div style="display:flex;justify-content:space-between;padding:12px;font-weight:600">
+        <span>Total</span>
+        <span>{_mTotEnergy.value.toLocaleString()} {_mTotEnergy.unit}</span>
+      </div>
+      {#if pickMode}
+        <button class="btn btn-primary w-full" style="margin-top:8px"
+          on:click={() => { const f = mealInfoGroup.food; mealInfoGroup = null; pickFood(f); }}>
+          Add this {mealInfoGroup.isRecipe ? 'recipe' : 'meal'}
+        </button>
+      {/if}
     </div>
   {/if}
 </Sheet>
@@ -1215,6 +1278,7 @@
 
   .food-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
   .food-item { overflow: hidden; }
+  .meal-info-btn { flex-shrink: 0; margin-right: 8px; }
   .food-item-btn {
     display: flex;
     align-items: center;

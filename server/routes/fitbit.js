@@ -27,6 +27,29 @@ function _pkceGet(state) {
   return { codeVerifier: data.codeVerifier, userId: row.user_id, isNative: !!data.isNative };
 }
 
+// Pipe dispatcher — when the user has google_health_tokens, route sync
+// calls through the new Google Health API path. This lets the existing
+// /sync and /workouts/sync routes (and any other call site that imports
+// _syncDate / _syncWorkouts) transparently use whichever pipe the user
+// is on, with no other code changes.
+async function _hasGoogleHealthTokens(userId) {
+  return !!db.prepare('SELECT 1 FROM google_health_tokens WHERE user_id=?').get(userId);
+}
+async function _dispatchSyncDate(userId, dateStr) {
+  if (await _hasGoogleHealthTokens(userId)) {
+    const { syncDate: ghSyncDate } = await import('./google-health.js');
+    return ghSyncDate(userId, dateStr);
+  }
+  return _syncDate(userId, dateStr);
+}
+async function _dispatchSyncWorkouts(userId, from, to) {
+  if (await _hasGoogleHealthTokens(userId)) {
+    const { syncWorkouts: ghSyncWorkouts } = await import('./google-health.js');
+    return ghSyncWorkouts(userId, from, to);
+  }
+  return _syncWorkouts(userId, from, to);
+}
+
 // Read credential: user_settings first (multi-user), app_config fallback (single-user / migration)
 function _userCfg(key, userId) {
   if (userMgmtActive() && userId != null && userId !== 0) {
@@ -132,17 +155,25 @@ router.put('/config', wrap((req, res) => {
 }));
 
 // ── GET /status ──────────────────────────────────────────────────────────────
+//
+// Returns connected: true if the user has EITHER legacy fitbit_tokens OR
+// the new google_health_tokens — the Wellness page UI uses this to decide
+// whether to show the Fitbit sync button, sync state badges, etc. After
+// the Google Health migration cutover, most users have google_health_tokens
+// but no fitbit_tokens, so checking only the legacy table would hide the
+// Fitbit UI even though the integration is fully working.
 router.get('/status', wrap((req, res) => {
   const u = uid(req);
-  const tokens = _getTokens(u);
-  const clientId = _userCfg('fitbit_client_id', u);
+  const fitbitTokens = _getTokens(u);
+  const ghTokens = db.prepare('SELECT 1 FROM google_health_tokens WHERE user_id=?').get(u);
+  const clientId = _userCfg('fitbit_client_id', u) || _userCfg('google_health_client_id', u);
   const lastSync = db.prepare('SELECT MAX(synced_at) as ts FROM wellness_data WHERE user_id=? AND source=?').get(u, 'fitbit');
   res.json({
-    connected:     !!tokens,
+    connected:     !!(fitbitTokens || ghTokens),
     configured:    !!clientId,
-    fitbitUserId:  tokens?.fitbit_user_id || null,
-    expiresAt:     tokens?.expires_at     || null,
-    lastSyncedAt:  lastSync?.ts           || null,
+    fitbitUserId:  fitbitTokens?.fitbit_user_id || null,
+    expiresAt:     fitbitTokens?.expires_at     || null,
+    lastSyncedAt:  lastSync?.ts                 || null,
   });
 }));
 
@@ -435,7 +466,7 @@ router.post('/sync', wrap(async (req, res) => {
   // Single-day mode
   if (!from || !to) {
     const dateStr = req.body.date || today;
-    const { metrics, errors } = await _syncDate(u, dateStr);
+    const { metrics, errors } = await _dispatchSyncDate(u, dateStr);
     // Gotify: wellness alerts + step goal for today's data
     if (dateStr === today && metrics) {
       _checkWellnessAlerts(u, metrics).catch(() => {});
@@ -472,7 +503,7 @@ router.post('/sync', wrap(async (req, res) => {
   while (cur <= end) {
     const ds = cur.toISOString().slice(0, 10);
     try {
-      const { errors } = await _syncDate(u, ds);
+      const { errors } = await _dispatchSyncDate(u, ds);
       results.synced++;
       if (errors.length) results.errors.push({ date: ds, errors });
     } catch (e) {
@@ -561,8 +592,40 @@ router.post('/recalculate', wrap(async (req, res) => {
 // system transitions to using calc only — no flag flip needed.
 router.post('/seed-scores', wrap(async (req, res) => {
   const u = uid(req);
-  const { date, sleep_score, readiness_score, stress_score } = req.body;
+  const {
+    date, sleep_score, readiness_score, stress_score,
+    sleep_duration_min,
+    sleep_deep_min, sleep_rem_min, sleep_light_min, sleep_wake_min,
+    clear,
+  } = req.body;
   if (!date) return res.status(400).json({ error: 'date required' });
+
+  // `clear: true` wipes every *_actual row for the date. Lets the user
+  // undo a seed without DB access — after this, the next sync's synced
+  // values are what the Wellness card displays.
+  if (clear) {
+    const types = [
+      'sleep_score_actual', 'readiness_score_actual', 'stress_score_actual',
+      'sleep_duration_min_actual',
+      'sleep_deep_min_actual', 'sleep_rem_min_actual',
+      'sleep_light_min_actual', 'sleep_wake_min_actual',
+    ];
+    const placeholders = types.map(() => '?').join(',');
+    const result = db.prepare(
+      `DELETE FROM wellness_data WHERE user_id = ? AND date = ? AND source = 'fitbit' AND metric_type IN (${placeholders})`
+    ).run(u, date, ...types);
+    logger.info(`[fitbit] cleared ${result.changes} actual rows for ${date}`);
+    return res.json({ ok: true, date, cleared: result.changes });
+  }
+
+  // If stage minutes are provided but no explicit total, derive duration
+  // from LIGHT + DEEP + REM (excluding AWAKE) — matches Fitbit's "Time
+  // asleep" definition.
+  const haveStages = sleep_deep_min != null || sleep_rem_min != null || sleep_light_min != null;
+  const derivedDuration = haveStages
+    ? (Number(sleep_light_min) || 0) + (Number(sleep_deep_min) || 0) + (Number(sleep_rem_min) || 0)
+    : null;
+  const finalDuration = sleep_duration_min != null ? sleep_duration_min : derivedDuration;
 
   const upsert = db.prepare(`
     INSERT INTO wellness_data (user_id, date, source, metric_type, value, synced_at)
@@ -571,13 +634,27 @@ router.post('/seed-scores', wrap(async (req, res) => {
       value = excluded.value, synced_at = excluded.synced_at
   `);
   db.transaction(() => {
-    if (sleep_score != null)     upsert.run(u, date, 'sleep_score_actual',     sleep_score);
-    if (readiness_score != null) upsert.run(u, date, 'readiness_score_actual', readiness_score);
-    if (stress_score != null)    upsert.run(u, date, 'stress_score_actual',    stress_score);
+    if (sleep_score != null)     upsert.run(u, date, 'sleep_score_actual',        sleep_score);
+    if (readiness_score != null) upsert.run(u, date, 'readiness_score_actual',    readiness_score);
+    if (stress_score != null)    upsert.run(u, date, 'stress_score_actual',       stress_score);
+    // Sleep duration + stage overrides. Google Health's stages sometimes
+    // sum higher than what the Fitbit app shows; seeding *_actual values
+    // makes Wellness display match the app exactly while leaving the raw
+    // synced rows untouched (stress / readiness chains keep using calc).
+    if (finalDuration != null)   upsert.run(u, date, 'sleep_duration_min_actual', finalDuration);
+    if (sleep_deep_min != null)  upsert.run(u, date, 'sleep_deep_min_actual',     sleep_deep_min);
+    if (sleep_rem_min != null)   upsert.run(u, date, 'sleep_rem_min_actual',      sleep_rem_min);
+    if (sleep_light_min != null) upsert.run(u, date, 'sleep_light_min_actual',    sleep_light_min);
+    if (sleep_wake_min != null)  upsert.run(u, date, 'sleep_wake_min_actual',     sleep_wake_min);
   })();
 
-  logger.info(`[fitbit] seeded actual scores for ${date}: sleep=${sleep_score} readiness=${readiness_score} stress=${stress_score}`);
-  res.json({ ok: true, date, sleep_score, readiness_score, stress_score });
+  logger.info(`[fitbit] seeded actual values for ${date}: sleep=${sleep_score} readiness=${readiness_score} stress=${stress_score} dur=${finalDuration} stages=${sleep_deep_min}/${sleep_rem_min}/${sleep_light_min}/${sleep_wake_min}`);
+  res.json({
+    ok: true, date,
+    sleep_score, readiness_score, stress_score,
+    sleep_duration_min: finalDuration,
+    sleep_deep_min, sleep_rem_min, sleep_light_min, sleep_wake_min,
+  });
 }));
 
 // ── GET /data — return stored wellness data ───────────────────────────────────
@@ -801,7 +878,7 @@ async function _syncWorkouts(userId, from, to) {
 }
 
 router.post('/workouts/sync', wrap(async (req, res) => {
-  const result = await _syncWorkouts(uid(req), req.body.from, req.body.to);
+  const result = await _dispatchSyncWorkouts(uid(req), req.body.from, req.body.to);
   res.json(result);
 }));
 
@@ -816,22 +893,44 @@ router.post('/workouts/:sourceId/gps', wrap(async (req, res) => {
     return res.json({ ok: true, cached: true, gps_data: JSON.parse(existing.gps_data) });
   }
 
-  // Fetch TCX from Fitbit
-  let tok = await _token(u);
-  let tcxRes = await fetch(`https://api.fitbit.com/1/user/-/activities/${sourceId}.tcx?includePartialTCX=true`, {
-    headers: { Authorization: `Bearer ${tok}` },
-  });
-  if (tcxRes.status === 401) {
-    tok = await _refresh(u);
-    tcxRes = await fetch(`https://api.fitbit.com/1/user/-/activities/${sourceId}.tcx?includePartialTCX=true`, {
+  // Pipe-aware TCX fetch — Google Health users go through
+  // dataPoints:exportExerciseTcx; legacy users hit the Fitbit Web API.
+  // Both return TCX XML which the parser below handles identically.
+  let tcxText;
+  if (await _hasGoogleHealthTokens(u)) {
+    const { getAccessToken: ghToken } = await import('../lib/google-health.js');
+    const ghClientId     = _userCfg('google_health_client_id',     u);
+    const ghClientSecret = _userCfg('google_health_client_secret', u);
+    if (!ghClientId || !ghClientSecret) {
+      return res.status(400).json({ error: 'Google Health not configured' });
+    }
+    const accessToken = await ghToken(u, ghClientId, ghClientSecret);
+    const ghRes = await fetch(
+      `https://health.googleapis.com/v4/users/me/dataTypes/exercise/dataPoints/${sourceId}:exportExerciseTcx`,
+      { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } },
+    );
+    if (!ghRes.ok) {
+      const body = await ghRes.text().catch(() => '');
+      return res.status(ghRes.status).json({ error: `Google Health TCX fetch failed: ${ghRes.status} ${body.slice(0, 120)}` });
+    }
+    const data = await ghRes.json();
+    tcxText = data?.tcxData || '';
+  } else {
+    let tok = await _token(u);
+    let tcxRes = await fetch(`https://api.fitbit.com/1/user/-/activities/${sourceId}.tcx?includePartialTCX=true`, {
       headers: { Authorization: `Bearer ${tok}` },
     });
+    if (tcxRes.status === 401) {
+      tok = await _refresh(u);
+      tcxRes = await fetch(`https://api.fitbit.com/1/user/-/activities/${sourceId}.tcx?includePartialTCX=true`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+    }
+    if (!tcxRes.ok) {
+      return res.status(tcxRes.status).json({ error: `Fitbit TCX fetch failed: ${tcxRes.status}` });
+    }
+    tcxText = await tcxRes.text();
   }
-  if (!tcxRes.ok) {
-    return res.status(tcxRes.status).json({ error: `Fitbit TCX fetch failed: ${tcxRes.status}` });
-  }
-
-  const tcxText = await tcxRes.text();
 
   // Parse TCX XML → extract trackpoints with lat/lng/hr/time
   const points = [];

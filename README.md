@@ -29,6 +29,8 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Water intake tracking with configurable containers and daily goal
 - Long-press (mobile) or right-click (desktop) for item edit/move/delete actions
 - Per-meal ⋮ menu: copy or move all items to another meal, copy the meal to another date, save the meal to your library, or clear it
+- **Split Recipe** — break a logged recipe into its component ingredients in place, with each child editable (swap quantity, remove one) while macros stay accurate
+- Optional **Activity** section: log workouts manually (name, calories, duration, distance) without a wearable — Trace can estimate calories from your body profile when you describe a workout in plain language
 - Per-day free-text notes (e.g. "felt bloated after lunch", "post-workout") — toggleable, with an indicator on dates that have a note
 
 <p align="center">
@@ -37,10 +39,12 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 
 ### Foods & Meals
 - Personal food database with photos, barcodes, categories, and custom labels
+- Favorite foods and meals (star them) with a configurable sort order — favorites first, alphabetical, recently used, or most used
 - Barcode scanner (camera) for quick food lookup via Open Food Facts
 - Meal and recipe builder with drag-to-reorder ingredients
 - Proportional nutrition scaling when editing serving size
 - Import foods from Open Food Facts, USDA FoodData Central, or Mealie (recipe manager)
+- **Import past days** from MyFitnessPal, Lose It!, Cronometer, or a generic spreadsheet (Settings → Import from another app) — preview + per-date conflict policy before commit
 
 ### Statistics
 - Charts for any tracked nutrient or body stat over time
@@ -60,7 +64,8 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Custom nutriment visibility and display order
 - Custom body stat fields and display order
 - Date and time format options (US / ISO / EU / Natural)
-- Unit system: weight, height, length, distance
+- Unit system: weight, height, length, distance, and energy (kcal or kJ)
+- Translations-ready — English ships today; new locales drop in as a single JSON file
 
 ### Multi-User Support
 - Optional user management — runs perfectly as a single-user app with no login required
@@ -70,7 +75,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 
 ### AI Assistant (Trace)
 - Optional AI chat assistant for nutrition questions and logging help
-- Supports Claude (Anthropic), OpenAI, and Google Gemini — bring your own API key
+- Supports Claude (Anthropic), OpenAI, Google Gemini, and any **OpenAI-compatible** endpoint — Ollama, LM Studio, LocalAI, vLLM, llama.cpp, DeepSeek, Groq, Together AI, Mistral La Plateforme, OpenRouter, etc. Bring your own API key, or run a local model with no key at all.
 - Tool use across all providers: Trace can query your real diary (with day notes + per-item notes), saved meals/recipes library, wellness metrics, body composition, workouts, and goals — no hallucinated numbers
 - Optional Goal Insights mode: proactive analysis of actual intake vs targets with evidence-based suggestions
 
@@ -96,7 +101,7 @@ Smart Log is an experimental feature that lets you log food by **pressing and ho
 </p>
 
 ### Setup
-1. Settings → AI Assistant → enable the assistant and configure a provider key (Claude, OpenAI, or Gemini).
+1. Settings → AI Assistant → enable the assistant and configure a provider. Pick Claude, OpenAI, Gemini, or **OpenAI Compatible** (Ollama, LM Studio, DeepSeek, Groq, etc.) and paste your API key — local endpoints typically don't need a key.
 2. In the same section, enable the **Smart Log** toggle (Experimental).
 3. Grant microphone permission the first time you use it.
 
@@ -137,12 +142,12 @@ Smart Log uses your **actual configured meal slot names** (visible in the AI pro
 
 ### Privacy
 - **Audio is recognized on-device.** Android uses the system speech recognizer; the PWA uses your browser's Web Speech API. The audio itself never leaves your device.
-- **The text transcript** is sent to your configured AI provider (Claude/OpenAI/Gemini) for parsing. This is the only network call to a third-party service.
+- **The text transcript** is sent to your configured AI provider for parsing — this is the only network call to a third-party service. If you point the OpenAI-compatible provider at a local model (Ollama, LM Studio, LocalAI, llama.cpp), nothing leaves your network at all.
 - **Food matching is local-first.** Your saved foods, meals, recipes, and diary are searched on your own server first. Open Food Facts is only queried as a fallback for foods not in your library.
 - **Nothing is sent to NutriTrace servers.** There are no NutriTrace servers — this is self-hosted.
 
 ### Cost
-Smart Log uses a tightly-constrained prompt (~150 tokens in, ~50 out) so it's cheap. On GPT-4o mini or Claude Haiku, logging six meals a day for a year costs roughly **\$0.10 USD**. Gemini's free tier covers it entirely.
+Smart Log uses a tightly-constrained prompt (~150 tokens in, ~50 out) so it's cheap. On GPT-4o mini or Claude Haiku, logging six meals a day for a year costs roughly **\$0.10 USD**. Gemini's free tier covers it entirely. A locally-hosted OpenAI-compatible model is free at the API layer — you're paying in electricity instead.
 
 ### Tips
 - Mention the meal *and* the food in one sentence: "for breakfast I had 2 eggs and toast" → fewer modal corrections.
@@ -250,9 +255,9 @@ On first launch, a setup wizard walks you through enabling user management and c
 | `SMTP_USER` | No | — | SMTP username |
 | `SMTP_PASS` | No | — | SMTP password |
 | `SMTP_FROM` | No | — | From address, e.g. `NutriTrace <noreply@example.com>` |
-| `AI_PROVIDER` | No | — | Lock Trace to a specific provider for all users: `claude` \| `openai` \| `gemini` |
-| `AI_API_KEY` | No | — | Shared AI API key. Key is server-side only — never sent to the browser. |
-| `AI_MODEL` | No | provider default | Override the AI model (e.g. `claude-haiku-4-5-20251001`) |
+| `AI_PROVIDER` | No | — | Lock Trace to a specific provider for all users: `claude` \| `openai` \| `gemini` \| `oai-compat` |
+| `AI_API_KEY` | No | — | Shared AI API key. Key is server-side only — never sent to the browser. Optional when `AI_PROVIDER=oai-compat` and pointing at a local endpoint that doesn't require auth. |
+| `AI_MODEL` | No | provider default | Override the AI model (e.g. `claude-haiku-4-5-20251001`, `llama3.1:8b`) |
 | `AI_ENABLED` | No | — | Set to `true` to auto-enable Trace for all users |
 
 SMTP and AI settings can also be configured in the Settings UI. Environment variables take priority over UI values and lock those fields for all users.
@@ -286,8 +291,9 @@ The database schema migrates automatically on startup.
 | Layer | Technology |
 |---|---|
 | Frontend | Svelte 4, svelte-spa-router, Vite, PWA (service worker) |
+| Mobile | Capacitor 8 (Android), `@capacitor-community/sqlite` for offline storage, ML Kit barcode scanning, Health Connect |
 | Backend | Node.js, Express, better-sqlite3 |
-| Auth | JWT (httpOnly cookie), bcryptjs |
+| Auth | JWT (httpOnly cookie), bcryptjs, OpenID Connect 1.0 (PKCE + state + nonce) |
 | Container | Docker, multi-stage Dockerfile |
 | CI/CD | GitHub Actions → GitHub Container Registry |
 
@@ -299,12 +305,23 @@ NutriTrace can sync data from Fitbit, Withings, Garmin, and Android Health Conne
 
 ![NutriTrace Wellness page — sleep, HRV, readiness, stress, and activity sparklines from connected devices](docs/screenshots/03-wellness.png)
 
-### Fitbit
-1. Go to [dev.fitbit.com](https://dev.fitbit.com) → **Register an App**
-2. Application type: **Personal**
-3. OAuth 2.0 Application Type: **Personal**
-4. Callback URL: `https://your-nutritrace-domain.com/api/wellness/fitbit/callback`
-5. Copy the **Client ID** and **Client Secret** into Settings → Wellness → Fitbit
+### Fitbit (via Google Health API)
+
+> Google is sunsetting the legacy Fitbit Web API in **September 2026**. New app registrations are no longer accepted at `dev.fitbit.com`; Fitbit data now flows through the **Google Health API**. Your Fitbit account and devices are unchanged — only the underlying pipe NutriTrace uses to read your data changed.
+>
+> **NutriTrace deprecation: 2026-05-31.** To keep the codebase current, NutriTrace will remove its legacy Fitbit Web API code path entirely on May 31, 2026 — about four months ahead of Google's actual cutoff. If your Fitbit was connected to NutriTrace before the Google Health migration shipped, **re-link via the Google Cloud setup below by May 31** to avoid losing your wellness data flow. Settings → Wellness shows a re-link banner with a link to start the process. After May 31 the legacy path is gone and you'll need to follow the new setup from scratch.
+
+**Prerequisites:** your Fitbit account must be migrated to Google ("Continue with Google" in the Fitbit mobile app). Without that, OAuth returns 403 from the Google Health API.
+
+1. Open [console.developers.google.com/apis/library/health.googleapis.com](https://console.developers.google.com/apis/library/health.googleapis.com) → enable the Health API
+2. [Create OAuth credentials](https://console.developers.google.com/apis/credentials) → **OAuth client ID** → Application type: **Web server**
+3. Authorized redirect URI: `https://your-nutritrace-domain.com/api/wellness/google-health/callback`
+4. Copy the **Client ID** and **Client Secret** into Settings → Wellness → Fitbit
+5. Click **Connect** — Google's consent screen opens, grant the requested scopes, and you're done
+
+Setup walkthrough: <https://developers.google.com/health/setup>.
+
+> If Google's console prompts you to configure an OAuth consent screen first, choose **External / Testing** and add yourself as a test user. Most users won't see this step — Google's flow handles it implicitly during credential creation. Test mode is capped at 100 users; for larger deployments you'd go through Google's verification process to publish to production.
 
 ### Withings
 1. Go to [developer.withings.com](https://developer.withings.com) → create a developer account → **New Application**
@@ -317,7 +334,7 @@ Garmin Health API requires a partnership approval (not a free developer program)
 ### Health Connect (Android)
 Reads steps, sleep, heart rate, weight, and exercise directly from the Android Health Connect API. Works in the NutriTrace Android app without any server setup — useful for users running fully local/offline. Enable in **Settings → Wellness → Health Connect** on the Android app and grant the requested permissions.
 
-> **Note:** The callback URLs for Fitbit/Withings/Garmin must use your public domain (not `localhost`). All three require HTTPS.
+> **Note:** The callback URLs for Fitbit/Withings/Garmin must use your public domain (not `localhost`). All three require HTTPS. Fitbit's path is `/api/wellness/google-health/callback` (not `/api/wellness/fitbit/callback`) since the underlying API is now Google Health.
 
 ---
 
@@ -406,15 +423,16 @@ For Android install instructions, see [Apps](#apps). Recent releases live on the
 
 ## Wellness scores — how they're computed
 
-NutriTrace surfaces three derived wellness scores. Where the source device exposes its own value via API, that value is used directly. Where it doesn't, NutriTrace computes one. The computed scores are prefixed **Trace** in this section to make the distinction explicit.
+NutriTrace surfaces several derived wellness scores. Where the source device exposes its own value via API, that value is used directly. Where it doesn't, NutriTrace computes one. The computed scores are prefixed **Trace** in this section to make the distinction explicit.
 
-| Score | Fitbit | Garmin | Withings | Health Connect |
+| Score | Fitbit (Google Health) | Garmin | Withings | Health Connect |
 |---|---|---|---|---|
-| Sleep | **Trace Sleep Score** (computed — Fitbit API doesn't expose its own) | Native `overallSleepScore` | Native sleep score when present | **Trace Sleep Score** |
+| Sleep | **Trace Sleep Score** (computed — Google Health API doesn't expose Fitbit's own) | Native `overallSleepScore` | Native sleep score when present | **Trace Sleep Score** |
+| Sleep Quality sub-metrics | **Trace** (Sound Sleep, Restlessness, Time to Sound Sleep, Interruptions — derived from sleep stages) | — | — | **Trace** |
 | Daily Readiness | **Trace Readiness** (computed) | **Trace Readiness** (computed) | **Trace Readiness** (computed) | **Trace Readiness** (computed) |
-| Stress | **Trace Stress** (computed) | Garmin's native `stress_avg` is stored separately; **Trace Stress** is also computed | **Trace Stress** (computed) | **Trace Stress** (computed) |
+| Resilience | **Trace Resilience** (Optimal / Balanced / Low) | **Trace Resilience** | **Trace Resilience** | **Trace Resilience** |
 
-**Trace Sleep Score** combines sleep duration, deep / REM percentages, SpO₂, HRV, and efficiency into a single 0–100 value (formula in `server/routes/fitbit.js`). **Trace Readiness** weighs HRV against a 30-day baseline plus resting HR and last night's sleep, with an activity-spike penalty. **Trace Stress** is a 7-day-smoothed inverse of HRV + RHR + sleep (formula in `server/lib/wellness-scores.js`).
+**Trace Sleep Score** combines sleep duration, deep / REM percentages, SpO₂, HRV, and efficiency into a single 0–100 value. **Trace Readiness** weighs HRV against a 30-day baseline plus resting HR and last night's sleep, with an activity-spike penalty. **Trace Resilience** replaces the older numeric stress score with a categorical bucket (Optimal / Balanced / Low) computed from three pillars — Physical Calmness (HRV + RHR vs baseline), Activity Balance (acute-to-chronic workload ratio over 7 vs 28 days), and Sleep Patterns. Formulas live in `server/lib/wellness-scores.js` and `server/lib/google-health.js`.
 
 These scores prioritize day-to-day consistency across whatever data sources you've connected. They're not intended to match what each device's own app shows — readings may differ from device-native scores.
 

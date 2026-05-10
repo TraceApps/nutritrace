@@ -5,6 +5,64 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.20] — 2026-05-10 — Google Health migration
+
+### Migrating from Fitbit to Google Health (action required for Fitbit users)
+
+The Fitbit Web API that NutriTrace used since launch is being retired by Google. Wellness data now flows through the new **Google Health API**. The data still comes from your Fitbit (or any Health Connect / Google Health source); only the connection method changes.
+
+**To migrate:**
+
+1. Create a Google Cloud OAuth client at https://console.cloud.google.com/apis/credentials. If you have not used Google Cloud Console before, follow Google's [OAuth client setup guide](https://developers.google.com/identity/protocols/oauth2/web-server#creatingcred). Set the authorized redirect URI to `https://your-nutritrace.example.com/api/wellness/google-health/callback` (substitute your own domain).
+2. In NutriTrace, go to **Settings → Wellness → Fitbit**.
+3. Enter the new Client ID, Client Secret, and Redirect URI.
+4. Tap **Save**, then **Connect**. You will be taken to Google to authorize NutriTrace to read your Fitbit data via Google Health.
+5. Existing wellness history stays intact. Only the connection method changes.
+
+If you previously had a working Fitbit setup, you will see a "Re-link required" notice in Settings → Wellness until you complete the steps above. Old tokens continue to work for a short transition period; do the re-link before they expire.
+
+### Resilience (replaces the numeric Stress Score)
+
+Fitbit retired the 0 to 100 Stress Management Score and renamed it **Resilience**, classifying your day as **Optimal**, **Balanced**, or **Low** instead of a single number. The Wellness page reflects this:
+
+- The card on the Heart tab now shows your Resilience category in green (Optimal), amber (Balanced), or red (Low).
+- A short message explains what the bucket means for you today.
+- The three pillars Fitbit uses (Physical Calmness, Activity Balance, Sleep Patterns) appear underneath as a breakdown.
+- The numeric Stress Score is gone from the UI. Existing historical Stress values stay in your database for reference but are no longer rendered.
+
+### Sleep Quality
+
+The Fitbit Public Preview Sleep Score brings four new sub-metrics. These now appear under the Sleep tab when data is available:
+
+- **Time to Sound Sleep**: how long it took to settle into deep sleep after first falling asleep.
+- **Sound Sleep**: total time in your most stable sleep period.
+- **Restlessness**: total minutes of brief stirring during the night.
+- **Interruptions**: wake events of 5 minutes or longer, plus the count.
+
+### Tuning, ongoing
+
+The Google Health API exposes most of what is needed but not everything Fitbit's app uses internally. The formulas are still being tuned to match Fitbit's display values as closely as the available data allows.
+
+- **Resilience** approximates the documented three-pillar weighting and is currently within one bucket of Fitbit on every test day.
+- **Sleep Quality** sub-metrics track within a few minutes on most nights, with **Restlessness** as the biggest outlier (Fitbit incorporates motion data the API does not expose, so the calculated value will under-count).
+- A handful of metrics that depend on undocumented or unavailable fields may be removed in a future release if they cannot be calibrated within a useful margin. Any drops will be noted in the changelog at that time.
+
+### Diary
+
+- **Split Recipe** action on diary recipe items. Long-press a saved recipe in your diary, tap **Split Recipe**, and the recipe stays in place but becomes expandable: a chevron reveals each ingredient (scaled by however much of the recipe you logged) where you can adjust portions or remove individual ingredients. The saved recipe in your library is untouched. Inspired by Cronometer's "Explode Recipe."
+- **Recipe ingredient picker** now uses the same sort settings as the Foods page (Alphabetical default, Recently Used, or Most Used), with your favorites pinned to the top of each tab.
+- **Info button on saved meals + recipes** in the Foods picker. Tap the **i** at the right edge of any saved meal or recipe row to open a slide-up sheet listing every ingredient with portions and per-item energy, plus the total. Mirrors the existing yesterday-meals expand pattern so you can see what's in a saved recipe before logging it instead of having to add it then split.
+
+### Wellness page polish
+
+- **Body Stats** and **Nutrition Summary** sheets now have an **X** close button in the header, matching the water-quick-add card.
+
+### Statistics
+
+- Removed the inline "Show Empty Days" and "Include Today" checkboxes that duplicated the same toggles in Settings → Statistics. Charts still respect both settings; just one place to set them.
+
+---
+
 ## [1.0.0-rc.19] — 2026-05-06
 
 ### Favorites + sort across Foods, Meals, and Recipes

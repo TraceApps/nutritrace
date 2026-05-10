@@ -129,10 +129,6 @@ export function consumeState(state) {
   catch { return null; }
 }
 
-export function purgeExpiredStates() {
-  db.prepare(`DELETE FROM oauth_state WHERE expires_at < datetime('now') AND provider LIKE 'oidc:%'`).run();
-}
-
 // ── Auth flow helpers ─────────────────────────────────────────────────────
 
 export function generateAuthChecks() {
@@ -325,8 +321,4 @@ function _deriveUsername(claims) {
 
 export function encryptClientSecret(secret) {
   return secret == null || secret === '' ? null : encrypt(secret);
-}
-
-export function decryptClientSecret(stored) {
-  return stored == null ? null : decrypt(stored);
 }

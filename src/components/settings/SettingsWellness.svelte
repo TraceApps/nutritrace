@@ -209,6 +209,9 @@
   const CUSTOM_MAX_WITHINGS = 365;
 
   // ── Fitbit ──────────────────────────────────────────────────────────────────
+  // Fitbit-card state vars. Credentials now hold a Google Cloud OAuth
+  // client (the data is still Fitbit, just over the new Google Health
+  // API pipe). State var names are kept for diff hygiene.
   let fitbitClientId     = '';
   let fitbitClientSecret = '';
   let fitbitRedirectUri  = '';
@@ -216,7 +219,8 @@
   let fitbitEditingCreds = false;
   let fitbitRedirectSuggested = '';
   let wellnessConfigLoaded = false;
-  let fitbitConnectionStatus  = null;
+  let fitbitConnectionStatus  = null;  // status from /api/wellness/google-health/status
+  let legacyFitbitConnected   = false; // user has fitbit_tokens but no google_health_tokens — re-link prompt
   let disconnectingFitbit   = false;
   let connectingFitbit  = false;
 
@@ -261,20 +265,22 @@
   export async function loadWellnessConfig() {
     if (wellnessConfigLoaded) return;
     wellnessConfigLoaded = true;
-    fitbitRedirectSuggested = window.location.origin + '/api/wellness/fitbit/callback';
+    // Fitbit redirect URI suggestion now points at the Google Health
+    // callback (the new OAuth pipe). The data source label is still Fitbit.
+    fitbitRedirectSuggested   = window.location.origin + '/api/wellness/google-health/callback';
     withingsRedirectSuggested = window.location.origin + '/api/wellness/withings/callback';
-    garminRedirectSuggested = window.location.origin + '/api/wellness/garmin/callback';
-    // Load all configs in parallel
+    garminRedirectSuggested   = window.location.origin + '/api/wellness/garmin/callback';
+    // Load all configs in parallel.
     const isAdmin = $currentUser?.role === 'admin' || !$userMgmtActive;
-    const [fitbitCfg, withingsCfg, garminCfg, appCfg] = await Promise.allSettled([
-      NtApi.get('/api/wellness/fitbit/config'),
+    const [ghCfg, withingsCfg, garminCfg, appCfg] = await Promise.allSettled([
+      NtApi.get('/api/wellness/google-health/config'),
       NtApi.get('/api/wellness/withings/config'),
       NtApi.get('/api/wellness/garmin/config'),
       isAdmin ? NtApi.get('/api/app-config') : Promise.resolve(null),
     ]);
-    if (fitbitCfg.status === 'fulfilled' && fitbitCfg.value) {
-      fitbitClientId    = fitbitCfg.value.client_id    || '';
-      fitbitRedirectUri = fitbitCfg.value.redirect_uri || '';
+    if (ghCfg.status === 'fulfilled' && ghCfg.value) {
+      fitbitClientId    = ghCfg.value.client_id    || '';
+      fitbitRedirectUri = ghCfg.value.redirect_uri || '';
     }
     if (withingsCfg.status === 'fulfilled' && withingsCfg.value) {
       withingsClientId    = withingsCfg.value.client_id    || '';
@@ -286,20 +292,25 @@
     }
     if (isAdmin && appCfg.status === 'fulfilled' && appCfg.value) {
       const cfg = appCfg.value;
-      if (!fitbitClientId)       fitbitClientId       = cfg.fitbit_client_id       || '';
-      if (!fitbitClientSecret)   fitbitClientSecret   = cfg.fitbit_client_secret   || '';
-      if (!fitbitRedirectUri)    fitbitRedirectUri    = cfg.fitbit_redirect_uri    || '';
-      if (!withingsClientId)     withingsClientId     = cfg.withings_client_id     || '';
+      if (!fitbitClientId)       fitbitClientId       = cfg.google_health_client_id     || '';
+      if (!fitbitClientSecret)   fitbitClientSecret   = cfg.google_health_client_secret || '';
+      if (!fitbitRedirectUri)    fitbitRedirectUri    = cfg.google_health_redirect_uri  || '';
+      if (!withingsClientId)     withingsClientId     = cfg.withings_client_id  || '';
       if (!withingsClientSecret) withingsClientSecret = cfg.withings_client_secret || '';
       if (!withingsRedirectUri)  withingsRedirectUri  = cfg.withings_redirect_uri  || '';
     }
-    // Load connection status for all users (in parallel)
-    const [fitbitSt, withingsSt, garminSt] = await Promise.allSettled([
+    // Load connection status. fitbitConnectionStatus reflects the NEW path
+    // (google-health). legacyFitbitConnected = true means the user still
+    // has tokens from the old fitbit.com OAuth flow and should re-link.
+    const [ghSt, legacyFitbitSt, withingsSt, garminSt] = await Promise.allSettled([
+      NtApi.get('/api/wellness/google-health/status'),
       NtApi.get('/api/wellness/fitbit/status'),
       NtApi.get('/api/wellness/withings/status'),
       NtApi.get('/api/wellness/garmin/status'),
     ]);
-    fitbitConnectionStatus   = fitbitSt.status   === 'fulfilled' ? fitbitSt.value   : { connected: false };
+    fitbitConnectionStatus   = ghSt.status === 'fulfilled' ? ghSt.value : { connected: false };
+    legacyFitbitConnected    = (legacyFitbitSt.status === 'fulfilled' && legacyFitbitSt.value?.connected) === true
+                                && !fitbitConnectionStatus.connected;
     withingsConnectionStatus = withingsSt.status === 'fulfilled' ? withingsSt.value : { connected: false };
     garminConnectionStatus   = garminSt.status   === 'fulfilled' ? garminSt.value   : { connected: false };
   }
@@ -307,8 +318,14 @@
   async function disconnectFitbitFromSettings() {
     disconnectingFitbit = true;
     try {
-      await NtApi.del('/api/wellness/fitbit/disconnect');
+      // Disconnect both Google Health (new path) and legacy Fitbit Web API
+      // (if still around). Either may not exist; ignore individual failures.
+      await Promise.allSettled([
+        NtApi.del('/api/wellness/google-health/disconnect'),
+        NtApi.del('/api/wellness/fitbit/disconnect'),
+      ]);
       fitbitConnectionStatus = { ...fitbitConnectionStatus, connected: false };
+      legacyFitbitConnected = false;
       showSuccess('Disconnected from Fitbit');
     } catch(e) { showError(e.message); }
     disconnectingFitbit = false;
@@ -325,9 +342,12 @@
   }
 
   async function connectFitbitFromSettings() {
+    // Connect now goes through the Google Health API (legacy dev.fitbit.com
+    // OAuth doesn't accept new app registrations anymore — Sept 2026 cutoff
+    // for the legacy API). The data source is still Fitbit, just a new pipe.
     connectingFitbit = true;
     try {
-      const { url } = await NtApi.get('/api/wellness/fitbit/authorize' + (isNative ? '?native=1' : ''));
+      const { url } = await NtApi.get('/api/wellness/google-health/authorize' + (isNative ? '?native=1' : ''));
       if (isNative) {
         const { openOAuth } = await import('../../lib/oauth-native.js');
         await openOAuth(url);
@@ -357,18 +377,45 @@
   }
 
   async function saveFitbitConfig() {
+    // Credentials are now Google Cloud OAuth client (new pipe to the same
+    // Fitbit data). The fitbit* state var names are left as-is for diff
+    // hygiene — they hold Google Cloud creds going forward.
     try {
-      await NtApi.put('/api/wellness/fitbit/config', {
+      await NtApi.put('/api/wellness/google-health/config', {
         client_id:     fitbitClientId,
         client_secret: fitbitClientSecret || undefined,
         redirect_uri:  fitbitRedirectUri,
       });
-      // Refresh status so Connect button reflects new config
       fitbitConnectionStatus = null;
-      fitbitConnectionStatus = await NtApi.get('/api/wellness/fitbit/status');
+      fitbitConnectionStatus = await NtApi.get('/api/wellness/google-health/status');
       fitbitEditingCreds = false;
       showSuccess('Fitbit credentials saved');
     } catch (e) { showError('Failed to save: ' + e.message); }
+  }
+
+  // ── Sync now — pull all metrics for today via the Google Health pipe ─────
+  let syncingFitbit = false;
+  let lastSyncResult = null;  // { ok, count, date }
+  async function syncFitbitNow() {
+    syncingFitbit = true;
+    lastSyncResult = null;
+    try {
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+      const r = await NtApi.post('/api/wellness/google-health/sync', { date: today });
+      const dayResult = r?.results?.[today];
+      if (dayResult?.ok) {
+        lastSyncResult = { ok: true, count: dayResult.count, date: today };
+        showSuccess(`Synced ${dayResult.count} metrics for ${today}`);
+      } else {
+        lastSyncResult = { ok: false, error: dayResult?.error || 'Unknown error' };
+        showError(`Sync failed: ${lastSyncResult.error}`);
+      }
+    } catch (e) {
+      lastSyncResult = { ok: false, error: e.message };
+      showError('Sync failed: ' + e.message);
+    }
+    syncingFitbit = false;
   }
 
   function copyRedirectUri() {
@@ -555,31 +602,72 @@
           {/if}
         {/if}
         <div class="setting-divider"></div>
+        {#if legacyFitbitConnected}
+          <!-- User is on the legacy dev.fitbit.com OAuth flow. Their tokens
+               keep working until they expire OR the Sept 2026 cutoff,
+               whichever comes first. Soft-prompt to re-link via the new
+               Google Health pipe. -->
+          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;background:var(--surface-2);padding:12px;border-radius:var(--radius-sm)">
+            <div>
+              <span class="setting-label">Re-link required by May 31, 2026</span>
+              <div class="setting-desc" style="line-height:1.5">
+                Fitbit data now flows through Google's new Health API.
+                NutriTrace is removing the legacy Fitbit Web API code path
+                on <strong>May 31, 2026</strong> (about four months before Google's
+                own cutoff in September) to keep things current.
+                Your existing connection still works until then, but
+                re-link via Google Cloud now to avoid an interruption.
+                No data is lost — your charts and history stay intact.
+              </div>
+            </div>
+            <button class="btn btn-primary" style="height:32px;padding:0 12px;font-size:13px"
+              on:click={() => { fitbitEditingCreds = true; fitbitConnectionStatus = { connected: false, configured: false }; }}>
+              Re-link Fitbit
+            </button>
+          </div>
+        {/if}
         {#if fitbitConnectionStatus === null}
           <div class="setting-row">
             <span class="setting-desc">Loading connection status…</span>
           </div>
         {:else if fitbitConnectionStatus.connected}
-          <div class="setting-row">
-            <div>
-              <span class="setting-label">Connected</span>
-              <div class="setting-desc">
-                {fitbitConnectionStatus.fitbitUserId || 'Fitbit account linked'}
-                {#if fitbitConnectionStatus.lastSyncedAt}
-                  · Last synced {_timeAgo(fitbitConnectionStatus.lastSyncedAt)}
-                {/if}
+          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+            <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
+              <div>
+                <span class="setting-label">Connected</span>
+                <div class="setting-desc">
+                  {fitbitConnectionStatus.fitbitUserId ? `Fitbit ID: ${fitbitConnectionStatus.fitbitUserId}` : 'Fitbit account linked via Google Health'}
+                  {#if fitbitConnectionStatus.googleUserId}
+                    · Google Health user: <code>{fitbitConnectionStatus.googleUserId}</code>
+                  {/if}
+                </div>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-ghost" style="height:32px;padding:0 12px;font-size:13px"
+                  on:click={syncFitbitNow} disabled={syncingFitbit}>
+                  {syncingFitbit ? 'Syncing…' : 'Sync now'}
+                </button>
+                <button class="btn btn-ghost" style="height:32px;padding:0 12px;font-size:13px;color:var(--error,#f87171);border-color:var(--error,#f87171)"
+                  on:click={disconnectFitbitFromSettings} disabled={disconnectingFitbit}>
+                  {disconnectingFitbit ? 'Disconnecting…' : 'Disconnect'}
+                </button>
               </div>
             </div>
-            <button class="btn btn-ghost" style="height:32px;padding:0 12px;font-size:13px;color:var(--error,#f87171);border-color:var(--error,#f87171)"
-              on:click={disconnectFitbitFromSettings} disabled={disconnectingFitbit}>
-              {disconnectingFitbit ? 'Disconnecting…' : 'Disconnect'}
-            </button>
+            {#if lastSyncResult}
+              <div class="text-3 text-sm" style="padding:6px 10px;border-radius:var(--radius-sm);background:var(--surface-2);width:100%">
+                {#if lastSyncResult.ok}
+                  <span style="color:var(--macro-carbs)">✓ Synced {lastSyncResult.count} metrics for {lastSyncResult.date}</span>
+                {:else}
+                  <span style="color:#FF7070">Sync error: {lastSyncResult.error}</span>
+                {/if}
+              </div>
+            {/if}
           </div>
         {:else if fitbitConnectionStatus.configured && !fitbitEditingCreds}
           <div class="setting-row">
             <div>
               <span class="setting-label">Not connected</span>
-              <div class="setting-desc">Authorize NutriTrace to read your Fitbit data.</div>
+              <div class="setting-desc">Authorize NutriTrace to read your Fitbit data via Google Health.</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn btn-ghost" style="height:32px;padding:0 10px;font-size:13px" on:click={() => fitbitEditingCreds = true} title="Change API credentials">
@@ -591,16 +679,23 @@
             </div>
           </div>
         {:else}
-          <!-- No credentials yet — show inline setup form -->
+          <!-- No credentials yet — show inline setup form. As of late 2026
+               Fitbit setup uses Google Cloud Console (dev.fitbit.com no
+               longer accepts new app registrations). -->
           <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:12px">
             <div>
               <span class="setting-label">API Credentials</span>
-              <div class="setting-desc">From <strong>dev.fitbit.com</strong> — OAuth 2.0, Application Type: Personal</div>
+              <div class="setting-desc" style="line-height:1.5">
+                Fitbit setup now uses Google Cloud Console (legacy dev.fitbit.com no
+                longer accepts new app registrations). Create an OAuth 2.0 client
+                of type <strong>Web server</strong> and paste the Client ID + Secret here.
+                <a href="https://developers.google.com/health/setup" target="_blank" rel="noopener" class="about-link">Setup guide →</a>
+              </div>
             </div>
             <div style="width:100%;display:flex;flex-direction:column;gap:8px">
               <div class="form-group" style="margin:0">
                 <label class="form-label">Client ID</label>
-                <input class="input" type="text" autocomplete="off" placeholder="e.g. 23ABC123"
+                <input class="input" type="text" autocomplete="off" placeholder="From Google Cloud Console → APIs & Services → Credentials"
                   bind:value={fitbitClientId} />
               </div>
               <div class="form-group" style="margin:0">
@@ -618,12 +713,13 @@
               </div>
               <div class="form-group" style="margin:0">
                 <label class="form-label">Redirect URI</label>
-                <div class="setting-desc" style="margin-bottom:4px">Add this exact URI to your Fitbit app's Redirect URL list</div>
+                <div class="setting-desc" style="margin-bottom:4px">Add this exact URI to your Google Cloud OAuth client's Authorized redirect URIs list</div>
                 <div style="display:flex;gap:6px">
                   <input class="input" type="url" placeholder={fitbitRedirectSuggested} bind:value={fitbitRedirectUri} style="flex:1;font-size:12px" />
+                  <button class="btn-icon" title="Use suggested" on:click={() => fitbitRedirectUri = fitbitRedirectSuggested}><span class="material-symbols-rounded">auto_awesome</span></button>
                   <button class="btn-icon" on:click={copyRedirectUri} title="Copy URI"><span class="material-symbols-rounded">content_copy</span></button>
                 </div>
-                <div class="setting-desc" style="font-size:11px;margin-top:2px">Format: <code style="font-size:11px">https://your-domain.com/api/wellness/fitbit/callback</code></div>
+                <div class="setting-desc" style="font-size:11px;margin-top:2px">Format: <code style="font-size:11px">https://your-domain.com/api/wellness/google-health/callback</code></div>
               </div>
               <button class="btn btn-primary" style="align-self:flex-end" on:click={saveFitbitConfig}>{fitbitEditingCreds ? 'Save' : 'Save & Connect'}</button>
             </div>
@@ -667,7 +763,10 @@
       <div class="setting-row">
         <div>
           <span class="setting-label">Enable Garmin</span>
-          <div class="setting-desc">Steps, sleep, heart rate, HRV, SpO2, Body Battery, stress. Requires the <strong>Garmin Health API</strong> partnership (apply at developer.garmin.com).</div>
+          <div class="setting-desc">
+            Steps, sleep, heart rate, HRV, SpO2, Body Battery, stress. Requires the <strong>Garmin Health API</strong> partnership.
+            <a href="https://developer.garmin.com/gc-developer-program/health-api/" target="_blank" rel="noopener" class="about-link">Apply for access →</a>
+          </div>
         </div>
         <Toggle checked={garminEnabledVal} on:change={e => { garminEnabledVal = e.detail; garminEnabled.set(e.detail); loadWellnessConfig(); }} />
       </div>
@@ -787,7 +886,10 @@
           <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:12px">
             <div>
               <span class="setting-label">API Credentials</span>
-              <div class="setting-desc">From <strong>developer.garmin.com/health-api</strong> — OAuth 1.0a, redirect URI must match exactly</div>
+              <div class="setting-desc" style="line-height:1.4">
+                OAuth 1.0a credentials from your approved Garmin Health API app. Redirect URI must match exactly.
+                <a href="https://developer.garmin.com/gc-developer-program/health-api/" target="_blank" rel="noopener" class="about-link">Get API credentials →</a>
+              </div>
             </div>
             <div style="width:100%;display:flex;flex-direction:column;gap:8px">
               <div class="form-group" style="margin:0">
@@ -813,6 +915,7 @@
                 <div class="setting-desc" style="margin-bottom:4px">Register this exact URI in your Garmin app settings</div>
                 <div style="display:flex;gap:6px">
                   <input class="input" type="url" placeholder={garminRedirectSuggested} bind:value={garminRedirectUri} style="flex:1;font-size:12px" />
+                  <button class="btn-icon" title="Use suggested" on:click={() => garminRedirectUri = garminRedirectSuggested}><span class="material-symbols-rounded">auto_awesome</span></button>
                   <button class="btn-icon" on:click={copyGarminRedirectUri} title="Copy URI"><span class="material-symbols-rounded">content_copy</span></button>
                 </div>
                 <div class="setting-desc" style="font-size:11px;margin-top:2px">Format: <code style="font-size:11px">https://your-domain.com/api/wellness/garmin/callback</code></div>
@@ -848,7 +951,10 @@
       <div class="setting-row">
         <div>
           <span class="setting-label">Enable Withings</span>
-          <div class="setting-desc">Body composition from scales (weight, fat %, muscle, bone mass, and more)</div>
+          <div class="setting-desc">
+            Body composition from scales (weight, fat %, muscle, bone mass, and more).
+            <a href="https://developer.withings.com/dashboard/" target="_blank" rel="noopener" class="about-link">Developer dashboard →</a>
+          </div>
         </div>
         <Toggle checked={withingsEnabledVal} on:change={e => { withingsEnabledVal = e.detail; withingsEnabled.set(e.detail); }} />
       </div>
@@ -969,7 +1075,10 @@
           <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:12px">
             <div>
               <span class="setting-label">API Credentials</span>
-              <div class="setting-desc">From <strong>developer.withings.com</strong> — add the redirect URI below</div>
+              <div class="setting-desc" style="line-height:1.4">
+                Create a Withings developer account and a new application of type "Personal use" or "Public Cloud Partner". Then paste the Client ID + Secret here and add the redirect URI below to your app's authorized list.
+                <a href="https://developer.withings.com/dashboard/" target="_blank" rel="noopener" class="about-link">Withings developer dashboard →</a>
+              </div>
             </div>
             <div style="width:100%;display:flex;flex-direction:column;gap:8px">
               <div class="form-group" style="margin:0">
@@ -995,6 +1104,7 @@
                 <div class="setting-desc" style="margin-bottom:4px">Add this exact URI to your Withings app's redirect URL list</div>
                 <div style="display:flex;gap:6px">
                   <input class="input" type="url" placeholder={withingsRedirectSuggested} bind:value={withingsRedirectUri} style="flex:1;font-size:12px" />
+                  <button class="btn-icon" title="Use suggested" on:click={() => withingsRedirectUri = withingsRedirectSuggested}><span class="material-symbols-rounded">auto_awesome</span></button>
                   <button class="btn-icon" on:click={copyWithingsRedirectUri} title="Copy URI"><span class="material-symbols-rounded">content_copy</span></button>
                 </div>
                 <div class="setting-desc" style="font-size:11px;margin-top:2px">Format: <code style="font-size:11px">https://your-domain.com/api/wellness/withings/callback</code></div>
@@ -1014,10 +1124,6 @@
           </div>
         </div>
       {/if}
-    </div>
-
-    <div style="display:flex;justify-content:flex-end;margin-top:4px">
-      <button class="btn btn-sm" on:click={() => wellnessMetrics.set(null)}>Reset visible metrics</button>
     </div>
 
     <!-- Health Connect (Android only) -->
@@ -1121,6 +1227,15 @@
         {/if}
       </div>
     {/if}
+
+    <!-- Global metric reset — sits at the very end of the wellness group so
+         users understand it applies across all providers, not just the last
+         one shown. -->
+    <div style="display:flex;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-secondary btn-sm" on:click={() => wellnessMetrics.set(null)}>
+        Reset all visible metrics
+      </button>
+    </div>
   {/if}
 
 </div>

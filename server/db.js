@@ -134,6 +134,18 @@ db.exec(`
     fitbit_user_id TEXT
   );
 
+  -- Google Health API tokens — successor to Fitbit Web API (Sept 2026 cutoff).
+  -- Wider TEXT columns: Google access tokens are ~2KB (vs Fitbit's ~1KB).
+  -- google_user_id stores the response from users.getIdentity for cross-ref.
+  CREATE TABLE IF NOT EXISTS google_health_tokens (
+    user_id        INTEGER PRIMARY KEY,
+    access_token   TEXT NOT NULL,
+    refresh_token  TEXT NOT NULL,
+    expires_at     TEXT NOT NULL,
+    google_user_id TEXT,
+    fitbit_user_id TEXT  -- legacy Fitbit encodedId (from getIdentity), helps bridge old Fitbit data
+  );
+
   CREATE TABLE IF NOT EXISTS withings_tokens (
     user_id          INTEGER PRIMARY KEY,
     access_token     TEXT NOT NULL,

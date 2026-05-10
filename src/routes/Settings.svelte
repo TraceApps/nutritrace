@@ -3090,8 +3090,6 @@
     display: flex;
     flex-direction: column;
   }
-  .danger-zone-label { color: var(--danger) !important; opacity: 0.85; }
-  .danger-zone-card { border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
   .setting-row {
     display: flex;
     align-items: center;
@@ -3150,12 +3148,6 @@
   .setting-label { font-size: 14px; font-weight: 500; flex: 1; }
   .setting-desc  { font-size: 12px; color: var(--text-3); margin-top: 2px; font-weight: 400; }
   .setting-divider { height: 1px; background: var(--border); margin: 0 16px; }
-  .setting-action {
-    width: 100%; background: none; border: none; cursor: pointer;
-    color: var(--text-1); text-align: left;
-    transition: background var(--dur-fast);
-  }
-  .setting-action:active { background: var(--surface-2); }
 
   .sub-label {
     font-size: 11px;
@@ -3166,61 +3158,6 @@
     padding: 4px 2px 2px;
   }
   .sel-sm { height: 36px; font-size: 13px; }
-
-  .restore-progress {
-    padding: 0 16px 14px;
-    display: flex; flex-direction: column; gap: 6px;
-  }
-  .restore-progress-label {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 13px; color: var(--text-2);
-  }
-  .restore-progress-track {
-    height: 6px; border-radius: 3px;
-    background: var(--surface-2);
-    overflow: hidden;
-  }
-  .restore-progress-fill {
-    height: 100%; border-radius: 3px;
-    background: var(--accent);
-    transition: width 300ms ease;
-  }
-
-  .backup-table-header {
-    display: grid;
-    grid-template-columns: 1fr 100px 80px auto;
-    gap: 12px; padding: 6px 16px;
-    font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
-    text-transform: uppercase; color: var(--text-3);
-  }
-  .backup-row {
-    display: grid;
-    grid-template-columns: 1fr 100px 80px auto;
-    gap: 12px; padding: 10px 16px;
-    align-items: center;
-  }
-  .backup-name {
-    font-size: 12px; font-weight: 500; color: var(--text-1);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .backup-col-date { font-size: 13px; color: var(--text-2); }
-  .backup-col-size { font-size: 13px; color: var(--text-2); }
-  .backup-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
-  .backup-action-btn { height: 30px; font-size: 12px; padding: 0 10px; display: flex; align-items: center; gap: 4px; }
-
-  @media (max-width: 480px) {
-    .backup-table-header { display: none; }
-    .backup-row {
-      grid-template-columns: 1fr auto;
-      grid-template-rows: auto auto;
-      row-gap: 6px;
-    }
-    .backup-name { grid-column: 1; grid-row: 1; }
-    .backup-col-date { grid-column: 1; grid-row: 2; font-size: 12px; }
-    .backup-col-size { display: none; }
-    .backup-actions { grid-column: 2; grid-row: 1 / 3; flex-direction: column; align-items: stretch; }
-    .backup-action-btn { justify-content: center; }
-  }
 
   .cat-chips-wrap {
     display: flex; flex-wrap: wrap; gap: 8px;
@@ -3238,11 +3175,6 @@
   .form-group { display: flex; flex-direction: column; gap: 6px; }
   .form-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
 
-  .chip-group {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
   .chip {
     padding: 4px 12px;
     border-radius: 99px;
@@ -3260,18 +3192,6 @@
     color: var(--accent);
     font-weight: 600;
   }
-  .input-active {
-    border-color: var(--accent);
-    background: var(--accent-dim);
-    color: var(--accent);
-    font-weight: 600;
-  }
-  .link-btn {
-    background: none; border: none; padding: 0; cursor: pointer;
-    color: var(--accent); font-size: inherit; text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-  .link-btn:hover { opacity: 0.8; }
   .labs-badge {
     font-size: 10px;
     font-weight: 700;
@@ -3332,35 +3252,6 @@
   .about-feat-icon { font-size: 20px; color: var(--accent); flex-shrink: 0; }
   .about-link { color: var(--accent); text-decoration: underline; }
   .about-link:hover { opacity: 0.8; }
-
-  /* ── User Management ── */
-  .um-section-label {
-    font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--text-3);
-  }
-  .um-add-form { display: flex; flex-direction: column; gap: 8px; width: 100%; padding-top: 4px; }
-  .um-form-row { display: flex; gap: 8px; }
-  .um-form-row > .input { flex: 1; min-width: 0; }
-  .um-error { font-size: 12px; color: var(--danger, #ff6b6b); background: rgba(255,107,107,0.1); border-radius: var(--radius-sm); padding: 6px 10px; }
-  .um-user-list { display: flex; flex-direction: column; gap: 4px; width: 100%; }
-  .invite-result { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-md); border: 1px solid var(--border); }
-  .invite-link-row { display: flex; gap: 6px; align-items: center; }
-  .um-user-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px; border-radius: var(--radius-md);
-    background: var(--surface-2);
-  }
-  .um-user-avatar {
-    width: 36px; height: 36px; border-radius: 50%;
-    background: var(--surface-3); display: flex; align-items: center; justify-content: center;
-    overflow: hidden; flex-shrink: 0;
-  }
-  .um-user-avatar img { width: 100%; height: 100%; object-fit: cover; }
-  .um-user-avatar .material-symbols-rounded { font-size: 20px; color: var(--text-3); }
-  .um-user-info { flex: 1; min-width: 0; }
-  .um-user-name { font-size: 14px; font-weight: 600; }
-  .um-user-sub  { font-size: 12px; color: var(--text-3); }
-  .um-del-btn { padding: 4px; min-width: 0; }
 
   /* ── Env-lock badge ────────────────────────────────────────────────────── */
   .env-lock-banner {
