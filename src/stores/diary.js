@@ -38,14 +38,30 @@ function _stripCachedPaths(items) {
   if (!items || !Array.isArray(items)) return items;
   return items.map(i => {
     if (!i.imgUrl) return i;
-    // Capacitor cached path → strip back to original /uploads/ path
+    // Full server-host URL → strip back to relative /uploads/... path. See
+    // _stripResolvedImgUrl in src/lib/api-cached.js for the same logic; both
+    // strip functions need to keep full URLs OUT of the persisted snapshot,
+    // since they'd otherwise round-trip through the diary table and trigger
+    // bad re-resolution on read.
+    try {
+      const idx = i.imgUrl.indexOf('/uploads/');
+      if (i.imgUrl.startsWith('http') && idx >= 0) {
+        return { ...i, imgUrl: i.imgUrl.slice(idx) };
+      }
+    } catch {}
+    // Capacitor cached path → only restore to /uploads/<filename> when the basename
+    // matches the server's localized image-naming pattern (timestamp-md5.ext, see
+    // server/lib/image-localizer.js). Externally-proxied images get cached under
+    // their source URL basename (e.g., 'front.en.6.400.jpg' from OFF), which does
+    // NOT correspond to any /uploads/ file — prepending /uploads/ would cross-
+    // pollinate images across diary items that share an OFF basename.
     if (i.imgUrl.includes('_capacitor_file_') || i.imgUrl.includes('/image_cache/')) {
       const filename = i.imgUrl.split('/').pop();
-      // Only restore if filename looks like an uploaded image (has extension)
-      if (filename && /\.\w{2,5}$/.test(filename)) {
+      if (filename && /^\d{10,}-[0-9a-f]{8,16}\.\w+$/i.test(filename)) {
         return { ...i, imgUrl: '/uploads/' + filename };
       }
-      // Can't determine original URL — remove the broken cached path
+      // Cached basename doesn't match server's localized format — drop rather
+      // than guess. The diary item loses its image, but won't display the wrong one.
       return { ...i, imgUrl: '' };
     }
     // Strip proxy URLs back to original (they get resolved at display time)

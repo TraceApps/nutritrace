@@ -54,6 +54,7 @@ const SCHEMA = `
     is_recipe    INTEGER DEFAULT 0,
     portion      REAL DEFAULT 100,
     unit         TEXT DEFAULT 'g',
+    servings     INTEGER DEFAULT 1,
     visibility   TEXT NOT NULL DEFAULT 'private',
     source_id    INTEGER,
     favorite     INTEGER NOT NULL DEFAULT 0,
@@ -162,6 +163,26 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_activity_user_date ON activity_log(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_activity_sync      ON activity_log(sync_status);
 
+  -- Intermittent-fasting tracker. Mirrors the server schema; sync_status
+  -- 'pending' rows queue for diff-sync push when connected to a server.
+  CREATE TABLE IF NOT EXISTS fasts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id    INTEGER,
+    user_id      INTEGER DEFAULT 1,
+    start_at     TEXT NOT NULL,
+    end_at       TEXT,
+    goal_hours   REAL NOT NULL DEFAULT 16,
+    notes        TEXT,
+    created_at   TEXT DEFAULT (datetime('now')),
+    updated_at   TEXT DEFAULT (datetime('now')),
+    deleted_at   TEXT DEFAULT NULL,
+    sync_status  TEXT DEFAULT 'synced'
+  );
+  CREATE INDEX IF NOT EXISTS idx_fasts_user_start ON fasts(user_id, start_at);
+  CREATE INDEX IF NOT EXISTS idx_fasts_active     ON fasts(user_id, end_at);
+  CREATE INDEX IF NOT EXISTS idx_fasts_sync       ON fasts(sync_status);
+  CREATE INDEX IF NOT EXISTS idx_fasts_server     ON fasts(server_id);
+
   CREATE INDEX IF NOT EXISTS idx_foods_user ON foods(user_id);
   CREATE INDEX IF NOT EXISTS idx_foods_server ON foods(server_id);
   CREATE INDEX IF NOT EXISTS idx_meals_user ON meals(user_id);
@@ -212,6 +233,12 @@ async function _applySchema(db) {
       }
       if (!cols.includes('last_used_at')) {
         await db.execute(`ALTER TABLE ${tbl} ADD COLUMN last_used_at TEXT DEFAULT NULL`);
+      }
+      if (tbl === 'meals' && !cols.includes('servings')) {
+        // Migrated rows stay NULL so the editor can show a blank field for
+        // legacy recipes (which still behave as 1 in math). New saves write
+        // an explicit number via dbCreateMeal/dbUpdateMeal.
+        await db.execute(`ALTER TABLE meals ADD COLUMN servings INTEGER`);
       }
     } catch (e) {
       console.debug(`[db-native] ${tbl} favorites/usage migration skipped:`, e?.message);
@@ -511,8 +538,8 @@ export async function dbGetMeal(id) {
 export async function dbCreateMeal(data) {
   const db = await getDb();
   const r = await db.run(
-    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     [
       LOCAL_USER_ID,
       data.name,
@@ -523,6 +550,7 @@ export async function dbCreateMeal(data) {
       data.is_recipe ? 1 : 0,
       data.portion ?? 100,
       data.unit || 'g',
+      data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
       _now(),
     ]
   );
@@ -532,7 +560,7 @@ export async function dbCreateMeal(data) {
 export async function dbUpdateMeal(id, data) {
   const db = await getDb();
   await db.run(
-    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, updated_at=?, sync_status='pending'
+    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, updated_at=?, sync_status='pending'
      WHERE id=? AND user_id=?`,
     [
       data.name,
@@ -543,6 +571,7 @@ export async function dbUpdateMeal(id, data) {
       data.is_recipe ? 1 : 0,
       data.portion ?? 100,
       data.unit || 'g',
+      data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
       _now(),
       id,
       LOCAL_USER_ID,
@@ -589,40 +618,56 @@ function _parseMealRow(row) {
 // ── Diary ─────────────────────────────────────────────────────────────────
 
 // Mirror of server-side freshenItemImages (server/lib/diary-helpers.js).
-// Diary items snapshot imgUrl at log time; if a food got an image after the
-// diary entry was logged, the snapshot stays empty. Server-side endpoints
-// freshen on read; this is the local-SQLite equivalent for the Android app
-// in server-connected mode (where the diary data comes from the local cache,
-// bypassing the server-side freshening) and for standalone mode (where there
-// is no server). Looks up the food id captured in each item against the
-// local foods table and overrides empty imgUrl. Items with their own non-
-// empty imgUrl are untouched. Wrapped in try/catch so a query error never
-// breaks the calling read path.
+//
+// IMPORTANT: this LIVE-RESOLVES every diary item's imgUrl from the local
+// foods + meals tables on every diary read — it does NOT trust the
+// snapshot stored on the diary item. See server/lib/diary-helpers.js for
+// the full reasoning. Do not revert.
+//
+// Routing: items with is_recipe truthy resolve against meals only,
+// everything else resolves against foods only. Within each pool, lookup
+// order is id+name → name+brand (foods only) → name only → ''.
+const _norm = s => String(s || '').trim().toLowerCase();
 async function _freshenItemImages(items) {
   if (!Array.isArray(items) || !items.length) return items;
   try {
-    const ids = items
-      .filter(it => !it.imgUrl && typeof it.id === 'number')
-      .map(it => it.id);
-    if (!ids.length) return items;
     const db = await getDb();
-    const placeholders = ids.map(() => '?').join(',');
-    const r = await db.query(
-      `SELECT id, img_url FROM foods WHERE id IN (${placeholders})`,
-      ids
+    const fr = await db.query(
+      `SELECT id, name, brand, img_url FROM foods WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' ORDER BY id ASC`
     );
-    const rows = _rows(r);
-    if (!rows.length) return items;
-    const imgMap = new Map();
-    for (const row of rows) {
-      if (row.img_url) imgMap.set(row.id, row.img_url);
+    const mr = await db.query(
+      `SELECT id, name, img_url FROM meals WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' ORDER BY id ASC`
+    );
+    const foods = _rows(fr);
+    const meals = _rows(mr);
+    const foodByIdName = new Map();
+    const foodByNameBrand = new Map();
+    const foodByName = new Map();
+    for (const r of foods) {
+      foodByIdName.set(`${r.id}|${_norm(r.name)}`, r.img_url);
+      foodByNameBrand.set(`${_norm(r.name)}|${_norm(r.brand)}`, r.img_url);
+      if (!foodByName.has(_norm(r.name))) foodByName.set(_norm(r.name), r.img_url);
     }
-    if (!imgMap.size) return items;
+    const mealByIdName = new Map();
+    const mealByName = new Map();
+    for (const r of meals) {
+      mealByIdName.set(`${r.id}|${_norm(r.name)}`, r.img_url);
+      if (!mealByName.has(_norm(r.name))) mealByName.set(_norm(r.name), r.img_url);
+    }
     return items.map(it => {
-      if (!it.imgUrl && typeof it.id === 'number' && imgMap.has(it.id)) {
-        return { ...it, imgUrl: imgMap.get(it.id) };
+      const name = _norm(it.name);
+      const brand = _norm(it.brand);
+      const idKey = `${it.id}|${name}`;
+      let live;
+      if (it.is_recipe) {
+        live = mealByIdName.get(idKey) || mealByName.get(name) || '';
+      } else {
+        live = foodByIdName.get(idKey)
+          || foodByNameBrand.get(`${name}|${brand}`)
+          || foodByName.get(name)
+          || '';
       }
-      return it;
+      return { ...it, imgUrl: live };
     });
   } catch {
     return items;
@@ -709,11 +754,12 @@ export async function dbUpsertWellness(date, source, metric_type, value, metadat
 
 export async function dbGetPendingChanges() {
   const db = await getDb();
-  const [foods, meals, diary, activity] = await Promise.all([
+  const [foods, meals, diary, activity, fasts] = await Promise.all([
     db.query(`SELECT * FROM foods WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM meals WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM diary WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM activity_log WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
+    db.query(`SELECT * FROM fasts WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
   ]);
   return {
     foods: _rows(foods).map(_parseFoodRow),
@@ -726,6 +772,7 @@ export async function dbGetPendingChanges() {
       notes:      row.notes || '',
     })),
     activity: _rows(activity),
+    fasts: _rows(fasts),
   };
 }
 
@@ -795,10 +842,11 @@ export async function dbUpsertFromServer(table, serverRecord) {
       );
     } else if (table === 'meals') {
       await db.run(
-        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
+        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
         [data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
-         data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g', data.updated_at, serverId]
+         data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
+         data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null, data.updated_at, serverId]
       );
     }
   } else {
@@ -812,11 +860,12 @@ export async function dbUpsertFromServer(table, serverRecord) {
       );
     } else if (table === 'meals') {
       await db.run(
-        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
-         data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g', data.updated_at]
+         data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
+         data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null, data.updated_at]
       );
     }
   }
@@ -1136,6 +1185,118 @@ export async function dbDeleteActivity(id) {
   const now = new Date().toISOString();
   await db.run(
     `UPDATE activity_log SET deleted_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ?`,
+    [now, now, id, LOCAL_USER_ID]
+  );
+}
+
+export async function dbUpsertFastFromServer(record) {
+  const db = await getDb();
+  const { id: serverId, deleted_at } = record;
+  if (deleted_at) {
+    await db.run(`DELETE FROM fasts WHERE server_id = ?`, [serverId]);
+    return;
+  }
+  const existing = await db.query(`SELECT id FROM fasts WHERE server_id = ? AND user_id = ?`, [serverId, LOCAL_USER_ID]);
+  const row = _row(existing);
+  if (row) {
+    await db.run(
+      `UPDATE fasts SET start_at=?, end_at=?, goal_hours=?, notes=?, updated_at=?, sync_status='synced' WHERE id=?`,
+      [record.start_at, record.end_at || null, record.goal_hours, record.notes || null, record.updated_at, row.id]
+    );
+  } else {
+    await db.run(
+      `INSERT INTO fasts (server_id, user_id, start_at, end_at, goal_hours, notes, created_at, updated_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+      [serverId, LOCAL_USER_ID, record.start_at, record.end_at || null,
+       record.goal_hours, record.notes || null,
+       record.created_at || record.updated_at, record.updated_at]
+    );
+  }
+}
+
+// ── Intermittent Fasting ─────────────────────────────────────────────────
+
+function _fastRow(r) {
+  if (!r) return null;
+  return {
+    id: r.id, server_id: r.server_id,
+    user_id: r.user_id, start_at: r.start_at, end_at: r.end_at,
+    goal_hours: r.goal_hours, notes: r.notes,
+    created_at: r.created_at, updated_at: r.updated_at,
+  };
+}
+
+export async function dbGetActiveFast() {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT * FROM fasts WHERE user_id = ? AND end_at IS NULL AND deleted_at IS NULL ORDER BY start_at DESC LIMIT 1`,
+    [LOCAL_USER_ID]
+  );
+  return _fastRow((r?.values || [])[0]);
+}
+
+export async function dbGetFasts(limit = 60) {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT * FROM fasts WHERE user_id = ? AND deleted_at IS NULL ORDER BY start_at DESC LIMIT ?`,
+    [LOCAL_USER_ID, limit]
+  );
+  return (r?.values || []).map(_fastRow);
+}
+
+export async function dbStartFast({ goal_hours = 16, start_at = null } = {}) {
+  const db = await getDb();
+  // Block double-start
+  const active = await dbGetActiveFast();
+  if (active) throw new Error('A fast is already in progress.');
+  const sa = start_at || new Date().toISOString();
+  const now = new Date().toISOString();
+  const r = await db.run(
+    `INSERT INTO fasts (user_id, start_at, goal_hours, created_at, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, 'pending')`,
+    [LOCAL_USER_ID, sa, Number(goal_hours) || 16, now, now]
+  );
+  const id = r?.changes?.lastId || (await db.query(`SELECT last_insert_rowid() as id`)).values?.[0]?.id;
+  const row = await db.query(`SELECT * FROM fasts WHERE id = ?`, [id]);
+  return _fastRow((row?.values || [])[0]);
+}
+
+export async function dbEndFast(id) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  await db.run(
+    `UPDATE fasts SET end_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ? AND end_at IS NULL`,
+    [now, now, id, LOCAL_USER_ID]
+  );
+  const r = await db.query(`SELECT * FROM fasts WHERE id = ?`, [id]);
+  return _fastRow((r?.values || [])[0]);
+}
+
+export async function dbUpdateFast(id, changes = {}) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  const fields = [];
+  const values = [];
+  for (const k of ['start_at', 'end_at', 'goal_hours', 'notes']) {
+    if (changes[k] !== undefined) { fields.push(`${k} = ?`); values.push(changes[k]); }
+  }
+  if (!fields.length) {
+    const r = await db.query(`SELECT * FROM fasts WHERE id = ?`, [id]);
+    return _fastRow((r?.values || [])[0]);
+  }
+  fields.push(`updated_at = ?`); values.push(now);
+  fields.push(`sync_status = 'pending'`);
+  values.push(id, LOCAL_USER_ID);
+  await db.run(`UPDATE fasts SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`, values);
+  const r = await db.query(`SELECT * FROM fasts WHERE id = ?`, [id]);
+  return _fastRow((r?.values || [])[0]);
+}
+
+export async function dbDeleteFast(id) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  await db.run(
+    `UPDATE fasts SET deleted_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ?`,
     [now, now, id, LOCAL_USER_ID]
   );
 }

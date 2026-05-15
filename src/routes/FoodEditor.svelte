@@ -414,6 +414,32 @@
 
   });
 
+  // Read-only when viewing someone else's shared food. Server returns 403 on
+  // PUT regardless, but locking the UI prevents the user from typing into a
+  // form that won't save and gives them a single clear action: Save a Copy.
+  $: _readOnly = !!food._shared_by;
+
+  async function saveAsCopy() {
+    saving = true;
+    try {
+      // Strip the upstream id so it inserts as a new row owned by the current user.
+      const copy = { ...food };
+      const sourceId = food.id;
+      delete copy.id;
+      delete copy._shared_by;
+      delete copy.user_id;
+      delete copy.visibility;
+      delete copy.favorite;
+      const created = sourceId
+        ? await NtApi.copyFood(sourceId)
+        : await NtApi.createFood(copy);
+      showSuccess('Saved a copy to your catalog');
+      clearFoodEditorState();
+      pop();
+    } catch (e) { showError('Could not save copy: ' + e.message); }
+    saving = false;
+  }
+
   async function save() {
     if (!food.name.trim()) {
       showError($_('food_editor.errors.name_required'));
@@ -494,8 +520,8 @@
     <button class="btn-icon" on:click={pop} aria-label={$_('common.back')} title={$_('common.back')}>
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
-    <h2 class="editor-title">{food.id ? 'Edit Food' : 'Add Food'}</h2>
-    {#if food.id}
+    <h2 class="editor-title">{_readOnly ? `Shared by ${food._shared_by}` : (food.id ? 'Edit Food' : 'Add Food')}</h2>
+    {#if food.id && !_readOnly}
       <button class="btn-icon fav-btn" class:on={!!food.favorite}
         on:click={() => { food.favorite = food.favorite ? 0 : 1; food = food; }}
         aria-label={food.favorite ? 'Unfavorite' : 'Favorite'}
@@ -503,13 +529,30 @@
         <span class="material-symbols-rounded">{food.favorite ? 'favorite' : 'favorite_border'}</span>
       </button>
     {/if}
-    <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
-      on:click={save} disabled={saving}>
-      {saving ? 'Saving…' : 'Save'}
-    </button>
+    {#if _readOnly}
+      <button class="btn btn-primary" style="height:36px;padding:0 14px;font-size:13px;white-space:nowrap"
+        on:click={saveAsCopy} disabled={saving}>
+        {saving ? 'Copying…' : 'Save to My Catalog'}
+      </button>
+    {:else}
+      <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
+        on:click={save} disabled={saving}>
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+    {/if}
   </header>
 
-  <div class="page-content editor-content">
+  {#if _readOnly}
+    <div class="readonly-banner">
+      <span class="material-symbols-rounded">lock</span>
+      <div>
+        <div class="readonly-title">Shared by {food._shared_by} — read only</div>
+        <div class="readonly-sub">Tap <strong>Save to My Catalog</strong> to bring this into your catalog and edit it.</div>
+      </div>
+    </div>
+  {/if}
+
+  <div class="page-content editor-content" class:readonly-content={_readOnly} inert={_readOnly || null}>
     <!-- Photo -->
     <div class="card editor-card photo-card">
       <div class="editor-card-title">Photo</div>
@@ -835,6 +878,17 @@
   .fav-btn { color: var(--text-3); }
   .fav-btn.on { color: var(--macro-protein, #ec4899); }
   .editor-content { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 32px; }
+  .readonly-content { opacity: 0.78; pointer-events: none; }
+  .readonly-banner {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px var(--page-px);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .readonly-banner .material-symbols-rounded { color: var(--accent); font-size: 20px; flex-shrink: 0; }
+  .readonly-title { font-weight: 600; }
+  .readonly-sub   { color: var(--text-3); font-size: 12px; margin-top: 2px; line-height: 1.4; }
   .editor-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   .editor-card-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }
   .form-row { display: flex; gap: 12px; align-items: flex-end; }

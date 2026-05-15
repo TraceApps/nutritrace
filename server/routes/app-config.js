@@ -14,6 +14,13 @@ const ALLOWED_KEYS = new Set([
   'fitbit_client_id', 'fitbit_client_secret', 'fitbit_redirect_uri',
   'withings_client_id', 'withings_client_secret', 'withings_redirect_uri',
   'sharing_enabled', 'default_food_visibility',
+  // Per-category bulk-share state (persists what the admin last applied so
+  // the form pre-fills correctly). Visibility values: private | group | specific.
+  // The user-list keys are JSON-encoded arrays of user ids (used when
+  // visibility=specific).
+  'bulk_vis_foods', 'bulk_vis_meals', 'bulk_vis_recipes',
+  'bulk_users_foods', 'bulk_users_meals', 'bulk_users_recipes',
+  'password_policy',
 ]);
 
 // ── GET /api/app-config/env-locks — which sections are locked by env vars ──
@@ -46,11 +53,22 @@ router.get('/sharing', requireAuth, wrap((req, res) => {
     return groupCount + specificCount;
   };
 
+  // Pre-fill state for the admin-only Bulk Share form. Safe to expose to any
+  // authenticated user — these values aren't sensitive (just admin's last
+  // visibility choice) and the form only renders for admins anyway.
+  const cfgRow = key => db.prepare('SELECT value FROM app_config WHERE key = ?').get(key)?.value || null;
+  const parseUserIds = v => { try { return JSON.parse(v) || []; } catch { return []; } };
+
   res.json({
     sharing_enabled: true,
     foods:   countVisible('foods', 'food_shares', 'food_id'),
     meals:   countVisible('meals', 'meal_shares', 'meal_id', 'AND t.is_recipe = 0'),
     recipes: countVisible('meals', 'meal_shares', 'meal_id', 'AND t.is_recipe = 1'),
+    bulk: {
+      foods:   { visibility: cfgRow('bulk_vis_foods')   || 'private', user_ids: parseUserIds(cfgRow('bulk_users_foods'))   },
+      meals:   { visibility: cfgRow('bulk_vis_meals')   || 'private', user_ids: parseUserIds(cfgRow('bulk_users_meals'))   },
+      recipes: { visibility: cfgRow('bulk_vis_recipes') || 'private', user_ids: parseUserIds(cfgRow('bulk_users_recipes')) },
+    },
   });
 }));
 

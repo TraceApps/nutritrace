@@ -100,6 +100,33 @@ export const TOOLS = [
       required: ['days'],
     },
   },
+  {
+    name: 'get_fasting_history',
+    description: 'Get the user\'s intermittent-fasting history if they have the tracker enabled. Returns the last N completed fasts (start_at, end_at, duration_hours, goal_hours, met_goal), plus summary stats: average duration, longest fast, current daily streak, longest streak, and total count. Use this when the user asks about their fasting performance, streaks, recent fasts, or how their schedule is going. Returns an empty list if fasting is disabled or no fasts are logged.',
+    parameters: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'How many days of history to return (default 30, max 365).' },
+      },
+    },
+  },
+  {
+    name: 'get_adaptive_tdee',
+    description: 'Get the user\'s learned/adaptive TDEE (Total Daily Energy Expenditure) if they have enough history. Adaptive TDEE is computed from 35 days of weight trend × calorie intake using linear regression. Returns { ready, tdee, trendKgPerWeek, confidence, weightSource, daysAvailable, daysRequired }. When ready is false, the user doesn\'t yet have enough logged days (returns daysAvailable / daysRequired so you can tell them how close they are). Use this when the user asks about their actual calorie burn, learned/adjusted TDEE, weight trend, or whether their fixed goal is still right for them.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_activity_log',
+    description: 'Get the user\'s manually-logged activity entries from the Diary\'s Activity section (separate from wearable-synced workouts — use get_workouts for those). Each entry has name, kcal burned, duration_min, distance, source, date. Use this when the user asks about manual workouts they logged, exercise they typed in, or activities not synced from a wearable.',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Start date YYYY-MM-DD (inclusive).' },
+        to:   { type: 'string', description: 'End date YYYY-MM-DD (inclusive).' },
+      },
+      required: ['from', 'to'],
+    },
+  },
 ];
 
 // ── Main entry point ─────────────────────────────────────────────────────────

@@ -13,7 +13,9 @@
            statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday, statsShowEmptyDays,
            hiddenBodyStats, dateFormat, pageBanners,
            fitbitEnabled, garminEnabled, withingsEnabled, healthConnectEnabled, wellnessMetrics,
-           calorieGoalMode } from '../stores/settings.js';
+           calorieGoalMode,
+           fastingEnabled } from '../stores/settings.js';
+  import FastingInsights from '../components/diary/FastingInsights.svelte';
   import { isNative } from '../lib/platform.js';
   import StatsBanner from '../components/banners/StatsBanner.svelte';
   let _waterShowInStats = DB.getSetting('waterShowInStats', true);
@@ -340,10 +342,10 @@
         if (density) goalVal = Math.round(calGoal * goalVal / 100 / density);
       }
       if (goalVal) {
-        const isDynamic = metric === 'calories' && $calorieGoalMode === 'dynamic';
+        const isAdaptiveOrDynamic = metric === 'calories' && ($calorieGoalMode === 'dynamic' || $calorieGoalMode === 'adaptive');
         datasets.push({
           type: 'line',
-          label: isDynamic ? 'Base Goal' : 'Goal',
+          label: isAdaptiveOrDynamic ? 'Base Goal' : 'Goal',
           data: displayData.map(() => goalVal),
           borderColor: isDark ? 'rgba(129,140,248,0.8)' : 'rgba(99,102,241,0.8)',
           borderWidth: 1.5,
@@ -638,6 +640,10 @@
           {/each}
         </div>
       </div>
+    {/if}
+
+    {#if $fastingEnabled}
+      <FastingInsights />
     {/if}
 
     <div style="height:16px"></div>

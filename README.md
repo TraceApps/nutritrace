@@ -31,6 +31,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Per-meal ⋮ menu: copy or move all items to another meal, copy the meal to another date, save the meal to your library, or clear it
 - **Split Recipe** — break a logged recipe into its component ingredients in place, with each child editable (swap quantity, remove one) while macros stay accurate
 - Optional **Activity** section: log workouts manually (name, calories, duration, distance) without a wearable — Trace can estimate calories from your body profile when you describe a workout in plain language
+- Optional **Intermittent Fasting tracker**: a top-of-Diary widget with goal presets (14:10 / 16:8 / 18:6 / 20:4 / OMAD / custom), live elapsed timer, progress bar, and goal-reached notification. Stats card on the Statistics page shows your 14-day chart, average duration, longest fast, current streak, and longest streak. Trace AI can answer "what's my fasting streak?" via a built-in tool.
 - Per-day free-text notes (e.g. "felt bloated after lunch", "post-workout") — toggleable, with an indicator on dates that have a note
 
 <p align="center">
@@ -56,6 +57,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 ### Goals
 - Calorie and nutrient goals with template support
 - Wizard calculates TDEE (Mifflin-St Jeor) and water goal from body stats and activity level
+- Three calorie goal modes: **Fixed** (uses your goal target), **Dynamic** (yesterday's calories burned from a wearable, multiplied by a Lose / Maintain / Gain factor), or **Adaptive** (learned from your 35-day weight + diary trend, MacroFactor-style — see Adaptive TDEE below)
 
 ### Settings & Customization
 - Light / dark / system theme
@@ -69,7 +71,9 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 
 ### Multi-User Support
 - Optional user management — runs perfectly as a single-user app with no login required
-- Admin can invite additional users via email or shareable link
+- Admin can invite additional users via email or shareable link, see pending invites, and revoke any of them before acceptance
+- Optional **Require Strong Passwords** policy (admin) — adds zxcvbn strength checking on top of the standard rules; rejects common-pattern passwords at sign-up, password change, and invite acceptance
+- **Biometric sign-in** on Android (fingerprint or face) — opt-in per device, password remains the always-available fallback
 - All data is scoped per user
 - Configurable session timeout
 
@@ -248,6 +252,7 @@ On first launch, a setup wizard walks you through enabling user management and c
 | `JWT_SECRET` | If using users | — | Secret key for signing auth tokens. Use a long random string. |
 | `TOKEN_ENC_KEY` | No | derived from `JWT_SECRET` | At-rest encryption key for OIDC client secrets and wearable OAuth tokens. Set this if you want to rotate `JWT_SECRET` without invalidating stored secrets. |
 | `RECOVERY_TOKEN` | No | — | Passphrase required to disable user management from the login page (lockout recovery). Without this the recovery endpoint is disabled. |
+| `INSECURE_COOKIES` | If on plain HTTP | unset | Set to `1` to drop the `Secure` flag on auth cookies. Required when running on plain HTTP without TLS in front, otherwise the browser will drop the cookie after login and every request 401s. Use only on trusted networks; production deployments should put TLS in front instead. |
 | `LOG_LEVEL` | No | `info` | Log verbosity: `error` \| `warn` \| `info` \| `debug`. Use `debug` for detailed wellness sync output (Fitbit, Withings, Garmin, Health Connect). |
 | `SMTP_HOST` | No | — | SMTP server hostname (for password reset & invites) |
 | `SMTP_PORT` | No | `587` | SMTP port |
@@ -409,10 +414,43 @@ Server-side strings (email subjects, push-notification bodies, AI system prompts
 
 ---
 
+## Adaptive TDEE
+
+**What it is.** A calorie goal mode that *learns* your true daily energy expenditure from how your weight is actually moving versus how much you're eating. Inspired by MacroFactor, Macros+, and the standard energy-balance method.
+
+**How it works.** Once a day, the server pulls your last 35 days of:
+- Daily calorie intake (sum of food items in your diary)
+- Daily weight (priority: connected scale via Withings / Fitbit / Garmin / Health Connect, falling back to your manual body-stats entries)
+
+It runs a linear regression on the weight series to find your trend (kg per day), converts that trend into daily energy balance using `1 kg ≈ 7,700 kcal` (the standard textbook value), and computes:
+
+```
+TDEE = average daily intake − daily energy balance
+```
+
+That learned TDEE is then multiplied by your goal factor (Lose −20%, Maintain, or Gain +20%) to produce the daily target shown on the Diary bar and Statistics goal line.
+
+**Turning it on.** Settings → Goals → Calorie Goal Mode → **Adaptive**. The mode is selectable any time but stays in fallback (using your fixed goal) until you have **at least 21 days** of data with both weight and diary logged. The Goals page shows a readiness card with a progress bar so you can see how close you are.
+
+**For best results:**
+- **Weigh frequently.** Daily is best; every other day is fine. Sparse weights are linearly interpolated between known measurements, but more measurements = a tighter signal. A connected scale automates this entirely.
+- **Log food consistently.** Days with no diary entries are dropped from the calculation. The estimate gets noisy when you log half your days.
+- **Don't switch goals mid-window.** The 35-day rolling average converges over time. Bouncing between cuts and bulks weekly will lag the learned TDEE.
+- **Re-weigh in similar conditions** — first thing in the morning, after using the bathroom, before food/drink. Daily fluctuations are mostly water; the trend is what matters.
+
+**Caveats.**
+- Big changes in activity (started running, broke a leg) take roughly two weeks to fully reflect in the rolling window.
+- Travel weeks with under-logged food can pull the estimate up.
+- Body composition matters: 7,700 kcal/kg is accurate for adipose tissue; mixed lean+fat changes can deviate. The estimate is calibrated to body-mass change, not fat-mass change specifically.
+- The status card shows a confidence percentage based on data coverage and how cleanly your weight trends. Treat low-confidence numbers as approximations.
+
+---
+
 ## Roadmap
 
 **Coming soon:**
-- **Adaptive TDEE** — learn your true energy expenditure from intake + weight trend over time
+- **Cross-domain Dashboard** — configurable widgets that correlate nutrition, activity, sleep, and body stats (e.g. sleep duration vs weight trend).
+- **PWA passkeys** — WebAuthn-based passwordless sign-in on the browser side, matching the biometric flow already shipped on Android.
 
 **Future:**
 - **iOS app** — pending hardware and Apple Developer account access (see [Support](#support)).
@@ -440,7 +478,7 @@ If a wellness integration on your device behaves wrong (missing data, weird numb
 
 ## Experimental features
 
-Features marked **Experimental** in Settings (Smart Log, Goal Insights, Food Sharing, Dynamic Calorie Goal, Garmin integration, Nutrition Import, Health Connect on Android) work but haven't been hammered enough to drop the label. Real-world bug reports help promote them to stable. The badge comes off when edge-case handling is solid, not on a calendar.
+Features marked **Experimental** in Settings (Smart Log, Goal Insights, Dynamic Calorie Goal, Garmin integration, Nutrition Import, Health Connect on Android) work but haven't been hammered enough to drop the label. Real-world bug reports help promote them to stable. The badge comes off when edge-case handling is solid, not on a calendar.
 
 ---
 

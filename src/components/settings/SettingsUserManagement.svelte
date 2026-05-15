@@ -10,6 +10,7 @@
   import { push } from 'svelte-spa-router';
   import { validatePassword } from '../../lib/validation.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
+  import Dialog from '../ui/Dialog.svelte';
 
   // ── User Management state ────────────────────────────────────────────────────
   let umUsers        = [];
@@ -37,6 +38,10 @@
   let sessionHours = '720';
   let sessionSaved = false;
 
+  // Password Policy (admin-only) — 'standard' | 'strong'
+  let passwordPolicy = 'standard';
+  let passwordPolicySaved = false;
+
   // OIDC providers + password-login toggle live in SettingsAuth.svelte
   // (its own top-level Settings section).
 
@@ -57,23 +62,90 @@
   let inviteRole   = 'user';
   let inviteLoading = false;
   let inviteResult = null; // { inviteUrl, sent }
+  let pendingInvites = []; // { token, email, role, expires_at }
+  async function loadPendingInvites() {
+    try { pendingInvites = await NtApi.get('/api/auth/invites'); }
+    catch { pendingInvites = []; }
+  }
+  async function revokeInvite(token) {
+    if (!await confirmDialog({
+      title: 'Revoke invite?',
+      message: 'The link will stop working immediately. The recipient won\'t be able to use it after this.',
+      confirmText: 'Revoke',
+      dangerous: true,
+    })) return;
+    try {
+      await NtApi.del(`/api/auth/invites/${token}`);
+      await loadPendingInvites();
+      showSuccess('Invite revoked');
+    } catch (e) { showError(e.message || 'Could not revoke invite'); }
+  }
 
   export async function loadData() {
     if ($userMgmtActive) {
       await loadUsers();
       if ($currentUser?.role === 'admin') {
         await loadSessionConfig();
+        await loadPendingInvites();
       }
     }
   }
 
   async function loadSessionConfig() {
     try {
-      const res = await fetch(apiUrl('/api/app-config'), { credentials: 'include' });
-      if (!res.ok) return;
+      // _csrfHeaders attaches Authorization: Bearer for native and
+      // X-CSRF-Token for PWA — same call pattern as the rest of this file.
+      // Without it the Android app silently 401s and falls through to the
+      // 'standard' default, which made the strong-password toggle look like
+      // it wasn't persisting (it was; we just couldn't read it back).
+      const res = await fetch(apiUrl('/api/app-config'), {
+        credentials: 'include',
+        headers: _csrfHeaders(),
+      });
+      if (!res.ok) {
+        console.warn('[user-mgmt] loadSessionConfig got', res.status);
+        return;
+      }
       const cfg = await res.json();
       sessionHours = cfg.session_hours ?? '720';
-    } catch {}
+      passwordPolicy = cfg.password_policy || 'standard';
+    } catch (e) {
+      console.warn('[user-mgmt] loadSessionConfig threw', e);
+    }
+  }
+
+  async function savePasswordPolicy(value) {
+    const prev = passwordPolicy;
+    passwordPolicy = value;
+    try {
+      const res = await fetch(apiUrl('/api/app-config'), {
+        method: 'PUT', credentials: 'include',
+        headers: _csrfHeaders(),
+        body: JSON.stringify({ key: 'password_policy', value }),
+      });
+      if (!res.ok) {
+        // Most likely cause: the server hasn't redeployed with
+        // 'password_policy' in ALLOWED_KEYS yet (returns 400 'Unknown
+        // config key'). Roll back the optimistic UI flip and surface
+        // the reason so the failure isn't silent.
+        const data = await res.json().catch(() => ({}));
+        const msg = data.error || `Save failed (${res.status})`;
+        console.warn('[password-policy] save rejected:', msg);
+        showError(`Could not save password policy: ${msg}. Server may need to redeploy.`);
+        passwordPolicy = prev;
+        return;
+      }
+      // Confirm by reading back what the server stored — guards against
+      // 'silent success' where the server returned 200 but the row didn't
+      // actually persist for some reason.
+      await loadSessionConfig();
+      passwordPolicySaved = true;
+      setTimeout(() => passwordPolicySaved = false, 2000);
+    } catch (e) {
+      console.warn('[password-policy] save threw:', e);
+      showError(`Could not save password policy: ${e?.message || 'network error'}`);
+      passwordPolicy = prev;
+    }
   }
 
   async function saveSessionHours() {
@@ -159,7 +231,7 @@
     try {
       const res = await fetch(apiUrl('/api/auth/register'), {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _csrfHeaders(),
         body: JSON.stringify({ username: newUsername.trim(), password: newPassword, full_name: newFullName.trim() || undefined, role: newRole }),
       });
       const data = await res.json().catch(() => ({}));
@@ -215,19 +287,48 @@
     } catch (e) { showError($_('settings.users.err_could_not_reach_server')); }
   }
 
+  // Type-username-to-confirm delete. Loads a per-user data-counts preview so
+  // the admin sees exactly what cascades away before they wipe years of logs.
+  let _delTarget = null;        // { id, username, full_name }
+  let _delCounts = null;        // { foods, meals, recipes, diary_days, ... }
+  let _delTyped  = '';
+  let _delOpen   = false;
+  let _delLoading = false;
+
   async function deleteUser(u) {
-    const name = u.full_name || u.username;
-    if (!await confirmDialog({
-      title: $_('settings.users.delete_user_title', { values: { name } }),
-      message: $_('settings.users.delete_user_message'),
-      confirmText: $_('settings.users.delete'),
-      dangerous: true,
-    })) return;
+    _delTarget = u;
+    _delCounts = null;
+    _delTyped  = '';
+    _delOpen   = true;
     try {
-      await NtApi.del(`/api/auth/users/${u.id}`);
+      const r = await NtApi.get(`/api/auth/users/${u.id}/data-counts`);
+      if (_delOpen && _delTarget?.id === u.id) _delCounts = r;
+    } catch (e) {
+      _delCounts = { error: e.message };
+    }
+  }
+
+  async function _confirmDeleteUser() {
+    if (!_delTarget || _delTyped.trim() !== _delTarget.username) return;
+    _delLoading = true;
+    try {
+      await NtApi.del(`/api/auth/users/${_delTarget.id}`);
+      _delOpen = false;
+      _delTarget = null;
+      _delCounts = null;
       await loadUsers();
       showSuccess($_('settings.users.toast_user_deleted'));
-    } catch(e) { showError(e.message); }
+    } catch (e) {
+      showError(e.message || 'Could not delete user');
+    }
+    _delLoading = false;
+  }
+
+  function _cancelDeleteUser() {
+    _delOpen = false;
+    _delTarget = null;
+    _delCounts = null;
+    _delTyped = '';
   }
 
   async function disableUserManagement() {
@@ -293,21 +394,42 @@
     setTimeout(() => window.location.reload(), 300);
   }
 
+  // Permissive email shape — server is the source of truth, this is just a
+  // UI guard so 'asdf' can't be submitted as if it were an email address.
+  $: _inviteEmailTrimmed = inviteEmail.trim();
+  $: _inviteEmailValid   = !_inviteEmailTrimmed || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(_inviteEmailTrimmed);
+  $: _inviteCanSubmit    = !inviteLoading && _inviteEmailValid;
+
   async function createInvite() {
+    if (!_inviteEmailValid) {
+      showError('Enter a valid email or leave blank to generate a shareable link');
+      return;
+    }
     inviteLoading = true;
     inviteResult  = null;
     try {
       const res  = await fetch(apiUrl('/api/auth/invite'), {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: inviteEmail.trim() || undefined, role: inviteRole }),
+        headers: _csrfHeaders(),
+        body: JSON.stringify({ email: _inviteEmailTrimmed || undefined, role: inviteRole }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { showError(data.error || 'Failed to create invite'); return; }
       inviteResult = data;
+      // Server reports sent: true only after nodemailer's SMTP handoff resolves
+      // — that's the strongest delivery confirmation any app can make without
+      // webhooks from the upstream provider. Same wording GitHub / Slack use.
+      if (data.sent) showSuccess(`Invite emailed to ${_inviteEmailTrimmed}`);
       inviteEmail  = '';
-    } catch { showError('Could not create invite'); }
-    inviteLoading = false;
+      await loadPendingInvites();
+    } catch {
+      showError('Could not create invite');
+    } finally {
+      // Always release the loading state — was leaking on early-returns
+      // (validation fails / non-OK response) so the button stayed stuck on
+      // "Creating…" until the user navigated away and back.
+      inviteLoading = false;
+    }
   }
 </script>
 
@@ -369,7 +491,12 @@
             <span class="setting-label">{$_('settings.users.invite_user')}</span>
             <div class="setting-desc" style="margin-top:2px">{$_('settings.users.invite_user_explainer')}</div>
           </div>
-          <input class="input" type="email" bind:value={inviteEmail} placeholder={$_('settings.users.email_optional')} />
+          <input class="input" type="email" autocomplete="email" autocapitalize="off"
+            class:invalid={_inviteEmailTrimmed && !_inviteEmailValid}
+            bind:value={inviteEmail} placeholder={$_('settings.users.email_optional')} />
+          {#if _inviteEmailTrimmed && !_inviteEmailValid}
+            <p class="invite-hint">Enter a valid email address, or clear the field to generate a shareable link.</p>
+          {/if}
           <div class="um-role-pair">
             <label class="um-role-label" for="invite-role-sel">{$_('settings.users.role')}</label>
             <div class="um-role-select-wrap">
@@ -380,9 +507,30 @@
               <span class="material-symbols-rounded um-role-chev">expand_more</span>
             </div>
           </div>
-          <button class="btn btn-primary" style="width:100%" on:click={createInvite} disabled={inviteLoading}>
-            {inviteLoading ? $_('settings.users.creating') : (inviteEmail.trim() ? $_('settings.users.send_invite') : $_('settings.users.generate_link'))}
+          <button class="btn btn-primary" style="width:100%" on:click={createInvite} disabled={!_inviteCanSubmit}>
+            {inviteLoading ? $_('settings.users.creating') : (_inviteEmailTrimmed ? $_('settings.users.send_invite') : $_('settings.users.generate_link'))}
           </button>
+          {#if pendingInvites.length > 0}
+            <div class="pending-invites" transition:slide={{ duration: 160 }}>
+              <div class="pending-invites-label">Pending Invites</div>
+              {#each pendingInvites as inv (inv.token)}
+                <div class="pending-invite-row">
+                  <div class="pending-invite-info">
+                    <span class="pending-invite-email">{inv.email || 'Link-only (no email)'}</span>
+                    <span class="pending-invite-meta">
+                      {inv.role === 'admin' ? 'Admin' : 'User'} ·
+                      expires {new Date(inv.expires_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <button class="btn-icon pending-invite-revoke" on:click={() => revokeInvite(inv.token)}
+                    aria-label="Revoke invite" title="Revoke invite">
+                    <span class="material-symbols-rounded">close</span>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
           {#if inviteResult}
             <div class="invite-result" transition:slide={{ duration: 160 }}>
               {#if inviteResult.sent}
@@ -441,6 +589,18 @@
           </div>
         {/if}
 
+
+        <div class="setting-divider"></div>
+        <div class="setting-row">
+          <div>
+            <span class="setting-label">Require Strong Passwords</span>
+            <div class="setting-desc">Reject weak passwords (zxcvbn score below 3) on top of the standard 8-char + mixed-case + number + symbol rules. Affects new sign-ups, invites, and password changes. Existing passwords aren't re-checked.</div>
+          </div>
+          <Toggle checked={passwordPolicy === 'strong'} on:change={e => savePasswordPolicy(e.detail ? 'strong' : 'standard')} />
+        </div>
+        {#if passwordPolicySaved}
+          <p class="setting-desc" style="padding:0 16px 8px;color:var(--accent)">Saved.</p>
+        {/if}
 
         <div class="setting-divider"></div>
         <div class="setting-row">
@@ -525,7 +685,78 @@
   </div>
 </div>
 
+<!-- Type-username-to-confirm delete-user dialog with cascade preview -->
+<Dialog
+  bind:open={_delOpen}
+  title={_delTarget ? `Delete ${_delTarget.full_name || _delTarget.username}?` : 'Delete user?'}
+  message=""
+  confirmText={_delLoading ? 'Deleting…' : 'Delete Permanently'}
+  cancelText="Cancel"
+  dangerous={true}
+  manualClose={true}
+  confirmDisabled={!_delTarget || _delTyped.trim() !== _delTarget.username || _delLoading}
+  on:cancel={_cancelDeleteUser}
+  on:confirm={_confirmDeleteUser}>
+  {#if _delTarget}
+    <p class="del-intro">This will permanently delete the account and everything it owns. This cannot be undone.</p>
+    {#if !_delCounts}
+      <div class="del-counts-loading">Loading data preview…</div>
+    {:else if _delCounts.error}
+      <div class="del-error">Couldn't load data preview: {_delCounts.error}</div>
+    {:else}
+      <ul class="del-counts">
+        {#if _delCounts.foods         > 0}<li><strong>{_delCounts.foods.toLocaleString()}</strong> {_delCounts.foods === 1 ? 'food' : 'foods'}</li>{/if}
+        {#if _delCounts.meals         > 0}<li><strong>{_delCounts.meals.toLocaleString()}</strong> {_delCounts.meals === 1 ? 'meal' : 'meals'}</li>{/if}
+        {#if _delCounts.recipes       > 0}<li><strong>{_delCounts.recipes.toLocaleString()}</strong> {_delCounts.recipes === 1 ? 'recipe' : 'recipes'}</li>{/if}
+        {#if _delCounts.diary_days    > 0}<li><strong>{_delCounts.diary_days.toLocaleString()}</strong> diary {_delCounts.diary_days === 1 ? 'day' : 'days'}</li>{/if}
+        {#if _delCounts.activities    > 0}<li><strong>{_delCounts.activities.toLocaleString()}</strong> manual {_delCounts.activities === 1 ? 'activity' : 'activities'}</li>{/if}
+        {#if _delCounts.workouts      > 0}<li><strong>{_delCounts.workouts.toLocaleString()}</strong> {_delCounts.workouts === 1 ? 'workout' : 'workouts'}</li>{/if}
+        {#if _delCounts.wellness_data > 0}<li><strong>{_delCounts.wellness_data.toLocaleString()}</strong> wellness data points</li>{/if}
+        {#if !_delCounts.foods && !_delCounts.meals && !_delCounts.recipes && !_delCounts.diary_days && !_delCounts.activities && !_delCounts.workouts && !_delCounts.wellness_data}
+          <li class="del-empty">No data attached to this account.</li>
+        {/if}
+      </ul>
+    {/if}
+    <label class="del-confirm-label" for="del-confirm-input">
+      Type <code>{_delTarget.username}</code> to confirm:
+    </label>
+    <input id="del-confirm-input" class="input del-confirm-input" type="text"
+      autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+      bind:value={_delTyped}
+      placeholder={_delTarget.username}
+      class:matched={_delTyped.trim() === _delTarget.username} />
+    {#if _delTyped.trim() !== _delTarget.username}
+      <p class="del-hint">Confirm button enables once the username matches exactly.</p>
+    {/if}
+  {/if}
+</Dialog>
+
 <style>
+  /* Type-username-to-confirm delete dialog */
+  :global(.dialog-box:has(.del-confirm-input)) { max-width: 420px; }
+  .del-intro { font-size: 13px; color: var(--text-2); margin: 0 0 10px; line-height: 1.4; }
+  .del-counts {
+    list-style: none; padding: 10px 12px; margin: 0 0 12px;
+    background: var(--surface-2); border-radius: var(--radius-md);
+    font-size: 13px; line-height: 1.6;
+  }
+  .del-counts li { color: var(--text-2); }
+  .del-counts li::before { content: '· '; color: var(--text-3); }
+  .del-counts li strong { color: var(--text-1); font-weight: 600; }
+  .del-empty::before { content: ''; }
+  .del-empty { color: var(--text-3); font-style: italic; }
+  .del-counts-loading { font-size: 13px; color: var(--text-3); padding: 10px 0; }
+  .del-error { font-size: 12px; color: var(--danger); padding: 8px 0; }
+  .del-confirm-label { display: block; font-size: 13px; color: var(--text-2); margin: 0 0 6px; }
+  .del-confirm-label code {
+    font-family: ui-monospace, monospace;
+    background: var(--surface-2); padding: 1px 6px; border-radius: 4px;
+    font-size: 12px; color: var(--text-1);
+  }
+  .del-confirm-input { width: 100%; margin-bottom: 8px; font-family: ui-monospace, monospace; }
+  .del-confirm-input.matched { border-color: var(--accent); }
+  .del-hint { font-size: 11px; color: var(--text-3); margin: 0 0 12px; }
+
   /* Mirror Settings.svelte scoped styles */
   .section-body { padding: 12px var(--page-px); display: flex; flex-direction: column; gap: 10px; }
   .settings-card {
@@ -703,5 +934,27 @@
     border-radius: var(--radius-md);
   }
   .invite-link-row { display: flex; gap: 8px; }
+  .invite-hint { font-size: 11px; color: var(--danger, #ef4444); margin: -2px 0 4px; line-height: 1.4; }
+
+  .pending-invites {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 8px 10px;
+    background: var(--surface-2); border-radius: var(--radius-md);
+    margin-top: 4px;
+  }
+  .pending-invites-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-3); padding: 4px 2px;
+  }
+  .pending-invite-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: var(--radius-sm);
+  }
+  .pending-invite-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .pending-invite-email { font-size: 13px; font-weight: 500; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pending-invite-meta  { font-size: 11px; color: var(--text-3); }
+  .pending-invite-revoke { padding: 4px; min-width: 0; color: var(--text-3); }
+  .pending-invite-revoke:hover { color: var(--danger, #ef4444); }
+  :global(.um-form-block .input.invalid) { border-color: var(--danger, #ef4444); }
 
 </style>

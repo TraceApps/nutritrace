@@ -5,133 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.0.0-rc.20] — 2026-05-10 — Google Health migration
+## [1.0.0-rc.21] — 2026-05-15
 
-### Migrating from Fitbit to Google Health (action required for Fitbit users)
+### New Features
 
-The Fitbit Web API that NutriTrace used since launch is being retired by Google. Wellness data now flows through the new **Google Health API**. The data still comes from your Fitbit (or any Health Connect / Google Health source); only the connection method changes.
+- **Recipe yields.** Recipes can now declare how many servings they make. Set "Yields" in the recipe editor and adding one serving to the diary uses per-serving weight + nutrition. Existing recipes keep their old behavior until you set a yields value.
+- **Per-serving Open Food Facts import.** New option in Settings → Connected Services → Open Food Facts → Import Portion As. When set to Per Serving, barcode scans and OFF searches prefill the food with per-serving values whenever the product has serving data on OFF.
+- **Intermittent Fasting tracker.** Track fasts from a Diary widget: default goal, last-fast hint, named custom-hour presets, history with delete, and a recurring schedule that auto-starts a fast on chosen days at a chosen time. Tap the start time on an active fast to edit it inline.
+- **Android biometric sign-in.** Fingerprint and face unlock for the Android app in server-connected mode. Toggle in Profile.
+- **Adaptive TDEE.** Calorie Goals can learn your true daily energy expenditure from a rolling 35-day window of weight and diary trend, instead of the static Harris-Benedict estimate.
 
-**To migrate:**
+### Improvements
 
-1. Create a Google Cloud OAuth client at https://console.cloud.google.com/apis/credentials. If you have not used Google Cloud Console before, follow Google's [OAuth client setup guide](https://developers.google.com/identity/protocols/oauth2/web-server#creatingcred). Set the authorized redirect URI to `https://your-nutritrace.example.com/api/wellness/google-health/callback` (substitute your own domain).
-2. In NutriTrace, go to **Settings → Wellness → Fitbit**.
-3. Enter the new Client ID, Client Secret, and Redirect URI.
-4. Tap **Save**, then **Connect**. You will be taken to Google to authorize NutriTrace to read your Fitbit data via Google Health.
-5. Existing wellness history stays intact. Only the connection method changes.
+- Settings forms use sliding-pill segmented controls. Goals section renamed to Calorie Goals.
+- Sharing rework: per-category sharing form, source filter on Meals/Recipes, and read-only editors when viewing someone else's shared food.
+- User management: invite by email, revoke pending invites, block invites to existing accounts. Optional zxcvbn-backed password strength policy.
+- Wizard summary clarifies the TDEE label and shows the goal-factor math.
+- Android local-only mode reaches feature parity with server mode for Adaptive TDEE and the Fasting tracker.
+- AI Assistant (Trace) gains two new tools: `get_adaptive_tdee` and `get_activity_log`.
+- `INSECURE_COOKIES` env var is now documented in `.env.example` and the README env-vars table. Required for self-hosters on plain HTTP without TLS in front.
 
-If you previously had a working Fitbit setup, you will see a "Re-link required" notice in Settings → Wellness until you complete the steps above. Old tokens continue to work for a short transition period; do the re-link before they expire.
+### Fixes
 
-### Resilience (replaces the numeric Stress Score)
-
-Fitbit retired the 0 to 100 Stress Management Score and renamed it **Resilience**, classifying your day as **Optimal**, **Balanced**, or **Low** instead of a single number. The Wellness page reflects this:
-
-- The card on the Heart tab now shows your Resilience category in green (Optimal), amber (Balanced), or red (Low).
-- A short message explains what the bucket means for you today.
-- The three pillars Fitbit uses (Physical Calmness, Activity Balance, Sleep Patterns) appear underneath as a breakdown.
-- The numeric Stress Score is gone from the UI. Existing historical Stress values stay in your database for reference but are no longer rendered.
-
-### Sleep Quality
-
-The Fitbit Public Preview Sleep Score brings four new sub-metrics. These now appear under the Sleep tab when data is available:
-
-- **Time to Sound Sleep**: how long it took to settle into deep sleep after first falling asleep.
-- **Sound Sleep**: total time in your most stable sleep period.
-- **Restlessness**: total minutes of brief stirring during the night.
-- **Interruptions**: wake events of 5 minutes or longer, plus the count.
-
-### Tuning, ongoing
-
-The Google Health API exposes most of what is needed but not everything Fitbit's app uses internally. The formulas are still being tuned to match Fitbit's display values as closely as the available data allows.
-
-- **Resilience** approximates the documented three-pillar weighting and is currently within one bucket of Fitbit on every test day.
-- **Sleep Quality** sub-metrics track within a few minutes on most nights, with **Restlessness** as the biggest outlier (Fitbit incorporates motion data the API does not expose, so the calculated value will under-count).
-- A handful of metrics that depend on undocumented or unavailable fields may be removed in a future release if they cannot be calibrated within a useful margin. Any drops will be noted in the changelog at that time.
-
-### Diary
-
-- **Split Recipe** action on diary recipe items. Long-press a saved recipe in your diary, tap **Split Recipe**, and the recipe stays in place but becomes expandable: a chevron reveals each ingredient (scaled by however much of the recipe you logged) where you can adjust portions or remove individual ingredients. The saved recipe in your library is untouched. Inspired by Cronometer's "Explode Recipe."
-- **Recipe ingredient picker** now uses the same sort settings as the Foods page (Alphabetical default, Recently Used, or Most Used), with your favorites pinned to the top of each tab.
-- **Info button on saved meals + recipes** in the Foods picker. Tap the **i** at the right edge of any saved meal or recipe row to open a slide-up sheet listing every ingredient with portions and per-item energy, plus the total. Mirrors the existing yesterday-meals expand pattern so you can see what's in a saved recipe before logging it instead of having to add it then split.
-
-### Wellness page polish
-
-- **Body Stats** and **Nutrition Summary** sheets now have an **X** close button in the header, matching the water-quick-add card.
-
-### Statistics
-
-- Removed the inline "Show Empty Days" and "Include Today" checkboxes that duplicated the same toggles in Settings → Statistics. Charts still respect both settings; just one place to set them.
-
----
-
-## [1.0.0-rc.19] — 2026-05-06
-
-### Favorites + sort across Foods, Meals, and Recipes
-- Tap the heart on any food, meal, or recipe to favorite it. Favorites pin to the top of their tab.
-- Each tab now has its own sort — Alphabetical (default), Recently Used, or Most Used — applied under your favorites.
-- Usage counters now sync across your devices without overwriting other fields like the food's image, brand, or nutrition.
-
-### Food images on diary
-- Diary thumbnails could show the wrong food after reinstalling the Android app, because the diary referenced a local id the rebuilt database had renumbered. Diary items now carry a stable, server-side reference, and a one-time migration backfills it for existing entries, so older diary days correct themselves on first open.
-- When the stable reference isn't present (very old items), image lookup falls back to name + brand match across foods, meals, *and* recipes, instead of stopping at foods.
-- Adding a diary item on Android no longer pushes a stale image URL back to the server, so the same day viewed on the PWA stays correct.
-
-### Food editor
-- Heart toggle in the header for quick favorite / unfavorite without leaving the page.
-- "Scale by serving size" no longer fights with manual nutrient edits — the link freezes a snapshot when you toggle it on and only fires when you change the serving size itself.
-- Sodium / salt is now last-edited-wins: type one and the other recalculates, type the other and it flips.
-- Macro ring legend reads as percentages summing to 100, in the same Protein / Carbs / Fat order as the pill cards beneath.
-
-### Diary
-- Switching to the Diary tab no longer replays the mount fly-in every time. Animations only run on initial app launch.
-
-### Statistics
-- New **Show empty days** inline toggle keeps zero-value days visible on bar and line charts instead of collapsing them out.
-- Nutrient labels now resolve correctly on the chart legend — a handful of nutrients were rendering as their internal id.
-
-### Sync
-- Server now self-heals food and meal rows with `NULL updated_at`, which had been blocking some accounts from pulling updates after restoring a backup. Closes #13 (thanks @tellis82).
-
-### Polish
-- Title Case sweep continued from rc.18, now covering button labels and form labels.
-- Sheets that lead with an input field (Add Activity, Save as Meal, custom water amount) auto-focus that input on open.
-- Activity name field on the manual-activity sheet auto-completes from your prior entries.
-- **Body Stats sheet** now re-loads the saved values for the date you're viewing every time you open it. Previously the dialog carried over whatever was last typed, which made it look like the wrong date was being edited.
-- **Pressing Enter** on any input in the Body Stats sheet now saves the entry.
-
----
-
-## [1.0.0-rc.18] — 2026-05-05
-
-### Statistics
-
-- **(#10) Mouse users can now scroll the metric and range chip rows** by click-drag or vertical mouse wheel. The hidden scrollbars on those rows previously left desktop-mouse users unable to see the trailing chips. Reported by @cearum.
-
-### Unit system
-
-- **(#11) Water "Add Custom" entry** now respects your water-unit setting. Imperial users typing "8" get 8 fl oz, not 8 ml. Previously the input was always treated as ml regardless of the unit shown.
-- **Activity entry** kcal/kJ input on the Diary Activity sheet honors your energy unit. The distance placeholder now uses your distance unit (mi vs km).
-- **Diary "Calves" body-stat field** is properly labeled with your length unit (was a hardcoded "cm / in" placeholder with no label).
-- **Body stats** (Weight + neck/waist/hips/chest/thighs/biceps/calves) are tagged with the unit at write time. Toggling kg↔lb or cm↔in no longer reinterprets historical entries in the new unit.
-
-### Foods, Meals, Recipes
-
-- **Auto-scale toggle in the food editor now defaults to OFF.** Editing one nutrition value no longer silently rescales every other field. Click the link icon to opt in when you want proportional scaling.
-- **"Edit Food" / "Edit Meal" / "Edit Recipe"** correctly shows when editing an existing item — was always saying "Add" because the route doesn't carry an /:id segment.
-- **Food editor nutrition section**: sub-nutrients (saturated fat, sugars, salt, etc.) are now indented under their parent for easier scanning.
-
-### Diary — yesterday's meals
-
-- Thumbnails now refresh when you change a food's image. The day-card preview, info popup, and "yesterday's meals" pull all read the live image URL from the foods table at render time, instead of caching the URL from when the item was originally logged. Affected both PWA and Android.
-
-### AI Assistant (Trace)
-
-- The `get_diary` tool now also returns same-day manually-logged activities, so the assistant can answer "what did I do yesterday" accurately.
-- Body-stats payload to the AI now carries explicit `weight_unit` / `length_unit` hints so the model doesn't have to guess whether "180" means lb or kg.
-
-### Settings
-
-- **Title Case sweep** across section headers, ~50 individual setting labels, and 9 i18n keys. Examples: "Show thumbnails" → "Show Thumbnails", "Import from another app" → "Import From Another App", "Reset password" → "Reset Password". Descriptions and toast messages stay sentence case.
-- **Diary action sheets** ("⋮" on item or meal headers) follow the same rule: "Move to Meal", "Copy Items to…", "Save as Meal…", "Add Food", etc.
+- Wrong food images in the diary (cross-pollination across foods that share an Open Food Facts basename). Diary images are now live-resolved from the current foods and meals tables on every read, routed by recipe vs food, and disambiguated by brand.
+- Duplicate food rows when scanning the same barcode in rapid succession.
+- Invite "stuck on Creating…" when the email field was invalid.
+- Password policy now persists when saved.
+- Revoke invite no longer surfaces a fake "Failed to fetch" message.
+- Session config loads correctly on Android by sending auth headers on the initial GET.
 
 ---
 

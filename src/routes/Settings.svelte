@@ -39,7 +39,10 @@
     waterGoalMl, waterUnit, waterContainers, waterShowInStats, waterShowInDiary,
     calorieGoalMode, calorieGoalFactor,
     fitbitEnabled, garminEnabled, healthConnectEnabled,
+    fastingEnabled, fastingDefaultHours, fastingNotifyOnGoal,
+    fastingScheduleEnabled, fastingScheduleTime, fastingScheduleDays, fastingScheduleGoal,
   } from '../stores/settings.js';
+  $: _hasWearable = $fitbitEnabled || $garminEnabled || $healthConnectEnabled;
   import { mealIcon } from '../lib/mealIcon.js';
   import { DB } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
@@ -301,12 +304,12 @@
     authentication:    ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group'],
     appearance:        ['appearance','theme','dark','light','accent','color','navigation','sidebar','persistent','start page','animations','celebrations','reduce motion','banner','page banner'],
     regional:          ['regional','language','translation','date format','time format','locale','date','time','12h','24h','units','energy unit','weight unit','height','circumference','distance','temperature','imperial','metric'],
-    diary:             ['diary','brands','timestamps','thumbnails','nutrients','nutrition units','macros','macro summary','prompt quantity','portion size','nutrition bar','goals progress','meal names','meals','activity','activity section','exercise'],
+    diary:             ['diary','brands','timestamps','thumbnails','nutrients','nutrition units','macros','macro summary','prompt quantity','portion size','nutrition bar','goals progress','meal names','meals','activity','activity section','exercise','fasting','fast','intermittent fasting','if','16:8','omad','time restricted'],
     foods:             ['foods','thumbnails','category','notes','yesterday meals','sort order','sort','barcode','scan','beep','flashlight','crop photos'],
     water:             ['water','display unit','daily goal','containers','bottle','cup','glass'],
     categories:        ['categories','food categories','tags','labels'],
     nutrients:         ['nutrients','nutriments','custom nutrients','vitamins','minerals'],
-    goals:             ['goals','calorie goal','dynamic calorie','tdee','burn','calories out','factor','lose','gain','maintain','activity','exercise'],
+    goals:             ['goals','calorie goal','dynamic calorie','adaptive','adaptive tdee','adaptive calorie','tdee','energy expenditure','burn','calories out','factor','lose','gain','maintain','activity','exercise','weight trend','macrofactor','learn','fixed'],
     bodyStats:         ['body stats','body','weight','measurements','stats'],
     statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
     connectedServices: ['food sources','connected services','usda','open food facts','mealie','recipe','search language','country','api key','credentials','username','password'],
@@ -317,8 +320,8 @@
     backup:            ['backup','export','import','restore','csv','clear data','json','full backup','images','zip','reset','defaults','clear settings','danger zone'],
     nutritionImport:   ['import','nutrition import','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','csv','migrate','migration','from another app'],
     email:             ['email','smtp','mail','password reset','invites','notifications'],
-    profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','avatar','log out','logout','sign out','password','change password'],
-    users:             ['users','user management','accounts','login','admin','register','invite'],
+    profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','avatar','log out','logout','sign out','password','change password','biometric','fingerprint','face unlock','face id'],
+    users:             ['users','user management','accounts','login','admin','register','invite','revoke','pending invite','session','session duration','password policy','strong password','strong passwords','require strong','zxcvbn'],
     apiTokens:         ['api','api tokens','token','federation','cooktrace','lifttrace','bearer','integration','integrations','external','third-party','third party'],
     helpImprove:       ['diagnostics','logs','verbose','calibration','export','bug','report','troubleshoot'],
     about:             ['about','version','nutritrace'],
@@ -530,6 +533,7 @@
   let offSearchLanguage = DB.getSetting('offSearchLanguage', 'en');
   let offSearchCountry  = DB.getSetting('offSearchCountry',  'World');
   let offUploadCountry  = DB.getSetting('offUploadCountry',  'Auto');
+  let offImportPortion  = DB.getSetting('offImportPortion',  'per100g');
 
   // ── Mealie ─────────────────────────────────────────────────────────────────
   let mealieEnabled    = DB.getSetting('mealieEnabled',   false);
@@ -849,27 +853,67 @@
     try {
       const cfg = await NtApi.getSharingStatus().catch(() => ({}));
       adminSharingEnabled = cfg.sharing_enabled === true;
-    } catch {}
+      // Pre-fill the bulk form from the last-applied per-category state so
+      // users don't see 'Private' on every revisit when they actually saved
+      // something different.
+      if (cfg.bulk) {
+        bulkVisFoods    = cfg.bulk.foods?.visibility    || 'private';
+        bulkVisMeals    = cfg.bulk.meals?.visibility    || 'private';
+        bulkVisRecipes  = cfg.bulk.recipes?.visibility  || 'private';
+        bulkUsersFoods   = Array.isArray(cfg.bulk.foods?.user_ids)    ? cfg.bulk.foods.user_ids    : [];
+        bulkUsersMeals   = Array.isArray(cfg.bulk.meals?.user_ids)    ? cfg.bulk.meals.user_ids    : [];
+        bulkUsersRecipes = Array.isArray(cfg.bulk.recipes?.user_ids)  ? cfg.bulk.recipes.user_ids  : [];
+      } else {
+        console.warn('[bulk-share] server returned no `bulk` field on /api/app-config/sharing — server probably needs to redeploy');
+      }
+    } catch (e) {
+      console.warn('[bulk-share] loadSharingConfig failed', e);
+    }
+  }
+
+  async function _saveBulkState() {
+    // Persist last-applied state via app-config so the form pre-fills correctly
+    // next time (and across devices, since it's server-stored). Routes through
+    // _fetchOpts() so CSRF (PWA) / Bearer (native) headers are attached —
+    // otherwise PUT /api/app-config silently 403s and the state never persists.
+    const _put = async (key, value) => {
+      const res = await fetch(apiUrl('/api/app-config'), {
+        method: 'PUT',
+        ..._fetchOpts({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ key, value }),
+      }).catch(() => null);
+      if (!res || !res.ok) console.warn('[bulk-share] failed to persist', key, res?.status);
+    };
+    await Promise.all([
+      _put('bulk_vis_foods',   bulkVisFoods),
+      _put('bulk_vis_meals',   bulkVisMeals),
+      _put('bulk_vis_recipes', bulkVisRecipes),
+      _put('bulk_users_foods',   JSON.stringify(bulkVisFoods   === 'specific' ? bulkUsersFoods   : [])),
+      _put('bulk_users_meals',   JSON.stringify(bulkVisMeals   === 'specific' ? bulkUsersMeals   : [])),
+      _put('bulk_users_recipes', JSON.stringify(bulkVisRecipes === 'specific' ? bulkUsersRecipes : [])),
+    ]);
   }
 
   async function saveAdminSharingEnabled(val) {
     adminSharingEnabled = val;
     await fetch(apiUrl('/api/app-config'), {
-      method: 'PUT', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PUT',
+      ..._fetchOpts({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ key: 'sharing_enabled', value: val ? 'true' : 'false' }),
     }).catch(() => {});
   }
 
-  let bulkVisibility = 'group';
+  // Per-category bulk-share state. Each category has its own visibility +
+  // (when 'specific') its own list of selected user ids. Three explicit rows
+  // beat one ambiguous multi-select.
+  let bulkVisFoods = 'private';
+  let bulkVisMeals = 'private';
+  let bulkVisRecipes = 'private';
+  let bulkUsersFoods = [];
+  let bulkUsersMeals = [];
+  let bulkUsersRecipes = [];
   let bulkApplying = false;
-  let bulkTargets = new Set(['foods', 'meals', 'recipes']);
-  function toggleBulkTarget(t) {
-    if (bulkTargets.has(t)) bulkTargets.delete(t); else bulkTargets.add(t);
-    bulkTargets = bulkTargets;
-  }
   let bulkUsers = [];
-  let bulkSelectedIds = [];
   let bulkUsersLoaded = false;
 
   async function loadBulkUsers() {
@@ -877,17 +921,37 @@
     try { bulkUsers = await NtApi.getUsersList(); bulkUsersLoaded = true; } catch {}
   }
 
-  function toggleBulkUser(id) {
-    bulkSelectedIds = bulkSelectedIds.includes(id)
-      ? bulkSelectedIds.filter(u => u !== id)
-      : [...bulkSelectedIds, id];
+  function toggleBulkUserFor(category, id) {
+    const list = category === 'foods' ? bulkUsersFoods : category === 'meals' ? bulkUsersMeals : bulkUsersRecipes;
+    const next = list.includes(id) ? list.filter(u => u !== id) : [...list, id];
+    if (category === 'foods')   bulkUsersFoods   = next;
+    if (category === 'meals')   bulkUsersMeals   = next;
+    if (category === 'recipes') bulkUsersRecipes = next;
+  }
+
+  // Trigger user-list load when any category flips to 'specific'.
+  $: if (bulkVisFoods === 'specific' || bulkVisMeals === 'specific' || bulkVisRecipes === 'specific') loadBulkUsers();
+
+  async function applyBulkShareCategory(category, visibility, user_ids) {
+    return NtApi.post('/api/foods/bulk-share', {
+      visibility,
+      targets: [category],
+      user_ids: visibility === 'specific' ? user_ids : [],
+    });
   }
 
   async function applyBulkShare() {
     bulkApplying = true;
     try {
-      const user_ids = bulkVisibility === 'specific' ? bulkSelectedIds : [];
-      await NtApi.post('/api/foods/bulk-share', { visibility: bulkVisibility, targets: [...bulkTargets], user_ids });
+      // Apply each category independently so unticked categories aren't touched
+      // and each gets its own visibility.
+      await Promise.all([
+        applyBulkShareCategory('foods',   bulkVisFoods,   bulkUsersFoods),
+        applyBulkShareCategory('meals',   bulkVisMeals,   bulkUsersMeals),
+        applyBulkShareCategory('recipes', bulkVisRecipes, bulkUsersRecipes),
+      ]);
+      // Persist for next time — the form should remember its last state.
+      await _saveBulkState();
       showSuccess('Sharing updated');
     } catch(e) { showError('Could not apply: ' + e.message); }
     bulkApplying = false;
@@ -1165,6 +1229,7 @@
   $: set('offSearchLanguage',  offSearchLanguage);
   $: set('offSearchCountry',   offSearchCountry);
   $: set('offUploadCountry',   offUploadCountry);
+  $: set('offImportPortion',   offImportPortion);
 
   // ── Explicit credential saves ──────────────────────────────────────────────
   let usdaSaved   = false;
@@ -1553,6 +1618,74 @@
           {/if}
           <div class="setting-divider"></div>
           <div class="setting-row">
+            <div><span class="setting-label">Show Fasting Tracker</span><div class="setting-desc">Adds an intermittent-fasting timer at the top of the Diary. Start a fast, see elapsed time and progress toward your goal, end when you're done.</div></div>
+            <Toggle checked={$fastingEnabled} on:change={e => fastingEnabled.set(e.detail)} />
+          </div>
+          {#if $fastingEnabled}
+            <div class="setting-divider"></div>
+            <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
+              <span class="setting-label">Default Fast Goal</span>
+              <div class="seg-control" style="width:100%;--seg-count:5;--seg-active:{[14,16,18,20,23].indexOf($fastingDefaultHours)}">
+                {#each [14,16,18,20,23] as h}
+                  <button class="seg-opt" class:seg-active={$fastingDefaultHours === h}
+                    on:click={() => fastingDefaultHours.set(h)}>
+                    {h === 23 ? 'OMAD' : `${h}:${24 - h}`}
+                  </button>
+                {/each}
+              </div>
+            </div>
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <div><span class="setting-label">Notify When Goal Reached</span><div class="setting-desc">Fire a notification when your active fast hits its goal so you don't have to keep checking the Diary.</div></div>
+              <Toggle checked={$fastingNotifyOnGoal} on:change={e => fastingNotifyOnGoal.set(e.detail)} />
+            </div>
+
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <div>
+                <span class="setting-label">Recurring Schedule</span>
+                <div class="setting-desc">Auto-start a fast at a fixed time each day. The schedule fires once per scheduled day; manually started fasts still work normally.</div>
+              </div>
+              <Toggle checked={$fastingScheduleEnabled} on:change={e => fastingScheduleEnabled.set(e.detail)} />
+            </div>
+            {#if $fastingScheduleEnabled}
+              <div class="setting-divider"></div>
+              <div class="setting-row">
+                <span class="setting-label">Start Time</span>
+                <input class="input" type="time" style="width:120px;text-align:center"
+                  value={$fastingScheduleTime}
+                  on:change={e => fastingScheduleTime.set(e.target.value)} />
+              </div>
+              <div class="setting-divider"></div>
+              <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
+                <span class="setting-label">Repeat On</span>
+                <div class="seg-control multi" style="width:100%;--seg-count:7">
+                  {#each ['S','M','T','W','T','F','S'] as label, idx}
+                    <button class="seg-opt" type="button"
+                      class:seg-active={$fastingScheduleDays?.includes(idx)}
+                      on:click={() => {
+                        const cur = $fastingScheduleDays || [];
+                        const next = cur.includes(idx) ? cur.filter(d => d !== idx) : [...cur, idx].sort((a,b)=>a-b);
+                        fastingScheduleDays.set(next);
+                      }}>{label}</button>
+                  {/each}
+                </div>
+                <div class="setting-desc" style="margin:0">
+                  Tap a day to toggle. Sunday → Saturday.
+                </div>
+              </div>
+              <div class="setting-divider"></div>
+              <div class="setting-row">
+                <span class="setting-label">Schedule Goal</span>
+                <input class="input" type="number" min="1" max="168" step="0.5"
+                  style="width:90px;text-align:center"
+                  value={$fastingScheduleGoal}
+                  on:change={e => fastingScheduleGoal.set(Number(e.target.value) || 16)} />
+              </div>
+            {/if}
+          {/if}
+          <div class="setting-divider"></div>
+          <div class="setting-row">
             <div><span class="setting-label">Show Daily Goals Progress Bar</span><div class="setting-desc">Progress strip at the bottom of the diary showing how much of your daily goals you've hit</div></div>
             <Toggle checked={$diaryShowNutritionBar} on:change={e => diaryShowNutritionBar.set(e.detail)} />
           </div>
@@ -1772,20 +1905,33 @@
     {#if sectionOpen(openSections, settingsQuery, 'goals') && sectionVisible(settingsQuery, 'goals')}
       <div class="section-body" transition:slide={{ duration: 180 }}>
         <div class="card settings-card">
-          {#if $fitbitEnabled || $garminEnabled || $healthConnectEnabled}
-          <div class="setting-row">
+          <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
             <div>
-              <span class="setting-label">Dynamic Calorie Goal</span>
+              <span class="setting-label">Calorie Goal Mode</span>
               <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);vertical-align:middle">Experimental</span>
-              <div class="setting-desc">Adjusts your daily calorie goal based on yesterday's calories burned from your connected device</div>
+              <div class="setting-desc">How your daily calorie target is calculated</div>
             </div>
-            <Toggle checked={$calorieGoalMode === 'dynamic'} on:change={e => calorieGoalMode.set(e.detail ? 'dynamic' : 'fixed')} />
+            <div class="seg-control" style="width:100%;--seg-count:3;--seg-active:{$calorieGoalMode === 'fixed' ? 0 : $calorieGoalMode === 'dynamic' ? 1 : 2}">
+              <button class="seg-opt" class:seg-active={$calorieGoalMode === 'fixed'}
+                on:click={() => calorieGoalMode.set('fixed')}>Fixed</button>
+              <button class="seg-opt" class:seg-active={$calorieGoalMode === 'dynamic'}
+                disabled={!_hasWearable}
+                title={!_hasWearable ? 'Connect a wearable in Wellness first' : ''}
+                on:click={() => _hasWearable && calorieGoalMode.set('dynamic')}>Dynamic</button>
+              <button class="seg-opt" class:seg-active={$calorieGoalMode === 'adaptive'}
+                on:click={() => calorieGoalMode.set('adaptive')}>Adaptive</button>
+            </div>
           </div>
-          {#if $calorieGoalMode === 'dynamic'}
+          {#if $calorieGoalMode === 'fixed'}
             <div class="setting-divider"></div>
-            <div class="setting-row">
+            <p class="setting-desc" style="padding:8px var(--page-px)">
+              Uses the calorie target from your goal templates as the daily goal.
+            </p>
+          {:else if $calorieGoalMode === 'dynamic'}
+            <div class="setting-divider"></div>
+            <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
               <span class="setting-label">Goal Factor</span>
-              <div class="seg-control">
+              <div class="seg-control" style="width:100%;--seg-count:3;--seg-active:{$calorieGoalFactor === 0.8 ? 0 : $calorieGoalFactor === 1.2 ? 2 : 1}">
                 <button class="seg-opt" class:seg-active={$calorieGoalFactor === 0.8}  on:click={() => calorieGoalFactor.set(0.8)}>Lose −20%</button>
                 <button class="seg-opt" class:seg-active={$calorieGoalFactor === 1.0}  on:click={() => calorieGoalFactor.set(1.0)}>Maintain</button>
                 <button class="seg-opt" class:seg-active={$calorieGoalFactor === 1.2}  on:click={() => calorieGoalFactor.set(1.2)}>Gain +20%</button>
@@ -1793,17 +1939,22 @@
             </div>
             <div class="setting-divider"></div>
             <p class="setting-desc" style="padding:8px var(--page-px)">
-              Uses yesterday's final calorie burn. Falls back to your fixed calorie goal if no data is available.
+              Uses yesterday's final calorie burn from your wearable, multiplied by the factor. Falls back to your fixed goal if no data is available.
             </p>
-          {/if}
-          {:else}
-          <div class="setting-row">
-            <div>
-              <span class="setting-label">Dynamic Calorie Goal</span>
-              <div class="setting-desc">Connect a fitness tracker in <strong>Wellness</strong> to enable goal adjustment based on calories burned</div>
+          {:else if $calorieGoalMode === 'adaptive'}
+            <div class="setting-divider"></div>
+            <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
+              <span class="setting-label">Goal Factor</span>
+              <div class="seg-control" style="width:100%;--seg-count:3;--seg-active:{$calorieGoalFactor === 0.8 ? 0 : $calorieGoalFactor === 1.2 ? 2 : 1}">
+                <button class="seg-opt" class:seg-active={$calorieGoalFactor === 0.8}  on:click={() => calorieGoalFactor.set(0.8)}>Lose −20%</button>
+                <button class="seg-opt" class:seg-active={$calorieGoalFactor === 1.0}  on:click={() => calorieGoalFactor.set(1.0)}>Maintain</button>
+                <button class="seg-opt" class:seg-active={$calorieGoalFactor === 1.2}  on:click={() => calorieGoalFactor.set(1.2)}>Gain +20%</button>
+              </div>
             </div>
-            <Toggle checked={false} disabled={true} />
-          </div>
+            <div class="setting-divider"></div>
+            <p class="setting-desc" style="padding:8px var(--page-px);line-height:1.5">
+              Learns your true TDEE from <strong>35 days of weight + diary</strong> and adjusts daily. Falls back to your fixed goal until enough data is logged. See the readiness card on the <strong>Goals</strong> page for current status. <a href="https://github.com/TraceApps/nutritrace#adaptive-tdee" target="_blank" rel="noopener" class="about-link">How it works →</a>
+            </p>
           {/if}
         </div>
       </div>
@@ -2000,13 +2151,13 @@
     {#if sectionOpen(openSections, settingsQuery, 'connectedServices') && sectionVisible(settingsQuery, 'connectedServices')}
       <div class="section-body" transition:slide={{ duration: 180 }}>
 
-        <p class="sub-label">Open Food Facts</p>
+        <p class="sub-label">{$_('settings.connected_services.off.header')}</p>
         <div class="card settings-card">
           <div class="setting-row">
             <div>
-              <span class="setting-label">Enable Open Food Facts</span>
+              <span class="setting-label">{$_('settings.connected_services.off.enable')}</span>
               <div class="setting-desc">
-                Search the global crowd-sourced food database when adding foods. No account needed for searches; one is only required to upload edits.
+                {$_('settings.connected_services.off.enable_desc')}
               </div>
             </div>
             <Toggle checked={offEnabled} on:change={e => { offEnabled = e.detail; set('offEnabled', e.detail); }} />
@@ -2014,7 +2165,7 @@
           {#if offEnabled}
             <div class="setting-divider"></div>
             <div class="setting-row">
-              <span class="setting-label">Search Language</span>
+              <span class="setting-label">{$_('settings.connected_services.off.search_language')}</span>
               <div class="select-wrap" style="width:120px">
                 <select class="select sel-sm" bind:value={offSearchLanguage}>
                   {#each OFF_LANGUAGE_OPTS as [v,l]}<option value={v}>{l}</option>{/each}
@@ -2023,7 +2174,7 @@
             </div>
             <div class="setting-divider"></div>
             <div class="setting-row">
-              <span class="setting-label">Search Country</span>
+              <span class="setting-label">{$_('settings.connected_services.off.search_country')}</span>
               <div class="select-wrap" style="width:150px">
                 <select class="select sel-sm" bind:value={offSearchCountry}>
                   {#each OFF_COUNTRY_OPTS as c}<option value={c}>{c}</option>{/each}
@@ -2032,28 +2183,43 @@
             </div>
             <div class="setting-divider"></div>
             <div class="setting-row">
-              <span class="setting-label">Upload Country</span>
+              <span class="setting-label">{$_('settings.connected_services.off.upload_country')}</span>
               <div class="select-wrap" style="width:150px">
                 <select class="select sel-sm" bind:value={offUploadCountry}>
-                  <option value="Auto">Auto</option>
+                  <option value="Auto">{$_('settings.connected_services.off.upload_country_auto')}</option>
                   {#each OFF_COUNTRY_OPTS.filter(c => c !== 'World') as c}<option value={c}>{c}</option>{/each}
                 </select>
               </div>
             </div>
             <div class="setting-divider"></div>
-            <div class="form-group" style="padding:10px 16px 14px">
-              <label class="form-label" for="off-user">Account username</label>
-              <div class="setting-desc" style="margin:0 0 8px 0;line-height:1.4">
-                Optional — only needed to upload edits.
-                <a href="https://world.openfoodfacts.org/cgi/user.pl" target="_blank" rel="noopener" class="about-link">Create an OFF account →</a>
+            <div class="setting-row">
+              <div>
+                <span class="setting-label">{$_('settings.connected_services.off.import_portion')}</span>
+                <div class="setting-desc">
+                  {$_('settings.connected_services.off.import_portion_desc')}
+                </div>
               </div>
-              <input id="off-user" class="input" style="margin-bottom:8px" placeholder="OFF account username" bind:value={offUsername} />
-              <label class="form-label" for="off-pass">Account password</label>
+              <div class="select-wrap" style="width:150px">
+                <select class="select sel-sm" bind:value={offImportPortion}>
+                  <option value="per100g">{$_('settings.connected_services.off.import_portion_100g')}</option>
+                  <option value="perServing">{$_('settings.connected_services.off.import_portion_serving')}</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-divider"></div>
+            <div class="form-group" style="padding:10px 16px 14px">
+              <label class="form-label" for="off-user">{$_('settings.connected_services.off.account_username')}</label>
+              <div class="setting-desc" style="margin:0 0 8px 0;line-height:1.4">
+                {$_('settings.connected_services.off.account_note')}
+                <a href="https://world.openfoodfacts.org/cgi/user.pl" target="_blank" rel="noopener" class="about-link">{$_('settings.connected_services.off.account_create_link')}</a>
+              </div>
+              <input id="off-user" class="input" style="margin-bottom:8px" placeholder={$_('settings.connected_services.off.username_placeholder')} bind:value={offUsername} />
+              <label class="form-label" for="off-pass">{$_('settings.connected_services.off.account_password')}</label>
               <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
                 {#if offShowPass}
-                  <input id="off-pass" class="input" type="text" style="flex:1" placeholder="OFF account password" bind:value={offPassword} />
+                  <input id="off-pass" class="input" type="text" style="flex:1" placeholder={$_('settings.connected_services.off.password_placeholder')} bind:value={offPassword} />
                 {:else}
-                  <input id="off-pass" class="input" type="password" style="flex:1" placeholder="OFF account password" bind:value={offPassword} />
+                  <input id="off-pass" class="input" type="password" style="flex:1" placeholder={$_('settings.connected_services.off.password_placeholder')} bind:value={offPassword} />
                 {/if}
                 <button class="btn-icon" on:click={() => offShowPass = !offShowPass} title={offShowPass ? 'Hide' : 'Show'}>
                   <span class="material-symbols-rounded">{offShowPass ? 'visibility_off' : 'visibility'}</span>
@@ -2307,7 +2473,7 @@
     {#if $userMgmtActive && !isNativeLocal}
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'sharing')} on:click={() => toggleSection('sharing')}>
         <span class="material-symbols-rounded si">group</span>
-        <span>{$_('settings.sharing.section')} <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">{$_('common.experimental')}</span></span>
+        <span>{$_('settings.sharing.section')}</span>
         <span class="material-symbols-rounded chevron" class:rotated={openSections.sharing}>expand_more</span>
       </button>
       {#if sectionOpen(openSections, settingsQuery, 'sharing') && sectionVisible(settingsQuery, 'sharing')}
@@ -2326,48 +2492,54 @@
           {/if}
           {#if adminSharingEnabled}
           <p class="sub-label">Bulk Share</p>
+          <p class="setting-desc" style="padding:0 var(--page-px) 6px;line-height:1.5">
+            Set who can see your existing items. Each category has its own visibility, so changing one doesn't affect the others.
+          </p>
           <div class="card settings-card" style="gap:0">
-            <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px">
-              <span class="setting-label">Apply Visibility To</span>
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
-                {#each ['foods','meals','recipes'] as t}
-                  <button class="chip" class:accent={bulkTargets.has(t)} on:click={() => toggleBulkTarget(t)}>
-                    {#if bulkTargets.has(t)}<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;margin-right:2px">check</span>{/if}{t.charAt(0).toUpperCase() + t.slice(1)}
-                  </button>
-                {/each}
-              </div>
-            </div>
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <span class="setting-label">Set Visibility To</span>
-              <div class="select-wrap" style="width:130px">
-                <select class="select sel-sm" bind:value={bulkVisibility} on:change={() => { if (bulkVisibility === 'specific') loadBulkUsers(); }}>
-                  <option value="private">Private</option>
-                  <option value="group">Everyone</option>
-                  <option value="specific">Specific people</option>
-                </select>
-              </div>
-            </div>
-            {#if bulkVisibility === 'specific'}
-              <div style="padding:0 16px 8px">
-                <div class="setting-desc" style="margin-bottom:8px">Select which members can see your items:</div>
-                <div style="display:flex;flex-wrap:wrap;gap:8px">
-                  {#each bulkUsers as u}
-                    <button class="chip" class:chip-active={bulkSelectedIds.includes(u.id)}
-                      on:click={() => toggleBulkUser(u.id)}>
-                      {#if bulkSelectedIds.includes(u.id)}
-                        <span class="material-symbols-rounded" style="font-size:14px">check</span>
-                      {/if}
-                      {u.name}
-                    </button>
-                  {/each}
-                  {#if !bulkUsersLoaded}<span class="setting-desc">Loading…</span>{/if}
+            {#each [
+              { key: 'foods',   label: 'Foods'   },
+              { key: 'meals',   label: 'Meals'   },
+              { key: 'recipes', label: 'Recipes' },
+            ] as cat, ci}
+              {#if ci > 0}<div class="setting-divider"></div>{/if}
+              {@const _vis    = cat.key === 'foods' ? bulkVisFoods   : cat.key === 'meals' ? bulkVisMeals   : bulkVisRecipes}
+              {@const _users  = cat.key === 'foods' ? bulkUsersFoods : cat.key === 'meals' ? bulkUsersMeals : bulkUsersRecipes}
+              <div class="setting-row">
+                <span class="setting-label">{cat.label}</span>
+                <div class="select-wrap" style="width:160px">
+                  <select class="select sel-sm"
+                    on:change={e => {
+                      const v = e.target.value;
+                      if (cat.key === 'foods')   bulkVisFoods   = v;
+                      if (cat.key === 'meals')   bulkVisMeals   = v;
+                      if (cat.key === 'recipes') bulkVisRecipes = v;
+                    }}
+                    value={_vis}>
+                    <option value="private">Private</option>
+                    <option value="group">Everyone</option>
+                    <option value="specific">Specific People</option>
+                  </select>
                 </div>
               </div>
-            {/if}
+              {#if _vis === 'specific'}
+                <div style="padding:0 16px 12px">
+                  <div class="setting-desc" style="margin-bottom:8px">Members who can see your {cat.label.toLowerCase()}:</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px">
+                    {#each bulkUsers as u}
+                      <button class="chip" class:chip-active={_users.includes(u.id)}
+                        on:click={() => toggleBulkUserFor(cat.key, u.id)}>
+                        {#if _users.includes(u.id)}<span class="material-symbols-rounded" style="font-size:14px">check</span>{/if}
+                        {u.name}
+                      </button>
+                    {/each}
+                    {#if !bulkUsersLoaded}<span class="setting-desc">Loading…</span>{/if}
+                  </div>
+                </div>
+              {/if}
+            {/each}
             <div style="padding:8px 16px 12px">
               <button class="btn btn-secondary w-full" on:click={applyBulkShare} disabled={bulkApplying}>
-                {bulkApplying ? 'Applying…' : 'Apply to existing items'}
+                {bulkApplying ? 'Applying…' : 'Apply to Existing Items'}
               </button>
             </div>
           </div>
@@ -3205,13 +3377,39 @@
     vertical-align: middle;
   }
   .seg-control {
+    position: relative;
     display: flex;
     background: var(--surface-2);
     border-radius: var(--radius-full);
     padding: 3px;
     gap: 2px;
   }
+  /* Multi-select seg controls suppress the sliding pill — caller adds the
+     `multi` class. Each .seg-active button shades its own background instead. */
+  .seg-control.multi::before { display: none; }
+  .seg-control.multi .seg-opt.seg-active {
+    background: var(--surface-1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+  /* Sliding active pill — driven by --seg-active (index) + --seg-count (total). */
+  .seg-control::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    height: calc(100% - 6px);
+    width: calc((100% - 6px - 2px * (var(--seg-count, 3) - 1)) / var(--seg-count, 3));
+    background: var(--surface-1);
+    border-radius: var(--radius-full);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    transform: translateX(calc(var(--seg-active, 0) * (100% + 2px)));
+    transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+    z-index: 0;
+  }
   .seg-opt {
+    position: relative;
+    z-index: 1;
     flex: 1;
     padding: 6px 10px;
     font-size: 12px;
@@ -3223,12 +3421,10 @@
     cursor: pointer;
     white-space: nowrap;
     -webkit-tap-highlight-color: transparent;
-    transition: background var(--dur-fast), color var(--dur-fast);
+    transition: color var(--dur-fast);
   }
   .seg-opt.seg-active {
-    background: var(--surface-1);
     color: var(--text-1);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
   }
   .about-hero {
     display: flex; align-items: center; gap: 16px; padding: 16px;

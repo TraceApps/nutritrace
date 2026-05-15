@@ -7,6 +7,9 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "@zxcvbn-ts/core": "^3.0.4",
+    "@zxcvbn-ts/language-common": "^3.0.4",
+    "@zxcvbn-ts/language-en": "^3.0.2",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^9.4.3",

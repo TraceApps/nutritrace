@@ -103,7 +103,7 @@ export async function exportLocalBackup(opts = {}) {
   const { NtApi } = await import('./api.js');
   const { DB }     = await import('./db.js');
 
-  let foods = [], meals = [], recipes = [], diary = [], wellness = [], workouts = [], activity = [];
+  let foods = [], meals = [], recipes = [], diary = [], wellness = [], workouts = [], activity = [], fasts = [];
 
   try { foods    = await NtApi.getFoods()    || []; } catch {}
   try { meals    = await NtApi.getMeals()    || []; } catch {}
@@ -111,6 +111,8 @@ export async function exportLocalBackup(opts = {}) {
   try { diary    = await NtApi.getAllDiary() || []; } catch {}
   // Activity — manual exercise calorie entries (server-only path)
   try { activity = await NtApi.getActivityRange('1900-01-01', '2999-12-31') || []; } catch {}
+  // Intermittent fasting log — completed + active fasts
+  try { fasts    = await NtApi.get('/api/fasts?limit=10000') || []; } catch {}
 
   // Wellness + workouts are native-only (PWA reads from server endpoints not unified API)
   if (isNative) {
@@ -155,6 +157,7 @@ export async function exportLocalBackup(opts = {}) {
       wellness: wellness.length,
       workouts: workouts.length,
       activity: activity.length,
+      fasts: fasts.length,
       settings: Object.keys(settings).length,
     },
     includesImages: true,
@@ -197,6 +200,7 @@ export async function exportLocalBackup(opts = {}) {
   zip.file('wellness.json', JSON.stringify(wellness, null, 2));
   zip.file('workouts.json', JSON.stringify(workouts, null, 2));
   zip.file('activity.json', JSON.stringify(activity, null, 2));
+  zip.file('fasts.json',    JSON.stringify(fasts,    null, 2));
   zip.file('settings.json', JSON.stringify(settings, null, 2));
 
   onProgress(90, 'Compressing…');
@@ -244,6 +248,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
   const wellness = await readJson('wellness.json', []);
   const workouts = await readJson('workouts.json', []);
   const activity = await readJson('activity.json', []);
+  const fasts    = await readJson('fasts.json', []);
   const settings = await readJson('settings.json', {});
 
   onProgress(20, 'Extracting images…');
@@ -295,12 +300,12 @@ export async function importLocalBackup(zipFile, opts = {}) {
   const { NtApi } = await import('./api.js');
   const { DB }     = await import('./db.js');
 
-  const counts = { foods: 0, meals: 0, recipes: 0, diary: 0, wellness: 0, workouts: 0, activity: 0, settings: 0 };
+  const counts = { foods: 0, meals: 0, recipes: 0, diary: 0, wellness: 0, workouts: 0, activity: 0, fasts: 0, settings: 0 };
 
   if (isNative) {
     try {
       const {
-        dbCreateFood, dbCreateMeal, dbSaveDiaryDate, dbUpsertWellness,
+        dbCreateFood, dbCreateMeal, dbSaveDiaryDate, dbUpsertWellness, dbStartFast, dbEndFast, dbUpdateFast,
       } = await import('./db-native.js');
       for (const food of foods) {
         try { await dbCreateFood(food); counts.foods++; } catch {}
@@ -321,13 +326,24 @@ export async function importLocalBackup(zipFile, opts = {}) {
       }
       // workouts: best-effort, may not have a native upsert helper exposed
       counts.workouts = workouts.length;
+      // Fasts — replay completed + active fasts. Use dbStartFast + dbUpdateFast
+      // so the local sync_status pipeline applies correctly.
+      for (const f of fasts) {
+        if (!f.start_at) continue;
+        try {
+          const row = await dbStartFast({ goal_hours: f.goal_hours, start_at: f.start_at });
+          if (f.end_at) await dbUpdateFast(row.id, { end_at: f.end_at });
+          if (f.notes)  await dbUpdateFast(row.id, { notes: f.notes });
+          counts.fasts++;
+        } catch {}
+      }
     } catch (e) {
       console.warn('[backup] native import failed:', e.message);
     }
   } else {
     // PWA: server import endpoint
     try {
-      await NtApi.post('/api/data/import', { foodList: foods, meals, recipes, diary, wellness, workouts, activity });
+      await NtApi.post('/api/data/import', { foodList: foods, meals, recipes, diary, wellness, workouts, activity, fasts });
       counts.foods    = foods.length;
       counts.meals    = meals.length;
       counts.recipes  = recipes.length;
@@ -335,6 +351,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
       counts.wellness = wellness.length;
       counts.workouts = workouts.length;
       counts.activity = activity.length;
+      counts.fasts    = fasts.length;
     } catch {}
   }
 

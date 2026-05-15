@@ -54,16 +54,18 @@ router.get('/:id', wrap((req, res) => {
 
 // ── POST / ────────────────────────────────────────────────────────────────
 router.post('/', wrap(async (req, res) => {
-  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, visibility, source_id } = req.body;
+  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
   const vis = visibility || 'private';
   const localImg = isExternalUrl(img_url) ? await localizeImage(img_url) : (img_url || null);
   const result = db.prepare(
-    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, visibility, source_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(u, name, JSON.stringify(nutrition || {}), JSON.stringify(items || []),
-    localImg, notes || null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g', vis, source_id || null);
+    localImg, notes || null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
+    servings != null ? Math.max(1, parseInt(servings) || 1) : null,
+    vis, source_id || null);
   res.status(201).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(result.lastInsertRowid)));
 }));
 
@@ -73,14 +75,19 @@ router.put('/:id', wrap((req, res) => {
   const existing = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   if (u != null && existing.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
-  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, visibility, favorite } = req.body;
+  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, favorite } = req.body;
   const fav = favorite != null ? (favorite ? 1 : 0) : existing.favorite;
+  // Body explicitly set servings → take it (null clears, number clamps to >=1).
+  // Body omitted servings entirely → preserve the existing row value (null stays null).
+  const srv = 'servings' in req.body
+    ? (servings != null ? Math.max(1, parseInt(servings) || 1) : null)
+    : existing.servings;
   db.prepare(
-    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, visibility=?, favorite=?, updated_at=datetime('now') WHERE id=?`
+    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?, favorite=?, updated_at=datetime('now') WHERE id=?`
   ).run(name ?? existing.name, JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
     JSON.stringify(items ?? JSON.parse(existing.items || '[]')), img_url ?? existing.img_url,
     notes ?? existing.notes, is_recipe != null ? (is_recipe ? 1 : 0) : existing.is_recipe,
-    portion ?? existing.portion, unit ?? existing.unit,
+    portion ?? existing.portion, unit ?? existing.unit, srv,
     visibility ?? existing.visibility, fav, req.params.id);
   res.json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id)));
 }));

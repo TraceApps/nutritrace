@@ -238,11 +238,29 @@ export const NtApiNative = {
   },
 
   // ── Pass-through stubs for server-only routes ────────────────────────
-  async get(path)  { console.warn(`[NtApiNative] GET ${path} — not available in local mode`); return {}; },
-  async post(path) { console.warn(`[NtApiNative] POST ${path} — not available in local mode`); return {}; },
+  async get(path) {
+    if (path.startsWith('/api/fasts')) return _fastsLocalGet(path);
+    if (path === '/api/goals/adaptive-tdee') {
+      const { computeAdaptiveTdeeLocal } = await import('./adaptive-tdee-local.js');
+      return await computeAdaptiveTdeeLocal();
+    }
+    if (path.startsWith('/api/wellness/calories-out')) return _caloriesOutLocal(path);
+    console.warn(`[NtApiNative] GET ${path} — not available in local mode`);
+    return {};
+  },
+  async post(path, body) {
+    if (path.startsWith('/api/fasts')) return _fastsLocalPost(path, body);
+    console.warn(`[NtApiNative] POST ${path} — not available in local mode`);
+    return {};
+  },
   async put(path)  { console.warn(`[NtApiNative] PUT ${path} — not available in local mode`); return {}; },
-  async patch(path){ console.warn(`[NtApiNative] PATCH ${path} — not available in local mode`); return {}; },
+  async patch(path, body) {
+    if (path.startsWith('/api/fasts')) return _fastsLocalPatch(path, body);
+    console.warn(`[NtApiNative] PATCH ${path} — not available in local mode`);
+    return {};
+  },
   async del(path)  {
+    if (path.startsWith('/api/fasts')) return _fastsLocalDelete(path);
     // Handle clear all data locally
     if (path === '/api/data') {
       const { getDb } = await import('./db-native.js');
@@ -253,6 +271,7 @@ export const NtApiNative = {
       await db.run('DELETE FROM wellness_data WHERE user_id = 1');
       await db.run('DELETE FROM workouts WHERE user_id = 1');
       await db.run('DELETE FROM user_settings WHERE user_id = 1');
+      await db.run('DELETE FROM fasts WHERE user_id = 1');
       await db.run('DELETE FROM sync_meta');
       return { ok: true };
     }
@@ -260,6 +279,76 @@ export const NtApiNative = {
     return {};
   },
 };
+
+// ── Fasting path dispatch (local mode) ──────────────────────────────────────
+// Mirrors the server's /api/fasts routes against the local SQLite mirror so
+// the IF tracker works in standalone Android with no server. Path matching
+// keeps the store layer unchanged.
+
+async function _fastsLocalGet(path) {
+  const { dbGetActiveFast, dbGetFasts } = await import('./db-native.js');
+  if (path === '/api/fasts/active') return await dbGetActiveFast();
+  if (path.startsWith('/api/fasts')) {
+    // /api/fasts or /api/fasts?limit=N
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const limit = Math.min(365, Math.max(1, parseInt(q.get('limit')) || 60));
+    return await dbGetFasts(limit);
+  }
+  return null;
+}
+
+async function _fastsLocalPost(path, body) {
+  const { dbStartFast, dbEndFast } = await import('./db-native.js');
+  if (path === '/api/fasts/start') {
+    return await dbStartFast({
+      goal_hours: body?.goal_hours,
+      start_at: body?.start_at,
+    });
+  }
+  // POST /api/fasts/:id/end
+  const m = path.match(/^\/api\/fasts\/(\d+)\/end$/);
+  if (m) return await dbEndFast(parseInt(m[1]));
+  return null;
+}
+
+async function _fastsLocalPatch(path, body) {
+  const { dbUpdateFast } = await import('./db-native.js');
+  const m = path.match(/^\/api\/fasts\/(\d+)$/);
+  if (m) return await dbUpdateFast(parseInt(m[1]), body || {});
+  return null;
+}
+
+// Local dispatcher for /api/wellness/calories-out?date=YYYY-MM-DD. Mirrors
+// the server endpoint: returns yesterday's calories_out from wellness_data
+// with the same garmin > health_connect > fitbit priority.
+async function _caloriesOutLocal(path) {
+  const { getDb, LOCAL_USER_ID } = await import('./db-native.js');
+  const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+  const dateParam = q.get('date');
+  const base = dateParam ? new Date(dateParam + 'T12:00:00Z') : new Date();
+  base.setUTCDate(base.getUTCDate() - 1);
+  const yesterday = base.toISOString().slice(0, 10);
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT source, value FROM wellness_data
+     WHERE user_id = ? AND date = ? AND metric_type = 'calories_out'`,
+    [LOCAL_USER_ID, yesterday]
+  );
+  const rows = r?.values || [];
+  const PRIORITY = ['garmin', 'health_connect', 'fitbit'];
+  for (const src of PRIORITY) {
+    const row = rows.find(x => x.source === src);
+    if (row) return { calories_out: row.value, source: src, date: yesterday };
+  }
+  return { calories_out: null, source: null, date: yesterday };
+}
+
+async function _fastsLocalDelete(path) {
+  const { dbDeleteFast } = await import('./db-native.js');
+  const m = path.match(/^\/api\/fasts\/(\d+)$/);
+  if (m) { await dbDeleteFast(parseInt(m[1])); return { ok: true }; }
+  return null;
+}
 
 function _fileToBase64(file) {
   return new Promise((resolve, reject) => {

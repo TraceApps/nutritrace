@@ -10,6 +10,7 @@
 
   import MacroRing    from '../components/diary/MacroRing.svelte';
   import AddActivitySheet from '../components/diary/AddActivitySheet.svelte';
+  import FastingWidget from '../components/diary/FastingWidget.svelte';
   import { mealIcon } from '../lib/mealIcon.js';
   import Sheet        from '../components/ui/Sheet.svelte';
   import Dialog       from '../components/ui/Dialog.svelte';
@@ -30,6 +31,7 @@
            dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners,
            calorieGoalMode, calorieGoalFactor,
            diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
+           fastingEnabled,
            wellnessEnabled } from '../stores/settings.js';
   import { dayActivity, activitySummary, loadActivity, deleteActivity } from '../stores/activity.js';
   import DiaryBanner  from '../components/banners/DiaryBanner.svelte';
@@ -197,10 +199,15 @@
   // Dynamic calorie goal — fetch yesterday's calories_out when mode = 'dynamic'
   let _dynamicCaloriesOut = null;   // raw burn from device (yesterday)
   let _dynamicGoalDate    = null;   // which diary date we fetched for
+  // Adaptive TDEE — server-computed; cached once per page load
+  let _adaptiveTdee = null;
   $: _fixedGoal = ($goals && $goals.calories) ? ($goals.calories.max || $goals.calories.min || 2000) : 2000;
-  $: caloriesGoal = ($calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null)
-    ? Math.round(_dynamicCaloriesOut * $calorieGoalFactor)
-    : _fixedGoal;
+  $: caloriesGoal =
+       ($calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null)
+         ? Math.round(_dynamicCaloriesOut * $calorieGoalFactor)
+       : ($calorieGoalMode === 'adaptive' && _adaptiveTdee != null)
+         ? Math.round(_adaptiveTdee * $calorieGoalFactor)
+       : _fixedGoal;
   async function _loadDynamicGoal(date) {
     if ($calorieGoalMode !== 'dynamic') return;
     if (_dynamicGoalDate === date) return;
@@ -210,8 +217,15 @@
       _dynamicCaloriesOut = r.calories_out;
     } catch { _dynamicCaloriesOut = null; }
   }
+  async function _loadAdaptiveTdee() {
+    try {
+      const r = await NtApi.get('/api/goals/adaptive-tdee');
+      _adaptiveTdee = r?.ready ? r.tdee : null;
+    } catch { _adaptiveTdee = null; }
+  }
 
   $: if ($calorieGoalMode === 'dynamic' && $currentDate) _loadDynamicGoal($currentDate);
+  $: if ($calorieGoalMode === 'adaptive' && _adaptiveTdee == null) _loadAdaptiveTdee();
 
   // Activity offset — load whenever date changes (gated on the toggle)
   $: if ($diaryShowActivity && $currentDate) loadActivity($currentDate);
@@ -1009,6 +1023,10 @@
         <span>Could not reach server — <button class="server-error-retry" on:click={() => loadEntry($currentDate)}>Retry</button></span>
       </div>
     {/if}
+    <!-- Intermittent fasting widget — opt-in via Settings → Diary -->
+    {#if $fastingEnabled}
+      <FastingWidget />
+    {/if}
     <!-- Meal groups -->
     {#each meals as meal, mealIdx}
       {@const items = getMealItems(entry.items, mealIdx)}
@@ -1273,11 +1291,11 @@
           {#if _totalsMode === 'remaining'}
             {@const _remEnergy = Nutrition.displayEnergy(caloriesGoalAdjusted - Math.round($_calTween), $energyUnit)}
             <span class="dbb-num">{_remEnergy.value.toLocaleString()}</span>
-            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}{#if _effectiveActive > 0}<span class="material-symbols-rounded dbb-activity-cue" title="Adjusted for activity">directions_run</span> {/if}{_remEnergy.unit} left</span>
+            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {:else if $calorieGoalMode === 'adaptive' && _adaptiveTdee != null}📈 {/if}{#if _effectiveActive > 0}<span class="material-symbols-rounded dbb-activity-cue" title="Adjusted for activity">directions_run</span> {/if}{_remEnergy.unit} left</span>
           {:else}
             {@const _eatEnergy = Nutrition.displayEnergy($_calTween, $energyUnit)}
             <span class="dbb-num">{_eatEnergy.value.toLocaleString()}</span>
-            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {/if}{_eatEnergy.unit} eaten</span>
+            <span class="dbb-unit">{#if $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null}⚡ {:else if $calorieGoalMode === 'adaptive' && _adaptiveTdee != null}📈 {/if}{_eatEnergy.unit} eaten</span>
           {/if}
         </div>
         <div class="dbb-macros">

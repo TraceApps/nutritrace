@@ -90,57 +90,76 @@ const API = {
   _mapOFFProduct(p) {
     if (!p || !p.product_name) return null;
     const n = p.nutriments || {};
-    const g = (key, mult) => {
-      const v = n[key];
+    // Per-serving import: enabled by the user via Settings → Connected Services →
+    // Open Food Facts → Import Portion As, and only when the product actually
+    // exposes serving_quantity + at least one *_serving nutriment. Otherwise the
+    // 100g path is used unchanged.
+    const userId = localStorage.getItem('wl:userId');
+    const setKey = userId ? `wl_u${userId}_offImportPortion` : 'wl_offImportPortion';
+    let importPortion = 'per100g';
+    try {
+      const raw = localStorage.getItem(setKey);
+      if (raw) importPortion = JSON.parse(raw);
+    } catch {}
+    const servingQty = parseFloat(p.serving_quantity);
+    const useServing = importPortion === 'perServing'
+      && Number.isFinite(servingQty) && servingQty > 0
+      && (n['energy-kcal_serving'] != null || n.energy_serving != null);
+    const suffix = useServing ? '_serving' : '_100g';
+    const portion = useServing ? servingQty : 100;
+    const unit    = useServing ? (p.serving_quantity_unit || 'g') : 'g';
+    const g = (baseKey, mult) => {
+      const v = n[baseKey + suffix];
       if (v === undefined || v === null || v === '') return 0;
       return (parseFloat(v) || 0) * (mult || 1);
     };
-    const kcal = g('energy-kcal_100g') || (n.energy_100g ? (parseFloat(n.energy_100g)||0) / 4.184 : 0);
+    const kcal = g('energy-kcal')
+      || (n['energy' + suffix] ? (parseFloat(n['energy' + suffix])||0) / 4.184 : 0);
     return {
       name:      (p.product_name || '').trim(),
       brand:     (Array.isArray(p.brands) ? (p.brands[0] || '') : (p.brands || '').split(',')[0] || '').trim(),
       barcode:   p.code || p._id || p.id || '',
-      unit:      'g',
-      portion:   100,
+      unit,
+      portion,
       quantity:  1,
       imgUrl: p.image_front_display_url || p.image_front_url || p.image_url || p.image_front_small_url || '',
       dateTime:  new Date().toISOString(),
       categories: [],
       nutrition: Nutrition.deriveSodiumSalt({
         calories:        Math.round(kcal * 10) / 10,
-        kilojoules:      g('energy_100g'),
-        fat:                   g('fat_100g'),
-        'saturated-fat':       g('saturated-fat_100g'),
-        'trans-fat':           g('trans-fat_100g'),
-        'polyunsaturated-fat': g('polyunsaturated-fat_100g'),
-        'monounsaturated-fat': g('monounsaturated-fat_100g'),
-        carbohydrates:         g('carbohydrates_100g'),
-        sugars:          g('sugars_100g'),
-        'added-sugars':  g('added-sugars_100g'),
-        fiber:           g('fiber_100g'),
-        proteins:        g('proteins_100g'),
-        salt:            g('salt_100g'),
-        sodium:          g('sodium_100g', 1000),
-        potassium:       g('potassium_100g', 1000),
-        cholesterol:     g('cholesterol_100g', 1000),
-        caffeine:        g('caffeine_100g', 1000),
-        alcohol:         g('alcohol_100g'),
-        calcium:         g('calcium_100g', 1000),
-        iron:            g('iron_100g', 1000),
-        magnesium:       g('magnesium_100g', 1000),
-        'vitamin-c':     g('vitamin-c_100g', 1000),
-        'vitamin-a':     g('vitamin-a_100g', 1000000),
-        'vitamin-d':     g('vitamin-d_100g', 1000000),
-        'vitamin-e':     g('vitamin-e_100g', 1000),
-        'vitamin-k':     g('vitamin-k_100g', 1000000),
-        b1:              g('vitamin-b1_100g', 1000),
-        b2:              g('vitamin-b2_100g', 1000),
-        b3:              g('vitamin-b3_100g', 1000),
-        b6:              g('vitamin-b6_100g', 1000),
-        b9:              g('vitamin-b9_100g', 1000000),
-        b12:             g('vitamin-b12_100g', 1000000),
-        zinc:            g('zinc_100g', 1000),
-        phosphorus:      g('phosphorus_100g', 1000),
+        kilojoules:      g('energy'),
+        fat:                   g('fat'),
+        'saturated-fat':       g('saturated-fat'),
+        'trans-fat':           g('trans-fat'),
+        'polyunsaturated-fat': g('polyunsaturated-fat'),
+        'monounsaturated-fat': g('monounsaturated-fat'),
+        carbohydrates:         g('carbohydrates'),
+        sugars:          g('sugars'),
+        'added-sugars':  g('added-sugars'),
+        fiber:           g('fiber'),
+        proteins:        g('proteins'),
+        salt:            g('salt'),
+        sodium:          g('sodium', 1000),
+        potassium:       g('potassium', 1000),
+        cholesterol:     g('cholesterol', 1000),
+        caffeine:        g('caffeine', 1000),
+        alcohol:         g('alcohol'),
+        calcium:         g('calcium', 1000),
+        iron:            g('iron', 1000),
+        magnesium:       g('magnesium', 1000),
+        'vitamin-c':     g('vitamin-c', 1000),
+        'vitamin-a':     g('vitamin-a', 1000000),
+        'vitamin-d':     g('vitamin-d', 1000000),
+        'vitamin-e':     g('vitamin-e', 1000),
+        'vitamin-k':     g('vitamin-k', 1000000),
+        b1:              g('vitamin-b1', 1000),
+        b2:              g('vitamin-b2', 1000),
+        b3:              g('vitamin-b3', 1000),
+        b6:              g('vitamin-b6', 1000),
+        b9:              g('vitamin-b9', 1000000),
+        b12:             g('vitamin-b12', 1000000),
+        zinc:            g('zinc', 1000),
+        phosphorus:      g('phosphorus', 1000),
       })
     };
   }

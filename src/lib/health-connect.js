@@ -218,22 +218,60 @@ export async function readTodayData() {
         const durMs = new Date(sleep.endTime) - new Date(sleep.startTime);
         metrics.sleep_duration_min = Math.round(durMs / 60000);
       }
-      // Parse stages if available
+      // Parse stages if available — also derive Sleep Quality sub-metrics
+      // (Fitbit Public Preview Sleep Score) from the per-stage timeline so
+      // they match the server-side compute when on Google Health.
       if (sleep.stages && Array.isArray(sleep.stages)) {
         let deep = 0, rem = 0, light = 0, awake = 0;
-        for (const stage of sleep.stages) {
-          const durMin = stage.duration ? Math.round(stage.duration / 60000) : 0;
-          switch (stage.stage) {
-            case 'deep': case 'DEEP': deep += durMin; break;
-            case 'rem': case 'REM': rem += durMin; break;
-            case 'light': case 'LIGHT': light += durMin; break;
-            case 'awake': case 'AWAKE': awake += durMin; break;
-          }
+        // Stages sorted chronologically + normalized to { type, durMin }
+        const segs = [...sleep.stages]
+          .map(s => {
+            const durMin = s.duration ? Math.round(s.duration / 60000)
+                         : (s.startTime && s.endTime ? Math.round((new Date(s.endTime) - new Date(s.startTime)) / 60000) : 0);
+            const t = String(s.stage || '').toLowerCase();
+            return { type: t, durMin, startTime: s.startTime || null };
+          })
+          .sort((a, b) => (a.startTime && b.startTime) ? new Date(a.startTime) - new Date(b.startTime) : 0);
+        for (const s of segs) {
+          if (s.type === 'deep')  deep += s.durMin;
+          else if (s.type === 'rem')   rem += s.durMin;
+          else if (s.type === 'light') light += s.durMin;
+          else if (s.type === 'awake') awake += s.durMin;
         }
-        if (deep) metrics.sleep_deep_min = deep;
-        if (rem) metrics.sleep_rem_min = rem;
+        if (deep)  metrics.sleep_deep_min  = deep;
+        if (rem)   metrics.sleep_rem_min   = rem;
         if (light) metrics.sleep_light_min = light;
         if (awake) metrics.sleep_awake_min = awake;
+
+        // Time to Sound Sleep — minutes until first DEEP/REM segment
+        let ttss = 0;
+        for (const s of segs) {
+          if (s.type === 'deep' || s.type === 'rem') break;
+          ttss += s.durMin;
+        }
+        if (segs.some(s => s.type === 'deep' || s.type === 'rem')) {
+          metrics.sleep_time_to_sound_min = ttss;
+        }
+
+        // Sound Sleep — DEEP + REM + LIGHT segments <5min (brief light = "sound")
+        let sound = deep + rem;
+        for (const s of segs) {
+          if (s.type === 'light' && s.durMin < 5) sound += s.durMin;
+        }
+        if (sound > 0) metrics.sleep_sound_min = sound;
+
+        // Restlessness — sum of AWAKE segments <5min (HC doesn't expose motion
+        // data; this is an approximation, same as the server's GH compute)
+        // Interruptions — count of AWAKE segments ≥5min
+        let restlessness = 0;
+        let interruptions = 0;
+        for (const s of segs) {
+          if (s.type !== 'awake') continue;
+          if (s.durMin < 5) restlessness += s.durMin;
+          else interruptions++;
+        }
+        if (restlessness > 0) metrics.sleep_restlessness_min = restlessness;
+        metrics.sleep_interruptions = interruptions;
       }
     }
   } catch {}
@@ -467,6 +505,17 @@ export async function syncHealthConnect(dateStr) {
     if (value != null) {
       await dbUpsertWellness(dateStr, 'health_connect', type, value);
     }
+  }
+
+  // Snapshot derived scores (Readiness + Resilience pillars) into the same
+  // local wellness_data table — mirrors what server/lib/wellness-scores.js
+  // does after a Fitbit/Garmin/Google Health sync. Without this, the Wellness
+  // page Resilience card stays blank in Android local-only mode.
+  try {
+    const { snapshotScoresLocal } = await import('./wellness-scores-local.js');
+    await snapshotScoresLocal(dateStr);
+  } catch (e) {
+    _dlog(`[health-connect] snapshot failed: ${e?.message}`);
   }
 
   _dlog(`[health-connect] Synced ${Object.keys(metrics).length} metrics for ${dateStr}`);

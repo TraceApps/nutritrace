@@ -50,6 +50,7 @@ db.exec(`
     is_recipe  INTEGER DEFAULT 0,
     portion    REAL DEFAULT 100,
     unit       TEXT DEFAULT 'g',
+    servings   INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -241,6 +242,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_activity_user_date ON activity_log(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_activity_updated   ON activity_log(updated_at);
   CREATE INDEX IF NOT EXISTS idx_activity_deleted   ON activity_log(deleted_at);
+
+  -- Intermittent fasting tracker — opt-in via the Diary 'Show Fasting Tracker'
+  -- setting. end_at IS NULL means an active fast. goal_hours stores the user's
+  -- chosen target (16, 18, 20, 23 OMAD, or custom).
+  CREATE TABLE IF NOT EXISTS fasts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    start_at    TEXT NOT NULL,
+    end_at      TEXT,
+    goal_hours  REAL NOT NULL DEFAULT 16,
+    notes       TEXT,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    deleted_at  TEXT DEFAULT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_fasts_user_start ON fasts(user_id, start_at);
+  CREATE INDEX IF NOT EXISTS idx_fasts_updated    ON fasts(updated_at);
+  CREATE INDEX IF NOT EXISTS idx_fasts_active     ON fasts(user_id, end_at);
 
   -- OIDC providers — admin-managed list; client_secret encrypted via
   -- server/lib/token-crypto.js so a leaked DB doesn't hand out IdP creds.
@@ -447,6 +466,14 @@ if (!columnExists('foods', 'deleted_at')) {
 }
 if (!columnExists('meals', 'deleted_at')) {
   db.exec(`ALTER TABLE meals ADD COLUMN deleted_at TEXT DEFAULT NULL`);
+}
+if (!columnExists('meals', 'servings')) {
+  // Recipe yields. Existing migrated rows stay NULL — the editor treats NULL
+  // as "unset" (blank field, acts as 1 in math). New recipes saved after this
+  // feature ships always write an explicit value (>=1). The CREATE TABLE
+  // default of 1 still applies to fresh installs that INSERT without
+  // specifying servings, which should never happen via the editor path.
+  db.exec(`ALTER TABLE meals ADD COLUMN servings INTEGER`);
 }
 if (!columnExists('diary', 'deleted_at')) {
   db.exec(`ALTER TABLE diary ADD COLUMN deleted_at TEXT DEFAULT NULL`);

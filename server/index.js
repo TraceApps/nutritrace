@@ -12,6 +12,7 @@ import foodsRoutes  from './routes/foods.js';
 import mealsRoutes  from './routes/meals.js';
 import diaryRoutes  from './routes/diary.js';
 import activityRoutes from './routes/activity.js';
+import fastsRoutes    from './routes/fasts.js';
 import uploadRoutes from './routes/upload.js';
 import mealieRoutes    from './routes/mealie.js';
 import settingsRoutes  from './routes/settings.js';
@@ -153,6 +154,7 @@ router.use('/api/foods',  foodsRoutes);
 router.use('/api/meals',  mealsRoutes);
 router.use('/api/diary',  diaryRoutes);
 router.use('/api/activity', activityRoutes);
+router.use('/api/fasts',    fastsRoutes);
 router.use('/api/nutrition-import', nutritionImportRoutes);
 router.use('/api/upload', uploadRoutes);
 router.use('/api/mealie',     mealieRoutes);
@@ -198,6 +200,20 @@ router.get('/api/wellness/calories-out', (req, res) => {
   res.json(result || { calories_out: null, source: null, date: yesterday });
 });
 router.use('/api/sync',             syncRoutes);
+
+// Adaptive TDEE — compute on demand from 35-day intake + weight trend.
+router.get('/api/goals/adaptive-tdee', async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const { computeAdaptiveTdee } = await import('./lib/adaptive-tdee.js');
+    const result = computeAdaptiveTdee(userId);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Serve Svelte frontend (production build) — anything except index.html.
@@ -269,29 +285,13 @@ app.listen(PORT, () => {
     logger.warn(`[scheduler] failed to start: ${e.message}`);
   });
 
-  // One-time migration: download all external food/meal images to /uploads/
-  (async () => {
-    try {
-      const { localizeImage, isExternalUrl } = await import('./lib/image-localizer.js');
-      const foods = db.prepare(`SELECT id, img_url FROM foods WHERE img_url IS NOT NULL AND deleted_at IS NULL`).all();
-      const meals = db.prepare(`SELECT id, img_url FROM meals WHERE img_url IS NOT NULL AND deleted_at IS NULL`).all();
-      const external = [...foods.map(f => ({ ...f, table: 'foods' })), ...meals.map(m => ({ ...m, table: 'meals' }))]
-        .filter(r => isExternalUrl(r.img_url));
-
-      if (external.length > 0) {
-        logger.info(`[image-localizer] Migrating ${external.length} external images to /uploads/...`);
-        let migrated = 0;
-        for (const r of external) {
-          const localPath = await localizeImage(r.img_url);
-          if (localPath !== r.img_url) {
-            db.prepare(`UPDATE ${r.table} SET img_url = ?, updated_at = datetime('now') WHERE id = ?`).run(localPath, r.id);
-            migrated++;
-          }
-        }
-        logger.info(`[image-localizer] Migrated ${migrated}/${external.length} images`);
-      }
-    } catch (e) {
-      logger.warn('[image-localizer] Migration error:', e.message);
-    }
-  })();
+  // (Boot-time image migration removed deliberately. Earlier versions ran a
+  // localizeImage pass over every food/meal row with an http(s) img_url on
+  // every server start, but isExternalUrl() matched the server's OWN host
+  // too, so the loop kept re-downloading the same files from itself,
+  // assigning fresh filenames and orphaning every diary snapshot that still
+  // pointed at the previous name. The proper fix is upstream: strip full
+  // server URLs back to relative /uploads/ paths at write time in
+  // _stripResolvedImgUrl + _stripCachedPaths so they never enter the
+  // foods/meals table in the first place. Don't reintroduce this loop.)
 });

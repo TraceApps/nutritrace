@@ -16,6 +16,37 @@
   // localUser* keys + dob + gender (same keys the wizard writes).
   const _isLocal = (isNative && !getServerUrl()) || !get(userMgmtActive);
   import DateInput from '../components/ui/DateInput.svelte';
+  import Toggle from '../components/settings/Toggle.svelte';
+  import { biometricLoginEnabled } from '../stores/settings.js';
+  import * as biometric from '../lib/biometric.js';
+
+  // Probe biometric on mount. Render the row when biometric is fully working
+  // OR when hardware exists but no fingerprint is enrolled (so the user knows
+  // it's one Android-Settings step away). Hide entirely when no biometric
+  // hardware exists — no point showing a setting the device can't ever support.
+  let _biometricStatus = null; // { isAvailable, reason, code, biometryType }
+  $: _biometricSupported   = !!_biometricStatus?.isAvailable;
+  $: _biometricRowVisible  = _biometricSupported || _biometricStatus?.code === 'biometryNotEnrolled';
+  async function onBiometricToggle(e) {
+    const want = e.detail;
+    if (want) {
+      // Verify hardware right at toggle-on so we surface failures immediately
+      // instead of letting a user enable a setting that never works.
+      const ok = await biometric.authenticate('Enable biometric sign-in');
+      if (!ok) {
+        biometricLoginEnabled.set(false);
+        showError('Biometric verification was canceled or failed.');
+        return;
+      }
+      // Stash the current JWT so the next sign-in can unlock with biometric.
+      const tok = getAuthToken();
+      if (tok) await biometric.saveTokenForBiometric(tok);
+      biometricLoginEnabled.set(true);
+    } else {
+      await biometric.clearSavedToken();
+      biometricLoginEnabled.set(false);
+    }
+  }
 
   function _headers(extra = {}) {
     const h = { 'Content-Type': 'application/json', ...extra };
@@ -80,6 +111,8 @@
   let uploading  = false;
 
   onMount(() => {
+    // Probe biometric so the row can render with an accurate status hint.
+    biometric.getStatus().then(s => { _biometricStatus = s; }).catch(() => { _biometricStatus = { isAvailable: false, reason: 'Probe failed' }; });
     if (_isLocal) {
       // Read profile fields from user_settings (where the wizard wrote them).
       // localUserName + localUserNickname + localUserAvatar are local-only
@@ -403,6 +436,29 @@
           </button>
         </div>
       {/if}
+    </div>
+    {/if}
+
+    <!-- Biometric sign-in (Android server-mode only). Hidden on devices with
+         no biometric hardware. Visible when working OR when hardware is
+         present but no fingerprint/face is enrolled — the description tells
+         the user how to finish setup in Android Settings. -->
+    {#if isNative && !_isLocal && _biometricRowVisible}
+    <div class="card settings-card">
+      <div class="setting-row">
+        <span class="material-symbols-rounded security-icon">fingerprint</span>
+        <div style="flex:1;min-width:0">
+          <span class="security-label">Sign In with Biometric</span>
+          <div class="security-desc">
+            {#if _biometricSupported}
+              Use fingerprint or face unlock instead of typing your password each time. Your password is still required on the first sign-in.
+            {:else}
+              Set up a fingerprint or face unlock in <strong>Android Settings → Security</strong> first, then come back here.
+            {/if}
+          </div>
+        </div>
+        <Toggle checked={$biometricLoginEnabled} on:change={onBiometricToggle} disabled={!_biometricSupported} />
+      </div>
     </div>
     {/if}
 

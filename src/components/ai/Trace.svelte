@@ -345,6 +345,44 @@
             return result;
           } catch { return { error: 'Could not compute diary averages.' }; }
         }
+        case 'get_fasting_history': {
+          try {
+            const days = Math.min(365, Math.max(1, parseInt(args.days) || 30));
+            const { fastingStats } = await import('../../stores/fasting.js');
+            const history = await NtApi.get(`/api/fasts?limit=${days}`).catch(() => []);
+            const active  = await NtApi.get('/api/fasts/active').catch(() => null);
+            const stats   = fastingStats(history, active && active.id ? active : null);
+            return {
+              active_fast: active && active.id ? {
+                start_at: active.start_at,
+                goal_hours: active.goal_hours,
+                elapsed_hours: Math.round((Date.now() - new Date(active.start_at).getTime()) / 360000) / 10,
+              } : null,
+              stats,
+              history: history.map(f => ({
+                start_at: f.start_at,
+                end_at: f.end_at,
+                duration_hours: f.end_at ? Math.round((new Date(f.end_at) - new Date(f.start_at)) / 360000) / 10 : null,
+                goal_hours: f.goal_hours,
+                met_goal: f.end_at ? (new Date(f.end_at) - new Date(f.start_at)) / 3600000 >= (f.goal_hours || 16) : null,
+              })),
+            };
+          } catch { return { error: 'Could not load fasting history.' }; }
+        }
+        case 'get_adaptive_tdee': {
+          try {
+            const r = await NtApi.get('/api/goals/adaptive-tdee');
+            return r || { ready: false };
+          } catch { return { ready: false, error: 'Could not load adaptive TDEE.' }; }
+        }
+        case 'get_activity_log': {
+          try {
+            const from = args.from, to = args.to;
+            if (!from || !to) return { error: 'from and to dates required' };
+            const list = await NtApi.getActivityRange(from, to);
+            return Array.isArray(list) ? list : [];
+          } catch { return []; }
+        }
         case 'add_activity_entry': {
           // Permission + capability gates
           const showActivity   = DB.getSetting('diaryShowActivity', false);

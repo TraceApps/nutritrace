@@ -53,10 +53,31 @@
     "foods":              { "section": "Foods" },
     "categories":         { "section": "Categories" },
     "nutrients":          { "section": "Nutrients" },
-    "goals":              { "section": "Goals" },
+    "goals":              { "section": "Calorie Goals" },
     "body_stats":         { "section": "Body Stats" },
     "statistics":         { "section": "Statistics" },
-    "connected_services": { "section": "Food Sources" },
+    "connected_services": {
+      "section": "Food Sources",
+      "off": {
+        "header":                 "Open Food Facts",
+        "enable":                 "Enable Open Food Facts",
+        "enable_desc":            "Search the global crowd-sourced food database when adding foods. No account needed for searches; one is only required to upload edits.",
+        "search_language":        "Search Language",
+        "search_country":         "Search Country",
+        "upload_country":         "Upload Country",
+        "upload_country_auto":    "Auto",
+        "import_portion":         "Import Portion As",
+        "import_portion_100g":    "Per 100g",
+        "import_portion_serving": "Per Serving",
+        "import_portion_desc":    "When the scanned product has serving data, prefill the food with per-serving values instead of per-100g. Products without serving data on OFF always fall back to per-100g.",
+        "account_username":       "Account Username",
+        "account_password":       "Account Password",
+        "account_note":           "Optional, only needed to upload edits.",
+        "account_create_link":    "Create an OFF account →",
+        "username_placeholder":   "OFF account username",
+        "password_placeholder":   "OFF account password"
+      }
+    },
     "ai":                 { "section": "AI Assistant" },
     "notifications":      { "section": "Notifications" },
     "wellness":           { "section": "Wellness" },
@@ -93,7 +114,7 @@
       "reset_password":       "Reset Password",
       "reset_password_prompt": "Set new password for {name}\n\n(Must be 8+ chars with upper, lower, number, and special character.)",
       "invite_user":          "Invite User",
-      "invite_user_explainer": "Send a sign-up link so the user picks their own password. Recommended.",
+      "invite_user_explainer": "Send a sign-up link so the user picks their own password. Provide an email to send it directly (requires SMTP), or leave blank to generate a copyable link you can share any way you like.",
       "email_optional":       "Email (Optional)",
       "send_invite":          "Send Invite",
       "generate_link":        "Generate Invite Link",
@@ -424,6 +445,14 @@
   "meal_editor": {
     "meal_name_placeholder":   "Meal name",
     "recipe_name_placeholder": "Recipe name",
+    "servings": {
+      "title":              "Servings",
+      "amount_placeholder": "Auto from ingredients",
+      "total_weight_hint":  "Total weight. Auto from ingredients; override for cooking changes (e.g. boil-off).",
+      "yields_unit":        "servings",
+      "yields_hint":        "Number of servings this recipe makes.",
+      "per_serving_label":  "Per serving:"
+    },
     "errors": {
       "no_ingredients": "Please add at least one ingredient"
     }

@@ -1,6 +1,6 @@
 {
   "name": "nutritrace",
-  "version": "1.0.0-rc.20",
+  "version": "1.0.0-rc.21",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "postinstall": "node scripts/postinstall.cjs"
   },
   "dependencies": {
+    "@aparajita/capacitor-biometric-auth": "^10.0.0",
     "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor-community/sqlite": "^8.1.0",
     "@capacitor-mlkit/barcode-scanning": "^8.0.1",
@@ -32,6 +33,9 @@
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.2",
     "@devmaxime/capacitor-health-connect": "^1.1.0",
+    "@zxcvbn-ts/core": "^3.0.4",
+    "@zxcvbn-ts/language-common": "^3.0.4",
+    "@zxcvbn-ts/language-en": "^3.0.2",
     "chart.js": "^4.4.0",
     "emoji-picker-element": "^1.29.1",
     "jszip": "^3.10.1",

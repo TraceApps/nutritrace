@@ -49,10 +49,31 @@ async function _serverFetch(method, path, body, timeoutMs = 3000) {
 // diary item snapshots in stores/diary.js.
 function _stripResolvedImgUrl(url) {
   if (!url) return url;
-  // Capacitor cached path → restore original /uploads/<filename>.
+  // Full server-host URL → strip back to relative /uploads/... path. The
+  // native client's resolveAssetUrl prepends `<serverUrl>` to relative
+  // upload paths for display; without this strip, the full URL gets written
+  // back to the foods table on save, and then the (pre-removal) boot-time
+  // image-localizer loop on the server would re-download from itself on
+  // every restart, giving the row a fresh filename and orphaning every
+  // diary snapshot that still pointed at the previous name.
+  try {
+    const idx = url.indexOf('/uploads/');
+    if (url.startsWith('http') && idx >= 0) {
+      return url.slice(idx);
+    }
+  } catch {}
+  // Capacitor cached path → only restore to /uploads/<filename> when the basename
+  // matches the server's localized image-naming pattern (timestamp-md5.ext, see
+  // server/lib/image-localizer.js). For anything else (e.g., a Capacitor cache
+  // of a proxied external URL, where the cached basename is the source URL's
+  // basename like 'front.en.6.400.jpg'), the basename does NOT correspond to
+  // any /uploads/ file and prepending /uploads/ would cross-pollinate images
+  // across foods that happen to share an OFF basename. Drop instead.
   if (url.includes('_capacitor_file_') || url.includes('/image_cache/')) {
     const filename = url.split('/').pop();
-    if (filename && /\.\w{2,5}$/.test(filename)) return '/uploads/' + filename;
+    if (filename && /^\d{10,}-[0-9a-f]{8,16}\.\w+$/i.test(filename)) {
+      return '/uploads/' + filename;
+    }
     return ''; // can't recover original — clear rather than persist garbage
   }
   // Proxy URL (`/api/proxy?url=https://...`) → restore the inner URL.
@@ -307,9 +328,123 @@ export const NtApiCached = {
   // ── Pass-through for NtApi.post/get/put/del ───────────────────────────
   // GET: 3s (status checks, data reads — fail fast when server is down)
   // POST/PUT/PATCH/DELETE: 30s (sync operations call external APIs and can take time)
-  get(path)           { return _serverFetch('GET', path); },
-  post(path, body)    { return _serverFetch('POST', path, body, 30000); },
+  async get(path) {
+    // Local-first for IF endpoints so the timer keeps working when the
+    // server is unreachable. Server pulls on the next sync will reconcile.
+    if (path.startsWith('/api/fasts')) return _fastsCachedGet(path);
+    // Adaptive TDEE — try server first (fresher data), fall back to local
+    // compute if the server is unreachable. Numbers will match because the
+    // client compute is a direct port of the server lib.
+    if (path === '/api/goals/adaptive-tdee') {
+      try { return await _serverFetch('GET', path); }
+      catch {
+        const { computeAdaptiveTdeeLocal } = await import('./adaptive-tdee-local.js');
+        return await computeAdaptiveTdeeLocal();
+      }
+    }
+    return _serverFetch('GET', path);
+  },
+  async post(path, body) {
+    if (path.startsWith('/api/fasts')) return _fastsCachedPost(path, body);
+    return _serverFetch('POST', path, body, 30000);
+  },
   put(path, body)     { return _serverFetch('PUT', path, body, 30000); },
-  patch(path, body)   { return _serverFetch('PATCH', path, body, 30000); },
-  del(path)           { return _serverFetch('DELETE', path, 30000); },
+  async patch(path, body) {
+    if (path.startsWith('/api/fasts')) return _fastsCachedPatch(path, body);
+    return _serverFetch('PATCH', path, body, 30000);
+  },
+  // _serverFetch is (method, path, body, timeoutMs). Pass body as null so we
+  // don't ship a stray JSON-stringified number as the request body, and put
+  // the 30s timeout in its actual position.
+  async del(path) {
+    if (path.startsWith('/api/fasts')) return _fastsCachedDelete(path);
+    return _serverFetch('DELETE', path, null, 30000);
+  },
 };
+
+// ── Fasting: local-first writes, server reconciliation in background ────────
+
+async function _fastsCachedGet(path) {
+  const { dbGetActiveFast, dbGetFasts } = await import('./db-native.js');
+  if (path === '/api/fasts/active') return await dbGetActiveFast();
+  if (path.startsWith('/api/fasts')) {
+    const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    const limit = Math.min(365, Math.max(1, parseInt(q.get('limit')) || 60));
+    return await dbGetFasts(limit);
+  }
+  return null;
+}
+
+async function _fastsCachedPost(path, body) {
+  const { dbStartFast, dbEndFast } = await import('./db-native.js');
+  if (path === '/api/fasts/start') {
+    const local = await dbStartFast({ goal_hours: body?.goal_hours, start_at: body?.start_at });
+    // Best-effort server mirror so other clients see it too.
+    _serverFetch('POST', '/api/fasts/start', body || {}, 30000)
+      .then(async server => {
+        if (server?.id && local?.id) {
+          const { getDb } = await import('./db-native.js');
+          const db = await getDb();
+          await db.run(`UPDATE fasts SET server_id = ?, sync_status = 'synced' WHERE id = ?`, [server.id, local.id]);
+        }
+      })
+      .catch(() => schedulePush());
+    return local;
+  }
+  const m = path.match(/^\/api\/fasts\/(\d+)\/end$/);
+  if (m) {
+    const id = parseInt(m[1]);
+    const local = await dbEndFast(id);
+    // Need the server-side id to end-fast on the server. Look it up.
+    const { getDb } = await import('./db-native.js');
+    const db = await getDb();
+    const r = await db.query(`SELECT server_id FROM fasts WHERE id = ?`, [id]);
+    const serverId = (r?.values || [])[0]?.server_id;
+    if (serverId) {
+      _serverFetch('POST', `/api/fasts/${serverId}/end`, {}, 30000).catch(() => schedulePush());
+    } else {
+      // No server id yet — diff-sync push will create + end it together.
+      schedulePush();
+    }
+    return local;
+  }
+  return null;
+}
+
+async function _fastsCachedPatch(path, body) {
+  const { dbUpdateFast, getDb } = await import('./db-native.js');
+  const m = path.match(/^\/api\/fasts\/(\d+)$/);
+  if (m) {
+    const id = parseInt(m[1]);
+    const local = await dbUpdateFast(id, body || {});
+    const db = await getDb();
+    const r = await db.query(`SELECT server_id FROM fasts WHERE id = ?`, [id]);
+    const serverId = (r?.values || [])[0]?.server_id;
+    if (serverId) {
+      _serverFetch('PATCH', `/api/fasts/${serverId}`, body || {}, 30000).catch(() => schedulePush());
+    } else {
+      schedulePush();
+    }
+    return local;
+  }
+  return null;
+}
+
+async function _fastsCachedDelete(path) {
+  const { dbDeleteFast, getDb } = await import('./db-native.js');
+  const m = path.match(/^\/api\/fasts\/(\d+)$/);
+  if (m) {
+    const id = parseInt(m[1]);
+    const db = await getDb();
+    const r = await db.query(`SELECT server_id FROM fasts WHERE id = ?`, [id]);
+    const serverId = (r?.values || [])[0]?.server_id;
+    await dbDeleteFast(id);
+    if (serverId) {
+      _serverFetch('DELETE', `/api/fasts/${serverId}`, null, 30000).catch(() => schedulePush());
+    } else {
+      schedulePush();
+    }
+    return { ok: true };
+  }
+  return null;
+}

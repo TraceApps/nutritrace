@@ -33,7 +33,7 @@ router.delete('/', wrap((req, res) => {
 
 // Bulk import — accepts NutriTrace backup format (foodList/meals/recipes/diary)
 router.post('/import', wrap((req, res) => {
-  const { foodList = [], meals = [], recipes = [], diary = [], activity = [] } = req.body;
+  const { foodList = [], meals = [], recipes = [], diary = [], activity = [], fasts = [] } = req.body;
   const u = uid(req);
 
   const insFood = db.prepare(
@@ -41,8 +41,8 @@ router.post('/import', wrap((req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const insMeal = db.prepare(
-    `INSERT OR IGNORE INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT OR IGNORE INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const insDiary = db.prepare(
     `INSERT OR REPLACE INTO diary (user_id, date, items, body_stats, water, notes)
@@ -51,6 +51,10 @@ router.post('/import', wrap((req, res) => {
   const insActivity = db.prepare(
     `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  const insFast = db.prepare(
+    `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes)
+     VALUES (?, ?, ?, ?, ?)`
   );
 
   const run = db.transaction(() => {
@@ -72,7 +76,8 @@ router.post('/import', wrap((req, res) => {
         m.imgUrl || m.img_url || null,
         m.notes || null,
         recipes.includes(m) ? 1 : 0,
-        m.portion ?? 100, m.unit || 'g'
+        m.portion ?? 100, m.unit || 'g',
+        m.servings != null ? Math.max(1, parseInt(m.servings) || 1) : null
       );
     }
     for (const e of diary) {
@@ -93,6 +98,14 @@ router.post('/import', wrap((req, res) => {
         a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null,
         a.distance != null ? String(a.distance).slice(0, 40) : null,
         a.source || 'manual_form'
+      );
+    }
+    for (const f of fasts) {
+      if (!f.start_at) continue;
+      insFast.run(
+        u, f.start_at, f.end_at || null,
+        Number(f.goal_hours) || 16,
+        f.notes != null ? String(f.notes).slice(0, 500) : null
       );
     }
   });

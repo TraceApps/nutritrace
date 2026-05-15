@@ -24,6 +24,10 @@
   // since there's no server to talk to.
   let oidcProviders = [];
   let passwordLoginEnabled = true;
+  // Biometric sign-in (Android server-mode only). Ready when hardware supports
+  // it AND the user has previously logged in with biometric enabled (so a
+  // saved JWT exists in Preferences ready to be unlocked).
+  let _biometricReady = false;
   onMount(async () => {
     if (isNative && !getServerUrl()) return; // standalone — skip
     try {
@@ -36,7 +40,34 @@
         }
       }
     } catch {}
+    // Probe biometric availability + saved-token presence concurrently
+    if (isNative && getServerUrl()) {
+      try {
+        const bio = await import('../lib/biometric.js');
+        const [available, saved] = await Promise.all([bio.isAvailable(), bio.readSavedToken()]);
+        _biometricReady = available && !!saved;
+      } catch {}
+    }
   });
+
+  async function biometricLogin() {
+    try {
+      const bio = await import('../lib/biometric.js');
+      const ok = await bio.authenticate('Sign in to NutriTrace');
+      if (!ok) return;
+      const saved = await bio.readSavedToken();
+      if (!saved) { showError('No saved sign-in. Please use your password once first.'); return; }
+      setAuthToken(saved);
+      // Bring the auth state up by hitting /me — also refreshes CSRF token.
+      await loadAuthState();
+      const cached = JSON.parse(localStorage.getItem('nt:cachedUser') || 'null');
+      if (cached) currentUser.set(cached);
+      await loadServerSettings();
+      push('/');
+    } catch (e) {
+      showError('Biometric sign-in failed. Use your password instead.');
+    }
+  }
 
   async function startOidc(providerId) {
     const ret = encodeURIComponent(window.location.hash || '#/');
@@ -68,6 +99,16 @@
       if (!res.ok) { showError(data.error || $_('login.errors.failed')); return; }
       // Store auth token for native server mode
       if (isNative && data.token) setAuthToken(data.token);
+      // If biometric login is enabled, stash the JWT so the next launch
+      // can unlock with fingerprint/face instead of typing the password.
+      if (isNative && data.token) {
+        try {
+          const { biometricLoginEnabled } = await import('../stores/settings.js');
+          const { saveTokenForBiometric } = await import('../lib/biometric.js');
+          const { get } = await import('svelte/store');
+          if (get(biometricLoginEnabled)) await saveTokenForBiometric(data.token);
+        } catch {}
+      }
       // Cache user for offline fallback
       localStorage.setItem('wl:userId', String(data.user.id));
       localStorage.setItem('nt:cachedUser', JSON.stringify(data.user));
@@ -157,6 +198,14 @@
         <button class="btn btn-primary w-full" class:loading on:click={login} disabled={loading || !username || !password}>
           {loading ? $_('login.signing_in') : $_('login.sign_in')}
         </button>
+
+        {#if _biometricReady}
+          <button class="btn btn-secondary w-full" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px"
+            on:click={biometricLogin} disabled={loading}>
+            <span class="material-symbols-rounded" style="font-size:20px">fingerprint</span>
+            <span>Sign In with Biometric</span>
+          </button>
+        {/if}
 
         <div style="text-align:center">
           <button class="recovery-toggle" on:click={() => push('/forgot-password')}>{$_('login.forgot_password')}</button>

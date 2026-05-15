@@ -259,6 +259,54 @@ async function _syncWellness(userId) {
 
 // ── Push reminders (water, meal, weigh-in) ──────────────────────────────────
 
+// ── Fasting recurring schedule ───────────────────────────────────────────
+// Mirror of the client-side checkScheduleAndStart in stores/fasting.js so
+// connected users get auto-started fasts even if the app is closed.
+// Idempotency comes from the user_settings.fastingScheduleLastFired key
+// (YYYY-MM-DD); we update it after a successful start.
+function _setUserSetting(userId, key, value) {
+  if (userId == null) return;
+  db.prepare(
+    `INSERT INTO user_settings (user_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
+  ).run(userId, key, JSON.stringify(value));
+}
+
+function _checkFastingSchedule(userId) {
+  if (userId == null || userId === 0) return; // skip single-user mode
+  try {
+    if (_getUserSetting(userId, 'fastingEnabled') !== true) return;
+    if (_getUserSetting(userId, 'fastingScheduleEnabled') !== true) return;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (_getUserSetting(userId, 'fastingScheduleLastFired') === todayStr) return;
+    const days = _getUserSetting(userId, 'fastingScheduleDays') || [0,1,2,3,4,5,6];
+    const dow = new Date().getDay();
+    if (!Array.isArray(days) || !days.includes(dow)) return;
+    const time = _getUserSetting(userId, 'fastingScheduleTime') || '20:00';
+    const [hh, mm] = String(time).split(':').map(n => parseInt(n) || 0);
+    const scheduled = new Date(); scheduled.setHours(hh, mm, 0, 0);
+    if (Date.now() < scheduled.getTime()) return;
+    // 4-hour grace window — if user opens late we don't backdate a fast
+    if (Date.now() - scheduled.getTime() > 4 * 3600 * 1000) {
+      _setUserSetting(userId, 'fastingScheduleLastFired', todayStr);
+      return;
+    }
+    // Block double-start
+    const active = db.prepare(
+      `SELECT id FROM fasts WHERE user_id = ? AND end_at IS NULL AND deleted_at IS NULL LIMIT 1`
+    ).get(userId);
+    if (active) return;
+    const goal = Number(_getUserSetting(userId, 'fastingScheduleGoal')) || 16;
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO fasts (user_id, start_at, goal_hours) VALUES (?, ?, ?)`)
+      .run(userId, now, goal);
+    _setUserSetting(userId, 'fastingScheduleLastFired', todayStr);
+    logger.info(`[scheduler] auto-started ${goal}h fast for user ${userId} (schedule)`);
+  } catch (e) {
+    logger.debug(`[scheduler] fasting schedule check error for ${userId}: ${e.message}`);
+  }
+}
+
 async function _pushReminders(userId) {
   const pushService = _getUserSetting(userId, 'notifPushService');
   if (!pushService || pushService === 'none') return;
@@ -484,9 +532,21 @@ async function _tick() {
       try {
         await _pushReminders(userId);
         await _syncWellness(userId);
+        _checkFastingSchedule(userId);
       } catch (e) {
         logger.debug(`[scheduler] error for user ${userId}: ${e.message}`);
       }
+    }
+
+    // Housekeeping — remove invite tokens that are past their expiry. The
+    // GET /api/auth/invites endpoint already filters them out of the list,
+    // but rows sit in the table indefinitely otherwise. Cheap to clean up
+    // here every 15 minutes.
+    try {
+      const r = db.prepare(`DELETE FROM invite_tokens WHERE expires_at <= datetime('now') OR used = 1`).run();
+      if (r.changes > 0) logger.debug(`[scheduler] purged ${r.changes} expired/used invite tokens`);
+    } catch (e) {
+      logger.debug(`[scheduler] invite cleanup error: ${e.message}`);
     }
   } catch (e) {
     logger.debug(`[scheduler] tick error: ${e.message}`);

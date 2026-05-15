@@ -85,10 +85,11 @@ async function pushChanges() {
   const pending = await dbGetPendingChanges();
   const pendingSettings = await dbGetPendingSettings();
   const activity = pending.activity || [];
-  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || pendingSettings.length;
+  const fasts    = pending.fasts || [];
+  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || fasts.length || pendingSettings.length;
   if (!hasPending) return false;
 
-  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${pendingSettings.length} settings`);
+  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${fasts.length} fasts, ${pendingSettings.length} settings`);
 
   // Build push payload with client_id and server_id
   const payload = {
@@ -141,6 +142,16 @@ async function pushChanges() {
       updated_at: a.updated_at,
       deleted_at: a.deleted_at || null,
     })),
+    fasts: fasts.map(f => ({
+      client_id: f.id,
+      server_id: f.server_id || null,
+      start_at: f.start_at,
+      end_at: f.end_at || null,
+      goal_hours: f.goal_hours,
+      notes: f.notes || null,
+      updated_at: f.updated_at,
+      deleted_at: f.deleted_at || null,
+    })),
     settings: pendingSettings.map(s => ({
       key: s.key,
       value: _parseJson(s.value),
@@ -186,12 +197,18 @@ async function pushChanges() {
       await dbSetServerId('activity_log', a.client_id, a.server_id);
     }
   }
+  for (const f of (result.fasts || [])) {
+    if (f.client_id && f.server_id) {
+      await dbSetServerId('fasts', f.client_id, f.server_id);
+    }
+  }
 
   // Mark all as synced
   await dbMarkSynced('foods', pending.foods.map(f => f.id));
   await dbMarkSynced('meals', pending.meals.map(m => m.id));
   await dbMarkSynced('diary', pending.diary.map(d => d.id));
   await dbMarkSynced('activity_log', activity.map(a => a.id));
+  await dbMarkSynced('fasts', fasts.map(f => f.id));
   if (pendingSettings.length) await dbMarkSettingsSynced(pendingSettings.map(s => s.key));
 
   // Purge soft-deleted records that have been confirmed pushed
@@ -199,6 +216,7 @@ async function pushChanges() {
   await dbPurgeSoftDeleted('meals');
   await dbPurgeSoftDeleted('diary');
   await dbPurgeSoftDeleted('activity_log');
+  await dbPurgeSoftDeleted('fasts');
 
   _dlog('[sync] push complete');
   return true;
@@ -263,6 +281,12 @@ async function pullChanges() {
   // Apply activity entries from server
   for (const a of (data.activity || [])) {
     await dbUpsertActivityFromServer(a);
+  }
+
+  // Apply fasts (intermittent-fasting tracker) from server
+  const { dbUpsertFastFromServer } = await import('./db-native.js');
+  for (const f of (data.fasts || [])) {
+    await dbUpsertFastFromServer(f);
   }
 
   // Chat history — pull only, notify the AI Assistant component via event

@@ -265,6 +265,12 @@ export async function logout() {
   if (isNative) {
     const { setAuthToken } = await import('../lib/platform.js');
     setAuthToken(null);
+    // Wipe biometric-cached JWT too, otherwise the next launch could
+    // bypass the password gate after the user explicitly signed out.
+    try {
+      const { clearSavedToken } = await import('../lib/biometric.js');
+      await clearSavedToken();
+    } catch {}
   }
   localStorage.removeItem('wl:userId');
   localStorage.removeItem('nt:cachedUser');

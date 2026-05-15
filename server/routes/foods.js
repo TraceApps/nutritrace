@@ -63,6 +63,19 @@ router.post('/', wrap(async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
   const vis = visibility || 'private';
+  // Dedup by barcode within the user's library. The client-side scan handler
+  // also looks up local matches before POSTing, but a fast second scan can
+  // race the foods-list refresh and reach this endpoint with a barcode that
+  // already exists. Return the existing row so the editor opens that food
+  // instead of inserting a duplicate.
+  if (barcode) {
+    const userClause = u != null ? 'user_id = ?' : 'user_id IS NULL';
+    const args = u != null ? [barcode, u] : [barcode];
+    const existing = db.prepare(
+      `SELECT * FROM foods WHERE barcode = ? AND ${userClause} AND deleted_at IS NULL LIMIT 1`
+    ).get(...args);
+    if (existing) return res.status(200).json(parse(existing));
+  }
   // Download external images to /uploads/ for self-hosting
   const localImg = isExternalUrl(img_url) ? await localizeImage(img_url) : (img_url || null);
   const result = db.prepare(

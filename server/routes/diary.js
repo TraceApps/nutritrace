@@ -76,14 +76,19 @@ function fixCachedPaths(items) {
   let changed = false;
   const fixed = items.map(i => {
     if (!i.imgUrl) return i;
-    // Fix Capacitor cached paths
+    // Fix Capacitor cached paths — only restore to /uploads/ when the basename
+    // matches the server's localized image-naming pattern (timestamp-md5.ext,
+    // see server/lib/image-localizer.js). Cached externally-proxied images use
+    // the source URL basename (e.g. 'front.en.6.400.jpg' from OFF), which does
+    // not correspond to any /uploads/ file. Prepending /uploads/ would point
+    // every OFF-imported item at the same (or missing) /uploads/<basename>.
     if (i.imgUrl.includes('_capacitor_file_') || i.imgUrl.includes('/image_cache/')) {
       const filename = i.imgUrl.split('/').pop();
       changed = true;
-      if (filename && /\.\w{2,5}$/.test(filename)) {
+      if (filename && /^\d{10,}-[0-9a-f]{8,16}\.\w+$/i.test(filename)) {
         return { ...i, imgUrl: '/uploads/' + filename };
       }
-      return { ...i, imgUrl: '' }; // Can't determine original
+      return { ...i, imgUrl: '' }; // basename doesn't match server format
     }
     // Fix mangled proxy URLs (e.g., /uploads/proxy)
     if (i.imgUrl === '/uploads/proxy' || i.imgUrl === '/uploads/proxy?url=') {
@@ -114,19 +119,10 @@ function parse(row) {
   };
 }
 
-// One-time migration: fix any Capacitor cached paths in existing diary items
-try {
-  const rows = db.prepare(`SELECT id, items FROM diary WHERE items LIKE '%_capacitor_file_%' OR items LIKE '%/image_cache/%' OR items LIKE '%/uploads/proxy%'`).all();
-  if (rows.length > 0) {
-    const update = db.prepare(`UPDATE diary SET items = ? WHERE id = ?`);
-    db.transaction(() => {
-      for (const row of rows) {
-        const items = fixCachedPaths(JSON.parse(row.items || '[]'));
-        update.run(JSON.stringify(items), row.id);
-      }
-    })();
-    console.log(`[diary] Fixed ${rows.length} diary entries with cached image paths`);
-  }
-} catch {}
+// (Boot-time diary cleanup removed deliberately. The imgUrl field is now
+// live-resolved at read time by freshenItemImages in lib/diary-helpers.js,
+// which builds a fresh lookup against the current foods+meals tables on
+// every diary GET. The snapshot value is ignored, so there's nothing for a
+// boot-time pass to "fix". See lib/diary-helpers.js for the full reasoning.)
 
 export default router;

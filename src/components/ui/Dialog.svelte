@@ -10,6 +10,11 @@
   export let confirmText = 'OK';
   export let cancelText  = 'Cancel';
   export let dangerous   = false;
+  export let confirmDisabled = false;
+  /** When true, dispatches 'confirm' but doesn't auto-close — caller controls
+   *  open lifecycle (used for async confirms that may fail and want to keep
+   *  the dialog open). Default false preserves the original auto-close. */
+  export let manualClose = false;
 
   const dispatch = createEventDispatcher();
   let _locked = false;
@@ -19,7 +24,11 @@
     _locked = true;
     _lockTimer = setTimeout(() => _locked = false, 400);
   }
-  const confirm  = () => { open = false; dispatch('confirm'); };
+  const confirm  = () => {
+    if (confirmDisabled) return;
+    if (!manualClose) open = false;
+    dispatch('confirm');
+  };
   const cancel   = () => { if (!_locked) { open = false; dispatch('cancel'); } };
 </script>
 
@@ -48,6 +57,7 @@
         <button class="btn btn-secondary" on:click={cancel}>{cancelText}</button>
         <button
           class="btn {dangerous ? 'btn-danger' : 'btn-primary'}"
+          disabled={confirmDisabled}
           on:click={confirm}>{confirmText}</button>
       </div>
     </div>

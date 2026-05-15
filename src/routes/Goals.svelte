@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
@@ -120,11 +121,18 @@
 
   // Dynamic calorie goal support
   let _dynamicCaloriesOut = null;
+  // Adaptive TDEE — server-computed from 35-day weight + intake trend
+  let _adaptive = null; // { ready, daysAvailable, daysRequired, tdee, trendKgPerWeek, confidence, weightSource }
+  let _adaptiveLoaded = false;
+  let _showAdaptiveHelp = false;
   $: _hasDevice = $fitbitEnabled || $garminEnabled || $healthConnectEnabled;
   $: _fixedGoal = $goals.calories?.max ?? $goals.calories?.min ?? 2000;
-  $: _effectiveCalGoal = ($calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null)
-    ? Math.round(_dynamicCaloriesOut * $calorieGoalFactor)
-    : _fixedGoal;
+  $: _effectiveCalGoal =
+       ($calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null)
+         ? Math.round(_dynamicCaloriesOut * $calorieGoalFactor)
+       : ($calorieGoalMode === 'adaptive' && _adaptive?.ready && _adaptive.tdee != null)
+         ? Math.round(_adaptive.tdee * $calorieGoalFactor)
+       : _fixedGoal;
 
   async function loadWellnessToday() {
     _wellnessLoaded = true;
@@ -152,6 +160,11 @@
         .then(r => { _dynamicCaloriesOut = r.calories_out; })
         .catch(() => { _dynamicCaloriesOut = null; });
     }
+    // Adaptive TDEE — fetch even when not the active mode so the readiness
+    // card shows progress while a user is building up data toward enabling it.
+    NtApi.get('/api/goals/adaptive-tdee')
+      .then(r => { _adaptive = r; _adaptiveLoaded = true; })
+      .catch(() => { _adaptive = null; _adaptiveLoaded = true; });
   });
 
   // ── Water goal helpers ────────────────────────────────────────────────────
@@ -323,6 +336,65 @@
 
   <div class="page-content">
 
+    <!-- ── Adaptive TDEE readiness card (shown only when adaptive mode is on) ── -->
+    {#if activeTab === 'yours' && $calorieGoalMode === 'adaptive' && _adaptiveLoaded}
+      <div class="card adaptive-card">
+        <div class="adaptive-header">
+          <span class="material-symbols-rounded adaptive-icon">trending_up</span>
+          <div style="flex:1;min-width:0">
+            <div class="adaptive-title">Adaptive TDEE</div>
+            {#if _adaptive?.ready}
+              <div class="adaptive-sub">
+                Learned <strong>{_adaptive.tdee.toLocaleString()} kcal/day</strong> · weight trend
+                {_adaptive.trendKgPerWeek > 0 ? '+' : ''}{_adaptive.trendKgPerWeek} kg/week
+              </div>
+            {:else}
+              <div class="adaptive-sub">
+                Building up data: <strong>{_adaptive?.daysAvailable ?? 0} / {_adaptive?.daysRequired ?? 21}</strong> days with both weight + diary
+              </div>
+            {/if}
+          </div>
+          <button class="btn-icon" on:click={() => _showAdaptiveHelp = !_showAdaptiveHelp}
+            aria-label="How it works" title="How it works">
+            <span class="material-symbols-rounded">{_showAdaptiveHelp ? 'expand_less' : 'help_outline'}</span>
+          </button>
+        </div>
+        {#if _adaptive?.ready}
+          <div class="adaptive-stats">
+            <div><span class="text-3 text-sm">Today's goal</span><br><strong>{_effectiveCalGoal.toLocaleString()} kcal</strong></div>
+            <div><span class="text-3 text-sm">Confidence</span><br><strong>{Math.round((_adaptive.confidence || 0) * 100)}%</strong></div>
+            <div><span class="text-3 text-sm">Weight source</span><br><strong style="text-transform:capitalize">{_adaptive.weightSource}</strong></div>
+          </div>
+        {:else}
+          <div class="adaptive-progress-track">
+            <div class="adaptive-progress-fill"
+              style="width:{Math.min(100, ((_adaptive?.daysAvailable ?? 0) / (_adaptive?.daysRequired ?? 21)) * 100)}%"></div>
+          </div>
+          <p class="text-3 text-sm" style="margin:8px 0 0">
+            Until ready, your fixed goal of {_fixedGoal.toLocaleString()} kcal applies.
+          </p>
+        {/if}
+        {#if _showAdaptiveHelp}
+          <div class="adaptive-help" transition:slide={{ duration: 180 }}>
+            <p><strong>How it works.</strong> Adaptive TDEE learns your true daily energy expenditure from your weight trend over the last 35 days, paired with how much you actually ate. The math:</p>
+            <ol>
+              <li>Smooth your weight series (linear regression over 35 days).</li>
+              <li>Convert the trend into daily energy balance (1 kg of body mass ≈ 7,700 kcal).</li>
+              <li>TDEE = average daily intake − that daily balance.</li>
+            </ol>
+            <p><strong>For best results:</strong></p>
+            <ul>
+              <li><strong>Weigh yourself frequently</strong> — daily is best, every other day is fine. Sparse weights are interpolated, but more measurements = tighter signal. A connected scale (Withings, Fitbit, Garmin, Health Connect) is automatic; manual body-stats entries also work.</li>
+              <li><strong>Log your food consistently.</strong> Missing days are dropped from the calculation. The estimate gets noisy if you log half your days.</li>
+              <li><strong>Don't switch goals mid-window.</strong> The 35-day rolling average converges over time. If you bounce between cuts and bulks weekly, the learned TDEE will lag.</li>
+              <li><strong>Re-weigh in similar conditions</strong> — first thing in the morning, after using the bathroom, before food/drink. Day-to-day fluctuations are mostly water; the trend is what matters.</li>
+            </ul>
+            <p><strong>Caveats.</strong> Big changes in activity (started running, broke a leg) take ~2 weeks to fully reflect. Travel weeks with under-logged food can pull the estimate up. The learned TDEE is multiplied by your goal factor (Lose -20% / Maintain / Gain +20%) to get your actual daily target.</p>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- ── Your Goals tab ── -->
     {#if activeTab === 'yours'}
       {#if !hasAnyGoal}
@@ -370,9 +442,9 @@
               {#if i > 0}<div class="divider"></div>{/if}
               <button class="goal-row" on:click={() => openEdit(stat)}>
                 <div class="goal-info">
-                  <span class="font-medium">{stat.label}{#if stat.id === 'calories' && $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null} ⚡{/if}</span>
+                  <span class="font-medium">{stat.label}{#if stat.id === 'calories' && $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null} ⚡{:else if stat.id === 'calories' && $calorieGoalMode === 'adaptive' && _adaptive?.ready} 📈{/if}</span>
                   {#if getTarget(stat) != null}
-                    {@const tgt = stat.id === 'calories' && $calorieGoalMode === 'dynamic' ? _effectiveCalGoal : getTarget(stat)}
+                    {@const tgt = stat.id === 'calories' && ($calorieGoalMode === 'dynamic' || ($calorieGoalMode === 'adaptive' && _adaptive?.ready)) ? _effectiveCalGoal : getTarget(stat)}
                     {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
                     {@const pct = tgt > 0 ? Math.min(100, Math.round((cur ?? 0) / tgt * 100)) : 0}
                     {@const isMin = $goals[stat.id]?.isMin}
@@ -753,6 +825,34 @@
   .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
   .card { border-left: 3px solid var(--accent); }
+
+  .adaptive-card {
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    border-left-color: #6366f1;
+  }
+  .adaptive-header { display: flex; align-items: center; gap: 12px; }
+  .adaptive-icon { font-size: 28px; color: #6366f1; flex-shrink: 0; }
+  .adaptive-title { font-weight: 600; font-size: 15px; }
+  .adaptive-sub { font-size: 13px; color: var(--text-3); margin-top: 2px; }
+  .adaptive-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin-top: 12px; font-size: 14px;
+  }
+  .adaptive-progress-track {
+    height: 6px; border-radius: 3px; background: var(--surface-2);
+    overflow: hidden; margin-top: 12px;
+  }
+  .adaptive-progress-fill {
+    height: 100%; background: #6366f1; transition: width 300ms ease;
+  }
+  .adaptive-help {
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+    font-size: 13px; line-height: 1.5; color: var(--text-2);
+  }
+  .adaptive-help p { margin: 0 0 8px; }
+  .adaptive-help ol, .adaptive-help ul { margin: 0 0 8px; padding-left: 20px; }
+  .adaptive-help li { margin-bottom: 4px; }
 
   .goal-row {
     display: flex; align-items: center; gap: 12px;

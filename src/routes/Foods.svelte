@@ -1,5 +1,5 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { push, location } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { fade, fly } from 'svelte/transition';
@@ -46,13 +46,13 @@
   $: if (activeTab !== _prevTab) {
     _prevTab = activeTab;
     activeCategoryFilter = '';
-    // Non-foods tabs only support local + shared — reset & notify if source was external
-    const _prevSrc = searchSource;
+    // Re-poll sharing counts so the From Others filter appears for the new
+    // tab's category if a peer just shared something.
+    refreshSharingStatus();
+    // Non-foods tabs only support local + shared — silently reset if the
+    // current source isn't valid here (toast removed; common-sense reset).
     if (activeTab !== 0 && searchSource !== 'local' && searchSource !== 'shared') searchSource = 'local';
     if (searchSource === 'shared' && !_tabHasShared) searchSource = 'local';
-    if (_prevSrc !== searchSource) {
-      import('../stores/toast.js').then(({ showInfo }) => showInfo('Source reset to Local — external sources only work for Foods')).catch(() => {});
-    }
   }
 
   // Reset scroll so the new tab starts from the top.
@@ -78,11 +78,13 @@
   let search = '';
   let searchSource = 'local';
   const _mealieEnabled = DB.getSetting('mealieEnabled',  false);
+  // OFF / USDA / Mealie are food databases — only meaningful on the Foods tab.
+  // Meals + Recipes tabs only get Local + From Others (when shared content exists).
   $: availableSources = [
     { value: 'local',  label: $_('foods.sources.local')  },
-    ...($offEnabled    ? [{ value: 'off',    label: 'OFF' }] : []),
-    ...($usdaEnabled   ? [{ value: 'usda',   label: 'USDA' }] : []),
-    ...(_mealieEnabled ? [{ value: 'mealie', label: 'Mealie' }] : []),
+    ...(activeTab === 0 && $offEnabled    ? [{ value: 'off',    label: 'OFF' }] : []),
+    ...(activeTab === 0 && $usdaEnabled   ? [{ value: 'usda',   label: 'USDA' }] : []),
+    ...(activeTab === 0 && _mealieEnabled ? [{ value: 'mealie', label: 'Mealie' }] : []),
     ...(_tabHasShared  ? [{ value: 'shared', label: $_('foods.sources.from_others') }] : []),
   ];
   $: _sourceLabel = availableSources.find(s => s.value === searchSource)?.label || '';
@@ -91,6 +93,12 @@
   let sharingEnabled = false;
   let sharedCounts = { foods: 0, meals: 0, recipes: 0 };
   $: _tabHasShared = activeTab === 0 ? sharedCounts.foods > 0 : activeTab === 1 ? sharedCounts.meals > 0 : sharedCounts.recipes > 0;
+  function refreshSharingStatus() {
+    NtApi.getSharingStatus().then(s => {
+      sharingEnabled = s.sharing_enabled === true;
+      sharedCounts = { foods: s.foods || 0, meals: s.meals || 0, recipes: s.recipes || 0 };
+    }).catch(() => {});
+  }
   let groupFoods = [];
   let groupMeals = [];
   let groupRecipes = [];
@@ -330,7 +338,7 @@
       const mine = await copyAndUse(food);
       if (!mine) return;
       food = mine;
-      showSuccess('Saved to your catalogue');
+      showSuccess('Saved to your catalog');
       await load();
     }
 
@@ -514,7 +522,7 @@
       cloneItem(selectedItem);
     } else if (detail.value === 'copy') {
       if (selectedItem.id) {
-        copyAndUse(selectedItem).then(() => { showSuccess('Saved to your catalogue'); load(); });
+        copyAndUse(selectedItem).then(() => { showSuccess('Saved to your catalog'); load(); });
       } else {
         // External item (OFF/USDA) — create a new local food from it
         NtApi.createFood(selectedItem).then(() => { showSuccess('Saved to My Foods'); load(); })
@@ -661,10 +669,12 @@
     await load();
     await loadYesterdayMeals();
     // Sharing status from server — non-blocking, updates UI when ready
-    NtApi.getSharingStatus().then(s => {
-      sharingEnabled = s.sharing_enabled === true;
-      sharedCounts = { foods: s.foods || 0, meals: s.meals || 0, recipes: s.recipes || 0 };
-    }).catch(() => {});
+    refreshSharingStatus();
+    // Refresh whenever the page becomes visible again (covers "someone shared
+    // with me while the app was backgrounded") and on tab switch within Foods.
+    const _onVis = () => { if (document.visibilityState === 'visible') refreshSharingStatus(); };
+    document.addEventListener('visibilitychange', _onVis);
+    onDestroy(() => document.removeEventListener('visibilitychange', _onVis));
     // Restore scroll position after Svelte has flushed the list to the DOM
     if (editorState.foodsScrollY != null) {
       const sy = editorState.foodsScrollY;
@@ -723,8 +733,10 @@
     </div>
   </div>
 
-  <!-- Source chips (Foods tab only) -->
-  {#if activeTab === 0}
+  <!-- Source chips: Foods tab gets the full list (Local + OFF/USDA/Mealie/Shared
+       depending on which are enabled). Meals + Recipes tabs only show the row
+       when there's actually something to filter (Local + From Others). -->
+  {#if availableSources.length > 1}
     <div class="source-chip-row">
       {#each availableSources as src}
         <button class="source-chip" class:active={searchSource === src.value}
@@ -1146,7 +1158,7 @@
   bind:open={showItemActions}
   title={selectedItem ? selectedItem.name : ''}
   actions={selectedItem?._shared_by != null ? [
-    { label: 'Save to My Catalogue', icon: 'bookmark_add', value: 'copy' },
+    { label: 'Save to My Catalog', icon: 'bookmark_add', value: 'copy' },
   ] : !selectedItem?.id ? [
     { label: 'Save to My Foods', icon: 'bookmark_add', value: 'copy' },
   ] : [
@@ -1278,7 +1290,7 @@
 
   .food-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
   .food-item { overflow: hidden; }
-  .meal-info-btn { flex-shrink: 0; margin-right: 8px; }
+  .meal-info-btn { flex-shrink: 0; margin-right: 8px; align-self: center; }
   .food-item-btn {
     display: flex;
     align-items: center;

@@ -6,15 +6,27 @@ import { wrap } from '../logger.js';
 import { signToken, sessionMaxAge, userMgmtActive, requireAuth, requireAdmin } from '../middleware/auth.js';
 import { listProviders as oidcListProviders, publicProvider as oidcPublicProvider, isPasswordLoginEnabled, listUserLinks } from '../lib/oidc.js';
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
+import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/password-strength.js';
 
 const router = Router();
 
-function validatePassword(pw) {
+function validatePassword(pw, userInputs = []) {
   if (!pw || pw.length < 8) return 'Password must be at least 8 characters';
   if (!/[a-z]/.test(pw)) return 'Password must include a lowercase letter';
   if (!/[A-Z]/.test(pw)) return 'Password must include an uppercase letter';
   if (!/[0-9]/.test(pw)) return 'Password must include a number';
   if (!/[^a-zA-Z0-9]/.test(pw)) return 'Password must include a special character';
+  // When the admin enabled the strong-policy app_config, also enforce zxcvbn
+  // score >= STRONG_MIN_SCORE. Default policy ('standard' / null) keeps the
+  // existing rules only.
+  const policy = db.prepare(`SELECT value FROM app_config WHERE key = 'password_policy'`).get()?.value;
+  if (policy === 'strong') {
+    const r = estimatePasswordStrength(pw, userInputs);
+    if (r.score < STRONG_MIN_SCORE) {
+      const tip = r.feedback?.warning || r.feedback?.suggestions?.[0] || 'Use a longer, less predictable password';
+      return `Password is too weak: ${tip}`;
+    }
+  }
   return null;
 }
 
@@ -83,10 +95,13 @@ router.get('/status', wrap((req, res) => {
   const active = userMgmtActive();
   // Surface OIDC providers + password-login flag for the Login page to use.
   const providers = oidcListProviders({ activeOnly: true }).map(oidcPublicProvider);
+  const policy = db.prepare(`SELECT value FROM app_config WHERE key = 'password_policy'`).get()?.value || 'standard';
   res.json({
     active,
     setup_required: !active,
     oidc: { providers, enable_email_password_login: isPasswordLoginEnabled() },
+    password_policy: policy,                  // 'standard' | 'strong'
+    password_min_score: policy === 'strong' ? STRONG_MIN_SCORE : 0,
   });
 }));
 
@@ -143,7 +158,7 @@ router.post('/register', wrap((req, res) => {
 
   const { username, password, full_name, nickname, birthday, gender, role, email } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-  { const pwErr = validatePassword(password); if (pwErr) return res.status(400).json({ error: pwErr }); }
+  { const pwErr = validatePassword(password, [username, email, full_name].filter(Boolean)); if (pwErr) return res.status(400).json({ error: pwErr }); }
 
   const hash = bcrypt.hashSync(password, 12);
   const assignedRole = isFirst ? 'admin' : (role === 'admin' ? 'admin' : 'user');
@@ -237,10 +252,45 @@ router.delete('/me', requireAuth, wrap((req, res) => {
   res.json({ ok: true });
 }));
 
+// ── Admin: count what a user owns (informational, drives delete confirmation) ─
+router.get('/users/:id/data-counts', requireAuth, requireAdmin, wrap((req, res) => {
+  const id = parseInt(req.params.id);
+  const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  // Each count is a "how much would CASCADE delete" preview. Tables that
+  // don't exist on older deploys (or were renamed) just return 0 silently.
+  const _count = (sql, ...params) => {
+    try { return db.prepare(sql).get(...params)?.c ?? 0; }
+    catch { return 0; }
+  };
+  res.json({
+    username: user.username,
+    foods:        _count('SELECT COUNT(*) c FROM foods   WHERE user_id = ?', id),
+    meals:        _count(`SELECT COUNT(*) c FROM meals   WHERE user_id = ? AND is_recipe = 0`, id),
+    recipes:      _count(`SELECT COUNT(*) c FROM meals   WHERE user_id = ? AND is_recipe = 1`, id),
+    diary_days:   _count('SELECT COUNT(*) c FROM diary   WHERE user_id = ?', id),
+    wellness_data: _count('SELECT COUNT(*) c FROM wellness_data WHERE user_id = ?', id),
+    activities:   _count('SELECT COUNT(*) c FROM activity_log   WHERE user_id = ?', id),
+    workouts:     _count('SELECT COUNT(*) c FROM workouts       WHERE user_id = ?', id),
+  });
+}));
+
 // ── Admin: delete user ─────────────────────────────────────────────────────
 router.delete('/users/:id', requireAuth, requireAdmin, wrap((req, res) => {
   const id = parseInt(req.params.id);
   if (id === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
+  const target = db.prepare('SELECT role FROM users WHERE id = ?').get(id);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  // Don't let an admin delete the only other admin if they're the only ones
+  // left — would lock the instance into a single-admin state where any future
+  // self-delete via /me would create a no-admin situation. (Defensive — /me
+  // already guards this, but doing it here keeps the explicit error visible.)
+  if (target.role === 'admin') {
+    const adminCount = db.prepare(`SELECT COUNT(*) c FROM users WHERE role = 'admin'`).get().c;
+    if (adminCount <= 1) {
+      return res.status(400).json({ error: 'Cannot delete the only admin account.' });
+    }
+  }
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
   res.json({ ok: true });
 }));
@@ -357,6 +407,18 @@ router.post('/reset-password', wrap((req, res) => {
 router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
   const { email, role = 'user' } = req.body;
 
+  // Refuse if the email is already registered — silently sending an invite
+  // to an existing user would let the recipient create a second account.
+  if (email) {
+    const normalized = email.trim().toLowerCase();
+    const existing = db.prepare('SELECT username FROM users WHERE LOWER(email) = ?').get(normalized);
+    if (existing) {
+      return res.status(409).json({
+        error: `An account with that email already exists (username: ${existing.username}). They can sign in directly or use Forgot Password.`,
+      });
+    }
+  }
+
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
   db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
@@ -375,6 +437,24 @@ router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
   }
 }));
 
+// ── Admin: list pending invites (not used, not expired) ───────────────────
+router.get('/invites', requireAuth, requireAdmin, wrap((req, res) => {
+  const rows = db.prepare(
+    `SELECT token, email, role, expires_at, created_by
+     FROM invite_tokens
+     WHERE used = 0 AND expires_at > datetime('now')
+     ORDER BY expires_at DESC`
+  ).all();
+  res.json(rows);
+}));
+
+// ── Admin: revoke a pending invite ────────────────────────────────────────
+router.delete('/invites/:token', requireAuth, requireAdmin, wrap((req, res) => {
+  const result = db.prepare('DELETE FROM invite_tokens WHERE token = ?').run(req.params.token);
+  if (result.changes === 0) return res.status(404).json({ error: 'Invite not found' });
+  res.json({ ok: true });
+}));
+
 // ── Accept invite ──────────────────────────────────────────────────────────
 router.post('/accept-invite', wrap((req, res) => {
   const { token, username, password, full_name } = req.body;
@@ -384,6 +464,14 @@ router.post('/accept-invite', wrap((req, res) => {
   const invite = db.prepare('SELECT * FROM invite_tokens WHERE token = ?').get(token);
   if (!invite || invite.used) return res.status(400).json({ error: 'Invalid or already used invite link' });
   if (new Date(invite.expires_at) < new Date()) return res.status(400).json({ error: 'Invite link has expired' });
+
+  // Belt-and-suspenders: re-check email isn't taken since the invite was created.
+  if (invite.email) {
+    const existing = db.prepare('SELECT username FROM users WHERE LOWER(email) = ?').get(invite.email.toLowerCase());
+    if (existing) {
+      return res.status(409).json({ error: 'An account with this email already exists. Sign in instead.' });
+    }
+  }
 
   const hash = bcrypt.hashSync(password, 12);
   const result = db.prepare(

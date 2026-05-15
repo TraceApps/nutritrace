@@ -39,9 +39,13 @@
   let cropBoxX = 0, cropBoxY = 0, cropBoxSize = 200;
   let cropDragging = false, cropDragStartX = 0, cropDragStartY = 0, cropBoxStartX = 0, cropBoxStartY = 0;
 
-  // Recipe fields
+  // Recipe fields. recipeAmount is the TOTAL weight of the finished dish
+  // (auto-filled from ingredients; user can override for boil-off). recipeYields
+  // is the number of servings the recipe makes. On save we divide total
+  // weight + total nutrition by yields and store the per-serving values.
   let recipeAmount = '';
   let recipeUnit = 'g';
+  let recipeYields = 1;
   const UNITS = ['g','ml','oz','cup','tbsp','tsp','piece','serving'];
 
   // Ingredient picker
@@ -78,8 +82,21 @@
       if (existing) meal = { ...meal, ...existing };
     }
     if (meal.imgUrl) photoPreviewUrl = meal.imgUrl;
-    if (isRecipe && meal.portion) recipeAmount = meal.portion;
-    if (isRecipe && meal.unit) recipeUnit = meal.unit;
+    if (isRecipe) {
+      // Three cases to display the yields field:
+      //   - Brand new recipe: default to 1 (visible).
+      //   - Existing recipe saved with this feature: show the saved number.
+      //   - Existing recipe migrated from before this feature: servings is
+      //     NULL/undefined; show a blank field. Math still treats blank as 1.
+      const isExistingRecipe = !!params?.id || !!editorState.mealPrefill?.id;
+      const hasExplicitServings = meal.servings != null;
+      const effectiveServings = hasExplicitServings
+        ? Math.max(1, parseInt(meal.servings) || 1)
+        : 1;
+      recipeYields = isExistingRecipe && !hasExplicitServings ? '' : effectiveServings;
+      if (meal.portion) recipeAmount = (parseFloat(meal.portion) || 0) * effectiveServings;
+      if (meal.unit) recipeUnit = meal.unit;
+    }
 
   });
 
@@ -412,6 +429,21 @@
     }
   }
 
+  // Read-only when this meal/recipe is owned by another user (shared with us).
+  // Server returns 403 on PUT regardless; locking the UI gives the user one
+  // clear action — Save a Copy — instead of letting them edit and fail.
+  $: _readOnly = !!meal._shared_by;
+
+  async function saveAsCopy() {
+    saving = true;
+    try {
+      await NtApi.copyMeal(meal.id);
+      showSuccess('Saved a copy to your catalog');
+      pop();
+    } catch (e) { showError('Could not save copy: ' + e.message); }
+    saving = false;
+  }
+
   // ── Save ──────────────────────────────────────────────────────────────────
   async function save() {
     if (!meal.name.trim()) { showError($_('food_editor.errors.name_required')); return; }
@@ -425,8 +457,21 @@
         is_recipe: isRecipe,
       };
       if (isRecipe) {
-        item.portion = parseFloat(recipeAmount) || Math.round(meal.items.reduce((s,it)=>s+toGrams(it.portion,it.unit),0)) || 100;
+        const totalGrams = parseFloat(recipeAmount) || Math.round(meal.items.reduce((s,it)=>s+toGrams(it.portion,it.unit),0)) || 100;
+        const explicit = recipeYields !== '' && recipeYields != null && !Number.isNaN(parseInt(recipeYields));
+        const yields = explicit ? Math.max(1, parseInt(recipeYields) || 1) : 1;
+        // Store per-serving values. Adding "1" of this recipe to the diary
+        // then naturally means "one serving". When yields=1 (or unset, where
+        // math treats it as 1), totalGrams/1 = totalGrams — identical to the
+        // pre-yields behavior. Explicit null preserves the "unset" state for
+        // legacy recipes so the editor keeps showing a blank field rather
+        // than auto-filling 1 on every reopen-save cycle.
+        item.portion = totalGrams / yields;
         item.unit = recipeUnit;
+        item.servings = explicit ? yields : null;
+        item.nutrition = Object.fromEntries(
+          Object.entries(totals).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
+        );
       }
       if (meal.id) await NtApi.updateMeal(meal.id, item);
       else await NtApi.createMeal(item);
@@ -446,8 +491,8 @@
     <button class="btn-icon" on:click={pop} aria-label={$_('common.back')} title={$_('common.back')}>
       <span class="material-symbols-rounded">arrow_back</span>
     </button>
-    <h2 class="editor-title">{meal.id ? 'Edit' : 'New'} {isRecipe ? 'Recipe' : 'Meal'}</h2>
-    {#if meal.id}
+    <h2 class="editor-title">{_readOnly ? `Shared by ${meal._shared_by}` : `${meal.id ? 'Edit' : 'New'} ${isRecipe ? 'Recipe' : 'Meal'}`}</h2>
+    {#if meal.id && !_readOnly}
       <button class="btn-icon fav-btn" class:on={!!meal.favorite}
         on:click={() => { meal.favorite = meal.favorite ? 0 : 1; meal = meal; }}
         aria-label={meal.favorite ? 'Unfavorite' : 'Favorite'}
@@ -455,13 +500,30 @@
         <span class="material-symbols-rounded">{meal.favorite ? 'favorite' : 'favorite_border'}</span>
       </button>
     {/if}
-    <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
-      on:click={save} disabled={saving}>
-      {saving ? 'Saving…' : 'Save'}
-    </button>
+    {#if _readOnly}
+      <button class="btn btn-primary" style="height:36px;padding:0 14px;font-size:13px;white-space:nowrap"
+        on:click={saveAsCopy} disabled={saving}>
+        {saving ? 'Copying…' : 'Save to My Catalog'}
+      </button>
+    {:else}
+      <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
+        on:click={save} disabled={saving}>
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+    {/if}
   </header>
 
-  <div class="page-content editor-content">
+  {#if _readOnly}
+    <div class="readonly-banner">
+      <span class="material-symbols-rounded">lock</span>
+      <div>
+        <div class="readonly-title">Shared by {meal._shared_by} — read only</div>
+        <div class="readonly-sub">Tap <strong>Save to My Catalog</strong> to bring this {isRecipe ? 'recipe' : 'meal'} into your catalog and edit it.</div>
+      </div>
+    </div>
+  {/if}
+
+  <div class="page-content editor-content" class:readonly-content={_readOnly} inert={_readOnly || null}>
 
     <!-- Photo -->
     <div class="card editor-card">
@@ -511,18 +573,32 @@
       <input class="input" placeholder={isRecipe ? $_('meal_editor.recipe_name_placeholder') : $_('meal_editor.meal_name_placeholder')} bind:value={meal.name} />
     </div>
 
-    <!-- Recipe amount/unit -->
+    <!-- Recipe servings: total weight + yields -->
     {#if isRecipe}
       <div class="card editor-card">
-        <div class="editor-card-title">Recipe Serving</div>
+        <div class="editor-card-title">{$_('meal_editor.servings.title')}</div>
         <div style="display:flex;gap:10px;align-items:center">
           <input class="input" type="number" min="0.1" step="any"
-            placeholder="Auto from ingredients" bind:value={recipeAmount} style="flex:1" />
+            placeholder={$_('meal_editor.servings.amount_placeholder')} bind:value={recipeAmount} style="flex:1" />
           <select class="input" bind:value={recipeUnit} style="width:100px">
             {#each UNITS as u}<option value={u}>{u}</option>{/each}
           </select>
         </div>
-        <p class="text-3" style="font-size:12px;margin:0">Serving size used when adding to diary</p>
+        <p class="text-3" style="font-size:12px;margin:0">{$_('meal_editor.servings.total_weight_hint')}</p>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
+          <input class="input" type="number" min="1" step="1"
+            bind:value={recipeYields} style="flex:1" />
+          <span class="text-3" style="font-size:13px;width:100px;text-align:center">{$_('meal_editor.servings.yields_unit')}</span>
+        </div>
+        <p class="text-3" style="font-size:12px;margin:0">{$_('meal_editor.servings.yields_hint')}</p>
+        {#if parseFloat(recipeAmount) > 0 && (parseInt(recipeYields) || 0) >= 1}
+          {@const _y = Math.max(1, parseInt(recipeYields) || 1)}
+          {@const _g = Math.round((parseFloat(recipeAmount) / _y) * 10) / 10}
+          {@const _k = Math.round(((totals?.calories || 0) / _y) * 10) / 10}
+          <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">
+            <p style="margin:0;font-size:13px"><span class="text-3">{$_('meal_editor.servings.per_serving_label')}</span> <strong>{_g}{recipeUnit} · {_k} kcal</strong></p>
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -848,6 +924,17 @@
   .fav-btn { color: var(--text-3); }
   .fav-btn.on { color: var(--macro-protein, #ec4899); }
   .editor-content { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 32px; }
+  .readonly-content { opacity: 0.78; pointer-events: none; }
+  .readonly-banner {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px var(--page-px);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .readonly-banner .material-symbols-rounded { color: var(--accent); font-size: 20px; flex-shrink: 0; }
+  .readonly-title { font-weight: 600; }
+  .readonly-sub   { color: var(--text-3); font-size: 12px; margin-top: 2px; line-height: 1.4; }
   .editor-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   .editor-card-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
 

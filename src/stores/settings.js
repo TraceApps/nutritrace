@@ -22,6 +22,9 @@ const _dlog = import.meta.env.DEV
 //
 export const USER_PREFS = new Set([
   'energyUnit','mealNames','goals','goalTemplates','calorieGoalMode','calorieGoalFactor',
+  'fastingEnabled','fastingDefaultHours','fastingNotifyOnGoal','fastingCustomPresets',
+  'fastingScheduleEnabled','fastingScheduleTime','fastingScheduleDays','fastingScheduleGoal',
+  'fastingScheduleLastFired',
   'visibleNutriments','nutrimentsOrder','customNutriments',
   'bodyStatsOrder','hiddenBodyStats','foodCategories',
   'diaryShowNutritionBar','diaryTotalsMode',
@@ -32,7 +35,7 @@ export const USER_PREFS = new Set([
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
   'foodsShowYesterdayMeals','foodsYesterdayCollapsed','foodsSavedCollapsed','foodsSort','mealsSort','recipesSort',
   'barcodeBeep','cropPhotos',
-  'offEnabled','offSearchLanguage','offSearchCountry','offUploadCountry',
+  'offEnabled','offSearchLanguage','offSearchCountry','offUploadCountry','offImportPortion',
   'weightUnit','heightUnit','lengthUnit','distUnit','tempUnit',
   'waterGoalMl','waterUnit','waterContainers','waterShowInStats','waterShowInDiary',
   'dateFormat','timeFormat','timezone',
@@ -77,6 +80,7 @@ export const DEVICE_PREFS = new Set([
   'sidebarPersistent',  // form-factor specific
   'disableAnimations',  // performance pref tied to device speed
   'barcodeFlashlight',  // hardware-specific (no flashlight on desktop)
+  'biometricLoginEnabled', // Android-only, per-device biometric unlock for sign-in
 ]);
 
 // Backwards-compat alias — keeps existing .has(key) checks working without
@@ -395,7 +399,24 @@ export const energyUnit        = createSettingStore('energyUnit',       'kcal');
 export const mealNames         = createSettingStore('mealNames',        ['Breakfast','Lunch','Dinner','Snacks']);
 export const goals             = createSettingStore('goals',            {});
 export const goalTemplates     = createSettingStore('goalTemplates',    []);
-export const calorieGoalMode   = createSettingStore('calorieGoalMode',   'fixed');  // 'fixed' | 'dynamic'
+export const calorieGoalMode   = createSettingStore('calorieGoalMode',   'fixed');  // 'fixed' | 'dynamic' | 'adaptive'
+// Intermittent-fasting tracker — opt-in widget on the Diary plus a Stats card.
+export const fastingEnabled    = createSettingStore('fastingEnabled',    false);
+export const fastingDefaultHours = createSettingStore('fastingDefaultHours', 16);
+export const fastingNotifyOnGoal = createSettingStore('fastingNotifyOnGoal', true);
+// User-saved custom presets ({name, hours}), max 3 entries.
+export const fastingCustomPresets = createSettingStore('fastingCustomPresets', []);
+// Recurring schedule — auto-starts a fast at fastingScheduleTime on the
+// days in fastingScheduleDays (0=Sun .. 6=Sat). Server tick triggers when
+// connected; on-app-open backstop catches the case in local-only mode.
+export const fastingScheduleEnabled = createSettingStore('fastingScheduleEnabled', false);
+export const fastingScheduleTime    = createSettingStore('fastingScheduleTime',    '20:00');
+export const fastingScheduleDays    = createSettingStore('fastingScheduleDays',    [0,1,2,3,4,5,6]);
+export const fastingScheduleGoal    = createSettingStore('fastingScheduleGoal',    16);
+// Idempotency guard — records the last YYYY-MM-DD the schedule fired so
+// the same day doesn't double-start (both client and server triggers
+// honor this, and the active-fast 409 on /start is the belt-and-suspenders).
+export const fastingScheduleLastFired = createSettingStore('fastingScheduleLastFired', null);
 export const calorieGoalFactor = createSettingStore('calorieGoalFactor', 1.0);      // 0.80 | 1.00 | 1.20
 export const visibleNutriments = createSettingStore('visibleNutriments', null);
 export const nutrimentsOrder   = createSettingStore('nutrimentsOrder',  []);
@@ -440,6 +461,7 @@ export const recipesSort            = createSettingStore('recipesSort',         
 
 export const barcodeBeep            = createSettingStore('barcodeBeep',            false);
 export const barcodeFlashlight      = createSettingStore('barcodeFlashlight',      false);
+export const biometricLoginEnabled  = createSettingStore('biometricLoginEnabled',  false);
 export const cropPhotos             = createSettingStore('cropPhotos',             false);
 // OFF search is enabled by default — it's the public crowd-sourced food
 // database and the primary search source. Users who don't want their queries
@@ -448,6 +470,7 @@ export const offEnabled             = createSettingStore('offEnabled',          
 export const offSearchLanguage      = createSettingStore('offSearchLanguage',      'en');
 export const offSearchCountry       = createSettingStore('offSearchCountry',       'World');
 export const offUploadCountry       = createSettingStore('offUploadCountry',       'Auto');
+export const offImportPortion       = createSettingStore('offImportPortion',       'per100g');
 
 export const accentColor = createSettingStore('accentColor', 'mint');
 

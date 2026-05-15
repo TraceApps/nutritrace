@@ -142,5 +142,12 @@ function _guessExtension(url) {
  * Check if a URL is external (not a local /uploads/ path).
  */
 export function isExternalUrl(url) {
-  return url && url.startsWith('http');
+  if (!url || !url.startsWith('http')) return false;
+  // A URL is "external" only if it does NOT point at our own /uploads/
+  // directory. Earlier versions returned true for ANY http URL, which made
+  // a boot-time migration loop re-download the server's own files from
+  // itself on every restart. The strip functions in src/lib/api-cached.js
+  // and src/stores/diary.js now keep full-host URLs out of the table at
+  // write time, but harden this too in case any future caller relies on it.
+  return url.indexOf('/uploads/') < 0;
 }

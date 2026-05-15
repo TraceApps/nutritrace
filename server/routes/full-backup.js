@@ -58,10 +58,10 @@ function restoreFromZip(zip) {
     for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, updated_at: null, deleted_at: null, ...f });
 
     const insMeal = db.prepare(`
-      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, visibility, source_id, favorite, usage_count, last_used_at, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @created_at, @updated_at, @deleted_at)
+      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, created_at, updated_at, deleted_at)
+      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @created_at, @updated_at, @deleted_at)
     `);
-    for (const m of data.meals || []) insMeal.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, updated_at: null, deleted_at: null, ...m });
+    for (const m of data.meals || []) insMeal.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, updated_at: null, deleted_at: null, servings: null, ...m });
 
     const insFoodShare = db.prepare(`INSERT OR IGNORE INTO food_shares (food_id, user_id) VALUES (@food_id, @user_id)`);
     for (const fs of data.food_shares || []) insFoodShare.run(fs);
@@ -112,6 +112,14 @@ function restoreFromZip(zip) {
       VALUES (@id, @user_id, @date, @name, @kcal, @duration_min, @distance, @source, @created_at, @updated_at, @deleted_at)
     `);
     for (const a of data.activity_log || []) insActivity.run({ deleted_at: null, ...a });
+
+    // Intermittent fasting log
+    db.prepare('DELETE FROM fasts').run();
+    const insFast = db.prepare(`
+      INSERT OR IGNORE INTO fasts (id, user_id, start_at, end_at, goal_hours, notes, created_at, updated_at, deleted_at)
+      VALUES (@id, @user_id, @start_at, @end_at, @goal_hours, @notes, @created_at, @updated_at, @deleted_at)
+    `);
+    for (const f of data.fasts || []) insFast.run({ end_at: null, notes: null, deleted_at: null, ...f });
 
     // OIDC providers — admin config; client_secret is encrypted with the
     // deploy's JWT_SECRET, so cross-deploy restores will need the secret
@@ -192,6 +200,7 @@ function dumpDatabase() {
     wellness_data:    db.prepare('SELECT * FROM wellness_data').all(),
     workouts:         db.prepare('SELECT * FROM workouts').all(),
     activity_log:     db.prepare('SELECT * FROM activity_log').all(),
+    fasts:            db.prepare('SELECT * FROM fasts').all(),
     oidc_providers:   db.prepare('SELECT * FROM oidc_providers').all(),
     user_oidc_links:  db.prepare('SELECT * FROM user_oidc_links').all(),
   };

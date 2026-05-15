@@ -67,6 +67,11 @@
       let activity = [];
       try { activity = await NtApi.getActivityRange('1900-01-01', '2999-12-31') || []; } catch {}
 
+      // Intermittent fasting log — completed + active fasts. Included so
+      // a user moving devices doesn't lose their streak / history.
+      let fasts = [];
+      try { fasts = await NtApi.get('/api/fasts?limit=10000') || []; } catch {}
+
       const settings = DB.getAllSettings() || {};
 
       // Manifest header — self-describing, version-tagged, with counts. Lets
@@ -80,7 +85,7 @@
         exported_at: new Date().toISOString(),
         source: isNative ? (getServerUrl() ? 'native-server' : 'native-local') : 'web',
         includes_images: false,
-        scope: 'foods, meals, recipes, diary (with notes), activity, settings — wellness-tab data and workouts excluded by design.',
+        scope: 'foods, meals, recipes, diary (with notes), activity, fasts, settings — wellness-tab data and workouts excluded by design.',
         note: 'For a comprehensive backup with embedded image files, use Local Full Backup (.zip).',
         counts: {
           foods:     foodList?.length || 0,
@@ -88,6 +93,7 @@
           recipes:   recipes?.length  || 0,
           diary:     diary?.length    || 0,
           activity:  activity?.length || 0,
+          fasts:     fasts?.length    || 0,
           settings:  Object.keys(settings).length,
         },
       };
@@ -99,6 +105,7 @@
         recipes,
         diary,
         activity,
+        fasts,
         settings,
         // Legacy field — kept so older importers that only read this still work
         exportedAt: _manifest.exported_at,

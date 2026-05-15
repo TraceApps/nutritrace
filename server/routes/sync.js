@@ -105,9 +105,15 @@ router.get('/pull', wrap((req, res) => {
     `SELECT * FROM activity_log WHERE updated_at >= ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY updated_at`
   ).all(...activityParams);
 
-  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length}`);
+  // Intermittent-fasting log — same shape as activity. Soft-deleted rows
+  // come through so the client can mirror the deletion locally.
+  const fasts = db.prepare(
+    `SELECT * FROM fasts WHERE updated_at >= ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY updated_at`
+  ).all(...activityParams);
 
-  res.json({ foods, meals, diary, activity, settings, wellness, workouts, chat_history, server_time: serverTime });
+  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length}`);
+
+  res.json({ foods, meals, diary, activity, fasts, settings, wellness, workouts, chat_history, server_time: serverTime });
 }));
 
 // ── POST /push ───────────────────────────────────────────────────────────────
@@ -116,8 +122,8 @@ router.get('/pull', wrap((req, res) => {
 // Returns a mapping of client_id → server_id for newly created records.
 router.post('/push', wrap((req, res) => {
   const u = uid(req);
-  const { foods = [], meals = [], diary = [], activity = [], settings = [] } = req.body;
-  const result = { foods: [], meals: [], diary: [], activity: [], settings: [] };
+  const { foods = [], meals = [], diary = [], activity = [], fasts = [], settings = [] } = req.body;
+  const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], settings: [] };
 
   // Normalize timestamp for comparison (strip T, Z, milliseconds)
   const norm = ts => ts ? ts.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '') : '';
@@ -167,19 +173,21 @@ router.post('/push', wrap((req, res) => {
             db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(m.server_id);
           } else {
             db.prepare(
-              `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), updated_at=datetime('now') WHERE id=?`
+              `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), updated_at=datetime('now') WHERE id=?`
             ).run(m.name, JSON.stringify(m.nutrition || {}), JSON.stringify(m.items || []),
               m.img_url || null, m.notes || null, m.is_recipe ? 1 : 0, m.portion ?? 100, m.unit || 'g',
+              m.servings != null ? Math.max(1, parseInt(m.servings) || 1) : null,
               m.favorite ? 1 : 0, m.usage_count || 0, m.last_used_at || null, m.server_id);
           }
         }
         result.meals.push({ client_id: m.client_id, server_id: m.server_id });
       } else if (!m.deleted_at) {
         const r = db.prepare(
-          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, favorite, usage_count, last_used_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, m.name, JSON.stringify(m.nutrition || {}), JSON.stringify(m.items || []),
           m.img_url || null, m.notes || null, m.is_recipe ? 1 : 0, m.portion ?? 100, m.unit || 'g',
+          Math.max(1, parseInt(m.servings) || 1),
           m.favorite ? 1 : 0, m.usage_count || 0, m.last_used_at || null);
         result.meals.push({ client_id: m.client_id, server_id: r.lastInsertRowid });
       }
@@ -249,6 +257,33 @@ router.post('/push', wrap((req, res) => {
       }
     }
 
+    // ── Fasts (intermittent fasting tracker) ─────────────────────────────
+    for (const f of fasts) {
+      const existing = f.server_id
+        ? db.prepare('SELECT updated_at FROM fasts WHERE id = ?').get(f.server_id)
+        : null;
+      if (f.server_id && existing) {
+        if (norm(f.updated_at) >= norm(existing.updated_at)) {
+          if (f.deleted_at) {
+            db.prepare(`UPDATE fasts SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(f.server_id);
+          } else {
+            db.prepare(
+              `UPDATE fasts SET start_at=?, end_at=?, goal_hours=?, notes=?, updated_at=datetime('now') WHERE id=?`
+            ).run(f.start_at, f.end_at || null, Number(f.goal_hours) || 16,
+              f.notes != null ? String(f.notes).slice(0, 500) : null, f.server_id);
+          }
+        }
+        result.fasts.push({ client_id: f.client_id, server_id: f.server_id });
+      } else if (!f.deleted_at) {
+        const r = db.prepare(
+          `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+        ).run(u, f.start_at, f.end_at || null, Number(f.goal_hours) || 16,
+          f.notes != null ? String(f.notes).slice(0, 500) : null);
+        result.fasts.push({ client_id: f.client_id, server_id: r.lastInsertRowid });
+      }
+    }
+
     // ── Settings (keyed by key, not ID) ──────────────────────────────────
     // SECURITY: server-only keys are rejected — clients can't overwrite admin config.
     if (u != null) {
@@ -270,7 +305,7 @@ router.post('/push', wrap((req, res) => {
 
   run();
 
-  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} settings=${settings.length}`);
+  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} settings=${settings.length}`);
   res.json({ ok: true, ...result });
 }));
 

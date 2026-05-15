@@ -858,16 +858,19 @@
         {@const _goalDisp = Nutrition.displayEnergy(goalKcal, $energyUnit)}
         <h2 class="step-title">{$_('wizard.summary.title')}</h2>
         <p class="step-desc">{$_('wizard.summary.desc')}</p>
+        {@const _goalFactor = goalKcal === tdee ? 1.0 : goalKcal < tdee ? 0.8 : 1.2}
+        {@const _factorLabel = _goalFactor === 0.8 ? 'Lose −20%' : _goalFactor === 1.2 ? 'Gain +20%' : 'Maintain'}
         <div class="summary-card">
           <div class="tdee-row">
-            <div class="tdee-label">Estimated TDEE</div>
+            <div class="tdee-label">Starting TDEE</div>
             <div class="tdee-value">{_tdeeDisp.value.toLocaleString()}</div>
             <div class="tdee-unit">{_tdeeDisp.unit} / day</div>
+            <div class="tdee-help">Total Daily Energy Expenditure · Mifflin-St Jeor + activity level</div>
           </div>
           <hr style="border:none;border-top:1px solid var(--border);margin:16px 0" />
           <div class="summary-rows">
             <div class="summary-row">
-              <span class="text-3">{$energyUnit === 'kJ' ? 'Energy goal' : 'Calorie goal'}</span>
+              <span class="text-3">{$energyUnit === 'kJ' ? 'Energy goal' : 'Calorie goal'}<br><span style="font-size:11px;opacity:0.7">{_factorLabel} ({Math.round(_goalFactor * 100)}% of TDEE)</span></span>
               <strong>{_goalDisp.value.toLocaleString()} {_goalDisp.unit}/day</strong>
             </div>
             <div class="summary-row">
@@ -887,8 +890,8 @@
               <span>{ACTIVITY_LEVELS.find(l=>l.value===activity)?.label || activity}</span>
             </div>
           </div>
-          <p class="text-3" style="font-size:12px;margin-top:12px;text-align:center">
-            You can adjust these anytime in Settings.
+          <p class="text-3" style="font-size:12px;margin-top:12px;text-align:center;line-height:1.5">
+            You can adjust these anytime in Settings. After about a month of logging, <strong>Adaptive Mode</strong> in Settings → Goals can refine your goal based on your actual weight trend.
           </p>
         </div>
       {/if}
@@ -1066,6 +1069,7 @@
   .tdee-label { font-size: 13px; color: var(--text-3); margin-bottom: 4px; }
   .tdee-value { font-size: 48px; font-weight: 700; color: var(--accent); line-height: 1; }
   .tdee-unit  { font-size: 14px; color: var(--text-3); margin-top: 4px; }
+  .tdee-help  { font-size: 11px; color: var(--text-3); margin-top: 8px; opacity: 0.75; line-height: 1.4; }
   .summary-rows { display: flex; flex-direction: column; gap: 8px; }
   .summary-row { display: flex; justify-content: space-between; font-size: 14px; }
 

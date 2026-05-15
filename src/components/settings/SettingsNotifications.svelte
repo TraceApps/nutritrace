@@ -363,7 +363,7 @@
         <div class="setting-divider"></div>
         <div class="setting-row">
           <span class="setting-label">Delivery Day</span>
-          <div class="seg-control">
+          <div class="seg-control" style="--seg-count:7;--seg-active:{_weeklySummaryDay}">
             {#each ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as day, i}
               <button class="seg-opt" class:seg-active={_weeklySummaryDay === i}
                 on:click={() => { _weeklySummaryDay = i; set('weeklySummaryDay', i); }}>
@@ -427,12 +427,27 @@
   .form-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
 
   .seg-control {
+    position: relative;
     display: flex;
     border: 1.5px solid var(--border);
     border-radius: var(--radius-md);
     overflow: hidden;
   }
+  /* Sliding active highlight — driven by --seg-active (index) + --seg-count (total). */
+  .seg-control::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: calc(100% / var(--seg-count, 7));
+    background: var(--accent-dim);
+    transform: translateX(calc(var(--seg-active, 0) * 100%));
+    transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+    z-index: 0;
+  }
   .seg-opt {
+    position: relative;
+    z-index: 1;
     flex: 1;
     padding: 6px 4px;
     background: transparent;
@@ -441,9 +456,9 @@
     color: var(--text-2);
     font-size: 12px;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: color var(--dur-fast);
   }
   .seg-opt:first-child { border-left: none; }
-  .seg-opt:hover { background: var(--surface-2); }
-  .seg-active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+  .seg-opt:hover { color: var(--text-1); }
+  .seg-active { color: var(--accent); font-weight: 600; }
 </style>
