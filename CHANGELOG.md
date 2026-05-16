@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.24] — 2026-05-16
+
+### Fixes
+
+- **Health Connect data now populates the web Wellness page tiles, sparklines, sleep insights, and the readiness card.** Final piece of the Health Connect pipeline (after rc.22 and rc.23). The web's data endpoint now returns Health Connect rows alongside Fitbit rows, and the sparkline / sleep insight / readiness fetches now fire for Health Connect users (not just Fitbit users), so the synced metrics fully populate the Wellness page.
+
+---
+
 ## [1.0.0-rc.23] — 2026-05-16
 
 ### Fixes

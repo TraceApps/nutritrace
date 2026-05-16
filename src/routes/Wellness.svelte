@@ -590,7 +590,9 @@
     if (isNative) {
       try { fitbitRows = await _getWellnessRange(null, fromStr, toStr); } catch {}
     } else {
-      try { if ($fitbitEnabled)  fitbitRows  = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
+      // /api/wellness/fitbit/data also returns Health Connect rows (see rc.24),
+      // so fire the fetch whenever Fitbit OR Health Connect is enabled.
+      try { if ($fitbitEnabled || $healthConnectEnabled) fitbitRows = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
       try { if ($garminEnabled)  garminRows  = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
     }
 
@@ -745,7 +747,8 @@
     while (cur <= today) { dates.push(cur.toLocaleDateString('sv-SE')); cur.setDate(cur.getDate() + 1); }
 
     let fitbitRows = {}, garminRows = {};
-    try { if ($fitbitEnabled) fitbitRows = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
+    // /api/wellness/fitbit/data also returns Health Connect rows (see rc.24).
+    try { if ($fitbitEnabled || $healthConnectEnabled) fitbitRows = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
     try { if ($garminEnabled) garminRows = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
 
     // History = all days EXCEPT today (today's values come from displayData)
@@ -858,7 +861,8 @@
     if (isNative) {
       try { fitbitRange = await _getWellnessRange(null, fromStr, toStr); } catch {}
     } else {
-      try { if ($fitbitEnabled)  fitbitRange  = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
+      // /api/wellness/fitbit/data also returns Health Connect rows (see rc.24).
+      try { if ($fitbitEnabled || $healthConnectEnabled) fitbitRange = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
       try { if ($garminEnabled)  garminRange  = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
     }
 
@@ -1290,7 +1294,7 @@
         if (v != null) merged[k] = v;
       }
     }
-    if ($fitbitEnabled || (isNative && Object.keys(data).length)) {
+    if ($fitbitEnabled || $healthConnectEnabled || (isNative && Object.keys(data).length)) {
       for (const [k, v] of Object.entries(data)) {
         if (v != null) {
           // Garmin sleep_score is device-measured; don't let Fitbit's estimate overwrite it

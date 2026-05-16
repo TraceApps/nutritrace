@@ -658,19 +658,31 @@ router.post('/seed-scores', wrap(async (req, res) => {
 }));
 
 // ── GET /data — return stored wellness data ───────────────────────────────────
+// Returns both Fitbit (server-side OAuth) and Health Connect (pushed up from
+// the Android app, see #23 / rc.22-23) rows. HC is treated as an Android-side
+// data source for the same metric tiles; merging here keeps the web Wellness
+// page source-agnostic without needing a separate endpoint.
+//
+// Order matters: HC rows are emitted LAST so they OVERWRITE any same-metric
+// Fitbit row in the per-date map. Rationale: if the user has both enabled,
+// they explicitly chose HC on their device, so HC is the more authoritative
+// source for that day.
 router.get('/data', wrap((req, res) => {
   const u = uid(req);
   const { date, from, to } = req.query;
 
+  const orderHcLast = `ORDER BY CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`;
   let rows;
   if (date) {
-    rows = db.prepare('SELECT * FROM wellness_data WHERE user_id=? AND date=? AND source=?')
-              .all(u, date, 'fitbit');
+    rows = db.prepare(
+      `SELECT * FROM wellness_data WHERE user_id=? AND date=? AND source IN ('fitbit', 'health_connect') ${orderHcLast}`
+    ).all(u, date);
   } else {
     const start = from || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const end   = to   || new Date().toISOString().slice(0, 10);
-    rows = db.prepare('SELECT * FROM wellness_data WHERE user_id=? AND date>=? AND date<=? AND source=? ORDER BY date')
-              .all(u, start, end, 'fitbit');
+    rows = db.prepare(
+      `SELECT * FROM wellness_data WHERE user_id=? AND date>=? AND date<=? AND source IN ('fitbit', 'health_connect') ORDER BY date, CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`
+    ).all(u, start, end);
   }
 
   // Group by date → { [date]: { [metric_type]: value } }
