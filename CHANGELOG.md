@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.23] — 2026-05-16
+
+### Fixes
+
+- **Health Connect data now renders on the web Wellness page.** Companion fix to rc.22. The server stores Health Connect entries synced from Android, and the web app now recognizes Health Connect as an active integration so the data shows up in the Activity / Sleep / Heart / Body tabs (managed from your Android app's Settings → Wellness).
+
+---
+
 ## [1.0.0-rc.22] — 2026-05-16
 
 ### Fixes

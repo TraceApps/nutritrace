@@ -893,7 +893,12 @@
   $: fitbitAvailable   = $fitbitEnabled;
   $: withingsAvailable = $withingsEnabled;
   $: garminAvailable   = $garminEnabled;
-  $: healthConnectAvailable = isNative && $healthConnectEnabled;
+  // Health Connect is Android-only as a SOURCE, but its synced data lives on
+  // the server now (rc.22+), so the web Wellness page must also recognize it
+  // as an available integration to render the data. The setting itself is
+  // managed from the Android app (Settings → Wellness card is gated by
+  // isNative); the web just reflects whatever the user enabled there.
+  $: healthConnectAvailable = $healthConnectEnabled;
   $: anyAvailable      = fitbitAvailable || withingsAvailable || garminAvailable || healthConnectAvailable;
 
   // Sliding pill: ordered list of visible tabs + active index
