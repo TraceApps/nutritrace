@@ -86,10 +86,11 @@ async function pushChanges() {
   const pendingSettings = await dbGetPendingSettings();
   const activity = pending.activity || [];
   const fasts    = pending.fasts || [];
-  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || fasts.length || pendingSettings.length;
+  const wellness = pending.wellness || [];
+  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || fasts.length || wellness.length || pendingSettings.length;
   if (!hasPending) return false;
 
-  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${fasts.length} fasts, ${pendingSettings.length} settings`);
+  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${fasts.length} fasts, ${wellness.length} wellness, ${pendingSettings.length} settings`);
 
   // Build push payload with client_id and server_id
   const payload = {
@@ -152,6 +153,16 @@ async function pushChanges() {
       updated_at: f.updated_at,
       deleted_at: f.deleted_at || null,
     })),
+    // Wellness rows from Health Connect (and any future native-only source).
+    // Keyed by (date, source, metric_type) on the server, so no client_id
+    // round-trip is needed — server just upserts on conflict.
+    wellness: wellness.map(w => ({
+      date: w.date,
+      source: w.source,
+      metric_type: w.metric_type,
+      value: w.value,
+      metadata: typeof w.metadata === 'string' ? w.metadata : JSON.stringify(w.metadata || {}),
+    })),
     settings: pendingSettings.map(s => ({
       key: s.key,
       value: _parseJson(s.value),
@@ -209,6 +220,7 @@ async function pushChanges() {
   await dbMarkSynced('diary', pending.diary.map(d => d.id));
   await dbMarkSynced('activity_log', activity.map(a => a.id));
   await dbMarkSynced('fasts', fasts.map(f => f.id));
+  await dbMarkSynced('wellness_data', wellness.map(w => w.id));
   if (pendingSettings.length) await dbMarkSettingsSynced(pendingSettings.map(s => s.key));
 
   // Purge soft-deleted records that have been confirmed pushed

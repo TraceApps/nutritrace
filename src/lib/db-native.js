@@ -90,6 +90,7 @@ const SCHEMA = `
     value       REAL,
     metadata    TEXT DEFAULT '{}',
     synced_at   TEXT DEFAULT (datetime('now')),
+    sync_status TEXT DEFAULT 'pending',
     UNIQUE(user_id, date, source, metric_type)
   );
 
@@ -243,6 +244,21 @@ async function _applySchema(db) {
     } catch (e) {
       console.debug(`[db-native] ${tbl} favorites/usage migration skipped:`, e?.message);
     }
+  }
+
+  // wellness_data.sync_status: tracks which Health Connect rows need to be
+  // pushed up to the server. Pre-existing rows default to 'pending' so the
+  // first sync after this migration backfills any Health Connect data the
+  // user already had locally up to the server.
+  try {
+    const info = await db.query(`PRAGMA table_info(wellness_data)`);
+    const cols = (info?.values || []).map(r => r.name);
+    if (!cols.includes('sync_status')) {
+      await db.execute(`ALTER TABLE wellness_data ADD COLUMN sync_status TEXT DEFAULT 'pending'`);
+      await db.run(`UPDATE wellness_data SET sync_status = 'pending' WHERE sync_status IS NULL`);
+    }
+  } catch (e) {
+    console.debug('[db-native] wellness_data.sync_status migration skipped:', e?.message);
   }
 
   // One-shot heal: clear `sync_status='pending'` on any row that was
@@ -754,12 +770,17 @@ export async function dbUpsertWellness(date, source, metric_type, value, metadat
 
 export async function dbGetPendingChanges() {
   const db = await getDb();
-  const [foods, meals, diary, activity, fasts] = await Promise.all([
+  const [foods, meals, diary, activity, fasts, wellness] = await Promise.all([
     db.query(`SELECT * FROM foods WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM meals WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM diary WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM activity_log WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM fasts WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
+    // Health Connect (and any other native-only wellness source) needs to be
+    // pushed up to the server so the web app + other clients can render it.
+    // Server-sourced rows (Fitbit/Garmin/Withings) come back from pull with
+    // sync_status='synced' and are excluded here.
+    db.query(`SELECT * FROM wellness_data WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
   ]);
   return {
     foods: _rows(foods).map(_parseFoodRow),
@@ -773,6 +794,10 @@ export async function dbGetPendingChanges() {
     })),
     activity: _rows(activity),
     fasts: _rows(fasts),
+    wellness: _rows(wellness).map(row => ({
+      ...row,
+      metadata: _parseJson(row.metadata, {}),
+    })),
   };
 }
 
@@ -911,11 +936,14 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
 // Upsert wellness data from server pull
 export async function dbUpsertWellnessFromServer(record) {
   const db = await getDb();
+  // sync_status='synced' on server-sourced rows is critical: without it the
+  // pull writes a 'pending' row that gets pushed back to the server on the
+  // next cycle, causing an infinite push-pull loop.
   await db.run(
-    `INSERT INTO wellness_data (user_id, date, source, metric_type, value, metadata, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO wellness_data (user_id, date, source, metric_type, value, metadata, synced_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'synced')
      ON CONFLICT(user_id, date, source, metric_type) DO UPDATE SET
-       value=excluded.value, metadata=excluded.metadata, synced_at=excluded.synced_at`,
+       value=excluded.value, metadata=excluded.metadata, synced_at=excluded.synced_at, sync_status='synced'`,
     [LOCAL_USER_ID, record.date, record.source, record.metric_type, record.value,
      typeof record.metadata === 'string' ? record.metadata : JSON.stringify(record.metadata || {}),
      record.synced_at]

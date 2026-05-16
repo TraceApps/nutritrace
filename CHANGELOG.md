@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.22] — 2026-05-16
+
+### Fixes
+
+- **Health Connect data now flows to the web app.** Health Connect entries synced from the Android app push up to the server during differential sync, so the same data renders in the web Wellness page and on any other connected device. Existing Health Connect history on a device backfills automatically on the first sync after this update.
+
+---
+
 ## [1.0.0-rc.21] — 2026-05-15
 
 ### New Features

@@ -122,8 +122,8 @@ router.get('/pull', wrap((req, res) => {
 // Returns a mapping of client_id → server_id for newly created records.
 router.post('/push', wrap((req, res) => {
   const u = uid(req);
-  const { foods = [], meals = [], diary = [], activity = [], fasts = [], settings = [] } = req.body;
-  const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], settings: [] };
+  const { foods = [], meals = [], diary = [], activity = [], fasts = [], wellness = [], settings = [] } = req.body;
+  const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [] };
 
   // Normalize timestamp for comparison (strip T, Z, milliseconds)
   const norm = ts => ts ? ts.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '') : '';
@@ -284,6 +284,27 @@ router.post('/push', wrap((req, res) => {
       }
     }
 
+    // ── Wellness (Health Connect, etc — keyed by date+source+metric_type) ─
+    // Native-only wellness sources (Health Connect on Android) need to flow
+    // up to the server so the web app + other devices can render them.
+    // Server-side OAuth sources (Fitbit/Garmin/Withings/Google Health) write
+    // their own rows; an incoming row with source='fitbit' from a client is
+    // accepted but would just get overwritten by the next server sync, so
+    // it's harmless. Keyed by (user_id, date, source, metric_type).
+    const wellnessUid = u ?? 0;
+    for (const w of wellness) {
+      if (!w.date || !w.source || !w.metric_type) continue;
+      db.prepare(
+        `INSERT INTO wellness_data (user_id, date, source, metric_type, value, metadata, synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(user_id, date, source, metric_type) DO UPDATE SET
+           value = excluded.value, metadata = excluded.metadata, synced_at = datetime('now')`
+      ).run(wellnessUid, w.date, w.source, w.metric_type,
+        w.value == null ? null : Number(w.value),
+        typeof w.metadata === 'string' ? w.metadata : JSON.stringify(w.metadata || {}));
+      result.wellness.push({ date: w.date, source: w.source, metric_type: w.metric_type });
+    }
+
     // ── Settings (keyed by key, not ID) ──────────────────────────────────
     // SECURITY: server-only keys are rejected — clients can't overwrite admin config.
     if (u != null) {
@@ -305,7 +326,7 @@ router.post('/push', wrap((req, res) => {
 
   run();
 
-  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} settings=${settings.length}`);
+  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} wellness=${wellness.length} settings=${settings.length}`);
   res.json({ ok: true, ...result });
 }));
 
