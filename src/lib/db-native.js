@@ -757,11 +757,17 @@ export async function dbGetWellness(startDate, endDate, source = null) {
 
 export async function dbUpsertWellness(date, source, metric_type, value, metadata = {}) {
   const db = await getDb();
+  // CRITICAL: ON CONFLICT must reset sync_status to 'pending' so updated
+  // values get re-pushed to the server. Without this, a re-read from Health
+  // Connect (e.g. steps went 500 -> 1382 later in the day) would update the
+  // local value but leave sync_status='synced' from the prior push, so
+  // dbGetPendingChanges would skip the row and the server stays stale.
   await db.run(
     `INSERT INTO wellness_data (user_id, date, source, metric_type, value, metadata)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, date, source, metric_type) DO UPDATE SET
-       value=excluded.value, metadata=excluded.metadata, synced_at=datetime('now')`,
+       value=excluded.value, metadata=excluded.metadata,
+       synced_at=datetime('now'), sync_status='pending'`,
     [LOCAL_USER_ID, date, source, metric_type, value, JSON.stringify(metadata)]
   );
 }

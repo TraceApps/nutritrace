@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.25] — 2026-05-16
+
+### Fixes
+
+- **Health Connect updates throughout the day now reach the server.** When Health Connect re-read a metric (e.g. step count went from 500 to 1,382 as the day progressed), the local row updated but stayed marked as already-synced, so the next push to the server skipped it. The server kept the early value and the web showed a stale snapshot. Now any value change re-queues the row for push.
+
+---
+
 ## [1.0.0-rc.24] — 2026-05-16
 
 ### Fixes
