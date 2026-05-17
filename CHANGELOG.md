@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.26] — 2026-05-17
+
+### Fixes
+
+- **Wellness page now populates on first load for Health Connect users.** Previously the data only appeared after navigating to a different day and back. Health Connect now counts as a connected source when deciding whether to fetch on page load.
+- **Mealie connection Test button.** The Test button was always reporting "Failed" because the request was missing the CSRF token. The actual Mealie integration was unaffected (recipe search from Foods worked correctly), but the misleading Failed indicator made it look like the integration was broken. Test now matches the runtime path.
+- Foods page no longer logs a "Function called outside component initialization" error to the console on load.
+
+---
+
 ## [1.0.0-rc.25] — 2026-05-16
 
 ### Fixes

@@ -545,10 +545,21 @@
     if (!mealieBaseUrl || !mealieApiToken) { mealieTestStatus = 'fail'; return; }
     mealieTestStatus = 'testing';
     try {
+      // POST goes through the server's CSRF middleware; raw fetch needs the
+      // X-CSRF-Token header (PWA cookie auth) or Authorization bearer (native
+      // server mode). Issue #24: this was missing and every Test click 403'd.
+      const headers = { 'Content-Type': 'application/json' };
+      if (isNative && getServerUrl()) {
+        const token = getAuthToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+      } else if (!isNative) {
+        const csrf = localStorage.getItem('nt:csrf');
+        if (csrf) headers['X-CSRF-Token'] = csrf;
+      }
       const res = await fetch(apiUrl('/api/mealie/proxy'), {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           baseUrl: mealieBaseUrl,
           token:   mealieApiToken,

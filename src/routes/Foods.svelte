@@ -659,6 +659,15 @@
     history.back();
   }
 
+  // Register onDestroy SYNCHRONOUSLY at component setup; the listener itself
+  // gets attached after onMount's async work completes. Calling onDestroy()
+  // inside an async onMount (after any await) throws "Function called
+  // outside component initialization" in Svelte 4.
+  let _onVis = null;
+  onDestroy(() => {
+    if (_onVis) document.removeEventListener('visibilitychange', _onVis);
+  });
+
   onMount(async () => {
     // Restore tab before load so the right list is fetched
     if (editorState.foodsActiveTab != null) {
@@ -672,9 +681,8 @@
     refreshSharingStatus();
     // Refresh whenever the page becomes visible again (covers "someone shared
     // with me while the app was backgrounded") and on tab switch within Foods.
-    const _onVis = () => { if (document.visibilityState === 'visible') refreshSharingStatus(); };
+    _onVis = () => { if (document.visibilityState === 'visible') refreshSharingStatus(); };
     document.addEventListener('visibilitychange', _onVis);
-    onDestroy(() => document.removeEventListener('visibilitychange', _onVis));
     // Restore scroll position after Svelte has flushed the list to the DOM
     if (editorState.foodsScrollY != null) {
       const sy = editorState.foodsScrollY;

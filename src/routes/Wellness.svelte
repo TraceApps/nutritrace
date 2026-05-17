@@ -1027,7 +1027,13 @@
     await initWithings();
     await initGarmin();
 
-    if (status.connected || garminStatus?.connected) {
+    // Initial load fires when any wellness source has data on the server:
+    // Fitbit OAuth, Garmin OAuth, or Health Connect (whose data is pushed
+    // up by the Android app via the differential sync engine — see #23).
+    // Without Health Connect in the gate, an HC-only user landed on a blank
+    // Wellness tab and had to flip to Yesterday and back to trigger
+    // loadData via the prevDay/nextDay path.
+    if (status.connected || garminStatus?.connected || $healthConnectEnabled) {
       await loadData(); // loadData already calls loadWorkouts()
       if (isToday) {
         const key = `wl_wellness_lastSync_${dateStr}`;
