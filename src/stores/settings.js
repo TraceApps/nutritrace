@@ -47,7 +47,7 @@ export const USER_PREFS = new Set([
   // the server's full_name / nickname / avatar_url). In USER_PREFS so they're
   // captured by the local full-backup ZIP. In server mode they're unused.
   'localUserName','localUserNickname','localUserAvatar',
-  'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','quickLogEnabled','aiGoalInsights',
+  'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','aiKeyVerified','quickLogEnabled','aiGoalInsights',
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'wellnessEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
@@ -637,6 +637,13 @@ export const aiModel         = createSettingStore('aiModel',         '');
 // /v1/chat/completions-compatible endpoint without rebuilding the app.
 export const aiBaseUrl       = createSettingStore('aiBaseUrl',       '');
 export const aiAssistantName = createSettingStore('aiAssistantName', 'Trace');
+// Whether the AI key + provider combo has been successfully test-called.
+// Set true by SettingsTrace's save-and-test flow. Read by the Trace FAB
+// (in src/components/ai/Trace.svelte) to decide whether to render — a
+// half-configured AI shouldn't put a non-working chat button on every
+// page. Cleared automatically when any auth field (provider, model,
+// key, baseUrl) changes, so the user has to re-verify.
+export const aiKeyVerified   = createSettingStore('aiKeyVerified',   false);
 
 // One-time migration: existing installs that never customized the assistant
 // name end up with 'FitBot' (the old default). Bump those to 'Trace' so the

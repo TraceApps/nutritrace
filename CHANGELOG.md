@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.27] — 2026-05-18
+
+### Fixes
+
+- **MyFitnessPal import now handles the current export from Reports → Export.** The export at myfitnesspal.com/reports/export is aggregated per meal per day (no Food column), and the importer was rejecting it as unrecognized. Importing now creates one diary entry per meal per day with brand "MyFitnessPal" and the meal's macro + mineral totals preserved. Individual foods can't be reconstructed because they aren't in the export. The older per-food Premium ZIP shape is still supported when present.
+- **MyFitnessPal import error now shows the actual columns it saw.** Any future MFP-import failure includes the header row in the error message so it's possible to tell at a glance whether MyFitnessPal has changed the export format again.
+
+---
+
 ## [1.0.0-rc.26] — 2026-05-17
 
 ### Fixes

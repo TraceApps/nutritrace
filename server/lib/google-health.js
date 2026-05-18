@@ -888,7 +888,20 @@ export async function syncDateGoogleHealth(db, userId, dateStr, clientId, client
     const spo2 = metrics.spo2_avg;
     const hrv  = metrics.hrv_daily_rmssd;
     const eff  = metrics.sleep_efficiency ?? null;
-    const durPts = Math.min(30, dur / 440 * 30);
+    // Duration scoring is piecewise. Above 6h (360m) the original linear
+    // dur/440*30 holds and matches Fitbit's actual within ±1. Below 6h
+    // Fitbit penalizes total sleep more aggressively than linear implies,
+    // so the model needs a steeper ramp in that regime to match. Four
+    // ground-truth nights with dur<360m and deep over the 65m cap
+    // (May 7, 12, 14, 17) all overshot actual by +3 to +7 in the dataset.
+    // The piecewise ramps from 24.5 pts at 360m down to 6 pts at 240m
+    // (~4h), bottoming at 0 below ~200m. After this change those four
+    // nights drop ~1 to ~4 points in calc, eliminating most of the
+    // overshoot. Longer nights are unaffected.
+    let durPts;
+    if (dur >= 440)      durPts = 30;
+    else if (dur >= 360) durPts = (dur / 440) * 30;
+    else                 durPts = Math.max(0, 6 + ((dur - 240) / 120) * 18.5);
     const deepRemPct = (deep + rem) / dur;
     const qualPts  = Math.min(40, deepRemPct / 0.25 * 40);
     const qualBonus = Math.min(6, Math.max(0, (deepRemPct - 0.35) / 0.15 * 6));

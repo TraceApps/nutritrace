@@ -1,26 +1,37 @@
 /**
- * MyFitnessPal "Meal Level Nutrition Details" CSV adapter.
+ * MyFitnessPal CSV adapter — two supported export shapes.
  *
- * MFP delivers a ZIP via email (Premium-only as of 2026) containing several
- * CSVs: Exercise.csv, Measurements.csv, and the meal nutrition file
- * (commonly named "Nutritional Information.csv" or "Meal Level Nutrition
- * Details.csv" — name varies by export year). The route layer unzips and
- * picks the correct file before calling this adapter.
+ * MFP's Reports → Export flow (free + Premium, accessible at
+ * https://www.myfitnesspal.com/reports/export) emails the user a file
+ * after they pick a date range and click Export. The current export
+ * shape is the "Nutrition-Summary" CSV, where rows are aggregated PER
+ * MEAL PER DAY — no individual food breakdown — with these headers:
  *
- * Header (Premium, full):
- *   Date, Meal, Food, Note, Calories, Fat (g), Saturated Fat (g),
- *   Polyunsaturated Fat (g), Monounsaturated Fat (g), Trans Fat (g),
- *   Cholesterol (mg), Sodium (mg), Potassium (mg), Carbs (g), Fiber (g),
- *   Sugar (g), Protein (g), Vitamin A, Vitamin C, Calcium, Iron
+ *   Date, Meal, Calories, Fat (g), Saturated Fat, Polyunsaturated Fat,
+ *   Monounsaturated Fat, Trans Fat, Cholesterol, Sodium (mg), Potassium,
+ *   Carbohydrates (g), Fiber, Sugar, Protein (g), Vitamin A, Vitamin C,
+ *   Calcium, Iron, Note
  *
- * Quirks handled:
- *   - `Food` smashes brand+name with a literal comma inside quotes
- *     ("Trader Joe's, Greek Yogurt"). Brand is split off before the first
- *     comma when the name has the canonical "Brand, Name" shape.
- *   - Date format follows account locale — auto-detected.
- *   - `Meal` can be user-renamed on Premium ("Snacks" → "Pre-workout") so
- *     we keep the raw label and let the route's mealNames mapper handle it.
- *   - Header column presence varies by Premium tier — header-keyed parsing.
+ * Note that the Summary export DROPS the unit suffix on most fields —
+ * "Saturated Fat" instead of "Saturated Fat (g)" — so field lookups
+ * tolerate both shapes.
+ *
+ * Older MFP exports (Premium "Meal Level Nutrition Details", year-
+ * dependent, may still surface in some Privacy Center ZIPs) included a
+ * Food column with per-food rows. The legacy parser kept around for
+ * users who have those files. Detection is by presence of the Food
+ * column on the header.
+ *
+ * What gets imported:
+ *   - Summary path: one synthesized entry per meal-day, name =
+ *     "<Meal> (MFP summary)", brand = "MyFitnessPal", aggregated
+ *     macros + minerals preserved. Vitamins A/C/Calcium/Iron come as
+ *     %DV and are skipped (not gram-equivalent).
+ *   - Meal-level path: per-food rows with name + optional brand parsed
+ *     from the "Brand, Name" convention, same nutrient set.
+ *
+ * Both paths emit the same { date, mealLabel, name, brand, nutrition,
+ * notes, sourceRow } shape so the route layer treats them uniformly.
  */
 import { parseCsv, getField, parseDate, detectDateLocale, parseNumber } from './common.js';
 
@@ -28,15 +39,25 @@ export function parseMfp(text) {
   const { header, rows } = parseCsv(text);
   if (!header.length) throw new Error('Empty file');
 
-  const hasCore =
-    header.includes('date') &&
-    header.includes('meal') &&
-    (header.includes('food') || header.includes('food name')) &&
-    header.includes('calories');
-  if (!hasCore) {
-    throw new Error('Does not look like a MyFitnessPal meal-nutrition export — expected Date + Meal + Food + Calories columns');
-  }
+  const hasDate     = header.includes('date');
+  const hasMeal     = header.includes('meal');
+  const hasFood     = header.includes('food') || header.includes('food name');
+  const hasCalories = header.includes('calories');
 
+  // Two MFP export shapes are supported:
+  //   - "Meal Level Nutrition Details" (Premium ZIP, per-food rows; has a
+  //     Food column we use for name + brand)
+  //   - "Nutrition-Summary" (Reports → Export, per-meal aggregated rows; no
+  //     Food column, just Date+Meal+totals)
+  // Detect which we're looking at and dispatch.
+  if (!hasDate || !hasMeal || !hasCalories) {
+    throw new Error(`Does not look like a MyFitnessPal export — expected Date + Meal + Calories columns, got: [${header.join(', ')}]`);
+  }
+  if (hasFood) return _parseMealLevel(rows);
+  return _parseSummary(rows);
+}
+
+function _parseMealLevel(rows) {
   const dateLocale = detectDateLocale(rows.map(r => getField(r, 'date')));
   const out = [];
 
@@ -73,6 +94,55 @@ export function parseMfp(text) {
       name,
       brand,
       quantity: 1, // MFP doesn't separate quantity; servings are baked into the row
+      portion: null,
+      nutrition,
+      notes: getField(row, 'note', 'notes') || null,
+      sourceRow: row._rowNum,
+    });
+  }
+  return out;
+}
+
+/**
+ * Nutrition-Summary export (from MFP Reports → Export). Rows are aggregated
+ * per meal per day — no individual food breakdown — so we synthesize a
+ * single entry per row labeled with the meal name, preserving the totals.
+ * Column headers in this format drop the unit suffix on most fields
+ * (e.g. "Saturated Fat" not "Saturated Fat (g)"), so the field lookups
+ * tolerate both shapes.
+ */
+function _parseSummary(rows) {
+  const dateLocale = detectDateLocale(rows.map(r => getField(r, 'date')));
+  const out = [];
+
+  for (const row of rows) {
+    const dateStr = parseDate(getField(row, 'date'), dateLocale);
+    if (!dateStr) continue;
+    const calories = parseNumber(getField(row, 'calories'));
+    if (calories == null) continue;
+    const mealLabel = getField(row, 'meal') || '';
+
+    const nutrition = { calories };
+    _n(nutrition, 'fat',                  row, 'fat (g)', 'fat');
+    _n(nutrition, 'saturated-fat',        row, 'saturated fat (g)', 'saturated fat');
+    _n(nutrition, 'polyunsaturated-fat',  row, 'polyunsaturated fat (g)', 'polyunsaturated fat');
+    _n(nutrition, 'monounsaturated-fat',  row, 'monounsaturated fat (g)', 'monounsaturated fat');
+    _n(nutrition, 'trans-fat',            row, 'trans fat (g)', 'trans fat');
+    _n(nutrition, 'cholesterol',          row, 'cholesterol (mg)', 'cholesterol');
+    _n(nutrition, 'sodium',               row, 'sodium (mg)', 'sodium');
+    _n(nutrition, 'potassium',            row, 'potassium (mg)', 'potassium');
+    _n(nutrition, 'carbohydrates',        row, 'carbs (g)', 'carbohydrates (g)', 'carbohydrates');
+    _n(nutrition, 'fiber',                row, 'fiber (g)', 'fiber');
+    _n(nutrition, 'sugars',               row, 'sugar (g)', 'sugars (g)', 'sugar', 'sugars');
+    _n(nutrition, 'proteins',             row, 'protein (g)', 'protein');
+
+    out.push({
+      date: dateStr,
+      time: null,
+      mealLabel,
+      name: mealLabel ? `${mealLabel} (MFP summary)` : 'MFP summary',
+      brand: 'MyFitnessPal',
+      quantity: 1,
       portion: null,
       nutrition,
       notes: getField(row, 'note', 'notes') || null,

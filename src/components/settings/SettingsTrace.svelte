@@ -1,14 +1,17 @@
 <script>
   import { slide } from 'svelte/transition';
   import Toggle from './Toggle.svelte';
+  import ConnectionStatus from './ConnectionStatus.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
-    aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName, quickLogEnabled, aiGoalInsights,
+    aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName,
+    aiKeyVerified, quickLogEnabled, aiGoalInsights,
     activityAutoEstimate, diaryShowActivity,
   } from '../../stores/settings.js';
-  import { AI_PROVIDERS, AI_MODELS, AI_DEFAULT_MODELS } from '../../lib/aiChat.js';
+  import { AI_PROVIDERS, AI_MODELS, AI_DEFAULT_MODELS, callAI, callAIProxy } from '../../lib/aiChat.js';
   import { DB } from '../../lib/db.js';
   import { scheduleSave } from '../../stores/settings.js';
+  import { isNative, getServerUrl } from '../../lib/platform.js';
 
   export let envLocks = { ai: false };
 
@@ -23,8 +26,23 @@
   let aiAssistantNameVal = DB.getSetting('aiAssistantName', 'Trace');
   let quickLogEnabledVal = DB.getSetting('quickLogEnabled', false);
   let aiShowKey          = false;
-  let aiKeySaved         = false;
-  let aiBaseUrlSaved     = false;
+  let testing            = false;
+  let testError          = '';
+  // "Effectively connected" — green banner when the user has all the
+  // required pieces in place, even if they haven't gone through Save
+  // (covers users upgrading from a release before the verified flag
+  // existed, whose AI was working fine and shouldn't suddenly look
+  // disconnected). An explicit $aiKeyVerified=true overrides too.
+  // The most recent test error trumps either path.
+  $: _hasAll = aiEnabledVal
+    && !!aiModelVal?.trim()
+    && (envLocks.ai || !!aiApiKeyVal?.trim())
+    && (aiProviderVal !== 'oai-compat' || !!aiBaseUrlVal?.trim());
+  $: testStatus = testing
+    ? 'testing'
+    : testError
+      ? 'fail'
+      : ($aiKeyVerified || _hasAll ? 'ok' : '');
 
   // Reset model to provider default when switching to a built-in provider.
   // 'oai-compat' has no model dropdown (free-text input), so skip the reset.
@@ -34,22 +52,81 @@
 
   // Reactive saves
   $: { aiEnabled.set(aiEnabledVal); }
-  $: { aiProvider.set(aiProviderVal); }
-  $: set('aiModel',         aiModelVal);
+  $: { aiProvider.set(aiProviderVal); _invalidate(); }
+  $: { set('aiModel', aiModelVal); _invalidate(); }
   $: set('aiAssistantName', aiAssistantNameVal);
   $: { quickLogEnabled.set(quickLogEnabledVal); }
 
-  function saveAiKey() {
-    set('aiApiKey', aiApiKeyVal);
-    aiKeySaved = true;
-    setTimeout(() => aiKeySaved = false, 2000);
+  // Any change to provider/model/key/baseUrl clears the prior verification —
+  // the user must re-save (which re-tests) before the FAB unlocks again.
+  function _invalidate() {
+    if ($aiKeyVerified) aiKeyVerified.set(false);
+    testError = '';
   }
 
-  function saveAiBaseUrl() {
-    set('aiBaseUrl', aiBaseUrlVal.trim());
-    aiBaseUrlSaved = true;
-    setTimeout(() => aiBaseUrlSaved = false, 2000);
+  // The Save button on the API key (and Base URL for oai-compat) runs the
+  // connection test as part of saving. On success the user gets a green
+  // banner + the Trace FAB unlocks; on failure they get the error inline
+  // and aiKeyVerified stays off.
+  async function saveAiKey() {
+    set('aiApiKey', aiApiKeyVal);
+    await testConnection();
   }
+
+  async function saveAiBaseUrl() {
+    set('aiBaseUrl', aiBaseUrlVal.trim());
+    await testConnection();
+  }
+
+  // Required fields the user must fill in for a meaningful test.
+  $: canTest = !envLocks.ai
+    && !!aiApiKeyVal?.trim() || envLocks.ai
+    && !!aiModelVal?.trim()
+    && (aiProviderVal !== 'oai-compat' || !!aiBaseUrlVal?.trim());
+
+  async function testConnection() {
+    if (!canTest && !envLocks.ai) {
+      testError = 'Fill in provider, API key, and model first';
+      return;
+    }
+    testing   = true;
+    testError = '';
+    try {
+      const messages     = [{ role: 'user', content: 'Say "hi" in one word.' }];
+      const systemPrompt = 'You are a test bot. Reply with exactly one short word.';
+      let text;
+      if (envLocks.ai) {
+        text = await callAIProxy({ messages, systemPrompt });
+      } else {
+        text = await callAI({
+          provider: aiProviderVal,
+          apiKey:   aiApiKeyVal,
+          model:    aiModelVal,
+          baseUrl:  aiBaseUrlVal,
+          messages,
+          systemPrompt,
+        });
+      }
+      if (!text || typeof text !== 'string') throw new Error('Empty response from AI');
+      aiKeyVerified.set(true);
+      showSuccess('Trace AI connected — assistant is ready');
+    } catch (e) {
+      testError = e.message || 'Test failed';
+      aiKeyVerified.set(false);
+      showError(testError);
+    } finally {
+      testing = false;
+    }
+  }
+
+  // Provider label for the connection badge.
+  $: _providerLabel = envLocks.ai
+    ? 'Environment-locked'
+    : (AI_PROVIDERS.find(p => p.value === aiProviderVal)?.label || aiProviderVal || '');
+
+  // (No shim needed — the reactive `_hasAll` derivation above gives
+  // legacy users an immediate green banner whenever the required
+  // fields are populated, without writing to aiKeyVerified.)
 </script>
 
 <div class="section-body" transition:slide={{ duration: 180 }}>
@@ -60,6 +137,15 @@
     </div>
   {/if}
   <div class="card settings-card">
+    {#if aiEnabledVal}
+      <ConnectionStatus
+        status={testStatus}
+        connectedAs={_providerLabel}
+        error={testError}
+        onRetest={() => testConnection()}
+        retestDisabled={testing}
+      />
+    {/if}
     <div class="setting-row">
       <div>
         <span class="setting-label">Enable AI Assistant</span>
@@ -71,22 +157,12 @@
     {#if aiEnabledVal}
       <div class="setting-divider"></div>
       <div class="setting-row">
-        <span class="setting-label">Assistant Name</span>
-        <input class="input" style="width:130px;text-align:right"
-          placeholder="Trace"
-          bind:value={aiAssistantNameVal} />
-      </div>
-
-      <div class="setting-divider"></div>
-      <div class="setting-row">
         <span class="setting-label">Provider</span>
-        <div class="select-wrap" style="width:170px">
-          <select class="select sel-sm" bind:value={aiProviderVal} disabled={envLocks.ai}>
-            {#each AI_PROVIDERS as p}
-              <option value={p.value}>{p.label}</option>
-            {/each}
-          </select>
-        </div>
+        <select class="select sel-sm" style="width:auto" bind:value={aiProviderVal} disabled={envLocks.ai}>
+          {#each AI_PROVIDERS as p}
+            <option value={p.value}>{p.label}</option>
+          {/each}
+        </select>
       </div>
 
       <div class="setting-divider"></div>
@@ -98,8 +174,8 @@
             <input id="ai-base-url" class="input" type="url"
               placeholder="http://localhost:11434  or  https://api.deepseek.com"
               bind:value={aiBaseUrlVal} autocomplete="off" style="flex:1" />
-            <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveAiBaseUrl}>
-              {#if aiBaseUrlSaved}<span class="material-symbols-rounded" style="font-size:16px">check</span>{:else}Save{/if}
+            <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveAiBaseUrl} disabled={testing}>
+              {testing ? 'Testing…' : 'Save'}
             </button>
           </div>
           <div class="setting-desc" style="margin-top:6px">
@@ -123,15 +199,63 @@
       {:else}
         <div class="setting-row">
           <span class="setting-label">Model</span>
-          <div class="select-wrap" style="width:200px">
-            <select class="select sel-sm" bind:value={aiModelVal} disabled={envLocks.ai}>
-              {#each (AI_MODELS[aiProviderVal] || []) as m}
-                <option value={m.value}>{m.label}</option>
-              {/each}
-            </select>
+          <select class="select sel-sm" style="width:auto" bind:value={aiModelVal} disabled={envLocks.ai}>
+            {#each (AI_MODELS[aiProviderVal] || []) as m}
+              <option value={m.value}>{m.label}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
+
+      {#if !envLocks.ai}
+        <div class="setting-divider"></div>
+        <div class="form-group" style="padding:10px 16px">
+          <label class="form-label" for="ai-api-key">
+            API Key{aiProviderVal === 'oai-compat' ? ' (optional)' : ''}
+          </label>
+          <div style="display:flex;gap:8px;align-items:center">
+            {#if aiShowKey}
+              <input id="ai-api-key" class="input" type="text"
+                placeholder={aiProviderVal === 'oai-compat' ? 'Leave blank for local endpoints (Ollama, etc.)' : 'Paste your API key here'}
+                bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
+            {:else}
+              <input id="ai-api-key" class="input" type="password"
+                placeholder={aiProviderVal === 'oai-compat' ? 'Leave blank for local endpoints (Ollama, etc.)' : 'Paste your API key here'}
+                bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
+            {/if}
+            <button class="btn-icon" on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? 'Hide' : 'Show'}>
+              <span class="material-symbols-rounded">{aiShowKey ? 'visibility_off' : 'visibility'}</span>
+            </button>
+            <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveAiKey} disabled={testing}>
+              {testing ? 'Testing…' : 'Save'}
+            </button>
+          </div>
+          <div class="setting-desc" style="margin-top:6px">
+            {#if aiProviderVal === 'claude'}
+              Get your key at <a href="https://console.anthropic.com" target="_blank" rel="noopener" class="about-link">console.anthropic.com</a>
+            {:else if aiProviderVal === 'openai'}
+              Get your key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="about-link">platform.openai.com</a>
+            {:else if aiProviderVal === 'gemini'}
+              Get your key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="about-link">aistudio.google.com</a>
+            {:else if aiProviderVal === 'oai-compat'}
+              Local endpoints (Ollama, LM Studio, etc.) typically don't need a key. Cloud providers like DeepSeek or Groq do — get one from their dashboard.
+            {/if}
+            {#if isNative && !getServerUrl()}
+              Your key is stored on this device.
+            {:else}
+              Your key is stored securely on the server.
+            {/if}
           </div>
         </div>
       {/if}
+
+      <div class="setting-divider"></div>
+      <div class="setting-row">
+        <span class="setting-label">Assistant Name</span>
+        <input class="input" style="width:130px;text-align:right"
+          placeholder="Trace"
+          bind:value={aiAssistantNameVal} />
+      </div>
 
       <div class="setting-divider"></div>
       <div class="setting-row">
@@ -177,44 +301,6 @@
         </div>
         <Toggle checked={$aiGoalInsights} on:change={e => aiGoalInsights.set(e.detail)} />
       </div>
-
-      {#if !envLocks.ai}
-        <div class="setting-divider"></div>
-        <div class="form-group" style="padding:10px 16px">
-          <label class="form-label" for="ai-api-key">
-            API Key{aiProviderVal === 'oai-compat' ? ' (optional)' : ''}
-          </label>
-          <div style="display:flex;gap:8px;align-items:center">
-            {#if aiShowKey}
-              <input id="ai-api-key" class="input" type="text"
-                placeholder={aiProviderVal === 'oai-compat' ? 'Leave blank for local endpoints (Ollama, etc.)' : 'Paste your API key here'}
-                bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
-            {:else}
-              <input id="ai-api-key" class="input" type="password"
-                placeholder={aiProviderVal === 'oai-compat' ? 'Leave blank for local endpoints (Ollama, etc.)' : 'Paste your API key here'}
-                bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
-            {/if}
-            <button class="btn-icon" on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? 'Hide' : 'Show'}>
-              <span class="material-symbols-rounded">{aiShowKey ? 'visibility_off' : 'visibility'}</span>
-            </button>
-            <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveAiKey}>
-              {#if aiKeySaved}<span class="material-symbols-rounded" style="font-size:16px">check</span>{:else}Save{/if}
-            </button>
-          </div>
-          <div class="setting-desc" style="margin-top:6px">
-            {#if aiProviderVal === 'claude'}
-              Get your key at <a href="https://console.anthropic.com" target="_blank" rel="noopener" class="about-link">console.anthropic.com</a>
-            {:else if aiProviderVal === 'openai'}
-              Get your key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="about-link">platform.openai.com</a>
-            {:else if aiProviderVal === 'gemini'}
-              Get your key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="about-link">aistudio.google.com</a>
-            {:else if aiProviderVal === 'oai-compat'}
-              Local endpoints (Ollama, LM Studio, etc.) typically don't need a key. Cloud providers like DeepSeek or Groq do — get one from their dashboard.
-            {/if}
-            Your key is stored securely on the server.
-          </div>
-        </div>
-      {/if}
     {/if}
   </div>
 </div>

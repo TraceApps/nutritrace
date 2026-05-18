@@ -51,7 +51,7 @@
     {
       id: 'mfp',
       label: 'MyFitnessPal',
-      hint: 'Premium-only. Settings → Privacy Center → Request my data → wait for email → upload the ZIP or extract the meal-nutrition CSV.',
+      hint: 'Go to myfitnesspal.com/reports/export, pick a date range, click Export, and wait for the email. Free and Premium both work. The export is aggregated per meal per day — one diary entry is created per meal with brand "MyFitnessPal", preserving the macro totals. Individual foods aren\'t in the export so they aren\'t reconstructed.',
       accept: '.csv,.zip,text/csv,application/zip',
     },
   ];

@@ -9,7 +9,7 @@
   import { Nutrition } from '../../lib/nutrition.js';
   import { readBodyStat, LENGTH_KEYS } from '../../lib/body-stats-unit.js';
   import { callAI, callAIProxy, TOOLS, setToolHandler } from '../../lib/aiChat.js';
-  import { aiEnabled, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled } from '../../stores/settings.js';
+  import { aiEnabled, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
   import SmartLogModal from '../diary/SmartLogModal.svelte';
   import { showError } from '../../stores/toast.js';
@@ -1330,6 +1330,13 @@ Water: ${ctx.waterText}`
 
 {#if $aiEnabled}
   <!-- ── Floating Action Button ─────────────────────────────────────────── -->
+  <!-- FAB gated on $aiEnabled only. The Settings → AI Assistant card
+       surfaces a connection-status banner (green/red/spinner) driven by
+       $aiKeyVerified for users who want to verify the key is actually
+       working, but the FAB doesn't hide on its own — that would break
+       users upgrading from a previous release where verified didn't
+       exist and their FAB was working fine. -->
+
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
     class="ai-fab"
@@ -1407,7 +1414,7 @@ Water: ${ctx.waterText}`
           </div>
           <div>
             <div class="ai-header-name">{assistantName}</div>
-            <div class="ai-header-sub">Your AI health & nutrition coach</div>
+            <div class="ai-header-sub">Your AI Health & Nutrition Coach</div>
           </div>
         </div>
         <div class="ai-header-actions">
