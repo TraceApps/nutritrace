@@ -865,38 +865,48 @@ export async function dbUpsertFromServer(table, serverRecord) {
     // Don't overwrite local pending changes (client wins during active editing)
     if (local.sync_status === 'pending') return;
 
+    // usage_count + last_used_at use MAX semantics to mirror the server's
+    // /api/sync/push merge. Without this, server-side bumps never propagate
+    // into local sort keys, and "Most Used" / "Recently Used" on Android
+    // rank by stale local-only counters.
     if (table === 'foods') {
       await db.run(
-        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
+        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), updated_at=?, sync_status='synced' WHERE server_id=?`,
         [data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
-         data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode, data.updated_at, serverId]
+         data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
+         data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
+         data.updated_at, serverId]
       );
     } else if (table === 'meals') {
       await db.run(
-        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
+        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), updated_at=?, sync_status='synced' WHERE server_id=?`,
         [data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
          data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
-         data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null, data.updated_at, serverId]
+         data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
+         data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
+         data.updated_at, serverId]
       );
     }
   } else {
     // New from server — insert locally
     if (table === 'foods') {
       await db.run(
-        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
-         data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode, data.updated_at]
+         data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
+         data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null, data.updated_at]
       );
     } else if (table === 'meals') {
       await db.run(
-        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
          data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
-         data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null, data.updated_at]
+         data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
+         data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null, data.updated_at]
       );
     }
   }

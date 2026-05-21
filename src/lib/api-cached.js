@@ -136,14 +136,15 @@ export const NtApiCached = {
 
   async createFood(data) {
     const local = await dbCreateFood(_foodToApi(data));
-    // Try server in background
-    _serverFetch('POST', '/api/foods', _foodToApi(data)).then(async server => {
-      if (server?.id && local?.id) {
-        const { dbSetServerId, dbMarkSynced } = await import('./db-native.js');
-        await dbSetServerId('foods', local.id, server.id);
-        await dbMarkSynced('foods', [local.id]);
-      }
-    }).catch(() => schedulePush());
+    // Route the server write exclusively through the sync engine. Previous
+    // implementation also fired an inline POST /api/foods in parallel — the
+    // race between that inline POST and a sync engine push (which can tick
+    // any time on visibility change, the 30s timer, or a prior debounced
+    // schedulePush) caused server-side duplicates when both paths inserted
+    // the same row. The local row is pending; schedulePush debounces +
+    // fires pushChanges, which is the single, idempotent server-write path.
+    // Fixes #32.
+    schedulePush();
     return _foodFromApi(local);
   },
 
@@ -213,13 +214,9 @@ export const NtApiCached = {
 
   async createMeal(data) {
     const local = await dbCreateMeal(_mealToApi(data));
-    _serverFetch('POST', '/api/meals', _mealToApi(data)).then(async server => {
-      if (server?.id && local?.id) {
-        const { dbSetServerId, dbMarkSynced } = await import('./db-native.js');
-        await dbSetServerId('meals', local.id, server.id);
-        await dbMarkSynced('meals', [local.id]);
-      }
-    }).catch(() => schedulePush());
+    // Sync-engine-only server write — same race that bit createFood (#32)
+    // applies to createMeal verbatim, with the same fix.
+    schedulePush();
     return _mealFromApi(local);
   },
 

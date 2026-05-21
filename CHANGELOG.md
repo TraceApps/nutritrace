@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Framework upgrades**. Svelte 4 → 5, Vite 5 → 6, Express 4 → 5, bcryptjs 2 → 3, plus the supporting Vite plugin bumps. Compat mode keeps the existing component code working without rewrites. User-visible effect: the main app bundle is about 22% smaller (1.57 MB → 1.21 MB) and the underlying Svelte 4 SSR security advisories are no longer applicable.
+
+---
+
+## [1.0.0-rc.29] — 2026-05-21
+
+### Fixed
+
+- **Food no longer duplicates on the server when saving several new foods back-to-back on Android (server-connected mode).** A race between the immediate save POST and the background sync push could insert a second copy of the previous food. Saves now go through a single sync path. PWA and native-local users were not affected. (Issue #32)
+- **"Most Used" and "Recently Used" food sort orders now work on Android.** The sync engine was dropping usage counters when pulling foods and meals from the server, so the local sort keys never reflected real usage. Counters from the server (including favorites) now flow into the local mirror correctly. PWA was unaffected. Existing counters catch up the next time each food or meal is edited; a fresh sign-out / sign-in also forces a full re-pull.
+
+---
+
 ## [1.0.0-rc.28] — 2026-05-20
 
 ### Added
