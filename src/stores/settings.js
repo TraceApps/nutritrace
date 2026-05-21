@@ -26,7 +26,7 @@ export const USER_PREFS = new Set([
   'fastingScheduleEnabled','fastingScheduleTime','fastingScheduleDays','fastingScheduleGoal',
   'fastingScheduleLastFired',
   'visibleNutriments','nutrimentsOrder','customNutriments',
-  'bodyStatsOrder','hiddenBodyStats','foodCategories',
+  'bodyStatsOrder','hiddenBodyStats','foodCategories','customUnits',
   'diaryShowNutritionBar','diaryTotalsMode',
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
@@ -424,6 +424,12 @@ export const customNutriments  = createSettingStore('customNutriments', []);
 export const bodyStatsOrder    = createSettingStore('bodyStatsOrder',   []);
 export const hiddenBodyStats   = createSettingStore('hiddenBodyStats',  []);
 export const foodCategories    = createSettingStore('foodCategories',   []);
+// Custom units the user has added on top of the built-in catalog. Each
+// entry is { abbr, full }. They show in the UnitPicker's "Custom" group
+// at the top of the popover. They are NOT mass-convertible — picking a
+// custom unit falls back to the pure-portion-ratio scaling path. Managed
+// in Settings → Foods → Custom Units.
+export const customUnits       = createSettingStore('customUnits',      []);
 
 // Display prefs used in multiple pages
 export const diaryShowNutritionBar = createSettingStore('diaryShowNutritionBar', true);

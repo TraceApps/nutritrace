@@ -9,6 +9,7 @@
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import Toggle from '../components/settings/Toggle.svelte';
+  import UnitPicker from '../components/ui/UnitPicker.svelte';
   import { takePhoto } from '../lib/camera.js';
   import { isNative } from '../lib/platform.js';
   import Dialog from '../components/ui/Dialog.svelte';
@@ -390,7 +391,6 @@
     } finally { downloading = false; }
   }
 
-  const UNITS = ['g','ml','oz','lb','cup','tbsp','tsp','piece','slice'];
 
   onMount(async () => {
     store = editorState.foodStore || 'foodList';
@@ -409,7 +409,18 @@
         food = { ...food, ...existing, ...flatNutrition };
       }
     }
-    // Snapshot is taken when the user flips `linked` on, not here —
+    // Default `linked` to ON when editing an existing food (the user is
+    // almost always rescaling, and they expect serving size to preserve
+    // density). For NEW food entry where the form starts empty, leave it
+    // OFF so typing nutrient values from a label doesn't silently
+    // cross-scale neighbouring fields. Fixes #28.
+    const _hasNutrition = food.nutrition && Object.keys(food.nutrition || {}).length > 0;
+    const _hasFlatNutrient = NUTRIMENTS.some(n => food[n.id] != null && food[n.id] !== '');
+    if (_hasNutrition || _hasFlatNutrient) {
+      linked = true;
+      takeSnapshot();
+    }
+    // Snapshot otherwise is taken when the user flips `linked` on —
     // see the link-btn click handler.
 
   });
@@ -663,11 +674,7 @@
         </div>
         <div class="form-group" style="width:100px">
           <label class="form-label">Unit</label>
-          <div class="select-wrap">
-            <select class="select" bind:value={food.unit}>
-              {#each UNITS as u}<option value={u}>{u}</option>{/each}
-            </select>
-          </div>
+          <UnitPicker bind:value={food.unit} />
         </div>
         <button class="btn-icon link-btn" class:linked title={linked ? 'All fields scale proportionally' : 'Fields are independent'}
           on:click={() => { linked = !linked; if (linked) takeSnapshot(); }}>

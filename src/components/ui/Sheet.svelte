@@ -8,6 +8,10 @@
   export let open   = false;
   export let title  = '';
   export let height = 'auto';  // 'auto' | 'full' | '60vh' etc.
+  /** Render a floating close button pinned to the panel even when title is
+   *  empty. Useful for sheets that draw their own header/banner inside the
+   *  slot and need the X to stay visible while the content scrolls. */
+  export let overlayClose = false;
 
   const dispatch = createEventDispatcher();
   let _locked = false;
@@ -54,6 +58,11 @@
             <span class="material-symbols-rounded">close</span>
           </button>
         </div>
+      {:else if overlayClose}
+        <button class="btn-icon sheet-overlay-close" on:click={close}
+          aria-label={$_('common.close')} title={$_('common.close')}>
+          <span class="material-symbols-rounded">close</span>
+        </button>
       {/if}
 
       <div class="sheet-body" class:no-title={!title}>
@@ -83,6 +92,14 @@
     display: flex;
     flex-direction: column;
     padding-bottom: var(--safe-bottom);
+    position: relative;
+  }
+  .sheet-overlay-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 5;
+    color: var(--text-2);
   }
   .sheet-full { height: 90dvh; }
   .sheet-handle {

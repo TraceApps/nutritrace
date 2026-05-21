@@ -414,6 +414,40 @@ Server-side strings (email subjects, push-notification bodies, AI system prompts
 
 ---
 
+## Units & Conversion
+
+Every food carries a serving size and unit (e.g. `100 g`, `1 cup`, `2 tbsp`). When you log a food using a different unit than it's stored in, NutriTrace tries to convert the nutrition correctly.
+
+**Mass-convertible** — these convert exactly across each other:
+
+| Unit | Grams |
+|---|---|
+| `g` (gram) | 1 |
+| `mg` (milligram) | 0.001 |
+| `kg` (kilogram) | 1000 |
+| `oz` (ounce) | 28.3495 |
+| `lb` (pound) | 453.592 |
+
+**Volume → grams via water blanket** — `1 ml ≈ 1 g`. Exact for water, close for milk/juice, off for high-density liquids like oil (~0.91 g/ml) and honey (~1.42 g/ml). This matches MFP/Cronometer/LoseIt's approach.
+
+| Unit | Milliliters |
+|---|---|
+| `ml` | 1 |
+| `l` (liter) | 1000 |
+| `tsp` (teaspoon) | 4.929 |
+| `tbsp` (tablespoon) | 14.787 |
+| `fl oz` (fluid ounce) | 29.574 |
+| `cup` (US cup) | 236.588 |
+
+**Not convertible** — these scale by the portion number only (e.g. 1 piece → 3 pieces = 3× nutrition), because they're intrinsically food-specific:
+
+- `piece`, `slice`
+- Any **custom unit** you add in Settings → Foods → Custom Units (e.g. "shot", "scoop", "stick"). Custom units don't have a fixed gram weight, so picking one falls back to the same portion-ratio behavior.
+
+**Practical example.** A peanut butter saved from Open Food Facts as `32 g per serving`. If you log `1 tbsp`, NutriTrace scales by `14.787 ÷ 32 ≈ 0.46` (close to the actual ~16 g/tbsp). Logging `2 tbsp` of olive oil works the same way but the water blanket nudges low by ~10% — fine for daily tracking, not for precision cooking.
+
+---
+
 ## Adaptive TDEE
 
 **What it is.** A calorie goal mode that *learns* your true daily energy expenditure from how your weight is actually moving versus how much you're eating. Inspired by MacroFactor, Macros+, and the standard energy-balance method.

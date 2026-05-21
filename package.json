@@ -1,6 +1,6 @@
 {
   "name": "nutritrace",
-  "version": "1.0.0-rc.27",
+  "version": "1.0.0-rc.28",
   "private": true,
   "type": "module",
   "scripts": {
@@ -39,7 +39,7 @@
     "chart.js": "^4.4.0",
     "emoji-picker-element": "^1.29.1",
     "jszip": "^3.10.1",
-    "nodemailer": "^8.0.3",
+    "nodemailer": "^8.0.7",
     "svelte-i18n": "^4.0.1",
     "svelte-spa-router": "^4.0.1"
   },

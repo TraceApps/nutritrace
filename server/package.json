@@ -18,7 +18,7 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^8.0.3",
+    "nodemailer": "^8.0.7",
     "openid-client": "^5.7.1"
   }
 }

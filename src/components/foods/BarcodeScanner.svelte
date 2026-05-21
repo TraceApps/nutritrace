@@ -25,7 +25,6 @@
   let scannerDiv;
   let engine = null;
   let detected = false;
-  let continuousMode = true;
   let selectedEngine = localStorage.getItem('wl_scanEngine') || 'zxing';
   let selectedCamId  = localStorage.getItem('wl_scanCamId')  || '';
   let cameras = [];
@@ -115,14 +114,8 @@
     if ($barcodeBeep) playBeep();
     scanlineVisible = true;
     setTimeout(() => scanlineVisible = false, 500);
-    if (!continuousMode) {
-      await close();
-      dispatch('scan', { code });
-    } else {
-      dispatch('scan', { code });
-      // Allow another scan in continuous mode after a short cooldown
-      setTimeout(() => { detected = false; }, 1500);
-    }
+    await close();
+    dispatch('scan', { code });
   }
 
   async function startCamera(deviceId) {
@@ -145,7 +138,7 @@
           videoEl.srcObject = stream;
           return videoEl.play().then(() => reader.decodeFromStream(stream, videoEl, async r => { if (r) await onCode(r.getText()); }));
         }).then(() => {
-          if (!detected) status = continuousMode ? 'Continuous Scan' : 'Align Barcode';
+          if (!detected) status = 'Align Barcode';
           try {
             const t = videoEl.srcObject && videoEl.srcObject.getVideoTracks()[0];
             if (t) {
@@ -205,7 +198,7 @@
       reader.start(deviceId, { fps: 10 }, async t => await onCode(t), () => {})
         .then(() => {
           engine.running = true;
-          if (!detected) status = continuousMode ? 'Continuous Scan' : 'Align Barcode';
+          if (!detected) status = 'Align Barcode';
           try {
             inner.querySelectorAll('div,img,button,span').forEach(el => _hideEl(el));
             const shaded = document.getElementById('qr-shaded-region');
@@ -246,7 +239,7 @@
       }, err => {
         if (err) { console.error('[Quagga2]', err); status = 'Quagga2 error — try another engine.'; return; }
         Quagga.start();
-        if (!detected) status = continuousMode ? 'Continuous Scan' : 'Align Barcode';
+        if (!detected) status = 'Align Barcode';
         setTimeout(() => {
           try {
             const t = window.Quagga && Quagga.CameraAccess && Quagga.CameraAccess.getActiveTrack && Quagga.CameraAccess.getActiveTrack();
@@ -311,11 +304,6 @@
     setTimeout(() => startCamera(selectedCamId), 300);
   }
 
-  async function toggleContinuous() {
-    continuousMode = !continuousMode;
-    status = continuousMode ? 'Continuous Scan' : 'Align Barcode';
-  }
-
   async function doManual() {
     if (detected) return;
     const code = manualCode.trim();
@@ -362,13 +350,24 @@
       .catch(() => { status = 'Camera access denied.'; });
   }
 
-  // Native mode: use ML Kit barcode scanner instead of HTML5 camera
+  // Native mode: use ML Kit bundled scanner. Runs camera BEHIND the
+  // WebView (`startScan` API); we render our own overlay UI on top.
+  // Critically, this path does NOT call the Google Code Scanner module
+  // — no Google Play Services runtime dependency. Works on degoogled
+  // ROMs (GrapheneOS, /e/, CalyxOS, etc.). Fixes #31.
+  let _nativeListener = null;
+  let _nativeBarcodeScannerRef = null;
+  let nativeScannerActive = false;
+  let nativeStatus = 'Starting camera…';
+  let nativeTorchOn = false;
+
   async function startNativeScanner() {
     scanning = true;
+    nativeStatus = 'Requesting camera…';
     try {
       const { BarcodeScanner } = await import('@capacitor-mlkit/barcode-scanning');
+      _nativeBarcodeScannerRef = BarcodeScanner;
 
-      // Request camera permission
       const perms = await BarcodeScanner.requestPermissions();
       if (perms.camera !== 'granted') {
         const { showError } = await import('../../stores/toast.js');
@@ -377,42 +376,146 @@
         return;
       }
 
-      // Check/install the Google Barcode Scanner module (required for scan())
-      try {
-        const { available } = await BarcodeScanner.isGoogleBarcodeScannerModuleAvailable();
-        if (!available) await BarcodeScanner.installGoogleBarcodeScannerModule();
-      } catch {}
+      // Make the WebView and everything else transparent so the camera
+      // (behind the WebView) is visible. Class hooks into CSS at the
+      // bottom of this file. App-wide global CSS opt-in is in main.js.
+      document.body.classList.add('barcode-scanner-active');
+      nativeScannerActive = true;
+      nativeStatus = 'Align Barcode';
 
-      // Scan — opens native Google Code Scanner (no format filter = scan all)
-      const { barcodes } = await BarcodeScanner.scan();
-
-      if (barcodes.length > 0) {
-        const code = barcodes[0].rawValue;
+      _nativeListener = await BarcodeScanner.addListener('barcodeScanned', async (event) => {
+        const code = event?.barcode?.rawValue;
+        if (!code) return;
+        if (detected) return;
+        detected = true;
         if ($barcodeBeep) playBeep();
+        scanlineVisible = true;
+        setTimeout(() => scanlineVisible = false, 500);
+        await stopNativeScanner();
+        open = false;
         dispatch('scan', { code });
+      });
+
+      await BarcodeScanner.startScan();
+
+      // Auto-enable torch if the setting requests it
+      if ($barcodeFlashlight) {
+        try { await BarcodeScanner.enableTorch(); nativeTorchOn = true; } catch {}
       }
-      open = false; scanning = false;
     } catch (e) {
       console.error('[BarcodeScanner] Native scan failed:', e);
       const { showError } = await import('../../stores/toast.js');
       showError('Barcode scan failed: ' + (e?.message || 'Unknown error'));
-      open = false; scanning = false;
+      await stopNativeScanner();
+      open = false;
     }
+  }
+
+  async function stopNativeScanner() {
+    scanning = false;
+    nativeScannerActive = false;
+    document.body.classList.remove('barcode-scanner-active');
+    if (_nativeListener) {
+      try { await _nativeListener.remove(); } catch {}
+      _nativeListener = null;
+    }
+    if (_nativeBarcodeScannerRef) {
+      try { await _nativeBarcodeScannerRef.stopScan(); } catch {}
+    }
+  }
+
+  async function toggleNativeTorch() {
+    if (!_nativeBarcodeScannerRef) return;
+    try {
+      if (nativeTorchOn) {
+        await _nativeBarcodeScannerRef.disableTorch();
+        nativeTorchOn = false;
+      } else {
+        await _nativeBarcodeScannerRef.enableTorch();
+        nativeTorchOn = true;
+      }
+    } catch {}
+  }
+
+  async function closeNative() {
+    await stopNativeScanner();
+    open = false;
+    dispatch('close');
+  }
+
+  async function doManualNative() {
+    if (detected) return;
+    const code = manualCode.trim();
+    if (!code) return;
+    detected = true;
+    await stopNativeScanner();
+    open = false;
+    dispatch('scan', { code });
   }
 
   $: if (open && !scanning) {
     if (isNative) startNativeScanner();
     else startScanner();
   }
-  $: if (!open && scanning) close();
+  $: if (!open && scanning) {
+    if (isNative) stopNativeScanner();
+    else close();
+  }
 
   onDestroy(() => {
     detected = true;
-    stopEngine();
-    if (h5Observer) h5Observer.disconnect();
-    if (styleEl) styleEl.remove();
+    if (isNative) stopNativeScanner();
+    else {
+      stopEngine();
+      if (h5Observer) h5Observer.disconnect();
+      if (styleEl) styleEl.remove();
+    }
   });
 </script>
+
+{#if open && isNative && nativeScannerActive}
+  <!-- Native scanner overlay. The actual camera renders BEHIND the
+       WebView (ML Kit handles it); we just draw the UI on top, with
+       body+root made transparent via .barcode-scanner-active. Portal
+       to <body> so the visibility-hide CSS rule (which hides every
+       body child except this overlay) doesn't sweep us up with #app. -->
+  <div class="native-scanner-overlay" use:modalPortal>
+    <div class="ns-top">
+      <button class="btn-icon ns-close" on:click={closeNative} aria-label="Close scanner" title="Close scanner">
+        <span class="material-symbols-rounded">close</span>
+      </button>
+      <div class="ns-status">{nativeStatus}</div>
+      <button class="btn-icon ns-torch" class:active={nativeTorchOn} on:click={toggleNativeTorch} aria-label="Toggle flashlight" title="Toggle flashlight">
+        <span class="material-symbols-rounded">{nativeTorchOn ? 'flash_on' : 'flash_off'}</span>
+      </button>
+    </div>
+
+    <div class="ns-aim">
+      <div class="ns-aim-box">
+        <div class="aim-corner tl"></div>
+        <div class="aim-corner tr"></div>
+        <div class="aim-corner bl"></div>
+        <div class="aim-corner br"></div>
+        {#if scanlineVisible}
+          <div class="aim-scanline"></div>
+        {/if}
+      </div>
+    </div>
+
+    <div class="ns-bottom">
+      <div class="ns-manual">
+        <input
+          class="input"
+          type="text"
+          placeholder="Or type barcode manually…"
+          bind:value={manualCode}
+          on:keydown={e => e.key === 'Enter' && doManualNative()}
+        />
+        <button class="btn btn-primary" on:click={doManualNative}>Look Up</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if open && !isNative}
   <div class="scanner-backdrop" use:modalPortal on:click={close} transition:fly={{ y: 20, duration: 220 }}>
@@ -470,10 +573,6 @@
 
       <!-- Action buttons -->
       <div class="scanner-actions">
-        <button class="sc-btn" class:sc-btn-active={continuousMode} on:click={toggleContinuous}>
-          <span class="material-symbols-rounded">qr_code_scanner</span>
-          {continuousMode ? 'Continuous' : 'Single Scan'}
-        </button>
         <button class="sc-btn" on:click={refresh}>
           <span class="material-symbols-rounded">refresh</span>
           Refresh
@@ -660,4 +759,95 @@
   }
   .scanner-manual .input { flex: 1; }
   .scanner-manual .btn { flex-shrink: 0; white-space: nowrap; }
+
+  /* Native ML Kit scanner overlay (bundled, no Play Services) — camera
+     renders BEHIND the WebView. We just draw chrome on top. */
+  .native-scanner-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+  }
+  .native-scanner-overlay > * { pointer-events: auto; }
+
+  .ns-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(var(--safe-top) + 12px) 16px 12px;
+    gap: 8px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
+  }
+  .ns-close, .ns-torch {
+    background: rgba(0,0,0,0.5);
+    color: #fff;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+  }
+  .ns-torch.active { background: rgba(251,191,36,0.85); color: #000; }
+  .ns-status {
+    flex: 1;
+    text-align: center;
+    color: #fff;
+    background: rgba(0,0,0,0.55);
+    border-radius: 14px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    margin: 0 8px;
+    max-width: 220px;
+    justify-self: center;
+  }
+
+  .ns-aim {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  .ns-aim-box {
+    position: relative;
+    width: 78%;
+    max-width: 320px;
+    aspect-ratio: 2.2/1;
+    border: 2px dashed rgba(255,255,255,0.5);
+    border-radius: 6px;
+  }
+  .ns-aim-box .aim-corner.tl { top: -3px; left: -3px; border-top: 3px solid var(--accent); border-left: 3px solid var(--accent); }
+  .ns-aim-box .aim-corner.tr { top: -3px; right: -3px; border-top: 3px solid var(--accent); border-right: 3px solid var(--accent); }
+  .ns-aim-box .aim-corner.bl { bottom: -3px; left: -3px; border-bottom: 3px solid var(--accent); border-left: 3px solid var(--accent); }
+  .ns-aim-box .aim-corner.br { bottom: -3px; right: -3px; border-bottom: 3px solid var(--accent); border-right: 3px solid var(--accent); }
+
+  .ns-bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 16px calc(var(--safe-bottom) + 20px);
+    background: linear-gradient(to top, rgba(0,0,0,0.65), transparent);
+  }
+  .ns-bottom .sc-btn {
+    align-self: center;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    border-color: rgba(255,255,255,0.2);
+  }
+  .ns-bottom .sc-btn.sc-btn-active {
+    background: color-mix(in srgb, var(--accent) 80%, transparent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .ns-manual {
+    display: flex;
+    gap: 8px;
+    background: rgba(0,0,0,0.55);
+    border-radius: var(--radius-md);
+    padding: 8px;
+    align-items: center;
+  }
+  .ns-manual .input { flex: 1; background: rgba(255,255,255,0.92); color: #000; }
+  .ns-manual .btn { flex-shrink: 0; white-space: nowrap; }
 </style>

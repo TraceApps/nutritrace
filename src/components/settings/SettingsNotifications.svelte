@@ -94,8 +94,8 @@
     set('appriseUrl', _appriseUrl); set('appriseTag', _appriseTag);
     try {
       const { sendPush } = await import('../../lib/notifications.js');
-      await sendPush(_notifPushService, 'NutriTrace', 'Test notification — push service connected!', 5);
-      showSuccess('Test sent — check your device!');
+      await sendPush(_notifPushService, 'NutriTrace', 'Test notification, push service connected', 5);
+      showSuccess('Test sent, check your device');
     } catch (e) { showError(`Test failed: ${e.message || 'unknown error'}`); }
     _gotifyTesting = false;
   }

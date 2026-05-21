@@ -140,6 +140,33 @@ input, select, textarea { font-family: inherit; }
   text-shadow: 0 2px 12px rgba(0,0,0,0.35);
 }
 
+/* Compact variant — applied automatically whenever the user has page
+   banners turned off. The hamburger normally pushes the H1 onto its
+   own line (via --hamburger-row in the padding-top calc). For pages
+   without an illustrated banner there's no good reason for that empty
+   row — bring the title up alongside the hamburger, shrink the type a
+   notch, and keep the sticky blur as separation from the content.
+   Saves ~40px of vertical real estate on every page without changing
+   route markup. */
+.page-header:not(.has-banner) {
+  padding-top: calc(var(--page-top, var(--safe-top)) + 10px);
+  /* Symmetric 10px gap above and below the inner 40px row so the title
+     sits in the centre of the compact bar instead of hugging the bottom
+     border. Sticky sub-bars below the header (Diary date strip, etc.)
+     still sit flush against the border because the padding lives
+     INSIDE the border, not below it. */
+  padding-bottom: 10px;
+  /* Title sits NEXT TO the hamburger button (not below it), so the
+     left padding has to clear the button itself. --hamburger-clearance
+     is the button's RIGHT edge + small gap (~64px when shown, 0 when
+     the sidebar is pinned and the button isn't rendered). When the
+     hamburger isn't visible the standard --page-px gutter takes over. */
+  padding-left: max(var(--page-px), var(--hamburger-clearance, 0px));
+}
+.page-header:not(.has-banner) h1 {
+  font-size: 22px;
+}
+
 /* Page shell — used by all route pages.
    NOTE: padding-top is intentionally 0 here. Pages with a sticky .page-header
    already account for safe-area-top inside the header's own padding, and
@@ -225,4 +252,15 @@ input, select, textarea { font-family: inherit; }
   backdrop-filter: var(--backdrop-blur);
   -webkit-backdrop-filter: var(--backdrop-blur);
   z-index: 100;
+}
+
+/* Native ML Kit barcode scanner runs the camera BEHIND the WebView.
+   When active, everything in the DOM must be transparent so the camera
+   shows through. The scanner overlay itself paints back over the
+   transparent body. Toggled by BarcodeScanner.svelte. */
+body.barcode-scanner-active {
+  background: transparent !important;
+}
+body.barcode-scanner-active > *:not(.native-scanner-overlay) {
+  visibility: hidden !important;
 }

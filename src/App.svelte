@@ -8,8 +8,9 @@
   import Sidebar   from './components/layout/Sidebar.svelte';
   import Toast     from './components/ui/Toast.svelte';
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
-  import { DB }    from './lib/db.js';
-  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language } from './stores/settings.js';
+  import { DB, localDateStr } from './lib/db.js';
+  import { currentDate, loadEntry } from './stores/diary.js';
+  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners } from './stores/settings.js';
   import { locale } from 'svelte-i18n';
   import { currentUser, userMgmtActive, setupRequired, loadAuthState, handleOidcCallback } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl } from './lib/platform.js';
@@ -88,10 +89,13 @@
   // banner instead of pushing content down. Reclaims ~62px of vertical space
   // on every page, especially valuable on small phones.
   // --hamburger-offset aligns the H1's left edge with the hamburger button's
-  // LEFT edge (viewport x = 12px = hamburger left position).
-  // --hamburger-row adds extra header top-padding equal to (hamburger height
-  // + small gap) so the title sits in a row BELOW the hamburger instead of
-  // beside/behind it. Both vars are 0 when the hamburger is hidden.
+  // LEFT edge (used by the banner-on layout where the title sits BELOW the button).
+  // --hamburger-row adds a vertical row of padding when the banner-on layout is
+  // active (title sits BELOW the floating hamburger). In banner-off / compact
+  // mode the title sits NEXT to the button so no extra row is needed.
+  // --hamburger-clearance is the button's RIGHT edge + small gap, used by the
+  // compact (banner-off) layout where the title sits BESIDE the button and
+  // needs padding-left to clear the button itself.
   // --sidebar-w shifts content right when sidebar is persistent.
   $: if (typeof document !== 'undefined') {
     document.documentElement.style.setProperty('--page-top', 'var(--safe-top)');
@@ -101,7 +105,12 @@
     );
     document.documentElement.style.setProperty(
       '--hamburger-row',
-      showHamburger ? '48px' : '0px' // 40px button + 8px gap
+      (showHamburger && $pageBanners) ? '48px' : '0px' // 40px button + 8px gap
+    );
+    // 12px (left margin) + 40px (button width) + 12px (gap before title)
+    document.documentElement.style.setProperty(
+      '--hamburger-clearance',
+      showHamburger ? '64px' : '0px'
     );
     document.documentElement.style.setProperty(
       '--sidebar-w',
@@ -296,6 +305,50 @@
         if (document.visibilityState === 'visible') _refreshSettings();
       });
       setInterval(_refreshSettings, 30000); // every 30 seconds
+    }
+
+    // Day rollover. When the tab or app sits open across midnight, the diary
+    // and any date-keyed computations (adaptive goals, statistics window)
+    // would otherwise stay on yesterday until the user navigates. Advance
+    // currentDate to the new local today ONLY if the user was still viewing
+    // the previous "today" — never yank them off a deliberately-chosen past
+    // date. Two trigger paths: focus/resume (covers "left tab open overnight,
+    // reopen at 6 AM") and a one-shot timer at the next local midnight
+    // (covers "active across midnight").
+    {
+      let _lastObservedToday = localDateStr();
+      let _midnightTimer = null;
+
+      const _maybeRollDay = () => {
+        const today = localDateStr();
+        if (today === _lastObservedToday) return;
+        let storedDate;
+        currentDate.subscribe(v => storedDate = v)();
+        if (storedDate === _lastObservedToday) {
+          currentDate.set(today);
+          loadEntry(today);
+        }
+        _lastObservedToday = today;
+        _armMidnightTimer();
+      };
+
+      const _armMidnightTimer = () => {
+        if (_midnightTimer) clearTimeout(_midnightTimer);
+        const now = new Date();
+        const next = new Date(now);
+        next.setHours(24, 0, 30, 0); // 30s past midnight to dodge clock-skew jitter
+        _midnightTimer = setTimeout(_maybeRollDay, next - now);
+      };
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') _maybeRollDay();
+      });
+      if (isNative) {
+        import('@capacitor/app').then(({ App }) => {
+          App.addListener('resume', _maybeRollDay);
+        }).catch(() => {});
+      }
+      _armMidnightTimer();
     }
 
     // Migrate assistant name: legacy 'Buddy' / 'FitBot' defaults → 'Trace'.

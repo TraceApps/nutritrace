@@ -2201,7 +2201,7 @@
   /* Date sub-bar — same pattern as Diary */
   .wl-date-bar {
     position: sticky;
-    top: calc(var(--page-top, var(--safe-top)) + 62px + var(--hamburger-row, 0px));
+    top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
     z-index: 9;
     background: var(--glass-surface);
     backdrop-filter: blur(20px) saturate(180%);
@@ -2351,7 +2351,7 @@
   /* Tabs — sit below the date sub-bar (52px tall), so add 52 to its top calc */
   .tab-bar-wrap {
     position: sticky;
-    top: calc(var(--page-top, var(--safe-top)) + 62px + var(--hamburger-row, 0px) + 52px);
+    top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px) + 52px);
     z-index: 8;
     background: var(--glass-surface);
     backdrop-filter: blur(20px) saturate(180%);

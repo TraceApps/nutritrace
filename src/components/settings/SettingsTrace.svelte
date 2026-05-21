@@ -64,17 +64,24 @@
     testError = '';
   }
 
-  // The Save button on the API key (and Base URL for oai-compat) runs the
-  // connection test as part of saving. On success the user gets a green
-  // banner + the Trace FAB unlocks; on failure they get the error inline
-  // and aiKeyVerified stays off.
+  // Auto-save-on-blur for the API key + Base URL. The test only fires
+  // when the value actually changed since the last save — blurring
+  // without an edit shouldn't burn the user's API quota. Re-tests are
+  // still available via the Test button on the ConnectionStatus banner.
+  let _lastSavedApiKey = aiApiKeyVal;
+  let _lastSavedBaseUrl = aiBaseUrlVal;
   async function saveAiKey() {
+    if (aiApiKeyVal === _lastSavedApiKey) return;
+    _lastSavedApiKey = aiApiKeyVal;
     set('aiApiKey', aiApiKeyVal);
     await testConnection();
   }
 
   async function saveAiBaseUrl() {
-    set('aiBaseUrl', aiBaseUrlVal.trim());
+    const trimmed = aiBaseUrlVal.trim();
+    if (trimmed === _lastSavedBaseUrl) return;
+    _lastSavedBaseUrl = trimmed;
+    set('aiBaseUrl', trimmed);
     await testConnection();
   }
 
@@ -109,7 +116,7 @@
       }
       if (!text || typeof text !== 'string') throw new Error('Empty response from AI');
       aiKeyVerified.set(true);
-      showSuccess('Trace AI connected — assistant is ready');
+      showSuccess('Trace AI connected, assistant is ready');
     } catch (e) {
       testError = e.message || 'Test failed';
       aiKeyVerified.set(false);
@@ -170,14 +177,11 @@
         <!-- Custom OpenAI-compatible: free-text Base URL + Model name -->
         <div class="form-group" style="padding:10px 16px">
           <label class="form-label" for="ai-base-url">Base URL</label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="ai-base-url" class="input" type="url"
-              placeholder="http://localhost:11434  or  https://api.deepseek.com"
-              bind:value={aiBaseUrlVal} autocomplete="off" style="flex:1" />
-            <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveAiBaseUrl} disabled={testing}>
-              {testing ? 'Testing…' : 'Save'}
-            </button>
-          </div>
+          <input id="ai-base-url" class="input" type="url"
+            placeholder="http://localhost:11434  or  https://api.deepseek.com"
+            bind:value={aiBaseUrlVal}
+            on:blur={saveAiBaseUrl}
+            autocomplete="off" style="width:100%" />
           <div class="setting-desc" style="margin-top:6px">
             Any OpenAI Compatible <code>/v1/chat/completions</code> endpoint — Ollama, LM Studio, LocalAI, vLLM, llama.cpp's server, DeepSeek, Groq, Together AI, Mistral La Plateforme, etc. Don't include the path; just the origin.
           </div>
@@ -217,17 +221,18 @@
             {#if aiShowKey}
               <input id="ai-api-key" class="input" type="text"
                 placeholder={aiProviderVal === 'oai-compat' ? 'Leave blank for local endpoints (Ollama, etc.)' : 'Paste your API key here'}
-                bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
+                bind:value={aiApiKeyVal}
+                on:blur={saveAiKey}
+                autocomplete="off" style="flex:1" />
             {:else}
               <input id="ai-api-key" class="input" type="password"
                 placeholder={aiProviderVal === 'oai-compat' ? 'Leave blank for local endpoints (Ollama, etc.)' : 'Paste your API key here'}
-                bind:value={aiApiKeyVal} autocomplete="off" style="flex:1" />
+                bind:value={aiApiKeyVal}
+                on:blur={saveAiKey}
+                autocomplete="off" style="flex:1" />
             {/if}
             <button class="btn-icon" on:click={() => aiShowKey = !aiShowKey} title={aiShowKey ? 'Hide' : 'Show'}>
               <span class="material-symbols-rounded">{aiShowKey ? 'visibility_off' : 'visibility'}</span>
-            </button>
-            <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveAiKey} disabled={testing}>
-              {testing ? 'Testing…' : 'Save'}
             </button>
           </div>
           <div class="setting-desc" style="margin-top:6px">

@@ -5,12 +5,8 @@
   import { showSuccess, showError } from '../../stores/toast.js';
   import { DB } from '../../lib/db.js';
   import { NtApi } from '../../lib/api.js';
-  import { NUTRIMENTS, Nutrition } from '../../lib/nutrition.js';
   import { currentUser, userMgmtActive } from '../../stores/auth.js';
   import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
-  import { get } from 'svelte/store';
-  import { foodCategories } from '../../stores/settings.js';
-  import { catName as _catName } from '../../stores/settings.js';
 
   const isNativeLocal = isNative && !getServerUrl();
 
@@ -48,72 +44,6 @@
     a.download = filename;
     a.click();
     URL.revokeObjectURL(a.href);
-  }
-
-  async function exportBackup() {
-    try {
-      const [foodList, meals, recipes, diary] = await Promise.all([
-        NtApi.getFoods(),
-        NtApi.getMeals(),
-        NtApi.getRecipes(),
-        NtApi.getAllDiary(),
-      ]);
-      // Activity entries: the user's manual exercise log on the Diary
-      // (which may also be synced from Health Connect / wearable per the
-      // user's policy). NOT the wellness-tab data — Fitbit/Garmin/Withings
-      // metrics live in wellness_data and intentionally aren't part of the
-      // portable export (they'd be re-pulled if reconnected on a new
-      // device, and a JSON dump of those rows isn't useful in isolation).
-      let activity = [];
-      try { activity = await NtApi.getActivityRange('1900-01-01', '2999-12-31') || []; } catch {}
-
-      // Intermittent fasting log — completed + active fasts. Included so
-      // a user moving devices doesn't lose their streak / history.
-      let fasts = [];
-      try { fasts = await NtApi.get('/api/fasts?limit=10000') || []; } catch {}
-
-      const settings = DB.getAllSettings() || {};
-
-      // Manifest header — self-describing, version-tagged, with counts. Lets
-      // future importers branch on schema_version without guessing, and lets
-      // users see what they're sharing before they hit send.
-      const { APP_VERSION } = await import('../../lib/version.js').catch(() => ({ APP_VERSION: 'unknown' }));
-      const _manifest = {
-        format: 'nutritrace-portable-export',
-        schema_version: 1,
-        app_version: APP_VERSION,
-        exported_at: new Date().toISOString(),
-        source: isNative ? (getServerUrl() ? 'native-server' : 'native-local') : 'web',
-        includes_images: false,
-        scope: 'foods, meals, recipes, diary (with notes), activity, fasts, settings — wellness-tab data and workouts excluded by design.',
-        note: 'For a comprehensive backup with embedded image files, use Local Full Backup (.zip).',
-        counts: {
-          foods:     foodList?.length || 0,
-          meals:     meals?.length    || 0,
-          recipes:   recipes?.length  || 0,
-          diary:     diary?.length    || 0,
-          activity:  activity?.length || 0,
-          fasts:     fasts?.length    || 0,
-          settings:  Object.keys(settings).length,
-        },
-      };
-
-      const data = {
-        _manifest,
-        foodList,
-        meals,
-        recipes,
-        diary,
-        activity,
-        fasts,
-        settings,
-        // Legacy field — kept so older importers that only read this still work
-        exportedAt: _manifest.exported_at,
-      };
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      _downloadBlob(blob, `nutritrace-backup-${new Date().toISOString().slice(0,10)}.json`);
-      showSuccess('Backup exported');
-    } catch(e) { showError('Export failed: ' + e.message); }
   }
 
   // ── Local Full Backup (.zip with embedded images) ──────────────────────────
@@ -283,81 +213,6 @@
       console.error('[backup] share failed:', e);
       showError('Share failed: ' + e.message);
     }
-  }
-
-  async function importBackup() {
-    const input = document.createElement('input');
-    input.type = 'file'; input.accept = '.json';
-    input.onchange = async (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        async function migrateImg(item) {
-          if (!item.imgUrl || !item.imgUrl.startsWith('data:')) return item;
-          try {
-            const blob = await fetch(item.imgUrl).then(r => r.blob());
-            const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
-            const url = await NtApi.uploadImage(file);
-            return { ...item, imgUrl: url };
-          } catch { return { ...item, imgUrl: '' }; }
-        }
-        const migrateAll = arr => Promise.all((arr || []).map(migrateImg));
-        const [foodList, meals, recipes] = await Promise.all([
-          migrateAll(data.foodList),
-          migrateAll(data.meals),
-          migrateAll(data.recipes),
-        ]);
-
-        if (isNativeLocal) {
-          const dbm = await import('../../lib/db-native.js');
-          for (const food of (foodList || [])) await dbm.dbCreateFood(food).catch(() => {});
-          for (const meal of (meals || [])) await dbm.dbCreateMeal(meal).catch(() => {});
-          for (const meal of (recipes || [])) await dbm.dbCreateMeal({ ...meal, is_recipe: 1 }).catch(() => {});
-          for (const entry of (data.diary || [])) {
-            if (entry.date) await dbm.dbSaveDiaryDate(entry.date, entry).catch(() => {});
-          }
-          // Activity entries — restore the user's manual exercise log on the
-          // Diary (may also be synced from Health Connect / wearable, but the
-          // backed-up rows are restored verbatim regardless of source).
-          for (const a of (data.activity || [])) await dbm.dbCreateActivity(a).catch(() => {});
-        } else {
-          await NtApi.post('/api/data/import', { ...data, foodList, meals, recipes });
-        }
-
-        if (data.settings && typeof data.settings === 'object') {
-          for (const [key, value] of Object.entries(data.settings)) DB.setSetting(key, value);
-        }
-
-        const importedCats = [...new Set((foodList || []).map(f => (f.categories && f.categories[0]) || f.category).filter(Boolean))];
-        if (importedCats.length) {
-          const existing = get(foodCategories) || [];
-          const existingNames = new Set(existing.map(c => _catName(c)));
-          const toAdd = importedCats.filter(n => !existingNames.has(n));
-          if (toAdd.length) foodCategories.set([...existing, ...toAdd]);
-        }
-
-        showSuccess('Backup restored — reloading...');
-        setTimeout(() => location.reload(), 1500);
-      } catch(err) { showError('Import failed: ' + err.message); }
-    };
-    input.click();
-  }
-
-  async function exportCSV() {
-    try {
-      const diary = await NtApi.getAllDiary();
-      let csv = 'Date,Meal,Food,Amount,Unit,Calories,Fat,Carbs,Protein\n';
-      diary.forEach(day => {
-        (day.items || []).forEach(item => {
-          const n = Nutrition.calculate(item);
-          csv += `${day.date},${item.meal||0},"${item.name||''}",${item.portion||100},${item.unit||'g'},${Math.round(n.calories||0)},${(n.fat||0).toFixed(1)},${(n.carbohydrates||0).toFixed(1)},${(n.proteins||0).toFixed(1)}\n`;
-        });
-      });
-      const blob = new Blob([csv], { type: 'text/csv' });
-      _downloadBlob(blob, `nutritrace-diary-${new Date().toISOString().slice(0,10)}.csv`);
-      showSuccess('CSV exported');
-    } catch(e) { showError('Export failed: ' + e.message); }
   }
 
   // ── Full Backup (server mode, admin only) ──────────────────────────────────
@@ -678,42 +533,6 @@
     {/if}
   </div>
   {/if}
-
-  <!-- Portable JSON export/import (legacy) -->
-  <p class="sub-label">Portable JSON Export</p>
-  <div class="card settings-card">
-    <button class="setting-row setting-action" on:click={exportBackup}>
-      <span class="material-symbols-rounded si" style="color:var(--accent)">download</span>
-      <div>
-        <span class="setting-label">Export JSON</span>
-        <div class="setting-desc">Lighter format — JSON only, no images. Useful for sharing data between accounts or quick text-based exports.</div>
-      </div>
-      <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
-    </button>
-    <div class="setting-divider"></div>
-    <button class="setting-row setting-action" on:click={importBackup}>
-      <span class="material-symbols-rounded si" style="color:var(--accent)">upload</span>
-      <div>
-        <span class="setting-label">Import JSON</span>
-        <div class="setting-desc">Restores from a previously exported JSON file. Merges with existing data — does not erase what's already here.</div>
-      </div>
-      <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
-    </button>
-  </div>
-
-  <!-- Other tools -->
-  <p class="sub-label">Other</p>
-  <div class="card settings-card">
-    <button class="setting-row setting-action" on:click={exportCSV}>
-      <span class="material-symbols-rounded si" style="color:var(--info)">table_chart</span>
-      <div>
-        <span class="setting-label">Export Diary As CSV</span>
-        <div class="setting-desc">Downloads your full diary history as a spreadsheet. Useful for analysis in Excel or Google Sheets.</div>
-      </div>
-      <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
-    </button>
-  </div>
-
   <!-- Danger zone -->
   <p class="sub-label danger-zone-label">Danger Zone</p>
   <div class="card settings-card danger-zone-card">

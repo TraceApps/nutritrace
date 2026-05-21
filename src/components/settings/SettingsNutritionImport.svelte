@@ -32,7 +32,7 @@
   const SOURCE_OPTIONS = [
     {
       id: 'spreadsheet',
-      label: 'Generic spreadsheet',
+      label: 'Generic Spreadsheet',
       hint: 'Any CSV with at least Date, Name, and Calories columns. Use our template for the easiest path.',
       accept: '.csv,text/csv',
     },
@@ -115,7 +115,7 @@
 <div class="section-body">
   <div class="card settings-card">
     <div class="setting-row" style="align-items:flex-start;flex-direction:column;gap:6px">
-      <span class="setting-label" style="font-weight:600">Import nutrition history</span>
+      <span class="setting-label" style="font-weight:600">Import Nutrition History</span>
       <p class="setting-desc" style="margin:0">
         Bring in past days from another tracker. Your existing diary is left alone unless you pick "replace" below.
       </p>
@@ -157,7 +157,7 @@
       <div style="display:flex;gap:8px;align-items:center;width:100%">
         <button class="btn btn-secondary" on:click={pickFile} disabled={busy}>
           <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle">upload_file</span>
-          {file ? 'Choose different file' : 'Choose file'}
+          {file ? 'Choose Different File' : 'Choose File'}
         </button>
         {#if file}
           <span class="text-3 text-sm" style="overflow-wrap:anywhere;min-width:0;flex:1">{file.name}</span>

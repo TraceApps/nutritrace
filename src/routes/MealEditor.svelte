@@ -7,6 +7,8 @@
   import { isNative, resolveAssetUrl } from '../lib/platform.js';
   import { portal } from '../lib/portal.js';
   import Sheet from '../components/ui/Sheet.svelte';
+  import UnitPicker from '../components/ui/UnitPicker.svelte';
+  import { scaleFactor as _unitScaleFactor } from '../lib/units.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearMealEditorState } from '../stores/editorState.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
@@ -46,7 +48,6 @@
   let recipeAmount = '';
   let recipeUnit = 'g';
   let recipeYields = 1;
-  const UNITS = ['g','ml','oz','cup','tbsp','tsp','piece','serving'];
 
   // Ingredient picker
   let showPicker = false;
@@ -268,16 +269,18 @@
   function confirmMultiPortion() {
     for (const item of multiPortionItems) {
       const origPortion = parseFloat(item.food.portion) || 100;
-      const newPortion = parseFloat(item.portion) || origPortion;
-      const newQty = parseFloat(item.qty) || 1;
+      const origUnit    = item.food.unit || 'g';
+      const newPortion  = parseFloat(item.portion) || origPortion;
+      const newUnit     = item.unit || origUnit;
+      const newQty      = parseFloat(item.qty) || 1;
       let scaledNutrition = item.food.nutrition;
       if (item.food.nutrition) {
-        const factor = (newPortion / origPortion) * newQty;
+        const factor = _unitScaleFactor(origPortion, origUnit, newPortion, newUnit) * newQty;
         scaledNutrition = Object.fromEntries(
           Object.entries(item.food.nutrition).map(([k, v]) => [k, (parseFloat(v)||0) * factor])
         );
       }
-      meal = { ...meal, items: [...meal.items, { ...item.food, portion: newPortion * newQty, unit: item.unit, quantity: 1, nutrition: scaledNutrition }] };
+      meal = { ...meal, items: [...meal.items, { ...item.food, portion: newPortion * newQty, unit: newUnit, quantity: 1, nutrition: scaledNutrition }] };
     }
     if (isRecipe) autoUpdateRecipeAmount();
     showMultiPortionSheet = false;
@@ -320,12 +323,15 @@
     const newTotal   = newPortion * newQty;
 
     if (editingIndex !== null) {
-      // Editing existing item — rescale nutrition proportionally from current total
+      // Editing existing item — rescale nutrition from the saved per-unit
+      // values. item.portion/item.unit are the totals last saved here, so
+      // pass them through the unit-aware scaler against the new selection.
       const item = meal.items[editingIndex];
-      const oldTotal = (parseFloat(item.portion) || 100) * (parseFloat(item.quantity) || 1);
+      const oldPortion = (parseFloat(item.portion) || 100) * (parseFloat(item.quantity) || 1);
+      const oldUnit    = item.unit || 'g';
       let newNutrition = item.nutrition;
-      if (item.nutrition && oldTotal > 0) {
-        const factor = newTotal / oldTotal;
+      if (item.nutrition && oldPortion > 0) {
+        const factor = _unitScaleFactor(oldPortion, oldUnit, newTotal, portionUnit);
         newNutrition = Object.fromEntries(
           Object.entries(item.nutrition).map(([k, v]) => [k, (parseFloat(v)||0) * factor])
         );
@@ -337,9 +343,10 @@
     } else {
       // Adding new item
       const origPortion = parseFloat(portionFood.portion) || 100;
+      const origUnit    = portionFood.unit || 'g';
       let scaledNutrition = portionFood.nutrition;
       if (portionFood.nutrition) {
-        const factor = (newPortion / origPortion) * newQty;
+        const factor = _unitScaleFactor(origPortion, origUnit, newPortion, portionUnit) * newQty;
         scaledNutrition = Object.fromEntries(
           Object.entries(portionFood.nutrition).map(([k, v]) => [k, (parseFloat(v)||0) * factor])
         );
@@ -580,9 +587,9 @@
         <div style="display:flex;gap:10px;align-items:center">
           <input class="input" type="number" min="0.1" step="any"
             placeholder={$_('meal_editor.servings.amount_placeholder')} bind:value={recipeAmount} style="flex:1" />
-          <select class="input" bind:value={recipeUnit} style="width:100px">
-            {#each UNITS as u}<option value={u}>{u}</option>{/each}
-          </select>
+          <div style="width:100px">
+            <UnitPicker bind:value={recipeUnit} />
+          </div>
         </div>
         <p class="text-3" style="font-size:12px;margin:0">{$_('meal_editor.servings.total_weight_hint')}</p>
         <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
@@ -802,11 +809,9 @@
         <input class="input" type="number" min="0.1" step="0.1" bind:value={portionAmount}
           style="font-size:16px;width:100%" />
       </div>
-      <div style="width:80px">
+      <div style="width:100px">
         <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:6px">Unit</label>
-        <select class="select" bind:value={portionUnit} style="width:100%">
-          {#each UNITS as u}<option value={u}>{u}</option>{/each}
-        </select>
+        <UnitPicker bind:value={portionUnit} />
       </div>
     </div>
     <div>
@@ -834,11 +839,9 @@
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Serving Size</label>
             <input class="input" type="number" min="0.1" step="0.1" bind:value={item.portion} style="width:100%;font-size:16px" />
           </div>
-          <div style="width:80px">
+          <div style="width:100px">
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Unit</label>
-            <select class="select" bind:value={item.unit} style="width:100%">
-              {#each UNITS as u}<option value={u}>{u}</option>{/each}
-            </select>
+            <UnitPicker bind:value={item.unit} />
           </div>
           <div style="width:60px">
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Qty</label>

@@ -188,15 +188,16 @@ export const AI_MODELS = {
     { value: 'gpt-4o',      label: 'GPT-4o (smarter)'          },
   ],
   gemini: [
-    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (fast, cheap)' },
-    { value: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro (smarter)'       },
+    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (cheapest)' },
+    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (fast, cheap)'   },
+    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (smarter)'         },
   ],
 };
 
 export const AI_DEFAULT_MODELS = {
   claude: 'claude-haiku-4-5-20251001',
   openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.0-flash',
+  gemini: 'gemini-2.5-flash',
 };
 
 // ── Anthropic Claude (with tool use) ─────────────────────────────────────────
@@ -314,8 +315,19 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
 
 // ── Google Gemini (with function calling) ────────────────────────────────────
 
+// Models Google has shut down or scheduled for shutdown. Saved selections
+// pointing at any of these are quietly remapped to the current default so
+// users who never opened Settings don't suddenly start hitting 404 / quota=0
+// errors. The dropdown auto-migration in SettingsTrace handles the visible
+// case; this is the fallback for the no-visit path.
+const GEMINI_RETIRED = new Set([
+  'gemini-1.5-flash', 'gemini-1.5-pro',
+  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+]);
+
 async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall) {
-  const m = model || AI_DEFAULT_MODELS.gemini;
+  let m = model || AI_DEFAULT_MODELS.gemini;
+  if (GEMINI_RETIRED.has(m)) m = AI_DEFAULT_MODELS.gemini;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
   const geminiTools = (tools || []).length ? [{

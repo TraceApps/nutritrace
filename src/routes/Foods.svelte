@@ -9,6 +9,8 @@
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
   import Dialog      from '../components/ui/Dialog.svelte';
   import Sheet       from '../components/ui/Sheet.svelte';
+  import UnitPicker  from '../components/ui/UnitPicker.svelte';
+  import { scaleFactor as _unitScaleFactor } from '../lib/units.js';
   import { diaryPromptQuantity } from '../stores/settings.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
@@ -146,6 +148,23 @@
   let promptServings = 1;
   let promptPortion = 100;
   let promptUnit = 'g';
+
+  // Reactive nutrition preview for the qty prompt — recomputes whenever
+  // portion/unit/servings change so the macro pills above the "Add to
+  // Diary" button always reflect what the user is about to commit. Mirrors
+  // the editCalc pattern in Diary.svelte's edit sheet. Fixes #30.
+  $: qtyCalc = (() => {
+    if (!promptFood) return {};
+    const origPortion = parseFloat(promptFood.portion) || 100;
+    const origUnit    = promptFood.unit || 'g';
+    const newPortion  = parseFloat(promptPortion) || origPortion;
+    const factor      = _unitScaleFactor(origPortion, origUnit, newPortion, promptUnit || origUnit);
+    const scaledNutrition = promptFood.nutrition
+      ? Object.fromEntries(Object.entries(promptFood.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * factor]))
+      : promptFood.nutrition;
+    return Nutrition.calculate({ ...promptFood, nutrition: scaledNutrition, quantity: parseFloat(promptServings) || 1 });
+  })();
+  $: _qtyEnergy = Nutrition.displayEnergy(qtyCalc.calories || 0, $energyUnit);
   let activeCategoryFilter = ''; // '' = all
   let yesterdayMeals = []; // { mealIdx, mealName, items, totalKcal } — only in pick mode
   let yesterdayInfoGroup = null; // group whose detail sheet is currently open
@@ -457,8 +476,9 @@
     multiAdding = true;
     for (const item of multiPortionItems) {
       const origPortion = parseFloat(item.food.portion) || 100;
+      const origUnit    = item.food.unit || 'g';
       const newPortion  = parseFloat(item.portion) || origPortion;
-      const portionFactor = newPortion / origPortion;
+      const portionFactor = _unitScaleFactor(origPortion, origUnit, newPortion, item.unit || origUnit);
       const scaledNutrition = item.food.nutrition
         ? Object.fromEntries(Object.entries(item.food.nutrition).map(([k,v]) => [k, (parseFloat(v)||0) * portionFactor]))
         : item.food.nutrition;
@@ -473,11 +493,14 @@
 
   async function confirmQtyPrompt() {
     if (!promptFood) return;
-    const newPortion = parseFloat(promptPortion) || promptFood.portion || 100;
     const origPortion = parseFloat(promptFood.portion) || 100;
+    const origUnit    = promptFood.unit || 'g';
+    const newPortion  = parseFloat(promptPortion) || origPortion;
+    const newUnit     = promptUnit || origUnit;
 
-    // If portion changed (e.g. user is adding half the recipe), scale nutrition proportionally
-    const portionFactor = newPortion / origPortion;
+    // Scale by mass when both units are mass-convertible (g/oz/lb/ml/etc.),
+    // otherwise fall back to a pure portion ratio. See src/lib/units.js.
+    const portionFactor = _unitScaleFactor(origPortion, origUnit, newPortion, newUnit);
     const scaledNutrition = promptFood.nutrition ?
       Object.fromEntries(Object.entries(promptFood.nutrition).map(([k,v]) => [k, (parseFloat(v)||0) * portionFactor])) :
       promptFood.nutrition;
@@ -485,7 +508,7 @@
     const food = {
       ...promptFood,
       portion: newPortion,
-      unit: promptUnit || promptFood.unit || 'g',
+      unit: newUnit,
       nutrition: scaledNutrition
     };
     await _addFoodToDiary(food, parseFloat(promptServings) || 1);
@@ -1007,13 +1030,9 @@
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Serving Size</label>
             <input class="input" type="number" min="0.1" step="0.1" bind:value={item.portion} style="font-size:16px;width:100%" />
           </div>
-          <div style="width:80px">
+          <div style="width:100px">
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Unit</label>
-            <select class="select" bind:value={item.unit} style="width:100%">
-              {#each ['g','ml','oz','lb','cup','tbsp','tsp','piece','slice','serving'] as u}
-                <option value={u}>{u}</option>
-              {/each}
-            </select>
+            <UnitPicker bind:value={item.unit} />
           </div>
           <div style="width:72px">
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Servings</label>
@@ -1048,13 +1067,9 @@
         <input class="input" type="number" min="0.1" step="0.1" bind:value={promptPortion}
           style="font-size:16px;width:100%" />
       </div>
-      <div style="width:80px">
+      <div style="width:100px">
         <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:6px">Unit</label>
-        <select class="select" bind:value={promptUnit} style="width:100%">
-          {#each ['g','ml','oz','lb','cup','tbsp','tsp','piece','slice','serving'] as u}
-            <option value={u}>{u}</option>
-          {/each}
-        </select>
+        <UnitPicker bind:value={promptUnit} />
       </div>
     </div>
     <div>
@@ -1065,6 +1080,25 @@
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface-2);border-radius:var(--radius-md)">
       <span style="font-size:13px;color:var(--text-3)">Total Amount</span>
       <span style="font-size:14px;font-weight:500">{Math.round((parseFloat(promptPortion) || 100) * (parseFloat(promptServings) || 1) * 10) / 10}{promptUnit || 'g'}</span>
+    </div>
+    <!-- Live nutrition preview (#30) — recomputes with portion/unit/servings changes. -->
+    <div class="qty-macros">
+      <div class="qty-macro-pill">
+        <span class="qty-macro-val">{_qtyEnergy.value.toLocaleString()}</span>
+        <span class="qty-macro-label">{_qtyEnergy.unit}</span>
+      </div>
+      <div class="qty-macro-pill">
+        <span class="qty-macro-val">{Math.round((qtyCalc.proteins || 0) * 10) / 10}g</span>
+        <span class="qty-macro-label">protein</span>
+      </div>
+      <div class="qty-macro-pill">
+        <span class="qty-macro-val">{Math.round((qtyCalc.carbohydrates || 0) * 10) / 10}g</span>
+        <span class="qty-macro-label">carbs</span>
+      </div>
+      <div class="qty-macro-pill">
+        <span class="qty-macro-val">{Math.round((qtyCalc.fat || 0) * 10) / 10}g</span>
+        <span class="qty-macro-label">fat</span>
+      </div>
     </div>
     <button class="btn btn-primary w-full" on:click={confirmQtyPrompt}>Add to Diary</button>
   </div>
@@ -1187,6 +1221,23 @@
 />
 
 <style>
+  /* Live-preview macro pills inside the qty-prompt sheet (#30).
+     Mirrors the diary edit sheet's .edit-macro-pill styling. */
+  .qty-macros { display: flex; gap: 8px; flex-wrap: wrap; }
+  .qty-macro-pill {
+    flex: 1;
+    min-width: 60px;
+    background: var(--surface-2);
+    border-radius: var(--radius-md);
+    padding: 8px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .qty-macro-val   { font-size: 15px; font-weight: 700; color: var(--text-1); }
+  .qty-macro-label { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: .4px; }
+
   /* Meals tab section headers ("Yesterday's Meals" / "Saved Meals") — small uppercase
      label matching .section-title style, but as a clickable button with a chevron so
      users can collapse each section independently. */
@@ -1247,7 +1298,7 @@
     position: sticky;
     /* 62 + var(--hamburger-row): pins flush below header in both
        hamburger-visible (48) and pinned-sidebar (0) modes. */
-    top: calc(var(--page-top, var(--safe-top)) + 62px + var(--hamburger-row, 0px));
+    top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
     z-index: 20;
     background: var(--glass-surface);
     backdrop-filter: blur(20px) saturate(180%);

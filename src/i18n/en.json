@@ -167,7 +167,7 @@
     },
     "email":              { "section": "Email (SMTP)" },
     "backup":             { "section": "Backup & Restore" },
-    "nutritionImport":    { "section": "Import From Another App" },
+    "importExport":       { "section": "Import & Export" },
     "server":             { "section": "Server Connection" },
     "diagnostics":        { "section": "Diagnostics" },
     "about":              { "section": "About" }

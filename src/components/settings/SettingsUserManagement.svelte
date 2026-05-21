@@ -608,21 +608,16 @@
             <span class="setting-label">Session Duration</span>
             <div class="setting-desc">How long users stay signed in. Applies to new logins.</div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <div class="select-wrap" style="width:130px">
-              <select class="select sel-sm" bind:value={sessionHours}>
-                <option value="0">Never expires</option>
-                <option value="8">8 hours</option>
-                <option value="24">1 day</option>
-                <option value="168">7 days</option>
-                <option value="720">30 days</option>
-                <option value="2160">90 days</option>
-                <option value="8760">1 year</option>
-              </select>
-            </div>
-            <button class="btn btn-secondary" style="height:32px;font-size:12px;padding:0 12px;white-space:nowrap" on:click={saveSessionHours}>
-              {#if sessionSaved}<span class="material-symbols-rounded" style="font-size:14px">check</span>{:else}Save{/if}
-            </button>
+          <div class="select-wrap" style="width:130px">
+            <select class="select sel-sm" bind:value={sessionHours} on:change={saveSessionHours}>
+              <option value="0">Never expires</option>
+              <option value="8">8 hours</option>
+              <option value="24">1 day</option>
+              <option value="168">7 days</option>
+              <option value="720">30 days</option>
+              <option value="2160">90 days</option>
+              <option value="8760">1 year</option>
+            </select>
           </div>
         </div>
 

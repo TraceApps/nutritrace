@@ -14,6 +14,7 @@
   import SettingsAuth from '../components/settings/SettingsAuth.svelte';
   import SettingsApiTokens from '../components/settings/SettingsApiTokens.svelte';
   import SettingsBackup from '../components/settings/SettingsBackup.svelte';
+  import SettingsImportExport from '../components/settings/SettingsImportExport.svelte';
   import SettingsNutritionImport from '../components/settings/SettingsNutritionImport.svelte';
   import { APP_VERSION } from '../lib/version.js';
   import Sheet  from '../components/ui/Sheet.svelte';
@@ -32,7 +33,7 @@
     diaryShowNutritionBar,
     foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsShowThumbnails, foodsShowYesterdayMeals, foodsSort, mealsSort, recipesSort,
     barcodeBeep, barcodeFlashlight, cropPhotos,
-    foodCategories, visibleNutriments, nutrimentsOrder, customNutriments,
+    foodCategories, customUnits, visibleNutriments, nutrimentsOrder, customNutriments,
     bodyStatsOrder, hiddenBodyStats,
     dateFormat, timeFormat,
     sidebarPersistent, goalCelebrations, pageBanners, language,
@@ -47,6 +48,8 @@
   import { DB } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { NUTRIMENTS } from '../lib/nutrition.js';
+  import { UNIT_GROUPS } from '../lib/units.js';
+  import ConnectionStatus from '../components/settings/ConnectionStatus.svelte';
   import { currentUser, userMgmtActive, serverFeatures } from '../stores/auth.js';
   import { isNative, getServerUrl, setServerUrl, setNativeMode, getNativeMode, setAuthToken, apiUrl, getAuthToken, resolveAssetUrl, explainConnectError } from '../lib/platform.js';
   import { _ } from 'svelte-i18n';
@@ -67,9 +70,9 @@
   // ── Collapsible section state ──────────────────────────────────────────────
   $: isDark = $appearance === 'dark' || ($appearance === 'system' && (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches));
   let openSections = { serverConnection: false, appearance: false, regional: false, diary: false, foods: false, water: false,
-                       categories: false, nutrients: false, goals: false, bodyStats: false, statistics: false,
+                       categories: false, customUnits: false, nutrients: false, goals: false, bodyStats: false, statistics: false,
                        connectedServices: false, ai: false, notifications: false, wellness: false, sharing: false,
-                       authentication: false, apiTokens: false, backup: false, nutritionImport: false, email: false, users: false, helpImprove: false, about: false };
+                       authentication: false, apiTokens: false, backup: false, importExport: false, email: false, users: false, helpImprove: false, about: false };
 
   // ── Sync state + manual trigger ────────────────────────────────────────
   // Native server mode only. lastSyncAt comes from sync_meta on mount and is
@@ -308,6 +311,7 @@
     foods:             ['foods','thumbnails','category','notes','yesterday meals','sort order','sort','barcode','scan','beep','flashlight','crop photos'],
     water:             ['water','display unit','daily goal','containers','bottle','cup','glass'],
     categories:        ['categories','food categories','tags','labels'],
+    customUnits:       ['units','custom units','unit dropdown','shot','scoop','stick','add unit'],
     nutrients:         ['nutrients','nutriments','custom nutrients','vitamins','minerals'],
     goals:             ['goals','calorie goal','dynamic calorie','adaptive','adaptive tdee','adaptive calorie','tdee','energy expenditure','burn','calories out','factor','lose','gain','maintain','activity','exercise','weight trend','macrofactor','learn','fixed'],
     bodyStats:         ['body stats','body','weight','measurements','stats'],
@@ -317,8 +321,8 @@
     notifications:     ['notifications','reminders','water reminder','meal reminder','weigh-in','weigh in','gotify','apprise','ntfy','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
     wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress'],
     sharing:           ['sharing','share','group','catalogue','catalog','visibility','private','members','food sharing'],
-    backup:            ['backup','export','import','restore','csv','clear data','json','full backup','images','zip','reset','defaults','clear settings','danger zone'],
-    nutritionImport:   ['import','nutrition import','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','csv','migrate','migration','from another app'],
+    backup:            ['backup','full backup','restore','zip','images','clear data','reset','defaults','clear settings','danger zone'],
+    importExport:      ['import','export','import & export','json','csv','bulk import','foods bulk','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','migrate','migration','from another app','diary csv'],
     email:             ['email','smtp','mail','password reset','invites','notifications'],
     profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','avatar','log out','logout','sign out','password','change password','biometric','fingerprint','face unlock','face id'],
     users:             ['users','user management','accounts','login','admin','register','invite','revoke','pending invite','session','session duration','password policy','strong password','strong passwords','require strong','zxcvbn'],
@@ -352,7 +356,7 @@
     { value: 'cyan',   label: 'Cyan',   dark: '#80DEEA', light: '#0097A7' },
   ];
   const APPEARANCE_OPTS = [
-    { value: 'system', label: 'System default' },
+    { value: 'system', label: 'System Default' },
     { value: 'dark',   label: 'Dark'           },
     { value: 'light',  label: 'Light'          },
   ];
@@ -540,9 +544,19 @@
   let mealieBaseUrl    = DB.getSetting('mealieBaseUrl',   '');
   let mealieApiToken   = DB.getSetting('mealieApiToken',  '');
   let mealieShowToken  = false;
-  let mealieTestStatus = ''; // '', 'testing', 'ok', 'fail'
+  let mealieTestStatus = ''; // '', 'testing', 'ok', 'fail' — raw test result
+  // Banner status: show "ok" as soon as both fields are populated so users
+  // see the connection card immediately. Real test result overrides on
+  // testing/fail. Same shape AI Assistant uses for its banner.
+  $: mealieBannerStatus = (mealieTestStatus === 'testing' || mealieTestStatus === 'fail')
+    ? mealieTestStatus
+    : (mealieBaseUrl && mealieApiToken ? 'ok' : '');
   async function testMealieConnection() {
-    if (!mealieBaseUrl || !mealieApiToken) { mealieTestStatus = 'fail'; return; }
+    if (!mealieBaseUrl || !mealieApiToken) {
+      mealieTestStatus = 'fail';
+      showError('Mealie test failed: URL and token both required');
+      return;
+    }
     mealieTestStatus = 'testing';
     try {
       // POST goes through the server's CSRF middleware; raw fetch needs the
@@ -566,8 +580,19 @@
           path:    '/api/recipes?perPage=1&page=1',
         }),
       });
-      mealieTestStatus = res.ok ? 'ok' : 'fail';
-    } catch { mealieTestStatus = 'fail'; }
+      if (res.ok) {
+        mealieTestStatus = 'ok';
+        showSuccess('Mealie connection verified');
+      } else {
+        mealieTestStatus = 'fail';
+        let detail = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) detail = j.error; } catch {}
+        showError(`Mealie test failed: ${detail}`);
+      }
+    } catch (e) {
+      mealieTestStatus = 'fail';
+      showError(`Mealie test failed: ${e?.message || 'network error'}`);
+    }
   }
 
   // ── Wellness ── (extracted to SettingsWellness.svelte)
@@ -657,6 +682,27 @@
   function removeCategory(cat) {
     const n = _catName(cat);
     foodCategories.set((get(foodCategories) || []).filter(c => _catName(c) !== n));
+  }
+
+  // ── Custom units ──────────────────────────────────────────────────────────
+  let newUnitAbbr = '';
+  let newUnitFull = '';
+
+  function addCustomUnit() {
+    const abbr = newUnitAbbr.trim();
+    const full = newUnitFull.trim() || abbr;
+    if (!abbr) return;
+    const existing = get(customUnits) || [];
+    // Dedup by abbr against both existing customs and the built-in catalog.
+    const builtIn = new Set(UNIT_GROUPS.flatMap(g => g.units.map(u => u.abbr.toLowerCase())));
+    if (builtIn.has(abbr.toLowerCase())) return; // already in catalog
+    if (existing.some(c => c.abbr.toLowerCase() === abbr.toLowerCase())) return;
+    customUnits.set([...existing, { abbr, full }]);
+    newUnitAbbr = '';
+    newUnitFull = '';
+  }
+  function removeCustomUnit(unit) {
+    customUnits.set((get(customUnits) || []).filter(c => c.abbr !== unit.abbr));
   }
 
   // ── Custom nutrients ───────────────────────────────────────────────────────
@@ -991,6 +1037,16 @@
       smtpUser   = cfg.smtp_user   || '';
       smtpPass   = cfg.smtp_pass   || '';
       smtpFrom   = cfg.smtp_from   || '';
+      // Seed the auto-save baseline so a blur right after load doesn't
+      // re-PUT the same values.
+      _lastSavedSmtp = {
+        host: smtpHost, port: String(smtpPort), secure: String(smtpSecure),
+        user: smtpUser, pass: smtpPass, from: smtpFrom,
+      };
+      // Arm auto-save ONLY after the baseline is seeded. Without this,
+      // any blur fired during the empty-initial-render window would
+      // PUT blank values and wipe the server config.
+      _smtpLoaded = true;
     } catch {}
   }
 
@@ -1002,30 +1058,54 @@
     }).catch(() => {});
   }
 
-  let smtpSaving = false;
-  let smtpSaved  = false;
-  async function saveSmtp() {
-    smtpSaving = true;
-    try {
-      await saveSmtpField('smtp_host',   smtpHost);
-      await saveSmtpField('smtp_port',   smtpPort);
-      await saveSmtpField('smtp_secure', String(smtpSecure));
-      await saveSmtpField('smtp_user',   smtpUser);
-      await saveSmtpField('smtp_pass',   smtpPass);
-      await saveSmtpField('smtp_from',   smtpFrom);
-      smtpSaved = true;
-      setTimeout(() => smtpSaved = false, 2000);
-    } finally {
-      smtpSaving = false;
-    }
-  }
+  // Per-field auto-save guards. Two layers of protection:
+  //   1. `_smtpLoaded` is false until loadSmtpConfig has fully populated
+  //      the bound vars and seeded the baseline. NO auto-save may fire
+  //      before that, otherwise an empty initial blur could overwrite
+  //      the server's real config with blanks (which is exactly what
+  //      bit a user in the field — public-release regression risk).
+  //   2. Same-value short-circuit so a tab-through without an edit
+  //      doesn't burn a PUT either.
+  let _smtpLoaded = false;
+  let _lastSavedSmtp = { host:'', port:'', secure:'', user:'', pass:'', from:'' };
+  async function saveSmtpHost()   { if (!_smtpLoaded || smtpHost === _lastSavedSmtp.host) return; _lastSavedSmtp.host = smtpHost; await saveSmtpField('smtp_host', smtpHost); }
+  async function saveSmtpPort()   { if (!_smtpLoaded) return; const v = String(smtpPort); if (v === _lastSavedSmtp.port) return; _lastSavedSmtp.port = v; await saveSmtpField('smtp_port', smtpPort); }
+  async function saveSmtpSecure() { if (!_smtpLoaded) return; const v = String(smtpSecure); if (v === _lastSavedSmtp.secure) return; _lastSavedSmtp.secure = v; await saveSmtpField('smtp_secure', v); }
+  async function saveSmtpUser()   { if (!_smtpLoaded || smtpUser === _lastSavedSmtp.user) return; _lastSavedSmtp.user = smtpUser; await saveSmtpField('smtp_user', smtpUser); }
+  async function saveSmtpPass()   { if (!_smtpLoaded || smtpPass === _lastSavedSmtp.pass) return; _lastSavedSmtp.pass = smtpPass; await saveSmtpField('smtp_pass', smtpPass); }
+  async function saveSmtpFrom()   { if (!_smtpLoaded || smtpFrom === _lastSavedSmtp.from) return; _lastSavedSmtp.from = smtpFrom; await saveSmtpField('smtp_from', smtpFrom); }
+
+  // Banner-friendly reactive status. 'ok' just means "host + from are set
+  // and the most recent test didn't fail". A real verification still
+  // requires the Test button (the test endpoint actually sends an email).
+  $: smtpBannerStatus = smtpTestStatus === 'testing' || smtpTestStatus === 'fail'
+    ? smtpTestStatus
+    : (smtpHost && smtpFrom ? 'ok' : '');
+  // SMTP is fire-and-forget, not a persistent connection — be honest about
+  // what the banner actually means. Default label is "Configured" (creds
+  // entered, never verified). After a successful test it flips to
+  // "Last test sent" with the test acting as the recency proof.
+  $: smtpBannerLabel    = smtpTestStatus === 'ok' ? 'Last test sent' : 'Configured';
+  $: smtpBannerSubtext  = smtpTestStatus === 'ok' ? 'Use Send Test again any time to re-verify' : 'No test has been sent yet';
 
   async function testSmtp() {
+    if (!smtpHost) { smtpTestStatus = 'fail'; showError('SMTP test failed: host required'); return; }
     smtpTestStatus = 'testing';
     try {
       const res = await fetch(apiUrl('/api/app-config/test-email'), { method: 'POST', ..._fetchOpts() });
-      smtpTestStatus = res.ok ? 'ok' : 'fail';
-    } catch { smtpTestStatus = 'fail'; }
+      if (res.ok) {
+        smtpTestStatus = 'ok';
+        showSuccess('SMTP test email sent, check your inbox');
+      } else {
+        smtpTestStatus = 'fail';
+        let detail = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) detail = j.error; } catch {}
+        showError(`SMTP test failed: ${detail}`);
+      }
+    } catch (e) {
+      smtpTestStatus = 'fail';
+      showError(`SMTP test failed: ${e?.message || 'network error'}`);
+    }
   }
 
   $: if (openSections.email && $currentUser?.role === 'admin') loadSmtpConfig();
@@ -1244,12 +1324,54 @@
 
   // ── Explicit credential saves ──────────────────────────────────────────────
   let usdaSaved   = false;
+  let usdaTestStatus = ''; // '', 'testing', 'ok', 'fail'
+  $: usdaBannerStatus = (usdaTestStatus === 'testing' || usdaTestStatus === 'fail')
+    ? usdaTestStatus
+    : (usdaApiKey ? 'ok' : '');
+  async function testUsdaConnection() {
+    if (!usdaApiKey) { usdaTestStatus = 'fail'; showError('USDA test failed: API key required'); return; }
+    usdaTestStatus = 'testing';
+    try {
+      // Direct call — USDA's FoodData Central API has open CORS, so the
+      // browser can hit it without a server proxy. A 1-result probe query
+      // is enough to verify the key.
+      const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(usdaApiKey)}&query=apple&pageSize=1`;
+      const res = await fetch(url);
+      if (res.ok) {
+        usdaTestStatus = 'ok';
+        showSuccess('USDA API key verified');
+      } else {
+        usdaTestStatus = 'fail';
+        let detail = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error?.message) detail = j.error.message; } catch {}
+        showError(`USDA test failed: ${detail}`);
+      }
+    } catch (e) {
+      usdaTestStatus = 'fail';
+      showError(`USDA test failed: ${e?.message || 'network error'}`);
+    }
+  }
   let offSaved    = false;
   let mealieSaved = false;
 
-  function saveUsda()   { set('usdaApiKey', usdaApiKey);   usdaSaved = true;   setTimeout(() => usdaSaved   = false, 2000); }
+  function saveUsda() {
+    set('usdaApiKey', usdaApiKey);
+    usdaSaved = true;
+    setTimeout(() => usdaSaved = false, 2000);
+    if (usdaApiKey && usdaTestStatus !== 'testing') testUsdaConnection();
+  }
   function saveOff()    { set('offUsername', offUsername); set('offPassword', offPassword); offSaved = true; setTimeout(() => offSaved = false, 2000); }
-  function saveMealie() { set('mealieBaseUrl', mealieBaseUrl); set('mealieApiToken', mealieApiToken); mealieSaved = true; setTimeout(() => mealieSaved = false, 2000); }
+  function saveMealie() {
+    set('mealieBaseUrl', mealieBaseUrl);
+    set('mealieApiToken', mealieApiToken);
+    mealieSaved = true;
+    setTimeout(() => mealieSaved = false, 2000);
+    // Auto-test on save if both fields are filled. Mirrors the AI
+    // Assistant's save+test combined flow so the banner stays honest.
+    if (mealieBaseUrl && mealieApiToken && mealieTestStatus !== 'testing') {
+      testMealieConnection();
+    }
+  }
 
   // ── Env-lock state — which admin sections are locked by environment vars ───
   let envLocks = { smtp: false, ai: false };
@@ -1287,20 +1409,28 @@
 </script>
 
 <div class="page-shell">
-  <header class="page-header" class:has-banner={$pageBanners}>
-    {#if $pageBanners}<SettingsBanner />{/if}
-    <h1>{$_('routes.settings.title')}</h1>
-  </header>
+  <!-- Header + search bar share one sticky container so the search row
+       stays flush with the header in BOTH compact and banner-on modes.
+       The brittle `top: calc(... + 62px + hamburger-row)` pattern bred
+       a 2px gap when the compact header was shorter than the offset
+       assumed. Pinning them together as one unit removes the whole
+       class of header-height vs sub-bar-top mismatch bugs. -->
+  <div class="settings-sticky-top">
+    <header class="page-header" class:has-banner={$pageBanners}>
+      {#if $pageBanners}<SettingsBanner />{/if}
+      <h1>{$_('routes.settings.title')}</h1>
+    </header>
 
-  <div class="settings-search-bar">
-    <span class="material-symbols-rounded settings-search-icon">search</span>
-    <input class="settings-search-input" type="search" placeholder="Search settings…"
-      bind:value={settingsSearch} />
-    {#if settingsSearch}
-      <button class="settings-search-clear btn-icon" on:click={() => settingsSearch = ''} title="Clear search">
-        <span class="material-symbols-rounded" style="font-size:18px">close</span>
-      </button>
-    {/if}
+    <div class="settings-search-bar">
+      <span class="material-symbols-rounded settings-search-icon">search</span>
+      <input class="settings-search-input" type="search" placeholder="Search settings…"
+        bind:value={settingsSearch} />
+      {#if settingsSearch}
+        <button class="settings-search-clear btn-icon" on:click={() => settingsSearch = ''} title="Clear search">
+          <span class="material-symbols-rounded" style="font-size:18px">close</span>
+        </button>
+      {/if}
+    </div>
   </div>
 
   <div class="page-content settings-content">
@@ -2152,6 +2282,56 @@
     {/if}
 
 
+    <!-- ── Custom Units ───────────────────────────────────────────────────── -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'customUnits')} on:click={() => toggleSection('customUnits')}>
+      <span class="material-symbols-rounded si">straighten</span>
+      <span>Custom Units</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.customUnits}>expand_more</span>
+    </button>
+    {#if sectionOpen(openSections, settingsQuery, 'customUnits') && sectionVisible(settingsQuery, 'customUnits')}
+      <div class="section-body" transition:slide={{ duration: 180 }}>
+        <div class="card settings-card">
+          <div style="padding:12px 16px 0">
+            <p class="setting-desc" style="margin:0 0 10px">
+              Add units that aren't in the built-in catalog (e.g. "shot", "scoop", "stick"). Custom units appear under "Custom" at the top of the unit dropdown when adding foods.
+            </p>
+            <p class="setting-desc" style="margin:0 0 12px;color:var(--warning, #d49a2b)">
+              <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
+              Custom units do not convert by mass. Picking one falls back to a pure portion-ratio scale (1 unit → 2 units = 2× nutrition), since "shot" or "scoop" has no fixed gram weight.
+            </p>
+          </div>
+          <div class="cat-chips-wrap" style="padding:0 16px 12px">
+            {#each ($customUnits || []) as u}
+              <div class="chip">
+                {u.full} <span style="color:var(--text-3);font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin-left:6px">{u.abbr}</span>
+                <button class="chip-x" on:click={() => removeCustomUnit(u)} aria-label="Remove">
+                  <span class="material-symbols-rounded" style="font-size:14px">close</span>
+                </button>
+              </div>
+            {/each}
+            {#if (!$customUnits || $customUnits.length === 0)}
+              <span class="text-3 text-sm">No custom units yet</span>
+            {/if}
+          </div>
+          <div class="setting-divider"></div>
+          <div class="cat-add-row">
+            <div style="display:flex;flex-direction:column;gap:3px;width:80px">
+              <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">Abbr *</span>
+              <input class="input" style="height:40px" placeholder="shot"
+                bind:value={newUnitAbbr} on:keydown={e => e.key==='Enter' && addCustomUnit()} />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+              <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">Full name</span>
+              <input class="input" style="height:40px" placeholder="shot glass"
+                bind:value={newUnitFull} on:keydown={e => e.key==='Enter' && addCustomUnit()} />
+            </div>
+            <button class="btn btn-secondary" style="height:40px;padding:0 16px;align-self:flex-end" on:click={addCustomUnit}>Add</button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+
     <p class="settings-group-label">Integrations</p>
     <!-- ── Food Sources ───────────────────────────────────────────────────── -->
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'connectedServices')} on:click={() => toggleSection('connectedServices')}>
@@ -2245,6 +2425,14 @@
 
         <p class="sub-label">USDA FoodData Central</p>
         <div class="card settings-card">
+          {#if usdaEnabled}
+            <ConnectionStatus
+              status={usdaBannerStatus}
+              error={usdaTestStatus === 'fail' ? 'Check API key' : ''}
+              onRetest={() => testUsdaConnection()}
+              retestDisabled={usdaTestStatus === 'testing' || !usdaApiKey}
+            />
+          {/if}
           <div class="setting-row">
             <div>
               <span class="setting-label">Enable USDA FoodData</span>
@@ -2259,18 +2447,25 @@
             <div class="setting-divider"></div>
             <div class="form-group" style="padding:10px 16px 14px">
               <label class="form-label" for="usda-key">API Key</label>
-              <div style="display:flex;gap:8px;align-items:center">
-                <input id="usda-key" class="input" style="flex:1" placeholder="Paste your USDA API key here" bind:value={usdaApiKey} />
-                <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={saveUsda}>
-                  {#if usdaSaved}<span class="material-symbols-rounded" style="font-size:16px">check</span>{:else}Save{/if}
-                </button>
-              </div>
+              <input id="usda-key" class="input" type="text"
+                placeholder="Paste your USDA API key here"
+                bind:value={usdaApiKey}
+                on:blur={saveUsda}
+                autocomplete="off" style="width:100%" />
             </div>
           {/if}
         </div>
 
         <p class="sub-label">Mealie</p>
         <div class="card settings-card">
+          {#if mealieEnabled}
+            <ConnectionStatus
+              status={mealieBannerStatus}
+              error={mealieTestStatus === 'fail' ? 'Check URL and token' : ''}
+              onRetest={() => testMealieConnection()}
+              retestDisabled={mealieTestStatus === 'testing' || !mealieBaseUrl || !mealieApiToken}
+            />
+          {/if}
           <div class="setting-row">
             <div>
               <span class="setting-label">Enable Mealie</span>
@@ -2280,54 +2475,34 @@
           </div>
           {#if mealieEnabled}
             <div class="setting-divider"></div>
-            <div class="setting-row">
-              <span class="setting-label">Base URL</span>
-              <input class="input" style="width:200px;text-align:right"
+            <div class="form-group" style="padding:10px 16px">
+              <label class="form-label" for="mealie-base-url">Base URL</label>
+              <input id="mealie-base-url" class="input" type="url"
                 placeholder="https://mealie.example.com"
-                bind:value={mealieBaseUrl} />
+                bind:value={mealieBaseUrl}
+                on:blur={saveMealie}
+                style="width:100%" />
             </div>
             <div class="setting-divider"></div>
-            <div class="setting-row">
-              <span class="setting-label">API Token</span>
-              <div style="display:flex;align-items:center;gap:6px">
+            <div class="form-group" style="padding:10px 16px">
+              <label class="form-label" for="mealie-api-token">API Token</label>
+              <div style="display:flex;gap:8px;align-items:center">
                 {#if mealieShowToken}
-                  <input class="input" style="width:160px;text-align:right"
-                    type="text" placeholder="Bearer token"
-                    bind:value={mealieApiToken} />
+                  <input id="mealie-api-token" class="input" type="text"
+                    placeholder="Bearer token"
+                    bind:value={mealieApiToken}
+                    on:blur={saveMealie}
+                    autocomplete="off" style="flex:1" />
                 {:else}
-                  <input class="input" style="width:160px;text-align:right"
-                    type="password" placeholder="Bearer token"
-                    bind:value={mealieApiToken} />
+                  <input id="mealie-api-token" class="input" type="password"
+                    placeholder="Bearer token"
+                    bind:value={mealieApiToken}
+                    on:blur={saveMealie}
+                    autocomplete="off" style="flex:1" />
                 {/if}
                 <button class="btn-icon" on:click={() => mealieShowToken = !mealieShowToken}
                   title={mealieShowToken ? 'Hide' : 'Show'}>
-                  <span class="material-symbols-rounded" style="font-size:18px">{mealieShowToken ? 'visibility_off' : 'visibility'}</span>
-                </button>
-              </div>
-            </div>
-            <div class="setting-divider"></div>
-            <div class="setting-row">
-              <span class="setting-label">Connection</span>
-              <div style="display:flex;align-items:center;gap:8px">
-                {#if mealieTestStatus === 'ok'}
-                  <span style="color:var(--macro-carbs);font-size:13px;display:flex;align-items:center;gap:4px">
-                    <span class="material-symbols-rounded" style="font-size:16px">check_circle</span>Connected
-                  </span>
-                {:else if mealieTestStatus === 'fail'}
-                  <span style="color:#FF7070;font-size:13px;display:flex;align-items:center;gap:4px">
-                    <span class="material-symbols-rounded" style="font-size:16px">error</span>Failed
-                  </span>
-                {:else if mealieTestStatus === 'testing'}
-                  <span style="color:var(--text-2);font-size:13px">Testing…</span>
-                {/if}
-                <button class="btn btn-primary" style="padding:6px 14px;font-size:13px;height:32px"
-                  on:click={saveMealie}>
-                  {#if mealieSaved}<span class="material-symbols-rounded" style="font-size:16px">check</span>{:else}Save{/if}
-                </button>
-                <button class="btn btn-secondary" style="padding:6px 14px;font-size:13px;height:32px"
-                  on:click={testMealieConnection}
-                  disabled={!mealieBaseUrl || !mealieApiToken || mealieTestStatus === 'testing'}>
-                  Test
+                  <span class="material-symbols-rounded">{mealieShowToken ? 'visibility_off' : 'visibility'}</span>
                 </button>
               </div>
             </div>
@@ -2465,17 +2640,20 @@
       <SettingsBackup bind:this={backupRef} />
     {/if}
 
-    <!-- ── Nutrition Import (from MFP / LoseIt / Cronometer / spreadsheet) ── -->
-    <!-- Hidden in native standalone (no server to receive the upload). -->
-    {#if !isNativeLocal}
-    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'nutritionImport')} on:click={() => toggleSection('nutritionImport')}>
-      <span class="material-symbols-rounded si">file_upload</span>
-      <span>{$_('settings.nutritionImport.section')}</span>
-      <span class="material-symbols-rounded chevron" class:rotated={openSections.nutritionImport}>expand_more</span>
+    <!-- ── Import & Export ─────────────────────────────────────────────────── -->
+    <!-- Holds the lightweight per-dataset import/export rows (JSON backup,
+         Bulk Import Foods, Diary CSV) plus the MFP/Cronometer/LoseIt
+         importer. Full-account snapshots live in the Backup section above. -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'importExport')} on:click={() => toggleSection('importExport')}>
+      <span class="material-symbols-rounded si">import_export</span>
+      <span>{$_('settings.importExport.section')}</span>
+      <span class="material-symbols-rounded chevron" class:rotated={openSections.importExport}>expand_more</span>
     </button>
-    {#if sectionOpen(openSections, settingsQuery, 'nutritionImport') && sectionVisible(settingsQuery, 'nutritionImport')}
-      <SettingsNutritionImport />
-    {/if}
+    {#if sectionOpen(openSections, settingsQuery, 'importExport') && sectionVisible(settingsQuery, 'importExport')}
+      <SettingsImportExport />
+      {#if !isNativeLocal}
+        <SettingsNutritionImport />
+      {/if}
     {/if}
 
     <!-- Users / Authentication / Email moved to the Admin group below Diagnostics. -->
@@ -2652,70 +2830,60 @@
             Configured via environment variables — changes are disabled.
           </div>
         {/if}
-        <div class="card settings-card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
-          <div class="form-group">
-            <label class="form-label">SMTP Host</label>
-            <input class="input" type="text" placeholder="e.g. smtp.example.com"
-              bind:value={smtpHost} disabled={envLocks.smtp} />
-          </div>
-          <div style="display:flex;gap:10px">
-            <div class="form-group" style="flex:1">
-              <label class="form-label">Port</label>
-              <input class="input" type="number" placeholder="587"
-                bind:value={smtpPort} disabled={envLocks.smtp} />
+        <div class="card settings-card">
+          {#if !envLocks.smtp}
+            <ConnectionStatus
+              status={smtpBannerStatus}
+              okLabel={smtpBannerLabel}
+              subtext={smtpBannerSubtext}
+              error={smtpTestStatus === 'fail' ? 'Check host, credentials, and from address' : ''}
+              onRetest={() => testSmtp()}
+              retestDisabled={smtpTestStatus === 'testing' || !smtpHost}
+              retestLabel="Send Test"
+            />
+          {/if}
+          <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+            <div class="form-group">
+              <label class="form-label">SMTP Host</label>
+              <input class="input" type="text" placeholder="e.g. smtp.example.com"
+                bind:value={smtpHost} on:blur={saveSmtpHost} disabled={envLocks.smtp} />
             </div>
-            <div class="form-group" style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end;padding-bottom:2px">
-              <label class="form-label">TLS</label>
-              <Toggle checked={smtpSecure} on:change={e => smtpSecure = e.detail} disabled={envLocks.smtp} />
+            <div style="display:flex;gap:10px">
+              <div class="form-group" style="flex:1">
+                <label class="form-label">Port</label>
+                <input class="input" type="number" placeholder="587"
+                  bind:value={smtpPort} on:blur={saveSmtpPort} disabled={envLocks.smtp} />
+              </div>
+              <div class="form-group" style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end;padding-bottom:2px">
+                <label class="form-label">TLS</label>
+                <Toggle checked={smtpSecure} on:change={e => { smtpSecure = e.detail; saveSmtpSecure(); }} disabled={envLocks.smtp} />
+              </div>
             </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Username</label>
-            <input class="input" type="text" autocomplete="off" placeholder="SMTP username or email"
-              bind:value={smtpUser} disabled={envLocks.smtp} />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Password</label>
-            <div style="display:flex;gap:8px;align-items:center">
-              {#if smtpShowPass}
-                <input class="input" style="flex:1" type="text" autocomplete="new-password" placeholder="SMTP password or app password"
-                  bind:value={smtpPass} disabled={envLocks.smtp} />
-              {:else}
-                <input class="input" style="flex:1" type="password" autocomplete="new-password" placeholder="SMTP password or app password"
-                  bind:value={smtpPass} disabled={envLocks.smtp} />
-              {/if}
-              <button class="btn-icon" on:click={() => smtpShowPass = !smtpShowPass} title={smtpShowPass ? 'Hide' : 'Show'}>
-                <span class="material-symbols-rounded">{smtpShowPass ? 'visibility_off' : 'visibility'}</span>
-              </button>
+            <div class="form-group">
+              <label class="form-label">Username</label>
+              <input class="input" type="text" autocomplete="off" placeholder="SMTP username or email"
+                bind:value={smtpUser} on:blur={saveSmtpUser} disabled={envLocks.smtp} />
             </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">From Address</label>
-            <input class="input" type="email" placeholder='NutriTrace <noreply@example.com>'
-              bind:value={smtpFrom} disabled={envLocks.smtp} />
-          </div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <button class="btn btn-primary" style="height:36px;font-size:13px"
-              on:click={saveSmtp} disabled={smtpSaving || envLocks.smtp}>
-              {#if smtpSaved}
-                <span class="material-symbols-rounded" style="font-size:16px">check</span> Saved
-              {:else}
-                {smtpSaving ? 'Saving…' : 'Save'}
-              {/if}
-            </button>
-            <button class="btn btn-secondary" style="height:36px;font-size:13px"
-              on:click={testSmtp} disabled={!smtpHost || smtpTestStatus === 'testing'}>
-              {smtpTestStatus === 'testing' ? 'Testing…' : 'Test'}
-            </button>
-            {#if smtpTestStatus === 'ok'}
-              <span style="color:var(--macro-carbs);font-size:13px;display:flex;align-items:center;gap:4px">
-                <span class="material-symbols-rounded" style="font-size:16px">check_circle</span>Connected
-              </span>
-            {:else if smtpTestStatus === 'fail'}
-              <span style="color:var(--danger);font-size:13px;display:flex;align-items:center;gap:4px">
-                <span class="material-symbols-rounded" style="font-size:16px">error</span>Failed
-              </span>
-            {/if}
+            <div class="form-group">
+              <label class="form-label">Password</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                {#if smtpShowPass}
+                  <input class="input" style="flex:1" type="text" autocomplete="new-password" placeholder="SMTP password or app password"
+                    bind:value={smtpPass} on:blur={saveSmtpPass} disabled={envLocks.smtp} />
+                {:else}
+                  <input class="input" style="flex:1" type="password" autocomplete="new-password" placeholder="SMTP password or app password"
+                    bind:value={smtpPass} on:blur={saveSmtpPass} disabled={envLocks.smtp} />
+                {/if}
+                <button class="btn-icon" on:click={() => smtpShowPass = !smtpShowPass} title={smtpShowPass ? 'Hide' : 'Show'}>
+                  <span class="material-symbols-rounded">{smtpShowPass ? 'visibility_off' : 'visibility'}</span>
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">From Address</label>
+              <input class="input" type="email" placeholder='NutriTrace <noreply@example.com>'
+                bind:value={smtpFrom} on:blur={saveSmtpFrom} disabled={envLocks.smtp} />
+            </div>
           </div>
         </div>
       </div>
@@ -3082,14 +3250,20 @@
   .settings-content { display: flex; flex-direction: column; gap: 0; }
   .hidden { display: none !important; }
 
-  /* Settings search bar */
-  .settings-search-bar {
+  /* Settings header + search bar pinned together. Single sticky-top wrapper
+     is more reliable than two separate sticky elements with computed offsets.
+     The nested .page-header switches to static so it doesn't double-stick
+     inside this container. */
+  .settings-sticky-top {
     position: sticky;
-    /* page-top + 10 (top inset) + var(--hamburger-row) + 40 (h1) + 12 (pad-bot)
-       = 62 + hamburger-row. Persistent-sidebar mode sets --hamburger-row to 0
-       so the search bar pins flush against the (shorter) header. */
-    top: calc(var(--page-top, var(--safe-top)) + 62px + var(--hamburger-row, 0px));
+    top: 0;
     z-index: 20;
+    background: var(--bg);
+  }
+  .settings-sticky-top :global(.page-header) {
+    position: static;
+  }
+  .settings-search-bar {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3098,10 +3272,6 @@
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     border-bottom: 1px solid var(--border);
-  }
-  /* With banner: pad-bot is 72 instead of 12 → 122 + hamburger-row */
-  :global(.page-header.has-banner) + .settings-search-bar {
-    top: calc(var(--page-top, var(--safe-top)) + 122px + var(--hamburger-row, 0px));
   }
   .settings-search-icon { font-size: 20px; color: var(--text-3); flex-shrink: 0; }
   .settings-search-input {

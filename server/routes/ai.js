@@ -51,8 +51,16 @@ router.delete('/history', requireAuth, wrap((req, res) => {
 const AI_DEFAULT_MODELS = {
   claude: 'claude-haiku-4-5-20251001',
   openai: 'gpt-4o-mini',
-  gemini: 'gemini-1.5-flash',
+  gemini: 'gemini-2.5-flash',
 };
+
+// Models Google has shut down (404) or scheduled for shutdown.
+// Saved env-locked configs pointing at any of these are remapped to the
+// current default so the proxy doesn't 404 against a dead endpoint.
+const GEMINI_RETIRED = new Set([
+  'gemini-1.5-flash', 'gemini-1.5-pro',
+  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+]);
 
 /**
  * POST /api/ai/chat
@@ -135,7 +143,8 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt) {
 }
 
 async function _callGemini(apiKey, model, messages, systemPrompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const m = GEMINI_RETIRED.has(model) ? AI_DEFAULT_MODELS.gemini : (model || AI_DEFAULT_MODELS.gemini);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
   const contents = messages.map(msg => ({
     role: msg.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: msg.content }],

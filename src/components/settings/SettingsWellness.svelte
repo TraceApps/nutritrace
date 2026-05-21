@@ -3,6 +3,7 @@
   import { slide } from 'svelte/transition';
   import Toggle from './Toggle.svelte';
   import TimePicker from '../ui/TimePicker.svelte';
+  import ConnectionStatus from './ConnectionStatus.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
     wellnessEnabled, fitbitEnabled, healthConnectEnabled, wellnessMetrics, workoutsEnabled,
@@ -393,15 +394,19 @@
     } catch (e) { showError('Failed to save: ' + e.message); }
   }
 
-  // ── Sync now — pull all metrics for today via the Google Health pipe ─────
+  // ── Sync helpers — pull today's metrics from each provider ──────────────
+  function _todayStr() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  }
+
   let syncingFitbit = false;
   let lastSyncResult = null;  // { ok, count, date }
   async function syncFitbitNow() {
     syncingFitbit = true;
     lastSyncResult = null;
     try {
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+      const today = _todayStr();
       const r = await NtApi.post('/api/wellness/google-health/sync', { date: today });
       const dayResult = r?.results?.[today];
       if (dayResult?.ok) {
@@ -416,6 +421,49 @@
       showError('Sync failed: ' + e.message);
     }
     syncingFitbit = false;
+  }
+
+  let syncingWithings = false;
+  async function syncWithingsNow() {
+    syncingWithings = true;
+    try {
+      const today = _todayStr();
+      const r = await NtApi.post('/api/wellness/withings/sync', { from: today, to: today });
+      const count = r?.count ?? r?.results?.[today]?.count ?? 0;
+      showSuccess(`Synced ${count} Withings metric${count === 1 ? '' : 's'} for ${today}`);
+    } catch (e) {
+      showError('Withings sync failed: ' + (e?.message || 'Unknown error'));
+    }
+    syncingWithings = false;
+  }
+
+  let syncingGarmin = false;
+  async function syncGarminNow() {
+    syncingGarmin = true;
+    try {
+      const today = _todayStr();
+      const r = await NtApi.post('/api/wellness/garmin/sync', { from: today, to: today });
+      const count = r?.count ?? r?.results?.[today]?.count ?? 0;
+      showSuccess(`Synced ${count} Garmin metric${count === 1 ? '' : 's'} for ${today}`);
+    } catch (e) {
+      showError('Garmin sync failed: ' + (e?.message || 'Unknown error'));
+    }
+    syncingGarmin = false;
+  }
+
+  let syncingHc = false;
+  async function syncHcNow() {
+    syncingHc = true;
+    try {
+      const { syncHealthConnect } = await import('../../lib/health-connect.js');
+      const today = _todayStr();
+      const result = await syncHealthConnect(today);
+      const count = result?.count ?? 0;
+      showSuccess(`Synced ${count} Health Connect metric${count === 1 ? '' : 's'} for ${today}`);
+    } catch (e) {
+      showError('Health Connect sync failed: ' + (e?.message || 'Unknown error'));
+    }
+    syncingHc = false;
   }
 
   function copyRedirectUri() {
@@ -510,6 +558,27 @@
     <!-- ── Fitbit ── -->
     <p class="sub-label" style="padding-top:16px">Fitbit</p>
     <div class="card settings-card">
+      {#if !isNativeLocal && fitbitEnabledVal && fitbitConnectionStatus?.connected}
+        <ConnectionStatus
+          status="ok"
+          okLabel="Linked"
+          subtext={
+            (fitbitConnectionStatus.fitbitUserId
+              ? `Fitbit ID: ${fitbitConnectionStatus.fitbitUserId}`
+              : 'Linked via Google Health')
+            + (fitbitConnectionStatus.googleUserId ? ` · Google user: ${fitbitConnectionStatus.googleUserId}` : '')
+          }
+        >
+          <svelte:fragment slot="action">
+            <button class="status-retest" on:click={syncFitbitNow} disabled={syncingFitbit}>
+              {syncingFitbit ? 'Syncing…' : 'Sync'}
+            </button>
+            <button class="status-retest status-danger" on:click={disconnectFitbitFromSettings} disabled={disconnectingFitbit}>
+              {disconnectingFitbit ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </svelte:fragment>
+        </ConnectionStatus>
+      {/if}
       {#if isNativeLocal}
         <div class="setting-row">
           <div>
@@ -631,38 +700,15 @@
             <span class="setting-desc">Loading connection status…</span>
           </div>
         {:else if fitbitConnectionStatus.connected}
-          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-            <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
-              <div>
-                <span class="setting-label">Connected</span>
-                <div class="setting-desc">
-                  {fitbitConnectionStatus.fitbitUserId ? `Fitbit ID: ${fitbitConnectionStatus.fitbitUserId}` : 'Fitbit account linked via Google Health'}
-                  {#if fitbitConnectionStatus.googleUserId}
-                    · Google Health user: <code>{fitbitConnectionStatus.googleUserId}</code>
-                  {/if}
-                </div>
-              </div>
-              <div style="display:flex;gap:8px">
-                <button class="btn btn-ghost" style="height:32px;padding:0 12px;font-size:13px"
-                  on:click={syncFitbitNow} disabled={syncingFitbit}>
-                  {syncingFitbit ? 'Syncing…' : 'Sync now'}
-                </button>
-                <button class="btn btn-ghost" style="height:32px;padding:0 12px;font-size:13px;color:var(--error,#f87171);border-color:var(--error,#f87171)"
-                  on:click={disconnectFitbitFromSettings} disabled={disconnectingFitbit}>
-                  {disconnectingFitbit ? 'Disconnecting…' : 'Disconnect'}
-                </button>
-              </div>
+          {#if lastSyncResult}
+            <div class="text-3 text-sm" style="padding:6px 12px;background:var(--surface-2);border-bottom:1px solid var(--border)">
+              {#if lastSyncResult.ok}
+                <span style="color:var(--macro-carbs)">✓ Synced {lastSyncResult.count} metrics for {lastSyncResult.date}</span>
+              {:else}
+                <span style="color:#FF7070">Sync error: {lastSyncResult.error}</span>
+              {/if}
             </div>
-            {#if lastSyncResult}
-              <div class="text-3 text-sm" style="padding:6px 10px;border-radius:var(--radius-sm);background:var(--surface-2);width:100%">
-                {#if lastSyncResult.ok}
-                  <span style="color:var(--macro-carbs)">✓ Synced {lastSyncResult.count} metrics for {lastSyncResult.date}</span>
-                {:else}
-                  <span style="color:#FF7070">Sync error: {lastSyncResult.error}</span>
-                {/if}
-              </div>
-            {/if}
-          </div>
+          {/if}
         {:else if fitbitConnectionStatus.configured && !fitbitEditingCreds}
           <div class="setting-row">
             <div>
@@ -752,6 +798,25 @@
       <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">Experimental</span>
     </p>
     <div class="card settings-card">
+      {#if !isNativeLocal && garminEnabledVal && garminConnectionStatus?.connected}
+        <ConnectionStatus
+          status="ok"
+          okLabel="Linked"
+          subtext={
+            (garminConnectionStatus.garminUserId || 'Garmin account linked')
+            + (garminConnectionStatus.lastSyncedAt ? ` · Last synced ${_timeAgo(garminConnectionStatus.lastSyncedAt)}` : '')
+          }
+        >
+          <svelte:fragment slot="action">
+            <button class="status-retest" on:click={syncGarminNow} disabled={syncingGarmin}>
+              {syncingGarmin ? 'Syncing…' : 'Sync'}
+            </button>
+            <button class="status-retest status-danger" on:click={disconnectGarminFromSettings} disabled={disconnectingGarmin}>
+              {disconnectingGarmin ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </svelte:fragment>
+        </ConnectionStatus>
+      {/if}
       {#if isNativeLocal}
         <div class="setting-row">
           <div>
@@ -852,21 +917,7 @@
             <span class="setting-desc">Loading connection status…</span>
           </div>
         {:else if garminConnectionStatus.connected}
-          <div class="setting-row">
-            <div>
-              <span class="setting-label">Connected</span>
-              <div class="setting-desc">
-                {garminConnectionStatus.garminUserId || 'Garmin account linked'}
-                {#if garminConnectionStatus.lastSyncedAt}
-                  · Last synced {_timeAgo(garminConnectionStatus.lastSyncedAt)}
-                {/if}
-              </div>
-            </div>
-            <button class="btn btn-ghost" style="height:32px;padding:0 12px;font-size:13px;color:var(--error,#f87171);border-color:var(--error,#f87171)"
-              on:click={disconnectGarminFromSettings} disabled={disconnectingGarmin}>
-              {disconnectingGarmin ? 'Disconnecting…' : 'Disconnect'}
-            </button>
-          </div>
+          <!-- Connected state rendered as the top-of-card banner; nothing else here. -->
         {:else if garminConnectionStatus.configured && !garminEditingCreds}
           <div class="setting-row">
             <div>
@@ -940,6 +991,25 @@
     <!-- ── Withings ── -->
     <p class="sub-label" style="padding-top:16px">Withings</p>
     <div class="card settings-card">
+      {#if !isNativeLocal && withingsEnabledVal && withingsConnectionStatus?.connected}
+        <ConnectionStatus
+          status="ok"
+          okLabel="Linked"
+          subtext={
+            (withingsConnectionStatus.withingsUserId ? `User ${withingsConnectionStatus.withingsUserId}` : 'Withings account linked')
+            + (withingsConnectionStatus.lastSyncedAt ? ` · Last synced ${_timeAgo(withingsConnectionStatus.lastSyncedAt)}` : '')
+          }
+        >
+          <svelte:fragment slot="action">
+            <button class="status-retest" on:click={syncWithingsNow} disabled={syncingWithings}>
+              {syncingWithings ? 'Syncing…' : 'Sync'}
+            </button>
+            <button class="status-retest status-danger" on:click={disconnectWithingsFromSettings} disabled={disconnectingWithings}>
+              {disconnectingWithings ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </svelte:fragment>
+        </ConnectionStatus>
+      {/if}
       {#if isNativeLocal}
         <div class="setting-row">
           <div>
@@ -1040,21 +1110,7 @@
             <span class="setting-desc">Loading connection status…</span>
           </div>
         {:else if withingsConnectionStatus.connected}
-          <div class="setting-row">
-            <div>
-              <span class="setting-label">Connected</span>
-              <div class="setting-desc">
-                {withingsConnectionStatus.withingsUserId ? 'User ' + withingsConnectionStatus.withingsUserId : 'Withings account linked'}
-                {#if withingsConnectionStatus.lastSyncedAt}
-                  · Last synced {_timeAgo(withingsConnectionStatus.lastSyncedAt)}
-                {/if}
-              </div>
-            </div>
-            <button class="btn btn-ghost" style="height:32px;padding:0 12px;font-size:13px;color:var(--error,#f87171);border-color:var(--error,#f87171)"
-              on:click={disconnectWithingsFromSettings} disabled={disconnectingWithings}>
-              {disconnectingWithings ? 'Disconnecting…' : 'Disconnect'}
-            </button>
-          </div>
+          <!-- Connected state rendered as the top-of-card banner; nothing else here. -->
         {:else if withingsConnectionStatus.configured && !withingsEditingCreds}
           <div class="setting-row">
             <div>
@@ -1133,6 +1189,24 @@
         <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">Experimental</span>
       </p>
       <div class="card settings-card">
+        {#if healthConnectEnabledVal && healthConnectAvailability === 'Available'}
+          <ConnectionStatus
+            status="ok"
+            okLabel="Permission granted"
+            subtext={`${healthConnectPermissions.read.length} data type${healthConnectPermissions.read.length === 1 ? '' : 's'} readable from Health Connect`}
+          >
+            <svelte:fragment slot="action">
+              <button class="status-retest" on:click={syncHcNow} disabled={syncingHc}>
+                {syncingHc ? 'Syncing…' : 'Sync'}
+              </button>
+            </svelte:fragment>
+          </ConnectionStatus>
+        {:else if healthConnectEnabledVal && healthConnectAvailability === 'NotInstalled'}
+          <ConnectionStatus
+            status="fail"
+            error="Health Connect is not installed. Install it from the Play Store."
+          />
+        {/if}
         <div class="setting-row">
           <div>
             <span class="setting-label">Enable Health Connect</span>
@@ -1159,20 +1233,15 @@
           }} />
         </div>
         {#if healthConnectEnabledVal}
-          <div class="setting-divider"></div>
-          <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
-            <span class="setting-label" style="font-size:13px">Status</span>
-            {#if healthConnectAvailability === 'Available'}
-              <div class="setting-desc" style="color:var(--success, #22c55e)">
-                <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle">check_circle</span>
-                Available · {healthConnectPermissions.read.length} data types granted
+          {#if healthConnectAvailability !== 'Available' && healthConnectAvailability !== 'NotInstalled'}
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <div>
+                <span class="setting-label">Status</span>
+                <div class="setting-desc" style="color:var(--text-3)">Not supported on this device</div>
               </div>
-            {:else if healthConnectAvailability === 'NotInstalled'}
-              <div class="setting-desc" style="color:var(--error, #ef4444)">Not installed — install Health Connect from the Play Store</div>
-            {:else}
-              <div class="setting-desc" style="color:var(--text-3)">Not supported on this device</div>
-            {/if}
-          </div>
+            </div>
+          {/if}
           <div class="setting-divider"></div>
           <div class="setting-row">
             <span class="setting-label">Sync Mode</span>

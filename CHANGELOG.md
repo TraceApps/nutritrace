@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.28] — 2026-05-20
+
+### Added
+
+- **Bulk Food Import** in Settings → Import & Export. Paste a JSON snippet or upload a CSV to add many foods at once. Download a template right from the modal. The template is built from the live nutrient catalog, so any future nutrient will appear in it automatically. Useful for users who want to paste an LLM-extracted nutrition label or sweep in a hand-rolled spreadsheet. (Issue #21)
+- **Live nutrition preview** on the Add to Diary sheet. Calories plus protein, carbs, and fat update as you change serving size, unit, or number of servings. (Issue #30)
+- **Mass-aware unit conversion** when scaling nutrition. Changing the unit on a food (g, mg, kg, oz, lb, ml, l, tsp, tbsp, fl oz, cup) now actually converts the nutrition values. Previously the unit was just a label and the math ignored it. The full list of which units convert is documented in the project README. (Issue #29)
+- **Custom Units**. Add your own units (e.g. "shot", "scoop", "stick") in Settings → Custom Units. They appear under a Custom group in every unit picker. Custom units do not get mass conversion since they have no fixed gram weight; they scale by portion count only. The Settings card explains this on the spot.
+- **Day rollover**. If you leave NutriTrace open overnight and reopen it the next morning, the diary now auto-advances to the new today. Same for tabs that stay open across midnight.
+- **Connection status banners** across every integration. AI Assistant, Mealie, USDA, SMTP, Fitbit, Garmin, Withings, and Health Connect each show a consistent banner with current status and a one-tap Test / Sync / Disconnect button.
+- **Sync Now** button on the Settings cards for Withings, Garmin, and Health Connect. Previously only Fitbit had one in Settings.
+
+### Changed
+
+- **AI Assistant Google Gemini models updated.** Added Gemini 2.5 Flash (new default for the Gemini provider, free-tier eligible) and Gemini 2.5 Flash Lite. Removed the older Gemini 2.0 Flash (Google deprecated it Feb 18, 2026, shutting down June 1, 2026) and the legacy Gemini 1.5 Flash fallback (Google already shut it down). If you had one of the retired models selected, you're auto-migrated to Gemini 2.5 Flash. (Issue #27)
+- **Food Editor proportional scaling default is now context-aware.** Editing an existing food opens with proportional scaling ON (so changing serving size preserves density). Adding a new food from scratch opens with it OFF (so typing label values one-by-one doesn't silently cross-scale). You can flip it either way with the link icon next to the unit field. (Issue #28)
+- **Settings reorganized.** The previous "Import from another app" section was merged into a new "Import & Export" section that houses every flow that moves food data in or out: JSON backup import/export, Bulk Food Import, MFP/Cronometer/LoseIt diary importer, and Diary-as-CSV export.
+- **Settings auto-save by default.** Most settings now save automatically when you change them, instead of needing a Save button click. Includes the AI Assistant key + Base URL, Mealie URL + token, USDA key, all SMTP fields, session duration, and other text/dropdown settings. The wellness Connect buttons (Fitbit, Garmin, Withings) still need an explicit click since they trigger an OAuth flow.
+- **Unit picker is uniform across the app.** Food editor, meal editor, recipe yield, Add to Diary, diary edit, and multi-portion sheets all use the same grouped picker with categories (Mass Metric/US, Volume Metric/US, Count). Free-text input is no longer accepted in the picker; add your own units in Settings → Custom Units if you need something off the catalog.
+- **Compact page header** when banners are disabled. If you have page banners turned off in Settings → Appearance, the title now sits beside the menu button instead of below it, freeing roughly 40 pixels of vertical space on every page. (Parity with LiftTrace's compact header.)
+- **Barcode scanner switched to a fully on-device path on Android.** No longer requires Google Play Services to scan a barcode. Same scanning engine and accuracy as before. Works on degoogled Android ROMs (GrapheneOS, /e/, CalyxOS). The PWA scanner is unchanged. (Issue #31)
+
+### Fixed
+
+- **Diary item edit sheet** now scales nutrition correctly when you change the unit. The live macro pills above Save reflect the change in real time.
+- **Water log sheet's close button** stays visible when the content scrolls.
+- **Title-case slips** across various dropdown options, dialog labels, and button text.
+- **Dark-mode black text** on the new Settings → Import & Export rows.
+
+### Security
+
+- **nodemailer updated** to 8.0.7 (was 8.0.3). Patches two open SMTP command-injection advisories (envelope.size parameter, CRLF in transport name). Only affects servers configured with outbound SMTP for invites and password resets.
+
+---
+
 ## [1.0.0-rc.27] — 2026-05-18
 
 ### Fixes

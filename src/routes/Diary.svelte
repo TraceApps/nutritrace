@@ -15,6 +15,8 @@
   import Sheet        from '../components/ui/Sheet.svelte';
   import Dialog       from '../components/ui/Dialog.svelte';
   import ActionSheet  from '../components/ui/ActionSheet.svelte';
+  import UnitPicker   from '../components/ui/UnitPicker.svelte';
+  import { scaleFactor as _unitScaleFactor } from '../lib/units.js';
   import { showSuccess, showError, showInfo } from '../stores/toast.js';
   import {
     currentDate, currentEntry, diaryTotals, macroPercents,
@@ -152,8 +154,9 @@
   async function saveEditItem() {
     if (!editItem) return;
     const origPortion = parseFloat(editItem.portion) || 100;
+    const origUnit    = editItem.unit || 'g';
     const newPortion  = parseFloat(editPortion)      || 100;
-    const portionFactor = newPortion / origPortion;
+    const portionFactor = _unitScaleFactor(origPortion, origUnit, newPortion, editUnit);
     let newNutrition = editItem.nutrition;
     if (editItem.nutrition && origPortion > 0) {
       newNutrition = Object.fromEntries(
@@ -181,8 +184,9 @@
   $: editCalc = (() => {
     if (!editItem) return {};
     const origPortion   = parseFloat(editItem.portion) || 100;
+    const origUnit      = editItem.unit || 'g';
     const newPortion    = parseFloat(editPortion)      || origPortion;
-    const portionFactor = newPortion / origPortion;
+    const portionFactor = _unitScaleFactor(origPortion, origUnit, newPortion, editUnit);
     const scaledNutrition = editItem.nutrition
       ? Object.fromEntries(Object.entries(editItem.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * portionFactor]))
       : editItem.nutrition;
@@ -1365,17 +1369,15 @@
 </div>
 
 <!-- Water card sheet -->
-<Sheet bind:open={showWaterQuickAdd} title="" on:close={() => { showWaterQuickAdd = false; _waterShowCustom = false; _waterCustomAmt = ''; }}>
+<Sheet bind:open={showWaterQuickAdd} title="" overlayClose on:close={() => { showWaterQuickAdd = false; _waterShowCustom = false; _waterCustomAmt = ''; }}>
   <div class="wc-body">
 
-    <!-- Banner strip with title at bottom-left and close button at top-right -->
+    <!-- Banner strip with title overlaid at bottom-left. Sheet renders its
+         own floating close button (overlayClose) so the X stays pinned even
+         when the user scrolls through the day's water log. -->
     <div class="wc-banner-strip">
       <WaterBanner />
       <h2 class="wc-banner-title">Water</h2>
-      <button class="wc-banner-close btn-icon" on:click={() => { showWaterQuickAdd = false; _waterShowCustom = false; _waterCustomAmt = ''; }}
-        aria-label="Close" title="Close">
-        <span class="material-symbols-rounded">close</span>
-      </button>
     </div>
 
     <div class="wc-inner">
@@ -1528,13 +1530,9 @@
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">Serving Size</label>
           <input class="input" type="number" min="0.1" step="0.1" bind:value={editPortion} style="width:100%" />
         </div>
-        <div style="width:80px">
+        <div style="width:100px">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">Unit</label>
-          <select class="select" bind:value={editUnit} style="width:100%">
-            {#each ['g','ml','oz','lb','cup','tbsp','tsp','piece','slice','serving'] as u}
-              <option value={u}>{u}</option>
-            {/each}
-          </select>
+          <UnitPicker bind:value={editUnit} />
         </div>
       </div>
       <div style="margin-bottom:16px">
@@ -1933,7 +1931,7 @@
      in both modes. With banner: 122 + hamburger-row. */
   .diary-date-bar {
     position: sticky;
-    top: calc(var(--page-top, var(--safe-top)) + 62px + var(--hamburger-row, 0px));
+    top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
     z-index: 9;
     background: var(--glass-surface);
     backdrop-filter: blur(20px) saturate(180%);
@@ -2017,14 +2015,6 @@
     background-clip: text;
     filter: drop-shadow(0 2px 8px rgba(0,0,0,0.35));
   }
-  .wc-banner-close {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    z-index: 2;
-    color: var(--text-2);
-  }
-
   /* Inner padding wrapper below the banner */
   .wc-inner { padding: 0 16px; display: flex; flex-direction: column; }
 
