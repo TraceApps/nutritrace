@@ -124,9 +124,17 @@ router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); n
 
 // Setup enforcement — block data APIs until the first user account is created.
 // Only /api/auth/* is allowed so the client can check status + register the admin.
+// In intentional single-user mode (admin explicitly disabled user management
+// via DELETE /api/auth/management or POST /api/auth/recover), there are no
+// users by design and data APIs should be open. The single_user_mode flag in
+// app_config distinguishes this from a true fresh install. Issue #34
+// part 2 — rc.30's fix only addressed the wizard redirect; this gate was
+// still returning 503 on every data call.
 router.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth')) return next(); // allow auth routes (status, register, login)
   if (userMgmtActive()) return next();             // users exist — normal operation
+  const singleUser = db.prepare(`SELECT value FROM app_config WHERE key = 'single_user_mode'`).get()?.value === '1';
+  if (singleUser) return next();                   // intentional single-user mode — let data APIs through
   res.status(503).json({ error: 'Setup required', setup_required: true });
 });
 

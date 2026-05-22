@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.31] — 2026-05-22
+
+### Fixed
+
+- **Data APIs in single-user mode**. After disabling user management, the diary, foods, meals, and app-config endpoints were returning 503 "Setup required" on every call. The rc.30 fix patched the wizard redirect, but a separate server-side setup gate was still blocking data APIs. Both gates now respect the same single-user-mode flag. (Issue #34)
+
+---
+
 ## [1.0.0-rc.30] — 2026-05-22
 
 ### Changed
