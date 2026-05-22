@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.34] — 2026-05-22
+
+### Fixed
+
+- **Trace AI chat showed "API key required" when AI was configured via env vars but no per-user key was set.** The chat panel's setup gate was checking the per-user key only and didn't know about env-locked configuration. Users who only set `AI_API_KEY` in env (never opened Settings to configure a per-user key) couldn't get past the setup screen even though the proxy was correctly handling auth on the server side. (Issue #36)
+
+---
+
 ## [1.0.0-rc.33] — 2026-05-22
 
 ### Fixed

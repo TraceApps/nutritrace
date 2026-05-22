@@ -1432,8 +1432,13 @@ Water: ${ctx.waterText}`
 
       <!-- Messages -->
       <div class="ai-messages" bind:this={messagesEl}>
-        {#if !apiKey}
-          <!-- Setup needed -->
+        {#if !apiKey && !aiEnvLocked}
+          <!-- Setup needed. Skipped when env-locked: the server proxy handles
+               auth so no per-user API key is required. This was the rc.33
+               #36 follow-up I missed — the chat send path correctly routed
+               through callAIProxy when env-locked, but this template gate
+               still required apiKey from $aiApiKey (per-user) and blocked
+               the chat UI before the user could even type. -->
           <div class="ai-setup">
             <span class="material-symbols-rounded ai-setup-icon">key</span>
             <p class="ai-setup-title">API key required</p>
