@@ -586,23 +586,26 @@
         return;
       }
 
-      // 2. Not in library — fetch from Open Food Facts and open the full
+      // 2. Not in library — fetch from Open Food Facts. If found, open
       //    FoodEditor with OFF data prefilled (picture, full nutrition,
-      //    brand). In pickMode the editor saves to the library AND adds
-      //    to the diary on save via foodDiaryCtx; in browse mode it just
-      //    saves. Bypassing the quick-add card here so the user can verify
-      //    OFF data + see the picture before committing it to their library.
+      //    brand) so the user can verify before saving. If NOT found in
+      //    OFF, still open the editor with just the barcode prefilled so
+      //    the user can enter the food manually and optionally contribute
+      //    it back to OFF via the editor's Contribute button. Previously
+      //    this just showed a dead-end "Barcode not found" toast.
       const { API } = await import('../lib/api.js');
       const result = await API.lookupBarcode(code);
       if (result) {
         openEditor(result, 'foodList');
       } else {
-        const { showError: se } = await import('../stores/toast.js');
-        se('Barcode not found: ' + code);
+        const { showInfo: si } = await import('../stores/toast.js');
+        si('Not in Open Food Facts — enter the food and contribute it back if you want');
+        openEditor({ barcode: code }, 'foodList');
       }
     } catch(e) {
       const { showError: se } = await import('../stores/toast.js');
-      se('Lookup failed');
+      se('Lookup failed — opening editor so you can enter manually');
+      openEditor({ barcode: code }, 'foodList');
     }
   }
 

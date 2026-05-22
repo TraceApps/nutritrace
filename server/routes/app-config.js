@@ -28,9 +28,20 @@ const ALLOWED_KEYS = new Set([
 router.get('/env-locks', requireAuth, wrap(async (req, res) => {
   // Lazy import — oidc-env is only meaningful when OIDC is configured.
   const { getEnvLockedProviderIds } = await import('../lib/oidc-env.js');
+  // Surface ai_enabled too when the AI section is env-locked. Without it
+  // the client can disable the toggle but has no way to know whether the
+  // env operator wanted AI ON or OFF — the toggle just sticks at the
+  // per-user setting, which is OFF by default. Fixes #36.
+  const aiLocked = isAiEnvLocked();
+  let ai_enabled = false;
+  if (aiLocked) {
+    const row = db.prepare(`SELECT value FROM app_config WHERE key = 'ai_enabled'`).get();
+    ai_enabled = row?.value === 'true';
+  }
   res.json({
     smtp: isSmtpEnvLocked(),
-    ai: isAiEnvLocked(),
+    ai: aiLocked,
+    ai_enabled,
     oidc_provider_ids: getEnvLockedProviderIds(),
   });
 }));

@@ -13,7 +13,7 @@
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners } from './stores/settings.js';
   import { locale } from 'svelte-i18n';
   import { currentUser, userMgmtActive, setupRequired, loadAuthState, handleOidcCallback } from './stores/auth.js';
-  import { needsNativeSetup, isNative, getNativeMode, getServerUrl } from './lib/platform.js';
+  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl } from './lib/platform.js';
   import { writable } from 'svelte/store';
 
   // Sync state — mirrored from the real sync store (dynamically imported)
@@ -234,6 +234,26 @@
     // strip it, toast, and refresh auth state. Runs after loadAuthState so
     // we don't double-fetch on cold load.
     await handleOidcCallback();
+
+    // Env-lock state: which Settings sections are configured via env vars.
+    // Fetched globally so the Trace FAB knows about env-set AI_ENABLED
+    // without waiting for the user to visit Settings. Issue #36.
+    // Native server mode needs the Bearer token header explicitly —
+    // credentials:'include' alone (cookies) returns 401 there.
+    if (!isNative || getServerUrl()) {
+      const { getAuthToken } = await import('./lib/platform.js');
+      const headers = {};
+      const token = getAuthToken();
+      if (isNative && token) headers['Authorization'] = `Bearer ${token}`;
+      fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers })
+        .then(r => r.ok ? r.json() : null)
+        .then(async d => {
+          if (!d) return;
+          const { envLocks } = await import('./stores/settings.js');
+          envLocks.set(d);
+        })
+        .catch(() => {});
+    }
 
     // Show wizard on first launch:
     // - Native server mode: NEVER show wizard (server is already configured)

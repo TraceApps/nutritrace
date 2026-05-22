@@ -13,7 +13,7 @@
   import { scheduleSave } from '../../stores/settings.js';
   import { isNative, getServerUrl } from '../../lib/platform.js';
 
-  export let envLocks = { ai: false };
+  export let envLocks = { ai: false, ai_enabled: false };
 
   function set(key, value) { DB.setSetting(key, value); scheduleSave(key, value); }
 
@@ -28,16 +28,29 @@
   let aiShowKey          = false;
   let testing            = false;
   let testError          = '';
+  // When env-locked, the displayed state comes from the env-set value
+  // (server's AI_ENABLED env var resolved on startup), not the per-user
+  // setting. Without this, setting AI_ENABLED=true in compose left the
+  // toggle stuck OFF because aiEnabled in user_settings was never flipped.
+  // Issue #36.
+  $: _displayedAiEnabled = envLocks.ai ? !!envLocks.ai_enabled : aiEnabledVal;
   // "Effectively connected" — green banner when the user has all the
   // required pieces in place, even if they haven't gone through Save
   // (covers users upgrading from a release before the verified flag
   // existed, whose AI was working fine and shouldn't suddenly look
   // disconnected). An explicit $aiKeyVerified=true overrides too.
   // The most recent test error trumps either path.
-  $: _hasAll = aiEnabledVal
-    && !!aiModelVal?.trim()
-    && (envLocks.ai || !!aiApiKeyVal?.trim())
-    && (aiProviderVal !== 'oai-compat' || !!aiBaseUrlVal?.trim());
+  // When env-locked, the operator has supplied every required field on
+  // the server side (AI_PROVIDER + AI_API_KEY + AI_MODEL, plus AI_BASE_URL
+  // when needed). The client's local model/key/baseUrl are stale or empty
+  // in that scenario, so trust the env state. Without this short-circuit
+  // the connection-status banner stays blank under env-lock.
+  $: _hasAll = envLocks.ai
+    ? !!envLocks.ai_enabled
+    : (aiEnabledVal
+        && !!aiModelVal?.trim()
+        && !!aiApiKeyVal?.trim()
+        && (aiProviderVal !== 'oai-compat' || !!aiBaseUrlVal?.trim()));
   $: testStatus = testing
     ? 'testing'
     : testError
@@ -144,7 +157,7 @@
     </div>
   {/if}
   <div class="card settings-card">
-    {#if aiEnabledVal}
+    {#if _displayedAiEnabled}
       <ConnectionStatus
         status={testStatus}
         connectedAs={_providerLabel}
@@ -158,10 +171,10 @@
         <span class="setting-label">Enable AI Assistant</span>
         <div class="setting-desc">Adds a floating chat button to all pages</div>
       </div>
-      <Toggle checked={aiEnabledVal} on:change={e => aiEnabledVal = e.detail} disabled={envLocks.ai} />
+      <Toggle checked={_displayedAiEnabled} on:change={e => aiEnabledVal = e.detail} disabled={envLocks.ai} />
     </div>
 
-    {#if aiEnabledVal}
+    {#if _displayedAiEnabled}
       <div class="setting-divider"></div>
       <div class="setting-row">
         <span class="setting-label">Provider</span>

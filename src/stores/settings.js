@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get, derived } from 'svelte/store';
 import { DB } from '../lib/db.js';
 
 // Verbose settings sync logs gated on dev OR opt-in verbose mode
@@ -694,3 +694,19 @@ export const gotifyToken          = createSettingStore('gotifyToken',          '
 export const ntfyUrl              = createSettingStore('ntfyUrl',              'https://ntfy.sh');
 export const ntfyTopic            = createSettingStore('ntfyTopic',            '');
 export const ntfyToken            = createSettingStore('ntfyToken',            '');
+
+// Server-driven env-lock state. Populated from /api/app-config/env-locks on
+// app startup (App.svelte) and refreshed when Settings or Wizard fetch the
+// same endpoint. Drives "Configured via environment variables" UI banners
+// AND the effective enabled state for env-controlled features. Fixes #36
+// where AI_ENABLED=true in compose locked the toggle in its OFF state
+// because the per-user `aiEnabled` was never flipped.
+export const envLocks = writable({ smtp: false, ai: false, ai_enabled: false, oidc_provider_ids: [] });
+// Derived: AI Assistant is effectively enabled when either the per-user
+// toggle is on, OR an operator set AI_ENABLED=true in env and env-locked it.
+// Use this instead of $aiEnabled wherever the FAB / chat / Smart Log
+// gates need the real effective state.
+export const aiEffectivelyEnabled = derived(
+  [aiEnabled, envLocks],
+  ([$aiEnabled, $envLocks]) => !!$aiEnabled || (!!$envLocks.ai && !!$envLocks.ai_enabled)
+);

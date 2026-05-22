@@ -53,23 +53,39 @@ const API = {
   },
 
   async contributeToOFF(food, settings) {
-    const { name, barcode, brand, portion, unit, nutrition } = food;
+    const { name, barcode, brand, portion, unit, nutrition, imgUrl } = food;
     if (!name || !barcode) throw new Error("Name and barcode required");
     const username = (settings && settings.offUsername) || "nutritrace-app";
     const password = (settings && settings.offPassword) || "nutritrace";
     const uploadCountry = (settings && settings.offUploadCountry) || "Auto";
     const lang = (navigator.language || "en").substring(0, 2);
+    // If the food's portion is 100g exactly, our nutrition values are
+    // per-100g and we send them as such. For any other portion size, our
+    // values are per-that-portion, so we send them with nutrition_data_per
+    // = serving and tell OFF the serving size. Previously the function
+    // unconditionally claimed per-100g even when the values were per a
+    // different portion, which corrupted the OFF record.
+    const portionVal = parseFloat(portion) || 0;
+    const unitVal    = unit || 'g';
+    const isPer100g  = portionVal === 100 && unitVal === 'g';
+    const perKey     = isPer100g ? '100g' : 'serving';
     let params = "code=" + encodeURIComponent(barcode);
     params += "&user_id=" + encodeURIComponent(username);
     params += "&password=" + encodeURIComponent(password);
     params += "&lang=" + lang;
     params += "&product_name_" + lang + "=" + encodeURIComponent(name);
     if (brand) params += "&brands=" + encodeURIComponent(brand);
-    params += "&nutrition_data_per=100g";
-    if (portion && (parseFloat(portion) !== 100 || unit !== "g"))
-      params += "&serving_size=" + encodeURIComponent(portion + " " + (unit || "g"));
+    params += "&nutrition_data_per=" + perKey;
+    if (!isPer100g) {
+      params += "&serving_size=" + encodeURIComponent(portionVal + " " + unitVal);
+    }
     if (uploadCountry && uploadCountry !== "Auto")
       params += "&countries=" + encodeURIComponent(uploadCountry);
+    // Per the official OFF spec (docs/api/ref/requestBodies/
+    // add_or_edit_a_product.yaml): nutriment field naming is
+    // `nutriment_<nutrient_id>` regardless of whether the values are
+    // per-100g or per-serving. The `nutrition_data_per` field already
+    // tells OFF how to interpret all values. NO `_serving` suffix.
     const nutMap = {
       calories: "energy-kcal", kilojoules: "energy", fat: "fat",
       "saturated-fat": "saturated-fat", carbohydrates: "carbohydrates",
@@ -84,7 +100,47 @@ const API = {
     const res = await fetch("https://world.openfoodfacts.org/cgi/product_jqm2.pl?" + params);
     const json = await res.json();
     if (json.status !== 1) throw new Error(json.status_verbose || "Upload failed");
+
+    // Best-effort image upload as a separate multipart POST. Failure here
+    // doesn't roll back the data upload — the product record is already
+    // created, the image is just an enhancement. Previously the picture
+    // was silently dropped. Image upload uses cgi/product_image_upload.pl
+    // with imagefield=front_<lang> + imgupload_<imagefield>=<file>.
+    if (imgUrl) {
+      try {
+        const blob = await this._fetchImageBlob(imgUrl);
+        if (blob) {
+          const fd = new FormData();
+          fd.append('code', barcode);
+          fd.append('user_id', username);
+          fd.append('password', password);
+          const imagefield = 'front_' + lang;
+          fd.append('imagefield', imagefield);
+          // Field name encodes the slot per OFF's docs.
+          fd.append('imgupload_' + imagefield, blob, 'front.jpg');
+          await fetch('https://world.openfoodfacts.org/cgi/product_image_upload.pl', {
+            method: 'POST', body: fd,
+          });
+        }
+      } catch (e) {
+        console.warn('[OFF] image upload failed (data was still submitted):', e?.message || e);
+      }
+    }
     return true;
+  },
+
+  // Fetch any imgUrl (relative server path, absolute URL, or data: URI)
+  // as a Blob so it can be sent in the multipart OFF upload. Returns null
+  // on failure — callers treat the image as optional.
+  async _fetchImageBlob(imgUrl) {
+    if (!imgUrl) return null;
+    try {
+      const res = await fetch(imgUrl, { credentials: 'include' });
+      if (!res.ok) return null;
+      return await res.blob();
+    } catch {
+      return null;
+    }
   },
 
   _mapOFFProduct(p) {

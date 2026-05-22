@@ -9,7 +9,7 @@
   import { Nutrition } from '../../lib/nutrition.js';
   import { readBodyStat, LENGTH_KEYS } from '../../lib/body-stats-unit.js';
   import { callAI, callAIProxy, TOOLS, setToolHandler } from '../../lib/aiChat.js';
-  import { aiEnabled, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled } from '../../stores/settings.js';
+  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
   import SmartLogModal from '../diary/SmartLogModal.svelte';
   import { showError } from '../../stores/toast.js';
@@ -815,7 +815,7 @@
 
     // Start hold-to-record timer in parallel with drag detection.
     // Only if Smart Log is enabled — otherwise the FAB is tap-only + drag.
-    if ($quickLogEnabled && $aiEnabled) {
+    if ($quickLogEnabled && $aiEffectivelyEnabled) {
       holdTimer = setTimeout(() => {
         // Threshold passed without significant movement → enter recording mode
         if (!hasDragged) {
@@ -1328,9 +1328,11 @@ Water: ${ctx.waterText}`
   function quickAsk(q) { input = q; send(); }
 </script>
 
-{#if $aiEnabled}
+{#if $aiEffectivelyEnabled}
   <!-- ── Floating Action Button ─────────────────────────────────────────── -->
-  <!-- FAB gated on $aiEnabled only. The Settings → AI Assistant card
+  <!-- FAB gated on $aiEffectivelyEnabled: the per-user $aiEnabled OR an
+       operator-set AI_ENABLED=true env var that env-locked the section
+       server-wide (issue #36). The Settings → AI Assistant card
        surfaces a connection-status banner (green/red/spinner) driven by
        $aiKeyVerified for users who want to verify the key is actually
        working, but the FAB doesn't hide on its own — that would break

@@ -1374,11 +1374,17 @@
   }
 
   // ── Env-lock state — which admin sections are locked by environment vars ───
-  let envLocks = { smtp: false, ai: false };
+  let envLocks = { smtp: false, ai: false, ai_enabled: false };
   onMount(async () => {
     try {
       const res = await fetch(apiUrl('/api/app-config/env-locks'), _fetchOpts());
-      if (res.ok) envLocks = await res.json();
+      if (res.ok) {
+        envLocks = await res.json();
+        // Keep the global store in sync so Trace.svelte's FAB gate updates
+        // when an admin flips env-locked state and revisits Settings.
+        const { envLocks: globalEnvLocks } = await import('../stores/settings.js');
+        globalEnvLocks.set(envLocks);
+      }
     } catch {}
 
     // Native server mode: surface last-sync time in Server Connection card.

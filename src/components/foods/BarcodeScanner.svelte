@@ -362,6 +362,7 @@
   let nativeTorchOn = false;
 
   async function startNativeScanner() {
+    detected = false;  // reset detected guard so re-opening after a prior scan works
     scanning = true;
     nativeStatus = 'Requesting camera…';
     try {
@@ -383,7 +384,7 @@
       nativeScannerActive = true;
       nativeStatus = 'Align Barcode';
 
-      _nativeListener = await BarcodeScanner.addListener('barcodeScanned', async (event) => {
+      _nativeListener = await BarcodeScanner.addListener('barcodeScanned', (event) => {
         const code = event?.barcode?.rawValue;
         if (!code) return;
         if (detected) return;
@@ -391,7 +392,16 @@
         if ($barcodeBeep) playBeep();
         scanlineVisible = true;
         setTimeout(() => scanlineVisible = false, 500);
-        await stopNativeScanner();
+        // Set open=false FIRST. Don't call stopNativeScanner directly here.
+        // If we did, scanning=false would fire BEFORE open=false, and the
+        // reactive `$: if (open && !scanning) startNativeScanner()` would
+        // re-fire during the await window inside stopNativeScanner —
+        // because at that moment open is still true and scanning is now
+        // false. That re-opens the scanner in a loop until CameraX hits
+        // its surface-combination limit ("No supported surface combination
+        // is found ... May be attempting to bind too many use cases").
+        // The reactive `$: if (!open && scanning) stopNativeScanner()`
+        // handles cleanup correctly once open=false propagates.
         open = false;
         dispatch('scan', { code });
       });
@@ -437,18 +447,18 @@
     } catch {}
   }
 
-  async function closeNative() {
-    await stopNativeScanner();
+  function closeNative() {
+    // Same ordering rule as the scan listener: open=false first so the
+    // reactive cleans up. Avoids the re-open loop.
     open = false;
     dispatch('close');
   }
 
-  async function doManualNative() {
+  function doManualNative() {
     if (detected) return;
     const code = manualCode.trim();
     if (!code) return;
     detected = true;
-    await stopNativeScanner();
     open = false;
     dispatch('scan', { code });
   }

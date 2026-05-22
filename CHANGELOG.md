@@ -9,6 +9,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.32] — 2026-05-22
+
+### Fixed
+
+- **Barcode scanner stuck after a scan**. The camera could get stuck re-opening until Android refused.
+- **AI Assistant env vars**. Setting `AI_ENABLED=true` in compose now actually enables the assistant (was locking the toggle OFF). Removing AI_* env vars and restarting now properly unlocks the UI. (Issue #36)
+
+### Changed
+
+- **Barcode that doesn't match Open Food Facts** now opens the food editor with the barcode pre-filled so you can enter it and contribute back.
+- **Share to OFF** is now smart: the button flips to "View on OFF" for products already on Open Food Facts, opening the wiki page where edits actually take effect.
+- **Open Food Facts contribution** now sends nutrition correctly when your portion isn't 100g, and uploads your product image. Both were broken silently before.
+
+---
+
 ## [1.0.0-rc.31] — 2026-05-22
 
 ### Fixed

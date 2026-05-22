@@ -12,7 +12,6 @@
   import UnitPicker from '../components/ui/UnitPicker.svelte';
   import { takePhoto } from '../lib/camera.js';
   import { isNative } from '../lib/platform.js';
-  import Dialog from '../components/ui/Dialog.svelte';
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, catName as _catName, catDisplay as _catDisplay } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
@@ -234,34 +233,62 @@
 
 
   let offVerified    = null;  // null = unchecked, true = confirmed, false = not found yet
-  let offAlreadyExists = false;
-  let showOffExistsDialog = false;
+  // OFF presence check for the barcode, drives the Share vs View button
+  // label. null = not yet checked. true = product is in OFF (button is
+  // "View on OFF"). false = not in OFF (button is "Share to OFF").
+  let offProductExists = null;
+  let _lastCheckedBarcode = null;
 
-  async function contributeToOFF() {
-    contributing = true; offSuccess = false; offVerified = null; offAlreadyExists = false;
+  async function _refreshOffPresence() {
+    if (!food.barcode) { offProductExists = null; return; }
+    if (_lastCheckedBarcode === food.barcode) return; // no-op refresh
+    _lastCheckedBarcode = food.barcode;
     try {
       const { API } = await import('../lib/api.js');
-      // Check if product already exists on OFF before uploading
       const existing = await API.lookupBarcode(food.barcode);
-      if (existing) {
-        offAlreadyExists = true;
-        contributing = false;
-        showOffExistsDialog = true;
-        return;
+      offProductExists = !!existing;
+    } catch {
+      // Network failure shouldn't lock the button — treat as "unknown,
+      // assume not in OFF" so the Share path stays reachable.
+      offProductExists = false;
+    }
+  }
+  $: if (food.barcode && food.barcode !== _lastCheckedBarcode) _refreshOffPresence();
+
+  async function _openOffPage() {
+    const url = 'https://world.openfoodfacts.org/product/' + encodeURIComponent(food.barcode);
+    try {
+      const { isNative } = await import('../lib/platform.js');
+      if (isNative) {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url });
+      } else {
+        window.open(url, '_blank', 'noopener');
       }
-      await _doUploadToOFF(API);
-    } catch(e) {
-      showError('Could not upload to Open Food Facts: ' + e.message);
-      contributing = false;
+    } catch {
+      window.open(url, '_blank', 'noopener');
     }
   }
 
-  async function confirmOffOverwrite() {
-    showOffExistsDialog = false;
-    contributing = true;
+  async function shareOrViewOnOFF() {
+    if (offProductExists) {
+      await _openOffPage();
+      return;
+    }
+    contributing = true; offSuccess = false; offVerified = null;
     try {
       const { API } = await import('../lib/api.js');
+      // Final pre-flight lookup in case the local cached state is stale
+      // (e.g. someone else contributed the product after we last checked).
+      const existing = await API.lookupBarcode(food.barcode);
+      if (existing) {
+        offProductExists = true;
+        contributing = false;
+        await _openOffPage();
+        return;
+      }
       await _doUploadToOFF(API);
+      offProductExists = true; // we just contributed it, mark as present
     } catch(e) {
       showError('Could not upload to Open Food Facts: ' + e.message);
       contributing = false;
@@ -704,13 +731,13 @@
         {/if}
         {#if hasBarcode}
           <div class="form-row" style="gap:8px;margin-top:8px">
-            {#if isNewFood}
-              <button class="btn btn-secondary" style="flex:1"
-                on:click={contributeToOFF} disabled={contributing}>
-                <span class="material-symbols-rounded" style="font-size:15px;vertical-align:middle;margin-right:4px">upload</span>
-                {contributing ? 'Uploading…' : offSuccess ? 'Submitted!' : 'Share to OFF'}
-              </button>
-            {/if}
+            <button class="btn btn-secondary" style="flex:1"
+              on:click={shareOrViewOnOFF} disabled={contributing}>
+              <span class="material-symbols-rounded" style="font-size:15px;vertical-align:middle;margin-right:4px">
+                {offProductExists ? 'open_in_new' : 'upload'}
+              </span>
+              {contributing ? 'Uploading…' : offSuccess ? 'Submitted!' : offProductExists ? 'View on OFF' : 'Share to OFF'}
+            </button>
             <button class="btn btn-secondary" style="flex:1"
               on:click={downloadFromOFF} disabled={downloading}>
               <span class="material-symbols-rounded" style="font-size:15px;vertical-align:middle;margin-right:4px">download</span>
@@ -796,14 +823,6 @@
     <div style="height:16px"></div>
   </div>
 </div>
-
-<Dialog
-  bind:open={showOffExistsDialog}
-  title="Product already on Open Food Facts"
-  message="This barcode already exists in the Open Food Facts database. Uploading will update the existing entry with your data, which may overwrite community contributions. Continue?"
-  confirmText="Update anyway"
-  on:confirm={confirmOffOverwrite}
-/>
 
 <!-- Inline barcode scanner — fired by the scan button next to the Barcode field -->
 <BarcodeScanner bind:open={editorScannerOpen} on:scan={onEditorScan} on:close={() => editorScannerOpen = false} />
