@@ -36,8 +36,12 @@
     }).catch(() => {});
   }
 
-  // Whether AI config is locked via env vars (proxy mode)
-  let aiEnvLocked = false;
+  // Whether AI config is locked via env vars (proxy mode). Derived from
+  // the global envLocks store (populated by App.svelte's startup fetch
+  // with the Bearer token attached). Local fetch was removed because it
+  // didn't carry the auth header on native server mode and 401'd, leaving
+  // aiEnvLocked=false and the chat trying to use an empty local API key.
+  $: aiEnvLocked = !!$envLocks.ai;
 
   // Settings — refreshed each time panel opens
   let assistantName = 'Trace';
@@ -82,13 +86,10 @@
         if (saved) messages = JSON.parse(saved);
       } catch {}
     }
-    try {
-      const { isNative, getServerUrl, apiUrl } = await import('../../lib/platform.js');
-      if (!(isNative && !getServerUrl())) {
-        const res = await fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include' });
-        if (res.ok) { const d = await res.json(); aiEnvLocked = !!d.ai; }
-      }
-    } catch {}
+    // env-lock state is now derived from the global envLocks store via the
+    // reactive declaration above. App.svelte populates that on startup
+    // with the Bearer token attached, so it works on native server mode
+    // too. No local fetch needed.
 
     // Unit conversion for tool results — convert before AI sees the data
     function _convertWellnessUnits(data) {

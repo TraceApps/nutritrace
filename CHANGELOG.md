@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.33] — 2026-05-22
+
+### Fixed
+
+- **Trace AI chat said "API key required" even with `AI_API_KEY` set in env.** The chat path was using a separate code path from Settings → Test, which is why the test button said "Connected" but the actual chat refused to send. (Issue #36)
+
+---
+
 ## [1.0.0-rc.32] — 2026-05-22
 
 ### Fixed
