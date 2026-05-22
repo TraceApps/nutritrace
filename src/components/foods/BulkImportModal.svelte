@@ -4,6 +4,8 @@
   import Tabs from '../ui/Tabs.svelte';
   import { buildJsonTemplate, buildCsvTemplate } from '../../lib/food-import-template.js';
   import { parseJson, parseCsv } from '../../lib/food-import-parse.js';
+  import { Nutrition } from '../../lib/nutrition.js';
+  import { energyUnit } from '../../stores/settings.js';
 
   export let open = false;
   /** Array of existing barcodes for the current user — used for dedup-by-barcode. */
@@ -145,10 +147,11 @@
           <p class="preview-section-label">Will Import</p>
           <ul class="preview-list">
             {#each results.valid as f}
+              {@const _e = Nutrition.displayEnergy(f.nutrition.calories || 0, $energyUnit)}
               <li>
                 <span class="food-name">{f.name}</span>
                 {#if f.brand}<span class="food-brand">{f.brand}</span>{/if}
-                <span class="food-meta">{f.nutrition.calories} kcal · {f.portion}{f.unit}</span>
+                <span class="food-meta">{_e.value} {_e.unit} · {f.portion}{f.unit}</span>
               </li>
             {/each}
           </ul>

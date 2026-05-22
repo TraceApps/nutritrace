@@ -876,12 +876,18 @@ async function _syncWorkouts(userId, from, to) {
   if (synced > 0) {
     try {
       const { notifyWorkout } = await import('../lib/push-notify.js');
+      let _isKj = false;
+      try {
+        const euRow = db.prepare(`SELECT value FROM user_settings WHERE user_id=? AND key='energyUnit'`).get(u);
+        _isKj = (JSON.parse(euRow?.value || '"kcal"') || 'kcal') === 'kJ';
+      } catch {}
       for (const a of activities.slice(-3)) { // last 3 max
         const dur = Math.round((a.activeDuration || 0) / 60000);
         const dist = a.distance != null ? `${(a.distance * (a.distanceUnit === 'Mile' ? 1.60934 : 1)).toFixed(1)} km` : '';
         const cal = a.calories || 0;
+        const calStr = cal ? `${_isKj ? Math.round(cal * 4.184) : cal} ${_isKj ? 'kJ' : 'kcal'}` : '';
         const name = a.activityName || 'Workout';
-        notifyWorkout(u, `${name}: ${dur} min${dist ? ', ' + dist : ''}${cal ? ', ' + cal + ' kcal' : ''}`);
+        notifyWorkout(u, `${name}: ${dur} min${dist ? ', ' + dist : ''}${calStr ? ', ' + calStr : ''}`);
       }
     } catch {}
   }

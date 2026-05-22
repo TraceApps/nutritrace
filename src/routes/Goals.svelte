@@ -215,6 +215,8 @@
   function openEdit(stat) {
     editStat = stat;
     const g = $goals[stat.id];
+    const kj = stat.id === 'calories_out' && $energyUnit === 'kJ';
+    const toDisp = (v) => kj && v != null && v !== '' ? Math.round(Nutrition.kcalToKj(parseFloat(v))) : v;
     if (g) {
       editShared  = g.sharedGoal !== false;
       editIsMin   = g.isMin || false;
@@ -223,9 +225,9 @@
       editIsPercent  = g.isPercent    || false;
       editAutoAdjust = g.autoAdjust   || false;
       if (editShared) {
-        editVal0 = String(g.max ?? g.min ?? '');
+        editVal0 = String(toDisp(g.max ?? g.min ?? ''));
       } else {
-        editDayVals = g.days ? [...g.days] : ['','','','','','',''];
+        editDayVals = g.days ? g.days.map(v => v != null ? String(toDisp(v)) : '') : ['','','','','','',''];
         editVal0 = String(editDayVals[0]);
       }
     } else {
@@ -242,10 +244,12 @@
 
   function saveGoal() {
     if (!editStat) return;
-    const val = parseFloat(editVal0) || null;
+    const kj = editStat.id === 'calories_out' && $energyUnit === 'kJ';
+    const toStore = (n) => kj && n != null ? n / 4.184 : n;
+    const val = toStore(parseFloat(editVal0) || null);
     const dayArr = editShared
       ? Array(7).fill(val)
-      : editDayVals.map(v => parseFloat(v) || null);
+      : editDayVals.map(v => toStore(parseFloat(v) || null));
 
     const validDays = dayArr.filter(v => v != null && v > 0);
     const peakVal = validDays.length ? Math.max(...validDays) : null;
@@ -344,8 +348,9 @@
           <div style="flex:1;min-width:0">
             <div class="adaptive-title">Adaptive TDEE</div>
             {#if _adaptive?.ready}
+              {@const _tdeeE = Nutrition.displayEnergy(_adaptive.tdee, $energyUnit)}
               <div class="adaptive-sub">
-                Learned <strong>{_adaptive.tdee.toLocaleString()} kcal/day</strong> · weight trend
+                Learned <strong>{_tdeeE.value.toLocaleString()} {_tdeeE.unit}/day</strong> · weight trend
                 {_adaptive.trendKgPerWeek > 0 ? '+' : ''}{_adaptive.trendKgPerWeek} kg/week
               </div>
             {:else}
@@ -360,8 +365,9 @@
           </button>
         </div>
         {#if _adaptive?.ready}
+          {@const _todayE = Nutrition.displayEnergy(_effectiveCalGoal, $energyUnit)}
           <div class="adaptive-stats">
-            <div><span class="text-3 text-sm">Today's goal</span><br><strong>{_effectiveCalGoal.toLocaleString()} kcal</strong></div>
+            <div><span class="text-3 text-sm">Today's goal</span><br><strong>{_todayE.value.toLocaleString()} {_todayE.unit}</strong></div>
             <div><span class="text-3 text-sm">Confidence</span><br><strong>{Math.round((_adaptive.confidence || 0) * 100)}%</strong></div>
             <div><span class="text-3 text-sm">Weight source</span><br><strong style="text-transform:capitalize">{_adaptive.weightSource}</strong></div>
           </div>
@@ -370,8 +376,9 @@
             <div class="adaptive-progress-fill"
               style="width:{Math.min(100, ((_adaptive?.daysAvailable ?? 0) / (_adaptive?.daysRequired ?? 21)) * 100)}%"></div>
           </div>
+          {@const _fixedE = Nutrition.displayEnergy(_fixedGoal, $energyUnit)}
           <p class="text-3 text-sm" style="margin:8px 0 0">
-            Until ready, your fixed goal of {_fixedGoal.toLocaleString()} kcal applies.
+            Until ready, your fixed goal of {_fixedE.value.toLocaleString()} {_fixedE.unit} applies.
           </p>
         {/if}
         {#if _showAdaptiveHelp}
@@ -583,18 +590,22 @@
         <p class="section-title">Wellness</p>
         <div class="card">
           {#each WELLNESS_GOALS as stat, i}
+            {@const _kjMode = stat.id === 'calories_out' && $energyUnit === 'kJ'}
+            {@const _statUnit = _kjMode ? 'kJ' : stat.unit}
             {#if i > 0}<div class="divider"></div>{/if}
             <button class="goal-row" on:click={() => openEdit(stat)}>
               <div class="goal-info">
                 <span class="font-medium">{stat.label}</span>
                 {#if $goals[stat.id]}
                   {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
-                  {@const tgt = getTarget(stat)}
-                  {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                  {@const _tgtRaw = getTarget(stat)}
+                  {@const _curRaw = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                  {@const tgt = _kjMode && _tgtRaw != null ? Math.round(Nutrition.kcalToKj(_tgtRaw)) : _tgtRaw}
+                  {@const cur = _kjMode && _curRaw != null ? Nutrition.kcalToKj(_curRaw) : _curRaw}
                   <div class="goal-progress-bar">
                     <div class="goal-progress-fill" style="width:{pct}%"></div>
                   </div>
-                  <span class="text-3 text-sm">{cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit}</span>
+                  <span class="text-3 text-sm">{cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {_statUnit}</span>
                 {:else}
                   <span class="text-3 text-sm" style="opacity:0.4">No goal</span>
                 {/if}
@@ -650,12 +661,13 @@
 
 <!-- ── Goal editor sheet ── -->
 {#if editOpen && editStat}
+  {@const _editUnit = (editStat.id === 'calories_out' && $energyUnit === 'kJ') ? 'kJ' : editStat.unit}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
     on:click={() => { if (!_gLock) editOpen = false; }} on:keydown={() => {}}>
     <div class="sheet-panel" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header">
-        <h3 class="sheet-title">{editStat.label} {editStat.unit ? '('+editStat.unit+')' : ''}</h3>
+        <h3 class="sheet-title">{editStat.label} {_editUnit ? '('+_editUnit+')' : ''}</h3>
       </div>
       <div class="sheet-body">
 
@@ -728,12 +740,12 @@
         <!-- Goal value(s) -->
         <p class="goal-section-label">Target{editShared ? '' : 's per day'}</p>
         {#if editShared}
-          <label class="form-label">Value ({editIsPercent ? '% of calories' : (editStat.unit || '')})</label>
+          <label class="form-label">Value ({editIsPercent ? '% of calories' : (_editUnit || '')})</label>
           <input class="input" type="number" min="0" step="any"
             placeholder="0" bind:value={editVal0} />
         {:else}
           {#each DAYS as day, i}
-            <label class="form-label">{day} ({editIsPercent ? '% of calories' : (editStat.unit || '')})</label>
+            <label class="form-label">{day} ({editIsPercent ? '% of calories' : (_editUnit || '')})</label>
             <input class="input" type="number" min="0" step="any"
               placeholder="0" bind:value={editDayVals[i]} style="margin-bottom:8px" />
           {/each}

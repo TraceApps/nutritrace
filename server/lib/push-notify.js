@@ -186,9 +186,19 @@ export async function sendWeeklySummary(userId) {
   const m = {};
   for (const r of rows) m[r.metric_type] = r.avg;
 
+  let energyUnit = 'kcal';
+  try {
+    const euRow = db.prepare(`SELECT value FROM user_settings WHERE user_id=? AND key='energyUnit'`).get(userId);
+    energyUnit = JSON.parse(euRow?.value || '"kcal"') || 'kcal';
+  } catch {}
+  const _isKj = energyUnit === 'kJ';
+
   const parts = [];
   if (m.steps) parts.push(`Avg steps: ${Math.round(m.steps).toLocaleString()}`);
-  if (m.calories_out) parts.push(`Avg cal burned: ${Math.round(m.calories_out).toLocaleString()}`);
+  if (m.calories_out) {
+    const v = _isKj ? Math.round(m.calories_out * 4.184) : Math.round(m.calories_out);
+    parts.push(`Avg ${_isKj ? 'energy' : 'cal'} burned: ${v.toLocaleString()} ${_isKj ? 'kJ' : 'kcal'}`);
+  }
   if (m.sleep_duration_min) {
     const h = Math.floor(m.sleep_duration_min / 60);
     const min = Math.round(m.sleep_duration_min % 60);

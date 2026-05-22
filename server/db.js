@@ -485,6 +485,54 @@ if (!columnExists('user_settings', 'deleted_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN deleted_at TEXT DEFAULT NULL`);
 }
 
+// Issue #37: single-user mode (user_id IS NULL) accumulated duplicate diary
+// rows because SQLite UNIQUE(date, user_id) treats NULL as distinct, so the
+// PUT handler's UPSERT never fired. Each save inserted a new row and GET
+// returned the oldest, so the client's currentEntry never advanced past
+// [item1]. Subsequent saves sent [item1, itemN] (not the full cumulative
+// list), so no single row holds the user's full day — items are scattered.
+// Recovery: per date, union items across all rows (dedup by addedAt),
+// keep the latest-id row, replace its items with the merged set, delete
+// the older duplicates. Idempotent.
+try {
+  const dupDates = db.prepare(
+    `SELECT date FROM diary WHERE user_id IS NULL GROUP BY date HAVING COUNT(*) > 1`
+  ).all();
+  if (dupDates.length) {
+    let totalDeleted = 0;
+    const tx = db.transaction(() => {
+      for (const { date } of dupDates) {
+        const rows = db.prepare(
+          `SELECT id, items FROM diary WHERE user_id IS NULL AND date = ? ORDER BY id ASC`
+        ).all(date);
+        const merged = [];
+        const seen = new Set();
+        for (const r of rows) {
+          let items = [];
+          try { items = JSON.parse(r.items || '[]'); } catch {}
+          if (!Array.isArray(items)) continue;
+          for (const it of items) {
+            const key = it && it.addedAt ? `t:${it.addedAt}` : `f:${JSON.stringify(it)}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(it);
+          }
+        }
+        merged.sort((a, b) => String(a?.addedAt || '').localeCompare(String(b?.addedAt || '')));
+        const keepId = rows[rows.length - 1].id;
+        db.prepare(`UPDATE diary SET items=?, updated_at=datetime('now') WHERE id=?`)
+          .run(JSON.stringify(merged), keepId);
+        const r = db.prepare(`DELETE FROM diary WHERE user_id IS NULL AND date = ? AND id != ?`).run(date, keepId);
+        totalDeleted += r.changes;
+      }
+    });
+    tx();
+    console.log(`[db] #37: merged single-user diary items across ${dupDates.length} dates, removed ${totalDeleted} duplicate rows`);
+  }
+} catch (e) {
+  console.warn(`[db] #37 diary consolidation failed:`, e.message || e);
+}
+
 // ── Favorites + usage tracking (foods + meals) ─────────────────────────────
 // `favorite` pins items to the top of the picker; `usage_count` and
 // `last_used_at` drive the Most Used / Recently Used sort modes.

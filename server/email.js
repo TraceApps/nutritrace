@@ -293,6 +293,14 @@ export async function sendWeeklySummaryEmail(userId, origin) {
       calGoal = g.calories?.max ?? g.calories?.min ?? null;
     } catch {}
 
+    // Energy unit preference (display only; storage stays kcal)
+    const euRow = db.prepare(`SELECT value FROM user_settings WHERE user_id=? AND key='energyUnit'`).get(userId);
+    let energyUnit = 'kcal';
+    try { energyUnit = JSON.parse(euRow?.value || '"kcal"') || 'kcal'; } catch {}
+    const _isKj = energyUnit === 'kJ';
+    const _eUnit = _isKj ? 'kJ' : 'kcal';
+    const _toE = (kcal) => kcal == null ? null : (_isKj ? Math.round(kcal * 4.184) : Math.round(kcal));
+
     for (const row of diaryRows) {
       try {
         const entry = JSON.parse(row.data);
@@ -362,11 +370,14 @@ export async function sendWeeklySummaryEmail(userId, origin) {
     const fmtDate = (d) => `${DAYS[d.getDay()]} ${d.toLocaleDateString('en-US', { month:'short', day:'numeric' })}`;
     const weekRange = `${fmtDate(fromDate)} – ${fmtDate(toDate)}`;
 
+    const _dispAvgCal = _toE(avgCal);
+    const _dispDiff = (avgCal != null && calGoal != null) ? _toE(avgCal - calGoal) : null;
+    const _dispDiffSigned = _dispDiff != null ? `${_dispDiff >= 0 ? '+' : ''}${_dispDiff}` : null;
     const nutritionSection = daysLogged > 0 ? `
       ${_sectionHeader(`Nutrition (${daysLogged}/7 days logged)`)}
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-        ${_statRow('Avg Daily Calories', avgCal, 'kcal')}
-        ${calGoal != null ? _statRow('vs Goal', `${avgCal >= calGoal ? '+' : ''}${avgCal - calGoal}`, 'kcal') : ''}
+        ${_statRow(_isKj ? 'Avg Daily Energy' : 'Avg Daily Calories', _dispAvgCal, _eUnit)}
+        ${_dispDiffSigned != null ? _statRow('vs Goal', _dispDiffSigned, _eUnit) : ''}
         ${goalHitPct != null ? _statRow('Goal Hit Rate', goalHitPct, '%') : ''}
         ${_statRow('Avg Protein', avgProt, 'g')}
         ${_statRow('Avg Carbs', avgCarb, 'g')}
@@ -380,7 +391,7 @@ export async function sendWeeklySummaryEmail(userId, origin) {
       ${_sectionHeader('Activity & Wellness')}
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
         ${_statRow('Avg Daily Steps', avgSteps)}
-        ${w.calories_out ? _statRow('Avg Calories Burned', Math.round(w.calories_out), 'kcal') : ''}
+        ${w.calories_out ? _statRow(_isKj ? 'Avg Energy Burned' : 'Avg Calories Burned', _toE(w.calories_out), _eUnit) : ''}
         ${_statRow('Avg Sleep', avgSleep)}
         ${w.resting_hr ? _statRow('Avg Resting HR', Math.round(w.resting_hr), 'bpm') : ''}
         ${w.readiness_score ? _statRow('Avg Readiness', Math.round(w.readiness_score), '/ 100') : ''}
@@ -411,9 +422,9 @@ export async function sendWeeklySummaryEmail(userId, origin) {
     await sendMail({
       to: toEmail,
       subject: `NutriTrace Weekly Summary — ${weekRange}`,
-      html: emailWrapper(origin, body, 'To stop receiving these emails, turn off Weekly Summary in Settings &rarr; Notifications.', `Your NutriTrace week: ${avgCal ? avgCal + ' avg kcal' : ''}${avgSteps ? ', ' + avgSteps + ' avg steps' : ''}`),
+      html: emailWrapper(origin, body, 'To stop receiving these emails, turn off Weekly Summary in Settings &rarr; Notifications.', `Your NutriTrace week: ${_dispAvgCal != null ? _dispAvgCal + ' avg ' + _eUnit : ''}${avgSteps ? ', ' + avgSteps + ' avg steps' : ''}`),
       text: `Weekly Summary (${weekRange})\n\n` +
-        (avgCal   ? `Avg calories: ${avgCal} kcal\n` : '') +
+        (_dispAvgCal != null ? `Avg ${_isKj ? 'energy' : 'calories'}: ${_dispAvgCal} ${_eUnit}\n` : '') +
         (avgProt  ? `Avg protein: ${avgProt}g\n` : '') +
         (avgSteps ? `Avg steps: ${avgSteps}\n` : '') +
         (avgSleep ? `Avg sleep: ${avgSleep}\n` : '') +

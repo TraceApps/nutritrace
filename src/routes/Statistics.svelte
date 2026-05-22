@@ -163,7 +163,8 @@
           } catch {}
         }
         rows = dates.map(d => {
-          const raw = garminData[d]?.[wlMeta.apiField] ?? fitbitData[d]?.[wlMeta.apiField] ?? hcData[d]?.[wlMeta.apiField] ?? null;
+          let raw = garminData[d]?.[wlMeta.apiField] ?? fitbitData[d]?.[wlMeta.apiField] ?? hcData[d]?.[wlMeta.apiField] ?? null;
+          if (raw != null && metric === 'calories_out' && $energyUnit === 'kJ') raw = Nutrition.kcalToKj(raw);
           const val = raw != null && wlMeta.fmtVal ? wlMeta.fmtVal(raw) : raw;
           return { date: d, val };
         });
@@ -226,7 +227,9 @@
               val = readBodyStat(bs, metric, $weightUnit, $lengthUnit);
             } else {
               const totals = Nutrition.sum((entry.items || []).map(i => Nutrition.calculate(i)));
-              val = totals[metric] ? Math.round(totals[metric] * 10) / 10 : null;
+              let raw = totals[metric] || null;
+              if (raw != null && metric === 'calories' && $energyUnit === 'kJ') raw = Nutrition.kcalToKj(raw);
+              val = raw != null ? Math.round(raw * 10) / 10 : null;
             }
           }
         }
@@ -341,6 +344,7 @@
         const calGoal = $goals.calories?.max ?? $goals.calories?.min ?? 2000;
         if (density) goalVal = Math.round(calGoal * goalVal / 100 / density);
       }
+      if (goalVal != null && metric === 'calories' && $energyUnit === 'kJ') goalVal = Math.round(Nutrition.kcalToKj(goalVal));
       if (goalVal) {
         const isAdaptiveOrDynamic = metric === 'calories' && ($calorieGoalMode === 'dynamic' || $calorieGoalMode === 'adaptive');
         datasets.push({
@@ -422,8 +426,13 @@
 
   function getMetricUnit() {
     if (metric === 'water') return _waterUnit;
+    if (metric === 'calories') return $energyUnit || 'kcal';
     const wl = WELLNESS_METRICS.find(x => x.value === metric);
-    if (wl) return wl.isWeight ? ($weightUnit === 'lb' ? 'lbs' : 'kg') : wl.unit;
+    if (wl) {
+      if (wl.isWeight) return $weightUnit === 'lb' ? 'lbs' : 'kg';
+      if (metric === 'calories_out') return $energyUnit || 'kcal';
+      return wl.unit;
+    }
     const m = [...NUTRIMENTS, ...BODY_STATS].find(x => x.value === metric || x.id === metric);
     return m ? (m.unit || '') : '';
   }
@@ -431,8 +440,13 @@
   // Compute metric unit reactively (not via function call — avoids stale reads)
   $: _metricUnit = (() => {
     if (metric === 'water') return _waterUnit;
+    if (metric === 'calories') return $energyUnit || 'kcal';
     const wl = WELLNESS_METRICS.find(x => x.value === metric);
-    if (wl) return wl.isWeight ? ($weightUnit === 'lb' ? 'lbs' : 'kg') : wl.unit;
+    if (wl) {
+      if (wl.isWeight) return $weightUnit === 'lb' ? 'lbs' : 'kg';
+      if (metric === 'calories_out') return $energyUnit || 'kcal';
+      return wl.unit;
+    }
     const m = [...NUTRIMENTS, ...BODY_STATS].find(x => x.value === metric || x.id === metric);
     return m ? (m.unit || '') : '';
   })();

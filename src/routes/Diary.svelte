@@ -583,7 +583,13 @@
         const rem = tgt ? Math.max(0, tgt - cur) : null;
         const pct = tgt ? Math.min(100, cur / tgt * 100) : 0;
         const over = tgt && cur > tgt && !g?.isMin;
-        return { ...n, cur, rem, tgt, pct, over };
+        let dispCur = cur, dispTgt = tgt, dispUnit = n.unit;
+        if (n.id === 'calories' && $energyUnit === 'kJ') {
+          dispCur = Nutrition.kcalToKj(cur);
+          dispTgt = tgt != null ? Nutrition.kcalToKj(tgt) : tgt;
+          dispUnit = 'kJ';
+        }
+        return { ...n, cur: dispCur, rem, tgt: dispTgt, pct, over, unit: dispUnit };
       });
   })();
 
@@ -1201,7 +1207,8 @@
           <div class="meal-macro-footer activity-footer" aria-label={$_('diary.activity.section')}>
             <div class="meal-macro-bar">
               {#each acts as a (a.id)}
-                <div class="amb-seg" style="width:{totalActKcal ? (a.kcal / totalActKcal * 100) : 0}%" title={`${a.name} — ${a.kcal} kcal`}></div>
+                {@const _aE = Nutrition.displayEnergy(a.kcal || 0, $energyUnit)}
+                <div class="amb-seg" style="width:{totalActKcal ? (a.kcal / totalActKcal * 100) : 0}%" title={`${a.name} — ${_aE.value} ${_aE.unit}`}></div>
               {/each}
             </div>
             <span class="meal-macro-text text-3 text-sm">

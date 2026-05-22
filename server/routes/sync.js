@@ -211,14 +211,30 @@ router.post('/push', wrap((req, res) => {
           .run(d.date, ...(u != null ? [u] : []));
       } else {
         const dNotes = (typeof d.notes === 'string' && d.notes.trim()) ? d.notes : null;
-        db.prepare(
-          `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-           ON CONFLICT(date, user_id) DO UPDATE SET
-             items = excluded.items, body_stats = excluded.body_stats, water = excluded.water,
-             notes = excluded.notes,
-             updated_at = datetime('now'), deleted_at = NULL`
-        ).run(u, d.date, JSON.stringify(d.items || []), JSON.stringify(d.body_stats || {}), JSON.stringify(d.water || []), dNotes);
+        const itemsJson = JSON.stringify(d.items || []);
+        const bsJson = JSON.stringify(d.body_stats || {});
+        const waterJson = JSON.stringify(d.water || []);
+        if (u == null) {
+          // Single-user mode: NULL user_id never collides under SQLite UNIQUE
+          // (see diary.js PUT for the same workaround, issue #37).
+          const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(d.date);
+          if (existing) {
+            db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
+              .run(itemsJson, bsJson, waterJson, dNotes, existing.id);
+          } else {
+            db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`)
+              .run(d.date, itemsJson, bsJson, waterJson, dNotes);
+          }
+        } else {
+          db.prepare(
+            `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(date, user_id) DO UPDATE SET
+               items = excluded.items, body_stats = excluded.body_stats, water = excluded.water,
+               notes = excluded.notes,
+               updated_at = datetime('now'), deleted_at = NULL`
+          ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes);
+        }
       }
       const row = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
         .get(d.date, ...(u != null ? [u] : []));

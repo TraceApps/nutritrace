@@ -12,7 +12,7 @@
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearMealEditorState } from '../stores/editorState.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
-  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, catName as _catName, catDisplay as _catDisplay, energyUnit, foodsSort, mealsSort, recipesSort } from '../stores/settings.js';
+  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, visibleNutriments, nutrimentsOrder, catName as _catName, catDisplay as _catDisplay, energyUnit, foodsSort, mealsSort, recipesSort } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
 
   export let params = {};
@@ -491,6 +491,28 @@
       saving = false;
     }
   }
+
+  // Apply user's custom nutriment order (drag-to-reorder in Settings →
+  // Nutrients) and visibility selection. Without this, MealEditor stayed
+  // on the static NUTRIMENTS array order even when the user reordered.
+  $: _orderedNutriments = (() => {
+    const ord = $nutrimentsOrder || [];
+    if (!ord.length) return NUTRIMENTS;
+    return NUTRIMENTS.slice().sort((a, b) => {
+      const ai = ord.indexOf(a.id);
+      const bi = ord.indexOf(b.id);
+      if (ai === -1 && bi === -1) return 0;
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  })();
+  $: _visibleSet = $visibleNutriments && $visibleNutriments.length
+    ? new Set($visibleNutriments)
+    : null;
+  function _isVisibleByDefault(n) {
+    return _visibleSet ? _visibleSet.has(n.id) : !!n.default;
+  }
 </script>
 
 <div class="page-shell editor-page">
@@ -601,9 +623,9 @@
         {#if parseFloat(recipeAmount) > 0 && (parseInt(recipeYields) || 0) >= 1}
           {@const _y = Math.max(1, parseInt(recipeYields) || 1)}
           {@const _g = Math.round((parseFloat(recipeAmount) / _y) * 10) / 10}
-          {@const _k = Math.round(((totals?.calories || 0) / _y) * 10) / 10}
+          {@const _perServE = Nutrition.displayEnergy((totals?.calories || 0) / _y, $energyUnit)}
           <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">
-            <p style="margin:0;font-size:13px"><span class="text-3">{$_('meal_editor.servings.per_serving_label')}</span> <strong>{_g}{recipeUnit} · {_k} kcal</strong></p>
+            <p style="margin:0;font-size:13px"><span class="text-3">{$_('meal_editor.servings.per_serving_label')}</span> <strong>{_g}{recipeUnit} · {_perServE.value} {_perServE.unit}</strong></p>
           </div>
         {/if}
       </div>
@@ -714,10 +736,11 @@
     {#if meal.items.length > 0}
       <div class="card editor-card">
         <div class="editor-card-title">Nutrition Totals</div>
-        {#each NUTRIMENTS.filter(n => (showAllNutrients ? true : n.default) && totals[n.id]) as n}
+        {#each _orderedNutriments.filter(n => (showAllNutrients ? true : _isVisibleByDefault(n)) && totals[n.id]) as n}
+          {@const _kjMode = n.id === 'calories' && $energyUnit === 'kJ'}
           <div style="display:flex;justify-content:space-between;padding:4px 0">
-            <span class="text-sm">{n.label}</span>
-            <span class="text-sm font-medium">{Math.round(totals[n.id]*10)/10} {n.unit}</span>
+            <span class="text-sm">{_kjMode ? 'Energy' : n.label}</span>
+            <span class="text-sm font-medium">{_kjMode ? Math.round(totals[n.id] * 4.184) : Math.round(totals[n.id]*10)/10} {_kjMode ? 'kJ' : n.unit}</span>
           </div>
         {/each}
         <button class="btn btn-ghost w-full" style="margin-top:8px"

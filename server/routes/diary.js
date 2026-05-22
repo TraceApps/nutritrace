@@ -33,16 +33,22 @@ router.put('/:date', wrap((req, res) => {
   const { items, body_stats, water, notes } = req.body;
   const notesVal = (typeof notes === 'string' && notes.trim()) ? notes : null;
   const u = uid(req);
+  const itemsJson = JSON.stringify(items || []);
+  const bsJson = JSON.stringify(body_stats || {});
+  const waterJson = JSON.stringify(water || []);
   if (u == null) {
-    db.prepare(
-      `INSERT INTO diary (date, items, body_stats, water, notes, updated_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(date, user_id) DO UPDATE SET
-         items=excluded.items, body_stats=excluded.body_stats,
-         water=excluded.water, notes=excluded.notes,
-         updated_at=excluded.updated_at,
-         deleted_at=NULL`
-    ).run(req.params.date, JSON.stringify(items || []), JSON.stringify(body_stats || {}), JSON.stringify(water || []), notesVal);
+    // Single-user mode: SQLite UNIQUE(date, user_id) treats NULL user_id as
+    // distinct per row, so the standard UPSERT never collides — each PUT
+    // would insert a new row and GET would return the oldest (issue #37,
+    // "only the first food item added each day saves"). Manual upsert:
+    const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(req.params.date);
+    if (existing) {
+      db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
+        .run(itemsJson, bsJson, waterJson, notesVal, existing.id);
+    } else {
+      db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`)
+        .run(req.params.date, itemsJson, bsJson, waterJson, notesVal);
+    }
   } else {
     db.prepare(
       `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
@@ -52,7 +58,7 @@ router.put('/:date', wrap((req, res) => {
          water=excluded.water, notes=excluded.notes,
          updated_at=excluded.updated_at,
          deleted_at=NULL`
-    ).run(u, req.params.date, JSON.stringify(items || []), JSON.stringify(body_stats || {}), JSON.stringify(water || []), notesVal);
+    ).run(u, req.params.date, itemsJson, bsJson, waterJson, notesVal);
   }
   const row = u == null
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(req.params.date)

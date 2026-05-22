@@ -13,7 +13,8 @@
   import { takePhoto } from '../lib/camera.js';
   import { isNative } from '../lib/platform.js';
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
-  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, catName as _catName, catDisplay as _catDisplay } from '../stores/settings.js';
+  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, energyUnit, catName as _catName, catDisplay as _catDisplay } from '../stores/settings.js';
+  import { callAI, callAIProxy } from '../lib/aiChat.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
 
   // ── Photo capture / upload ─────────────────────────────────
@@ -418,6 +419,140 @@
     } finally { downloading = false; }
   }
 
+  // ── Scan Label (AI vision) ──────────────────────────────────────────────────
+  // Camera flow: user taps the icon in the Nutrition card header, takes a photo
+  // of the food's nutrition label, the configured AI provider extracts values,
+  // and OVERWRITES the form's nutrition fields (the label is the source of
+  // truth in this moment, distinct from Refresh from OFF which smart-fills).
+  // Gated on $aiEffectivelyEnabled — button is hidden when AI isn't configured.
+  let scanningLabel = false;
+  let scanLabelFileInput;
+
+  async function _captureLabelPhoto() {
+    if (isNative) {
+      try {
+        const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera');
+        const photo = await Camera.getPhoto({
+          quality: 80, resultType: CameraResultType.Base64,
+          source: CameraSource.Camera, width: 1600,
+        });
+        return { base64: photo.base64String, mimeType: `image/${photo.format || 'jpeg'}` };
+      } catch {
+        return null;
+      }
+    }
+    // Web: trigger the hidden file input + camera capture attribute and resolve
+    // on change. The element lives in the template below.
+    return new Promise((resolve) => {
+      const handler = (e) => {
+        scanLabelFileInput.removeEventListener('change', handler);
+        const file = e.target.files?.[0];
+        if (!file) { resolve(null); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result;
+          // dataUrl: data:image/jpeg;base64,XXXX → split into mime + base64
+          const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+          if (!m) { resolve(null); return; }
+          resolve({ mimeType: m[1], base64: m[2] });
+        };
+        reader.readAsDataURL(file);
+      };
+      scanLabelFileInput.addEventListener('change', handler);
+      scanLabelFileInput.value = '';
+      scanLabelFileInput.click();
+    });
+  }
+
+  function _buildLabelMessages(provider, image) {
+    // Build the prompt + image payload. Each provider has its own multimodal
+    // format. Same shape pattern used by Trace.svelte#_buildImageMessage.
+    const prompt = [
+      'Extract nutrition facts from this label image.',
+      'Return ONLY a JSON object with these keys (omit keys you cannot read):',
+      '  name (string, product name), brand (string), portion (number), unit (string, one of g/ml/oz/fl oz/cup/tsp/tbsp/lb/kg/l/each),',
+      '  per_serving (boolean, true if the listed values are per serving, false if per 100g),',
+      '  calories (kcal), kilojoules (kJ),',
+      '  fat (g), saturated-fat (g), trans-fat (g), polyunsaturated-fat (g), monounsaturated-fat (g),',
+      '  carbohydrates (g), sugars (g), added-sugars (g), fiber (g),',
+      '  proteins (g),',
+      '  sodium (mg), salt (g), potassium (mg), cholesterol (mg),',
+      '  calcium (mg), iron (mg), magnesium (mg), zinc (mg), phosphorus (mg),',
+      '  vitamin-d (µg), vitamin-a (µg), vitamin-c (mg), vitamin-e (mg), vitamin-k (µg),',
+      '  b1 (mg), b2 (mg), b3 (mg), b6 (mg), b9 (µg), b12 (µg),',
+      '  caffeine (mg), alcohol (g)',
+      'Use numbers, not strings. Use the units specified, not the label\'s.',
+      'No commentary, no markdown — JSON only.',
+    ].join('\n');
+    if (provider === 'claude') {
+      return [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.base64 } },
+        { type: 'text', text: prompt },
+      ]}];
+    }
+    if (provider === 'openai' || provider === 'oai-compat') {
+      return [{ role: 'user', content: [
+        { type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.base64}` } },
+        { type: 'text', text: prompt },
+      ]}];
+    }
+    if (provider === 'gemini') {
+      return [{ role: 'user', content: prompt, _image: image }];
+    }
+    return [{ role: 'user', content: prompt }];
+  }
+
+  function _parseJsonFromReply(text) {
+    if (!text) return null;
+    // Strip ```json fences if the model added them despite the prompt.
+    const cleaned = text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    try { return JSON.parse(cleaned); } catch {}
+    // Fallback: extract the first {...} block.
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (m) { try { return JSON.parse(m[0]); } catch {} }
+    return null;
+  }
+
+  async function scanLabel() {
+    if (scanningLabel) return;
+    const image = await _captureLabelPhoto();
+    if (!image || !image.base64) return;
+    scanningLabel = true;
+    try {
+      const provider = $aiProvider || 'claude';
+      const messages = _buildLabelMessages(provider, image);
+      const systemPrompt = 'You are a nutrition label parser. Return JSON only.';
+      const reply = $envLocks.ai
+        ? await callAIProxy({ messages, systemPrompt })
+        : await callAI({
+            provider, apiKey: $aiApiKey, model: $aiModel, baseUrl: $aiBaseUrl,
+            messages, systemPrompt,
+          });
+      const parsed = _parseJsonFromReply(reply);
+      if (!parsed || typeof parsed !== 'object') {
+        showError('Could not read the label. Try a clearer photo.');
+        return;
+      }
+      // Overwrite (NOT smart-fill) — the label is the source of truth this moment.
+      // Mirrors the user's preference: refresh-from-off smart-fills (OFF can be
+      // stale), scan-label overwrites (label is what the user is holding now).
+      if (typeof parsed.name === 'string' && parsed.name.trim()) food.name = parsed.name.trim();
+      if (typeof parsed.brand === 'string' && parsed.brand.trim()) food.brand = parsed.brand.trim();
+      if (parsed.portion != null && !isNaN(parseFloat(parsed.portion))) food.portion = parseFloat(parsed.portion);
+      if (typeof parsed.unit === 'string' && parsed.unit.trim()) food.unit = parsed.unit.trim();
+      for (const n of NUTRIMENTS) {
+        const v = parsed[n.id];
+        if (v != null && !isNaN(parseFloat(v))) food[n.id] = parseFloat(v);
+      }
+      food = { ...food };
+      showSuccess('Nutrition extracted from label');
+    } catch (e) {
+      showError('Scan failed: ' + (e?.message || 'unknown error'));
+    } finally {
+      scanningLabel = false;
+    }
+  }
+
 
   onMount(async () => {
     store = editorState.foodStore || 'foodList';
@@ -542,13 +677,28 @@
     }
   }
 
+  // Apply the user's custom nutriment order (set via drag-to-reorder in
+  // Settings → Nutrients). Without this the editor stayed on the static
+  // NUTRIMENTS array order even after the user reorganized.
+  function _applyOrder(list) {
+    const ord = $nutrimentsOrder || [];
+    if (!ord.length) return list;
+    return list.slice().sort((a, b) => {
+      const ai = ord.indexOf(a.id);
+      const bi = ord.indexOf(b.id);
+      if (ai === -1 && bi === -1) return 0;
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  }
   $: visibleFields = (() => {
     const vis = $visibleNutriments;
-    if (!vis) return NUTRIMENTS.filter(n => n.default);
-    return NUTRIMENTS.filter(n => vis.includes(n.id));
+    const base = vis ? NUTRIMENTS.filter(n => vis.includes(n.id)) : NUTRIMENTS.filter(n => n.default);
+    return _applyOrder(base);
   })();
 
-  $: allFields = NUTRIMENTS;
+  $: allFields = _applyOrder(NUTRIMENTS);
   $: displayFields = showAllNutrients ? allFields : visibleFields;
 </script>
 
@@ -799,19 +949,41 @@
 
     <!-- Nutrition -->
     <div class="card editor-card">
-      <div class="editor-card-title">Nutrition</div>
+      <div class="editor-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span>Nutrition</span>
+        {#if $aiEffectivelyEnabled}
+          <button class="scan-label-btn" on:click={scanLabel} disabled={scanningLabel}
+            title="Take a photo of the nutrition label to fill these fields"
+            aria-label="Scan nutrition label">
+            <span class="material-symbols-rounded scan-icon" class:spin={scanningLabel}>
+              {scanningLabel ? 'progress_activity' : 'photo_camera'}
+            </span>
+            <span>{scanningLabel ? 'Scanning…' : 'Scan Label'}</span>
+          </button>
+        {/if}
+      </div>
+      <!-- Hidden file input for the web Scan Label flow. On native we go
+           through @capacitor/camera directly. -->
+      <input bind:this={scanLabelFileInput} type="file" accept="image/*" capture="environment" style="display:none" />
       {#each displayFields as n}
+        {@const _kjMode = n.id === 'calories' && $energyUnit === 'kJ'}
         <div class="form-group" class:nutrient-sub={n.subOf}>
           <label class="form-label">
-            {n.label} ({n.unit})
+            {_kjMode ? 'Energy' : n.label} ({_kjMode ? 'kJ' : n.unit})
             {#if (n.id === 'sodium' || n.id === 'salt') && food._derived && food._derived[n.id]}
               <span class="material-symbols-rounded" style="font-size:14px;color:var(--text-3);vertical-align:middle;margin-left:2px"
                 title={n.id === 'sodium' ? 'Auto-calculated from salt (× 400 mg/g)' : 'Auto-calculated from sodium (÷ 400)'}>calculate</span>
             {/if}
           </label>
-          <input class="input" type="number" min="0" step="0.1" placeholder="0"
-            bind:value={food[n.id]}
-            on:input={() => onNutInput(n.id)} />
+          {#if _kjMode}
+            <input class="input" type="number" min="0" step="1" placeholder="0"
+              value={food.calories ? Math.round(food.calories * 4.184) : ''}
+              on:input={(e) => { const v = parseFloat(e.target.value); food.calories = isNaN(v) ? '' : v / 4.184; onNutInput('calories'); }} />
+          {:else}
+            <input class="input" type="number" min="0" step="0.1" placeholder="0"
+              bind:value={food[n.id]}
+              on:input={() => onNutInput(n.id)} />
+          {/if}
         </div>
       {/each}
       <button class="btn btn-ghost w-full" style="margin-top:8px"
@@ -1021,5 +1193,36 @@
     touch-action: none;
   }
 
+  /* Scan Label button — sits in the Nutrition card title row. Icon + text
+     so the action is obvious (camera alone could be confused with food
+     photo / profile picture). Compact enough to fit the title row on
+     mobile. */
+  .scan-label-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    color: var(--text-1);
+    border: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .scan-label-btn:hover { background: var(--surface-3); }
+  .scan-label-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .scan-label-btn .material-symbols-rounded { font-size: 18px; }
+
+  /* progress_activity glyph rotates while the AI vision call is in flight.
+     Same pattern used elsewhere (ConnectionStatus, Wizard) but kept
+     component-scoped. */
+  .scan-icon.spin {
+    animation: spin 1s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
 </style>

@@ -9,6 +9,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.35] — 2026-05-22
+
+### Added
+
+- **Scan Label**. On the Add/Edit Food screen, take a photo of a nutrition label and the AI Assistant fills in the values. Requires AI Assistant to be configured.
+
+### Changed
+
+- **Custom nutriment order is reflected in the food and meal editors.** Reordering nutrients in Settings now changes their display order everywhere.
+- **Vitamin D, Calcium, Iron, and Potassium are visible by default** on new installs, matching the FDA's mandatory Nutrition Facts label fields.
+
+### Fixed
+
+- **kcal/kJ inconsistencies when energy unit was set to kJ.** Food editor, diary footer, meal totals, statistics charts, goals, weekly summary email, and push notifications all respect the chosen unit now. Internal storage stays kcal; only the display converts. (Issue #38)
+- **Single-user mode: only the first food item added each day was visible** in the UI. A SQLite quirk meant NULL user_id rows never collided on upsert, so each save inserted a new row instead of updating. A one-time migration on first boot recovers items already in the database. (Issue #37)
+
+---
+
 ## [1.0.0-rc.34] — 2026-05-22
 
 ### Fixed

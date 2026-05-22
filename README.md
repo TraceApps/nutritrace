@@ -41,9 +41,12 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 ### Foods & Meals
 - Personal food database with photos, barcodes, categories, and custom labels
 - Favorite foods and meals (star them) with a configurable sort order — favorites first, alphabetical, recently used, or most used
-- Barcode scanner (camera) for quick food lookup via Open Food Facts
+- Barcode scanner (camera) for quick food lookup via Open Food Facts. Barcodes not in OFF open the food editor with the barcode prefilled so you can enter the food manually and contribute back.
+- **Scan Label** — when AI Assistant is enabled, a button in the Nutrition card sends a photo of the actual nutrition label to your configured AI provider, which extracts every value (calories, macros, micros, serving size) and fills the form in one tap. Works with cloud providers (Claude, OpenAI, Gemini) or a local model with vision support
+- **Share to Open Food Facts** — contribute foods you've added (with their picture) to the OFF community database. The button flips to "View on OFF" when the product already exists, opening the wiki page where edits properly track history and moderation
 - Meal and recipe builder with drag-to-reorder ingredients
 - Proportional nutrition scaling when editing serving size
+- Configurable nutrient order — drag to reorder in Settings → Nutrients; the food and meal editors honor your custom order
 - Import foods from Open Food Facts, USDA FoodData Central, or Mealie (recipe manager); Open Food Facts barcode imports let you pick per-serving or per-100g when both are published
 - **Bulk import** custom foods from JSON or CSV (Settings → Import & Export → Bulk Import)
 - **Mass-aware unit conversion** when scaling nutrition: switching g ↔ oz ↔ lb, ml ↔ cup, tsp ↔ tbsp (or any custom unit you define) actually converts the macros, not just relabels the unit

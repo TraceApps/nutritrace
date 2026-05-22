@@ -27,10 +27,10 @@ const NUTRIMENTS = [
   // Protein
   { id: 'proteins',      label: 'Protein',       unit: 'g',    category: 'macro',   default: true },
   // Vitamins & Minerals (Nutrition Facts order)
-  { id: 'vitamin-d',     label: 'Vitamin D',     unit: 'µg',  category: 'vitamin', default: false },
-  { id: 'calcium',       label: 'Calcium',       unit: 'mg',   category: 'mineral', default: false },
-  { id: 'iron',          label: 'Iron',          unit: 'mg',   category: 'mineral', default: false },
-  { id: 'potassium',     label: 'Potassium',     unit: 'mg',   category: 'mineral', default: false },
+  { id: 'vitamin-d',     label: 'Vitamin D',     unit: 'µg',  category: 'vitamin', default: true },
+  { id: 'calcium',       label: 'Calcium',       unit: 'mg',   category: 'mineral', default: true },
+  { id: 'iron',          label: 'Iron',          unit: 'mg',   category: 'mineral', default: true },
+  { id: 'potassium',     label: 'Potassium',     unit: 'mg',   category: 'mineral', default: true },
   // Additional vitamins
   { id: 'vitamin-a',     label: 'Vitamin A',     unit: 'µg',  category: 'vitamin', default: false },
   { id: 'vitamin-c',     label: 'Vitamin C',     unit: 'mg',   category: 'vitamin', default: false },
