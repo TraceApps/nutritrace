@@ -23,7 +23,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 
 ### Diary
 - Daily food diary with configurable meals (Breakfast, Lunch, Dinner, Snacks, or fully custom)
-- Quick-add foods, meals, and recipes with portion scaling — food notes (e.g. "1 serving = 150g cooked") are surfaced at add time
+- Quick-add foods, meals, and recipes with portion scaling and a live nutrition preview (calories + protein, carbs, fat update as you change quantity, unit, or number of servings); food notes (e.g. "1 serving = 150g cooked") are surfaced at add time
 - Nutrition bar with macro summary and per-meal breakdowns
 - Body stats tracking (weight, measurements, and more) with customizable fields
 - Water intake tracking with configurable containers and daily goal
@@ -44,8 +44,13 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Barcode scanner (camera) for quick food lookup via Open Food Facts
 - Meal and recipe builder with drag-to-reorder ingredients
 - Proportional nutrition scaling when editing serving size
-- Import foods from Open Food Facts, USDA FoodData Central, or Mealie (recipe manager)
-- **Import past days** from MyFitnessPal, Lose It!, Cronometer, or a generic spreadsheet (Settings → Import from another app) — preview + per-date conflict policy before commit
+- Import foods from Open Food Facts, USDA FoodData Central, or Mealie (recipe manager); Open Food Facts barcode imports let you pick per-serving or per-100g when both are published
+- **Bulk import** custom foods from JSON or CSV (Settings → Import & Export → Bulk Import)
+- **Mass-aware unit conversion** when scaling nutrition: switching g ↔ oz ↔ lb, ml ↔ cup, tsp ↔ tbsp (or any custom unit you define) actually converts the macros, not just relabels the unit
+- **Recipe yields** — split a saved recipe into N servings; each child food is automatically scaled to one portion
+- **Import past days** from MyFitnessPal, Lose It!, Cronometer, or a generic spreadsheet (Settings → Import from another app), with preview and per-date conflict policy before commit
+
+> **Migrating from MyFitnessPal?** Community member nomad64 wrote two helper scripts at [github.com/nomad64/mfp-to-nutritrace](https://github.com/nomad64/mfp-to-nutritrace): one exports your "My Foods" list into NutriTrace's bulk-import JSON format, and another scrapes per-food diary rows that MFP's official export omits (their export gives only per-meal totals). Both are unaffiliated and rely on your browser session cookies.
 
 ### Statistics
 - Charts for any tracked nutrient or body stat over time
@@ -60,6 +65,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Three calorie goal modes: **Fixed** (uses your goal target), **Dynamic** (yesterday's calories burned from a wearable, multiplied by a Lose / Maintain / Gain factor), or **Adaptive** (learned from your 35-day weight + diary trend, MacroFactor-style — see Adaptive TDEE below)
 
 ### Settings & Customization
+- **Auto-save by default** — most settings save the moment you change them, no Save button to remember; a few text fields (custom names, API keys) commit on blur
 - Light / dark / system theme
 - Custom accent color (presets or full hex color picker)
 - Configurable navigation style (bottom bar, sidebar, or both)
@@ -72,6 +78,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 ### Multi-User Support
 - Optional user management — runs perfectly as a single-user app with no login required
 - Admin can invite additional users via email or shareable link, see pending invites, and revoke any of them before acceptance
+- **Food sharing** between users on the same instance: any custom food can be shared with everyone, with a specific group of users, or kept private. Shared foods show up in each recipient's Foods list under "From Others" and can be added to the diary or copied into their own catalog
 - Optional **Require Strong Passwords** policy (admin) — adds zxcvbn strength checking on top of the standard rules; rejects common-pattern passwords at sign-up, password change, and invite acceptance
 - **Biometric sign-in** on Android (fingerprint or face) — opt-in per device, password remains the always-available fallback
 - All data is scoped per user
@@ -84,6 +91,11 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Optional Goal Insights mode: proactive analysis of actual intake vs targets with evidence-based suggestions
 
 ![Trace AI Assistant chat — answering a nutrition question by querying real diary data](docs/screenshots/04-ai-assistant.png)
+
+### Notifications & Reminders
+- Optional device notifications for water reminders, meal prompts, weigh-ins, and goal celebrations (one celebration per goal per day). Native on Android, Web Notification API on PWA
+- Optional push service for cross-device alerts: **Apprise**, **Gotify**, or **ntfy** — pick one in Settings → Notifications. The server can deliver weekly summary digests through the same channel
+- Reminders survive reboots: on Android they re-arm via WorkManager at app open; the PWA service-worker keeps the schedule for browser sessions
 
 ### Backup & Restore
 - Full backup: ZIP archive of all database tables + uploaded images, stored on the server
@@ -307,6 +319,8 @@ The database schema migrates automatically on startup.
 ## Wellness Integrations
 
 NutriTrace can sync data from Fitbit, Withings, Garmin, and Android Health Connect. Each cloud provider (Fitbit/Withings/Garmin) requires registering a free OAuth application with the respective service and entering the credentials in **Settings → Wellness**. Health Connect is on-device and needs no developer setup.
+
+Each integration shows a live **connection status banner** at the top of its card — green when authorized and syncing, yellow when authorized but the last sync failed (with the actual error), red when not connected. The banner is the same place you re-authorize, force a manual sync, or disconnect, so the connection state and the controls that affect it never drift out of sync visually.
 
 ![NutriTrace Wellness page — sleep, HRV, readiness, stress, and activity sparklines from connected devices](docs/screenshots/03-wellness.png)
 

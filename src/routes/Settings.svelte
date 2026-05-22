@@ -3462,6 +3462,21 @@
   :global(.setting-row > div), :global(.setting-row > span.setting-label) {
     flex: 1 1 0; min-width: 0;
   }
+  /* Reset for column-direction setting-rows. Children of a column-flex
+     .setting-row should take their natural content height — the rule
+     above gives them flex-basis:0 which collapses them down to the parent's
+     min-height (50px) on the main axis (height) and lets their content
+     overflow visibly. That overflow paints in the same space as the next
+     sibling, visually overlapping it (nomad64 #33 — Cancel/Import row
+     overlapping the dupe-option radios in Nutrition Import). Higher
+     specificity than the rule above so it wins without !important. */
+  :global(.setting-row[style*="flex-direction:column"] > div),
+  :global(.setting-row[style*="flex-direction: column"] > div),
+  :global(.setting-row[style*="flex-direction:column"] > span.setting-label),
+  :global(.setting-row[style*="flex-direction: column"] > span.setting-label) {
+    flex: 0 0 auto;
+    min-width: auto;
+  }
   :global(.setting-label), :global(.setting-desc) { word-break: break-word; overflow-wrap: anywhere; }
   /* Allow dragged items to visually escape the card boundary */
   .drag-list { overflow: visible; }

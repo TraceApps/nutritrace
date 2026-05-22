@@ -93,12 +93,23 @@ function safeUser(u) {
 // ── Status: is user management active? ────────────────────────────────────
 router.get('/status', wrap((req, res) => {
   const active = userMgmtActive();
+  // setup_required tells the client whether to force the wizard's
+  // mandatory account-creation step. Two cases without users:
+  //   1) Fresh install — no users, no flag, setup IS required.
+  //   2) Single-user mode — user explicitly disabled user management; the
+  //      `single_user_mode` flag is set so the client knows not to force
+  //      another account-creation pass. Fixes #34 — disabling user
+  //      management was re-triggering the wizard on every load because
+  //      setup_required was just `!active`, which didn't distinguish
+  //      between these two cases.
+  const singleUser = db.prepare(`SELECT value FROM app_config WHERE key = 'single_user_mode'`).get()?.value === '1';
   // Surface OIDC providers + password-login flag for the Login page to use.
   const providers = oidcListProviders({ activeOnly: true }).map(oidcPublicProvider);
   const policy = db.prepare(`SELECT value FROM app_config WHERE key = 'password_policy'`).get()?.value || 'standard';
   res.json({
     active,
-    setup_required: !active,
+    setup_required: !active && !singleUser,
+    single_user_mode: singleUser,
     oidc: { providers, enable_email_password_login: isPasswordLoginEnabled() },
     password_policy: policy,                  // 'standard' | 'strong'
     password_min_score: policy === 'strong' ? STRONG_MIN_SCORE : 0,
@@ -179,6 +190,10 @@ router.post('/register', wrap((req, res) => {
     db.prepare('UPDATE foods SET user_id = ? WHERE user_id IS NULL').run(user.id);
     db.prepare('UPDATE meals SET user_id = ? WHERE user_id IS NULL').run(user.id);
     db.prepare('UPDATE diary SET user_id = ? WHERE user_id IS NULL').run(user.id);
+    // Re-enabling user management: clear the single_user_mode flag set by
+    // a prior DELETE /management or POST /recover. Without this, /status
+    // would still report single_user_mode=true even with a real user.
+    db.prepare(`DELETE FROM app_config WHERE key = 'single_user_mode'`).run();
     res.cookie('nt_token', signToken(user), COOKIE_OPTS);
   }
 
@@ -327,6 +342,12 @@ router.put('/users/:id/role', requireAuth, requireAdmin, wrap((req, res) => {
 // ── Admin: disable user management (delete all users) ─────────────────────
 router.delete('/management', requireAuth, requireAdmin, wrap((req, res) => {
   db.prepare('DELETE FROM users').run();
+  // Remember this was an intentional disable, not a fresh install — so
+  // /status returns setup_required=false and the client doesn't re-route
+  // to the wizard's mandatory account-creation step. Cleared on next
+  // /register so re-enabling user management Just Works.
+  db.prepare(`INSERT INTO app_config (key, value) VALUES ('single_user_mode', '1')
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
   res.clearCookie('nt_token');
   res.json({ ok: true });
 }));
@@ -345,6 +366,11 @@ router.post('/recover', rateLimitLogin, wrap((req, res) => {
     return res.status(403).json({ error: 'Invalid recovery token.' });
   }
   db.prepare('DELETE FROM users').run();
+  // Same single-user-mode flag as DELETE /management (intentional disable,
+  // not a fresh install). Without this the lockout-recovery path also
+  // re-triggers the wizard on next load.
+  db.prepare(`INSERT INTO app_config (key, value) VALUES ('single_user_mode', '1')
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
   res.clearCookie('nt_token');
   res.json({ ok: true });
 }));

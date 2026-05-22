@@ -237,11 +237,16 @@
     ? filteredBySearch.filter(f => (f.categories||[]).includes(activeCategoryFilter))
     : filteredBySearch;
 
+  // Returns a NEW sorted array. Don't mutate in-place: under Svelte 5
+  // compat mode the reactive cascade (_ownList → displayList → filteredList)
+  // fires on the assignment-write and snapshots the array before an
+  // in-place sort can take effect, so the rendered list never reorders.
   function _applySort(arr, mode) {
+    const sorted = [...(arr || [])];
     if (mode === 'recent') {
       // Recently Used: most recent last_used_at first; items never used
       // sort to the end alphabetically.
-      arr.sort((a, b) => {
+      sorted.sort((a, b) => {
         const al = a.last_used_at || '';
         const bl = b.last_used_at || '';
         if (al && bl) return bl.localeCompare(al);
@@ -251,28 +256,29 @@
       });
     } else if (mode === 'most') {
       // Most Used: highest usage_count first; ties broken alphabetically.
-      arr.sort((a, b) => {
+      sorted.sort((a, b) => {
         const d = (b.usage_count || 0) - (a.usage_count || 0);
         if (d !== 0) return d;
         return (a.name || '').localeCompare(b.name || '');
       });
     } else {
       // Alphabetical (default)
-      arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
+    return sorted;
   }
 
   async function load() {
     loadError = false;
     try {
-      [localFoods, localMeals, localRecipes] = await Promise.all([
+      const [foods, meals, recipes] = await Promise.all([
         NtApi.getFoods(),
         NtApi.getMeals(),
         NtApi.getRecipes(),
       ]);
-      _applySort(localFoods,   foodsSort.get());
-      _applySort(localMeals,   mealsSort.get());
-      _applySort(localRecipes, recipesSort.get());
+      localFoods   = _applySort(foods,   foodsSort.get());
+      localMeals   = _applySort(meals,   mealsSort.get());
+      localRecipes = _applySort(recipes, recipesSort.get());
     } catch(e) {
       console.error('[foods] load error:', e);
       loadError = true;
@@ -1081,22 +1087,24 @@
       <span style="font-size:13px;color:var(--text-3)">Total Amount</span>
       <span style="font-size:14px;font-weight:500">{Math.round((parseFloat(promptPortion) || 100) * (parseFloat(promptServings) || 1) * 10) / 10}{promptUnit || 'g'}</span>
     </div>
-    <!-- Live nutrition preview (#30) — recomputes with portion/unit/servings changes. -->
+    <!-- Live nutrition preview (#30) — recomputes with portion/unit/servings changes.
+         Color scheme mirrors the Nutrition Summary sheet + diary totals so the
+         four macros read with the same visual language app-wide. -->
     <div class="qty-macros">
-      <div class="qty-macro-pill">
-        <span class="qty-macro-val">{_qtyEnergy.value.toLocaleString()}</span>
+      <div class="qty-macro-pill" style="background:var(--macro-calories-dim)">
+        <span class="qty-macro-val" style="color:var(--macro-calories)">{_qtyEnergy.value.toLocaleString()}</span>
         <span class="qty-macro-label">{_qtyEnergy.unit}</span>
       </div>
-      <div class="qty-macro-pill">
-        <span class="qty-macro-val">{Math.round((qtyCalc.proteins || 0) * 10) / 10}g</span>
+      <div class="qty-macro-pill" style="background:var(--macro-protein-dim)">
+        <span class="qty-macro-val" style="color:var(--macro-protein)">{Math.round((qtyCalc.proteins || 0) * 10) / 10}g</span>
         <span class="qty-macro-label">protein</span>
       </div>
-      <div class="qty-macro-pill">
-        <span class="qty-macro-val">{Math.round((qtyCalc.carbohydrates || 0) * 10) / 10}g</span>
+      <div class="qty-macro-pill" style="background:var(--macro-carbs-dim)">
+        <span class="qty-macro-val" style="color:var(--macro-carbs)">{Math.round((qtyCalc.carbohydrates || 0) * 10) / 10}g</span>
         <span class="qty-macro-label">carbs</span>
       </div>
-      <div class="qty-macro-pill">
-        <span class="qty-macro-val">{Math.round((qtyCalc.fat || 0) * 10) / 10}g</span>
+      <div class="qty-macro-pill" style="background:var(--macro-fat-dim)">
+        <span class="qty-macro-val" style="color:var(--macro-fat)">{Math.round((qtyCalc.fat || 0) * 10) / 10}g</span>
         <span class="qty-macro-label">fat</span>
       </div>
     </div>

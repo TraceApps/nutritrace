@@ -236,9 +236,9 @@
           </div>
         {/if}
 
-        <div style="display:flex;gap:8px;width:100%;margin-top:6px;padding-top:10px;border-top:1px solid var(--border)">
-          <button class="btn btn-ghost" style="flex:1" on:click={reset} disabled={busy}>Cancel</button>
-          <button class="btn btn-primary" style="flex:2" on:click={runCommit} disabled={busy}>
+        <div class="action-row">
+          <button class="btn btn-ghost action-btn-cancel" on:click={reset} disabled={busy}>Cancel</button>
+          <button class="btn btn-primary action-btn-import" on:click={runCommit} disabled={busy}>
             {busy ? 'Importing…' : `Import ${preview.items} item${preview.items === 1 ? '' : 's'}`}
           </button>
         </div>
@@ -309,4 +309,26 @@
   }
   .dupe-option:hover { background: var(--surface-2); }
   .dupe-option input { margin-top: 2px; }
+
+  /* Bottom action row. Real class instead of inline style so Firefox can't
+     fall back to a weird layout when flex-grow + nowrap + long button label
+     interact (nomad64 #33 — Cancel/Import row rendered overlapping the
+     duplicate-day radios on Firefox/Linux). Explicit row direction +
+     nowrap + flex-shrink:0 + isolated stacking context lock the row into
+     its intended position below the radios. */
+  .action-row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 8px;
+    width: 100%;
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    position: relative;
+    z-index: 1;
+    flex-shrink: 0;
+  }
+  .action-btn-cancel { flex: 1 1 0; }
+  .action-btn-import { flex: 2 1 0; min-width: 0; }
 </style>

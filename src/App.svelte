@@ -239,13 +239,20 @@
     // - Native server mode: NEVER show wizard (server is already configured)
     // - Native local mode: show wizard for goals/units/profile setup
     // - Web + setup_required: force wizard (must create admin account first)
-    // - Web: show wizard if no user logged in and no user management
+    // The web "no user + no user management" case is now fully covered by
+    // $setupRequired alone (the server distinguishes fresh-install from
+    // intentional single-user mode via the single_user_mode flag, see
+    // server/routes/auth.js GET /status). Fixes #34 — without the flag,
+    // an intentionally-disabled instance kept re-triggering the wizard on
+    // every new device because !$userMgmtActive was always true.
     const _isNativeServer = isNative && getNativeMode() === 'server';
     const _isNativeLocal = isNative && getNativeMode() === 'local';
     if (!isNative && $setupRequired) {
-      // PWA: server has no users — force wizard with mandatory account creation
+      // PWA: server has no users AND not intentionally single-user — force
+      // wizard with mandatory account creation
       window.location.hash = '#/wizard';
-    } else if (!_isNativeServer && !DB.getSetting('setupComplete', false) && (!$currentUser || _isNativeLocal) && !$userMgmtActive) {
+    } else if (_isNativeLocal && !DB.getSetting('setupComplete', false)) {
+      // Native local: show wizard for goals/units/profile setup
       window.location.hash = '#/wizard';
     }
 

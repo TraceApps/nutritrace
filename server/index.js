@@ -247,7 +247,9 @@ try {
 }
 
 // SPA fallback — serves the templated index.html for any route under BASE_URL.
-router.get('*', (req, res) => {
+// Express 5 / path-to-regexp v8 requires named wildcards: '*' alone is rejected,
+// '/{*splat}' is the catch-all form.
+router.get('/{*splat}', (req, res) => {
   res.set('Cache-Control', 'no-cache');
   if (_indexHtmlTemplated) {
     res.set('Content-Type', 'text/html').send(_indexHtmlTemplated);

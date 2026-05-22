@@ -7,9 +7,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.0.0-rc.30] — 2026-05-22
+
 ### Changed
 
-- **Framework upgrades**. Svelte 4 → 5, Vite 5 → 6, Express 4 → 5, bcryptjs 2 → 3, plus the supporting Vite plugin bumps. Compat mode keeps the existing component code working without rewrites. User-visible effect: the main app bundle is about 22% smaller (1.57 MB → 1.21 MB) and the underlying Svelte 4 SSR security advisories are no longer applicable.
+- **Framework upgrades**. Svelte 4 → 5, Vite 5 → 6, Express 4 → 5, bcryptjs 2 → 3, plus the supporting Vite plugin bumps. Compat mode keeps the existing component code working without rewrites. The main app bundle drops about 22% (1.57 MB → 1.21 MB) and the underlying Svelte 4 SSR security advisories no longer apply.
+
+### Fixed
+
+- **Disabling user management was sending you back to the setup wizard** on every reload. The server now remembers that user management was intentionally disabled and lets you back to the diary. (Issue #34)
+- **Import Nutrition History action row could visually overlap** the Skip / Merge / Replace radios when re-importing a file with duplicate dates. (Issue #33)
+- **Wellness scores now refresh** when today's sleep data finishes syncing after the morning snapshot ran, so the readiness number reflects the latest sleep input rather than getting stuck on the first incomplete value.
+
+### UI polish
+
+- The live nutrition preview pills on the Add to Diary sheet now match the diary's macro color scheme (calories yellow, protein purple, carbs green, fat orange).
 
 ---
 

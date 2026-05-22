@@ -19,16 +19,34 @@ export function snapshotScores(userId, dateStr, { force = false } = {}) {
   // snapshot needs to run to fill in the missing one. This lets a code-level
   // schema change (adding a new metric to the snapshot, e.g. Resilience)
   // back-fill on the next sync for days that previously only had readiness.
+  //
+  // ALSO re-run if sleep_score was updated AFTER the snapshot landed. The
+  // readiness formula uses today's sleep_score as `sleepBase`; Google Health
+  // can return 503 on sleep_duration during the first morning fetch, then
+  // succeed on the next tick. Without this check, the snapshot would lock in
+  // sleepBase=75 (the null-fallback) even though a real value lands minutes
+  // later. Same pattern bit calibration on 2026-05-12 and 2026-05-22 — both
+  // days the actual readiness couldn't be validated against the formula
+  // because the snapshot was stuck on stale sleep input.
   if (!force) {
     const existing = db.prepare(
-      `SELECT metric_type FROM wellness_data
+      `SELECT metric_type, synced_at FROM wellness_data
         WHERE user_id = ? AND date = ? AND source = 'fitbit'
           AND metric_type IN ('readiness_score', 'resilience_category')`
     ).all(userId, dateStr);
     const types = new Set(existing.map(r => r.metric_type));
     if (types.has('readiness_score') && types.has('resilience_category')) {
-      logger.debug(`[wellness] ${dateStr} snapshot skipped — already stored`);
-      return;
+      const oldestSnapshotAt = existing.map(r => r.synced_at).sort()[0];
+      const sleepRow = db.prepare(
+        `SELECT synced_at FROM wellness_data
+          WHERE user_id = ? AND date = ? AND metric_type = 'sleep_score'`
+      ).get(userId, dateStr);
+      const sleepFresherThanSnapshot = sleepRow && sleepRow.synced_at > oldestSnapshotAt;
+      if (!sleepFresherThanSnapshot) {
+        logger.debug(`[wellness] ${dateStr} snapshot skipped — already stored`);
+        return;
+      }
+      logger.info(`[wellness] ${dateStr} snapshot re-running — sleep_score updated since last snapshot (${oldestSnapshotAt} → ${sleepRow.synced_at})`);
     }
   }
 
