@@ -155,18 +155,33 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
 /**
  * Server-side proxy call — used when AI config is env-locked.
  * The API key stays on the server; only messages + systemPrompt are sent.
+ *
+ * Auth: PWA uses cookies + CSRF; native server mode uses a Bearer token
+ * (cookies don't persist across the Android WebView's reloads). Matches the
+ * pattern in api.js#_fetch — without the Bearer header, env-locked AI calls
+ * from Android return 401 even though the chat path looks fine in the UI.
  */
 export async function callAIProxy({ messages, systemPrompt }) {
-  const { apiUrl } = await import('./platform.js');
-  const csrf = localStorage.getItem('nt:csrf');
+  const { apiUrl, isNative, getServerUrl, getAuthToken } = await import('./platform.js');
+  const headers = { 'Content-Type': 'application/json' };
+  if (isNative && getServerUrl()) {
+    const token = getAuthToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    const csrf = localStorage.getItem('nt:csrf');
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+  }
   const res = await fetch(apiUrl('/api/ai/chat'), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+    headers,
     body: JSON.stringify({ messages, systemPrompt }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `AI proxy error ${res.status}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Not signed in — sign in again to use AI features.');
+    throw new Error(data.error || `AI proxy error ${res.status}`);
+  }
   return data.text;
 }
 

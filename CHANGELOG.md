@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.36] — 2026-05-22
+
+### Fixed
+
+- **AI features failed on Android when configured via server env vars.** Smart Log voice (Trace hold-to-record), Scan Label, the chat panel, and Goal Insights all routed through a code path that didn't send the auth token Android needs, so calls returned 401 even though the env-lock was set correctly. The voice path also threw "AI provider not configured" before it ever reached the proxy. Both gaps are closed. (Issue #36 followup)
+
+---
+
 ## [1.0.0-rc.35] — 2026-05-22
 
 ### Added

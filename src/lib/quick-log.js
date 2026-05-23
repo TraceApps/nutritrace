@@ -11,9 +11,11 @@
  * gates the feature; `aiEnabled` + a valid `aiApiKey` are required.
  */
 
+import { get } from 'svelte/store';
 import { DB } from './db.js';
 import { API, NtApi } from './api.js';
-import { callAI } from './aiChat.js';
+import { callAI, callAIProxy } from './aiChat.js';
+import { envLocks } from '../stores/settings.js';
 
 // ── Step 1: AI parses the input string into structured items ──────────────
 
@@ -104,22 +106,26 @@ export async function parseInput(text, userMealNames) {
   const apiKey   = DB.getSetting('aiApiKey', '');
   const model    = DB.getSetting('aiModel', '');
   const baseUrl  = DB.getSetting('aiBaseUrl', '');
+  // When AI is configured via server env vars (AI_PROVIDER + AI_API_KEY), the
+  // proxy handles auth and no per-user key is needed. Read the current envLocks
+  // snapshot rather than the apiKey setting alone.
+  const locks = get(envLocks) || {};
+  const envLocked = !!locks.ai;
   // OpenAI-compatible endpoints (Ollama etc.) don't need an API key.
-  if (!apiKey && provider !== 'oai-compat') {
+  if (!apiKey && provider !== 'oai-compat' && !envLocked) {
     throw new Error('AI provider not configured. Set up the AI Assistant in Settings first.');
   }
 
   const waterContainers = DB.getSetting('waterContainers', []);
 
-  const reply = await callAI({
-    provider,
-    apiKey,
-    model,
-    baseUrl,
-    messages: [{ role: 'user', content: text.trim() }],
-    systemPrompt: _buildParsePrompt(userMealNames, waterContainers),
-    tools: [],
-  });
+  const systemPrompt = _buildParsePrompt(userMealNames, waterContainers);
+  const messages = [{ role: 'user', content: text.trim() }];
+  const reply = envLocked
+    ? await callAIProxy({ messages, systemPrompt, tools: [] })
+    : await callAI({
+        provider, apiKey, model, baseUrl,
+        messages, systemPrompt, tools: [],
+      });
 
   // Defensive JSON parse — strip markdown fences if the model added them
   let jsonText = String(reply || '').trim();
