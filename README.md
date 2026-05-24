@@ -222,7 +222,7 @@ services:
     restart: unless-stopped
 ```
 
-No changes to this file are needed — everything is driven by `.env`. If you want to pin to a specific version, change `latest` to a release tag.
+No changes to this file are needed; everything is driven by `.env` (forwarded into the container via `env_file: .env`). If you want to pin to a specific version, change `latest` to a release tag.
 
 2. Copy `.env.example` to `.env` and fill in your paths:
 
