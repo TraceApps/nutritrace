@@ -7,6 +7,14 @@ services:
     volumes:
       - ${DATA_DB_PATH}:/data/db
       - ${DATA_UPLOADS_PATH}:/data/uploads
+      # Optional — local Open Food Facts mirror (for air-gapped or
+      # offline-resilient barcode + name lookups). Uncomment the mount + set
+      # OFF_LOCAL_DB in .env. NutriTrace downloads the initial ~4 GB snapshot
+      # automatically on first boot if the file is missing; subsequent
+      # refreshes happen on a schedule from the Settings UI. Mount is
+      # read-write so atomic swap during refresh succeeds.
+      # See DEPLOY.md → "Local Open Food Facts mirror" for the full recipe.
+      # - ${OFF_LOCAL_DB_HOST_PATH:-./off.duckdb}:/data/off.duckdb
     # Forward every variable from .env into the container. Without this, only
     # variables explicitly named in the `environment:` block below reach the
     # app, so .env settings like INSECURE_COOKIES were silently ignored (#41).
@@ -68,6 +76,13 @@ services:
       # - OIDC_PROVIDER_2_DISPLAY_NAME=${OIDC_PROVIDER_2_DISPLAY_NAME:-}
       # Env-defined providers show with a lock badge in Settings → Authentication
       # and are read-only there — edit via .env / docker-compose / k8s secrets.
+      # Optional — Local Open Food Facts mirror (Issue #22). When set,
+      # barcode + name lookups try the local DuckDB before reaching out
+      # to api.openfoodfacts.org. Path is the in-container path matching
+      # the volume mount above. See DEPLOY.md for download / refresh.
+      # - OFF_LOCAL_DB=${OFF_LOCAL_DB:-}                        # e.g. /data/off.duckdb
+      # - OFF_LOCAL_ONLY=${OFF_LOCAL_ONLY:-}                    # 1 = air-gap mode, never call remote OFF
+      # - OFF_LOCAL_URL=${OFF_LOCAL_URL:-}                      # override download source (defaults to OFF nightly build)
       # Any server env var may also be supplied via <NAME>_FILE, for example:
       # - SMTP_PASS_FILE=/run/secrets/nutritrace_smtp_pass
       # - AI_API_KEY_FILE=/run/secrets/nutritrace_ai_api_key

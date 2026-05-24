@@ -661,7 +661,7 @@ try {
   }
 } catch {}
 // Quick Log — natural-language food entry powered by the assistant's AI provider.
-// Off by default (experimental). Only usable when aiEnabled is true.
+// Off by default. Only usable when aiEnabled is true.
 export const quickLogEnabled  = createSettingStore('quickLogEnabled',  false);
 export const aiGoalInsights   = createSettingStore('aiGoalInsights',   false);
 
@@ -701,7 +701,7 @@ export const ntfyToken            = createSettingStore('ntfyToken',            '
 // AND the effective enabled state for env-controlled features. Fixes #36
 // where AI_ENABLED=true in compose locked the toggle in its OFF state
 // because the per-user `aiEnabled` was never flipped.
-export const envLocks = writable({ smtp: false, ai: false, ai_enabled: false, oidc_provider_ids: [] });
+export const envLocks = writable({ smtp: false, ai: false, ai_enabled: false, off_local: false, off_local_only: false, oidc_provider_ids: [] });
 // Derived: AI Assistant is effectively enabled when either the per-user
 // toggle is on, OR an operator set AI_ENABLED=true in env and env-locked it.
 // Use this instead of $aiEnabled wherever the FAB / chat / Smart Log

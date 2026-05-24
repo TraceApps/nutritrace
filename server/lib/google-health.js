@@ -891,18 +891,29 @@ export async function syncDateGoogleHealth(db, userId, dateStr, clientId, client
     // Duration scoring is piecewise. Above 6h (360m) the original linear
     // dur/440*30 holds and matches Fitbit's actual within ±1. Below 6h
     // Fitbit penalizes total sleep more aggressively than linear implies,
-    // so the model needs a steeper ramp in that regime to match. Four
-    // ground-truth nights with dur<360m and deep over the 65m cap
-    // (May 7, 12, 14, 17) all overshot actual by +3 to +7 in the dataset.
-    // The piecewise ramps from 24.5 pts at 360m down to 6 pts at 240m
-    // (~4h), bottoming at 0 below ~200m. After this change those four
-    // nights drop ~1 to ~4 points in calc, eliminating most of the
-    // overshoot. Longer nights are unaffected.
+    // so the model needs a steeper ramp in that regime to match.
     let durPts;
     if (dur >= 440)      durPts = 30;
     else if (dur >= 360) durPts = (dur / 440) * 30;
     else                 durPts = Math.max(0, 6 + ((dur - 240) / 120) * 18.5);
-    const deepRemPct = (deep + rem) / dur;
+
+    // deepRemPct cap on short nights. The qualPts + qualBonus components
+    // reward high deep+rem ratios assuming the night was full length where
+    // >35% deep+rem reads as genuinely excellent recovery. On a 4-5h night
+    // deep+rem can easily hit 45-55% (deep is deep regardless of total
+    // duration) but Fitbit's actual score doesn't reward that — it reads
+    // as compressed/disrupted sleep. After the duration piecewise above
+    // landed, nine ground-truth nights (May 7, 12, 14, 17, 20, 21, 22, 23,
+    // 24) still overshot by mean +5.22. May 22 (dur=321, ratio 0.53) was
+    // the worst at +8; May 23 (dur=259, ratio 0.45) was +5. Capping the
+    // ratio at 0.40 below 360m and 0.35 below 300m attacks both: May 22
+    // drops to +4, May 23 to +1, while the moderate-ratio short nights
+    // (May 7/12/17 with ratios 0.30-0.37) are unaffected because they
+    // never hit the cap. Longer nights also unaffected.
+    const deepRemPctRaw = (deep + rem) / dur;
+    let deepRemPct = deepRemPctRaw;
+    if (dur < 300)      deepRemPct = Math.min(deepRemPctRaw, 0.35);
+    else if (dur < 360) deepRemPct = Math.min(deepRemPctRaw, 0.40);
     const qualPts  = Math.min(40, deepRemPct / 0.25 * 40);
     const qualBonus = Math.min(6, Math.max(0, (deepRemPct - 0.35) / 0.15 * 6));
     const spo2Pts = spo2 != null ? Math.min(15, Math.max(0, (spo2 - 87) / 9 * 15)) : 11;

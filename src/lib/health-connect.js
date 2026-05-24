@@ -16,8 +16,6 @@
  *
  * Data is stored locally in wellness_data with source='health_connect'.
  * When connected to a server, the sync engine pushes it up.
- *
- * EXPERIMENTAL — labeled as such in Settings.
  */
 
 // Gated on dev OR opt-in verbose mode (Settings → Diagnostics → Verbose diagnostic logging).

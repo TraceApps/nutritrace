@@ -38,10 +38,22 @@ router.get('/env-locks', requireAuth, wrap(async (req, res) => {
     const row = db.prepare(`SELECT value FROM app_config WHERE key = 'ai_enabled'`).get();
     ai_enabled = row?.value === 'true';
   }
+  // off_local: signals to the Android client that the server has a local
+  // OFF mirror configured (OFF_LOCAL_DB set). The native client uses this
+  // to decide whether to route OFF lookups through the server proxy
+  // (respects the mirror) vs CapacitorHttp direct (legacy default). Without
+  // this signal Android would bypass the mirror entirely. The Settings UI
+  // also reads it to show a "Local mirror active" status row in the OFF
+  // section. off_local_only surfaces the air-gap policy so the UI can
+  // call it out separately. See server/lib/off-local.js. Issue #22.
+  const off_local = !!process.env.OFF_LOCAL_DB;
+  const off_local_only = off_local && !!process.env.OFF_LOCAL_ONLY;
   res.json({
     smtp: isSmtpEnvLocked(),
     ai: aiLocked,
     ai_enabled,
+    off_local,
+    off_local_only,
     oidc_provider_ids: getEnvLockedProviderIds(),
   });
 }));

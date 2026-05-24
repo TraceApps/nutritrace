@@ -15,6 +15,9 @@
    * Status values:
    *   'ok'      — accent pill, "Connected" (or custom okLabel) + badge,
    *               default Test button (or slotted action via let:retest)
+   *   'warn'    — amber pill, used for "healthy but stale" cases (OFF
+   *               mirror past its refresh interval, etc.). Same shape as
+   *               'ok' otherwise (badge + subtext + action button).
    *   'fail'    — danger pill, error string inline, Test button
    *   'testing' — neutral pill with spinner, button disabled
    *   '' / null — render nothing (idle / not yet configured)
@@ -41,12 +44,38 @@
   export let retestDisabled = false;
   /** Button label override. Default "Test". */
   export let retestLabel = 'Test';
+  /** Label override for the testing branch (default "Testing connection…").
+   *  Used by callers whose "in-flight" state isn't a connection test —
+   *  e.g. the OFF mirror banner shows "Syncing" during a refresh. */
+  export let testingLabel = 'Testing connection…';
 </script>
 
 {#if status === 'ok'}
   <div class="status-pill ok">
     <div class="status-main">
       <span class="material-symbols-rounded">check_circle</span>
+      <span>{okLabel}</span>
+      {#if connectedAs}
+        <span class="status-badge">{connectedAs}</span>
+      {/if}
+      <div class="status-actions">
+        <slot name="action">
+          {#if onRetest}
+            <button class="status-retest" on:click={onRetest} disabled={retestDisabled}>
+              {retestDisabled ? 'Testing…' : retestLabel}
+            </button>
+          {/if}
+        </slot>
+      </div>
+    </div>
+    {#if subtext}
+      <div class="status-sub">{subtext}</div>
+    {/if}
+  </div>
+{:else if status === 'warn'}
+  <div class="status-pill warn">
+    <div class="status-main">
+      <span class="material-symbols-rounded">warning</span>
       <span>{okLabel}</span>
       {#if connectedAs}
         <span class="status-badge">{connectedAs}</span>
@@ -88,8 +117,20 @@
   <div class="status-pill testing">
     <div class="status-main">
       <span class="material-symbols-rounded spin">progress_activity</span>
-      <span>Testing connection…</span>
+      <span>{testingLabel}</span>
+      <div class="status-actions">
+        <slot name="action">
+          {#if onRetest}
+            <button class="status-retest" on:click={onRetest} disabled={true}>
+              {retestLabel}
+            </button>
+          {/if}
+        </slot>
+      </div>
     </div>
+    {#if subtext}
+      <div class="status-sub">{subtext}</div>
+    {/if}
   </div>
 {/if}
 
@@ -105,6 +146,8 @@
   .status-pill .material-symbols-rounded { font-size: 18px; }
   .status-pill.ok      { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .status-pill.ok      .material-symbols-rounded { color: var(--accent); }
+  .status-pill.warn    { background: color-mix(in srgb, #d68a00 12%, transparent); }
+  .status-pill.warn    .material-symbols-rounded { color: #d68a00; }
   .status-pill.fail    { background: color-mix(in srgb, var(--danger) 10%, transparent); }
   .status-pill.fail    .material-symbols-rounded { color: var(--danger); }
   .status-pill.testing { background: var(--surface-2); color: var(--text-2); }

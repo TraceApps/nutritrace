@@ -174,6 +174,20 @@
         for (const f of foods) await dbm.dbCreateFood(f).catch(() => {});
       } else {
         await NtApi.post('/api/data/import', { foodList: foods });
+        // Native server mode: foods now live on the server but won't appear
+        // in the Android Foods tab until the background sync pulls them
+        // (30-60s). Trigger an immediate sync so they show up right away
+        // (#39 followup — nomad64).
+        if (isNative && getServerUrl()) {
+          try {
+            const { fullSync } = await import('../../lib/sync.js');
+            await fullSync(true);
+          } catch (e) {
+            // Sync failure is non-fatal — foods are safe on the server,
+            // they'll appear on the next scheduled sync.
+            console.warn('[bulk-import] post-import sync failed:', e.message);
+          }
+        }
       }
       const msg = skipped
         ? `Imported ${foods.length} food${foods.length === 1 ? '' : 's'} (${skipped} duplicate barcode${skipped === 1 ? '' : 's'} skipped)`

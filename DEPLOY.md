@@ -137,6 +137,77 @@ Each user connects their own fitness tracker using their own developer API crede
 
 ---
 
+## Local Open Food Facts mirror
+
+Self-hosters on air-gapped networks, in strict-egress environments, or just wanting resilience when the OFF API is down can point NutriTrace at a local OFF DuckDB mirror. Barcode and food-name lookups try the mirror first; on a miss they fall back to the public OFF API unless you opt into full air-gap mode.
+
+### Setup
+
+1. Uncomment the OFF mirror volume mount in `docker-compose.yml`:
+   ```yaml
+   - ${OFF_LOCAL_DB_HOST_PATH:-./off.duckdb}:/data/off.duckdb
+   ```
+   Note: the mount is read-write so NutriTrace can perform in-place refresh via atomic swap. Earlier docs suggested `:ro`; if you previously set that, change it to writable so scheduled and manual refreshes work.
+
+2. Set the env vars in `.env`:
+   ```bash
+   OFF_LOCAL_DB_HOST_PATH=/path/on/host/off.duckdb   # the host path (will be created if missing)
+   OFF_LOCAL_DB=/data/off.duckdb                     # the in-container path
+   # Optional — pin the download URL (defaults to the official OFF nightly build).
+   # OFF_LOCAL_URL=https://challenges.openfoodfacts.org/products.duckdb
+   # Optional — full air-gap mode (never call api.openfoodfacts.org)
+   # OFF_LOCAL_ONLY=1
+   ```
+
+3. `docker compose up -d` to recreate the container.
+
+4. **NutriTrace handles the initial download automatically.** On startup, if `OFF_LOCAL_DB` is set and the file is missing, it pulls the full snapshot (~4 GB) from `OFF_LOCAL_URL` in the background. Lookups during the initial pull fall through to the public OFF API (or, in air-gap mode, return "not found") until the download completes. Watch the container logs for `[off-local] refresh complete` to confirm readiness, or open Settings → Connected Services → Open Food Facts; the banner shows live download progress.
+
+### Refreshing the mirror
+
+The mirror refreshes itself on a schedule. Open Settings → Connected Services → Open Food Facts (admin only) and pick **Auto-Refresh**: `Off`, `Daily`, `Weekly` (default), or `Monthly`. Refreshes are full re-downloads (OFF does not publish a delta feed), so weekly is a sensible balance for most installs.
+
+You can also click **Refresh Now** in the same panel to force an immediate refresh, regardless of the schedule. Downloads stream to `<path>.new`, validate the DuckDB opens cleanly, then atomically swap into place. A failed mid-flight download never corrupts the running mirror — the previous snapshot keeps serving until the next attempt succeeds.
+
+**No container restart is needed.** The server closes its read-only connection during the swap and reopens against the new file in milliseconds.
+
+Prefer the command line? You can still drop a fresh file in place manually:
+
+```bash
+wget https://challenges.openfoodfacts.org/products.duckdb -O /path/on/host/off.duckdb.new
+mv /path/on/host/off.duckdb.new /path/on/host/off.duckdb
+# Optional — trigger reopen without waiting for the next lookup:
+docker compose restart
+```
+
+### Fallback behavior
+
+- **`OFF_LOCAL_DB` set, `OFF_LOCAL_ONLY` unset** (default): try local first. The public OFF API is consulted in three cases:
+  1. The mirror file is unavailable (initial download in progress, query error, schema mismatch).
+  2. The mirror returns a clean "not found" for a barcode lookup. Auto-heals false negatives from a stale mirror without you noticing.
+  3. A name search against the mirror returns zero hits.
+  Products that ARE in the mirror return instantly from local without a network round-trip.
+- **`OFF_LOCAL_DB` set, `OFF_LOCAL_ONLY=1`**: true air-gap mode. The mirror is treated as authoritative; the public OFF API is never contacted for reads. Misses return "product not found". OFF account uploads (contributions) are also refused client-side in this mode, with a clear toast, so an air-gapped admin's users can't accidentally leak data outbound by hitting the upload button.
+- **`OFF_LOCAL_DB` unset**: original behavior; always hit the public OFF API.
+
+### Notes for Android users
+
+The native Android client normally calls `api.openfoodfacts.org` directly (bypassing the server proxy) to avoid CORS issues in the WebView. When the server reports that a local OFF mirror is configured (via `/api/app-config/env-locks`), the Android client switches to routing OFF lookups through the server proxy automatically, so the mirror gets used end-to-end. **Server-connected Android: works as expected.** Standalone Android (no server configured) has no proxy to route through, so the mirror doesn't apply — those users keep hitting the public OFF API directly.
+
+### Backups
+
+The mirror file is **deliberately excluded from NutriTrace's full-backup ZIPs**. It's a ~4 GB reproducible snapshot of public OFF data; bundling it would balloon backups for no real benefit. Backups continue to contain only your SQLite database (foods, meals, diary, settings, etc.) and your uploaded photos. Your chosen Auto-Refresh interval is preserved (it's a tiny `app_config` row), so after restoring on a fresh install the schedule comes back automatically; the next refresh cycle (or a manual Refresh Now) re-populates the mirror file itself.
+
+If you want a mirror snapshot in your own off-site storage, copy the `off.duckdb` host file directly with whatever tool you already use (rsync, restic, borg, etc.) — separate from NutriTrace's backup flow.
+
+### Caveats
+
+- Only the public OFF read endpoints are proxied (barcode lookup `/api/v0/product/<code>.json` and name search `https://search.openfoodfacts.org/search`). Product **contributions** (write-back) go to the public OFF API directly when air-gap mode is off; in air-gap mode (`OFF_LOCAL_ONLY=1`) the upload button is disabled. You cannot contribute to a local mirror file itself; the mirror is read-only and updates only via refresh.
+- The mirror's search is a `LIKE` substring match against `product_name` + `brands`, ranked by whether the term appears at the start of the name. It's not a full-text index, so fuzzy and multi-word matching is less generous than the public OFF search. For air-gap use cases this is usually acceptable; for parity with the public search you'd need to build FTS5 indexes after download (out of scope for v1).
+- DuckDB's schema isn't versioned; if OFF rotates field names in their dump, lookups may return empty `nutriments` until the local DB layer is updated. Watch the server logs for `[off-local]` warnings.
+
+---
+
 ## Cloudflare Tunnel (optional)
 
 If you use Cloudflare Tunnel for external access, no special NutriTrace configuration is needed. Just set your OAuth redirect URIs to the tunnel's public URL (e.g. `https://nutritrace.example.com/api/wellness/fitbit/callback`).

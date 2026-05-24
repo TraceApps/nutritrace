@@ -48,6 +48,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Proportional nutrition scaling when editing serving size
 - Configurable nutrient order — drag to reorder in Settings → Nutrients; the food and meal editors honor your custom order
 - Import foods from Open Food Facts, USDA FoodData Central, or Mealie (recipe manager); Open Food Facts barcode imports let you pick per-serving or per-100g when both are published
+- Optional **local Open Food Facts mirror** (`OFF_LOCAL_DB` env var) for air-gapped self-hosters or resilience when the OFF API is down. Point at the official OFF DuckDB; barcode and name lookups try local first. See `DEPLOY.md` → Local Open Food Facts mirror.
 - **Bulk import** custom foods from JSON or CSV (Settings → Import & Export → Bulk Import)
 - **Mass-aware unit conversion** when scaling nutrition: switching g ↔ oz ↔ lb, ml ↔ cup, tsp ↔ tbsp (or any custom unit you define) actually converts the macros, not just relabels the unit
 - **Recipe yields** — split a saved recipe into N servings; each child food is automatically scaled to one portion
@@ -121,7 +122,7 @@ Smart Log is an experimental feature that lets you log food by **pressing and ho
 
 ### Setup
 1. Settings → AI Assistant → enable the assistant and configure a provider. Pick Claude, OpenAI, Gemini, or **OpenAI Compatible** (Ollama, LM Studio, DeepSeek, Groq, etc.) and paste your API key — local endpoints typically don't need a key.
-2. In the same section, enable the **Smart Log** toggle (Experimental).
+2. In the same section, enable the **Smart Log** toggle.
 3. Grant microphone permission the first time you use it.
 
 ### How to use it
@@ -370,7 +371,7 @@ All external API calls are proxied server-side — no keys are exposed to the br
 
 ---
 
-## Single Sign-On (OIDC) — Experimental
+## Single Sign-On (OIDC)
 
 Optional. Connect any OpenID Connect 1.0 compliant identity provider — **Authentik**, **Keycloak**, **Authelia**, **Pocket ID**, **Auth0**, **Google**, etc. — to sign in to NutriTrace with credentials your IdP already manages. Existing password login keeps working alongside SSO; admins can also disable password login entirely once SSO is set up.
 
@@ -529,7 +530,7 @@ If a wellness integration on your device behaves wrong (missing data, weird numb
 
 ## Experimental features
 
-Features marked **Experimental** in Settings (Smart Log, Goal Insights, Dynamic Calorie Goal, Garmin integration, Nutrition Import, Health Connect on Android) work but haven't been hammered enough to drop the label. Real-world bug reports help promote them to stable. The badge comes off when edge-case handling is solid, not on a calendar.
+The only integration still marked **Experimental** in Settings is **Garmin** — it works but hasn't seen enough real-world reports to drop the label. Real-world bug reports help promote it to stable. The badge comes off when edge-case handling is solid, not on a calendar.
 
 ---
 
@@ -574,6 +575,16 @@ NutriTrace was inspired by two excellent self-hosted nutrition trackers:
 - **[SparkyFitness](https://github.com/CodeWithCJ/SparkyFitness)** by CodeWithCJ — a self-hosted fitness and nutrition tracker that influenced the wellness integrations and goal-tracking approach.
 
 Thanks to both projects for showing what's possible.
+
+## Disclaimer
+
+NutriTrace is not medical, health, or nutrition-professional software. It does not provide medical advice, diagnosis, treatment, or personalized nutrition prescriptions. Food entries, calorie and macro tracking, Trace AI suggestions, Smart Log parsing, Scan Label output, Goal Insights, Adaptive TDEE recommendations, wellness scores (readiness, stress, sleep quality), and any analytical output are for informational and self-tracking purposes only.
+
+Nutrition decisions can interact with medical conditions (diabetes, eating disorders, food allergies, pregnancy, breastfeeding, pediatric needs, kidney or liver disease, metabolic disorders) in ways this app cannot assess. Consult a qualified healthcare professional, registered dietitian, or licensed nutritionist before starting a new eating plan, calorie target, or making significant dietary changes.
+
+Trace AI answers can be incorrect or incomplete; treat them as a starting point, not a substitute for human judgment or professional advice. Food nutrition data from Open Food Facts is community-curated and may contain inaccuracies. **Use at your own risk.**
+
+---
 
 ## License
 

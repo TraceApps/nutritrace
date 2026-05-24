@@ -6,9 +6,8 @@
  *   POST /preview  → parses, returns counts + sample rows + duplicate-date list
  *   POST /commit   → re-parses and writes diary rows under skip/replace policy
  *
- * EXPERIMENTAL: parser robustness depends on each app's export format being
- * stable. Surface the experimental status in the UI so users know what they're
- * signing up for.
+ * Note: parser robustness depends on each app's export format being stable.
+ * If a vendor changes their export shape, the matching adapter needs a tweak.
  */
 import { Router } from 'express';
 import multer from 'multer';

@@ -1084,8 +1084,8 @@
   // SMTP is fire-and-forget, not a persistent connection — be honest about
   // what the banner actually means. Default label is "Configured" (creds
   // entered, never verified). After a successful test it flips to
-  // "Last test sent" with the test acting as the recency proof.
-  $: smtpBannerLabel    = smtpTestStatus === 'ok' ? 'Last test sent' : 'Configured';
+  // "Last Test Sent" with the test acting as the recency proof.
+  $: smtpBannerLabel    = smtpTestStatus === 'ok' ? 'Last Test Sent' : 'Configured';
   $: smtpBannerSubtext  = smtpTestStatus === 'ok' ? 'Use Send Test again any time to re-verify' : 'No test has been sent yet';
 
   async function testSmtp() {
@@ -1373,6 +1373,125 @@
     }
   }
 
+  // ── OFF Local mirror status — polled from /api/off-local/status when the
+  // Connected Services section is open AND the mirror is enabled. State is
+  // mirrored to a banner inside the Open Food Facts card (size + last
+  // refresh + active download progress) plus an Auto-Refresh interval row.
+  let offMirrorStatus = null;            // raw /status payload
+  let offMirrorPoll = null;               // setInterval handle
+  let offRefreshSaving = false;
+  function _fmtGB(bytes) {
+    if (bytes == null) return '';
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  }
+  function _fmtAge(mtimeMs) {
+    if (!mtimeMs) return '';
+    const days = (Date.now() - mtimeMs) / (24 * 60 * 60 * 1000);
+    if (days < 1) {
+      const h = Math.max(1, Math.round(days * 24));
+      return h === 1 ? 'Updated 1 hour ago' : `Updated ${h} hours ago`;
+    }
+    const d = Math.round(days);
+    return d === 1 ? 'Updated 1 day ago' : `Updated ${d} days ago`;
+  }
+  async function _loadOffMirrorStatus() {
+    try {
+      offMirrorStatus = await NtApi.get('/api/off-local/status');
+    } catch { /* leave previous value so the banner doesn't flicker on a transient blip */ }
+  }
+  // Slow cadence by default, fast cadence while a refresh is downloading.
+  // Re-armed each tick so the cadence adapts when a download starts/finishes.
+  let _offPollCadence = 30000;
+  function _scheduleNextOffPoll() {
+    if (offMirrorPoll) { clearTimeout(offMirrorPoll); offMirrorPoll = null; }
+    if (!envLocks?.off_local || !openSections.connectedServices) return;
+    offMirrorPoll = setTimeout(async () => {
+      await _loadOffMirrorStatus();
+      _offPollCadence = offMirrorStatus?.refresh?.state === 'downloading' ? 2000 : 30000;
+      _scheduleNextOffPoll();
+    }, _offPollCadence);
+  }
+  function _startOffMirrorPolling() {
+    if (offMirrorPoll || !envLocks?.off_local) return;
+    _loadOffMirrorStatus().then(() => {
+      _offPollCadence = offMirrorStatus?.refresh?.state === 'downloading' ? 2000 : 30000;
+      _scheduleNextOffPoll();
+    });
+  }
+  function _stopOffMirrorPolling() {
+    if (offMirrorPoll) { clearTimeout(offMirrorPoll); offMirrorPoll = null; }
+  }
+  async function _triggerOffRefresh() {
+    try {
+      await NtApi.post('/api/off-local/refresh', {});
+      await _loadOffMirrorStatus();
+      _offPollCadence = 2000;
+      _scheduleNextOffPoll();
+    } catch (e) {
+      showError(e.message || 'Refresh failed');
+    }
+  }
+  async function _setOffRefreshInterval(value) {
+    offRefreshSaving = true;
+    try {
+      await NtApi.put('/api/off-local/schedule', { interval: value });
+      await _loadOffMirrorStatus();
+    } catch (e) {
+      showError(e.message || 'Could not update auto-refresh');
+    } finally {
+      offRefreshSaving = false;
+    }
+  }
+  $: if (openSections.connectedServices && envLocks?.off_local) _startOffMirrorPolling();
+  $: if (!openSections.connectedServices) _stopOffMirrorPolling();
+  // Banner derivation — kept here so the markup stays declarative.
+  $: _offRefresh = offMirrorStatus?.refresh || null;
+  $: _offDownloading = _offRefresh?.state === 'downloading';
+  $: _offFailed     = _offRefresh?.state === 'failed';
+  $: _offIntervalMs = ({ off: null, daily: 86_400_000, weekly: 604_800_000, monthly: 2_592_000_000 })[offMirrorStatus?.refresh_interval || 'weekly'];
+  $: _offStale = !_offDownloading && !_offFailed
+                  && offMirrorStatus?.mtime_ms != null
+                  && _offIntervalMs != null
+                  && (Date.now() - offMirrorStatus.mtime_ms) > _offIntervalMs;
+  $: _offReady = offMirrorStatus?.size_bytes != null;
+  // Status mapping:
+  //   downloading                       → testing (spinner)
+  //   failed AND no file (init failed)  → fail   (nothing to serve)
+  //   failed AND file present           → warn   (last refresh broke; old file still serves)
+  //   stale (past schedule interval)    → warn
+  //   ready, recent                     → ok
+  //   no file, idle (briefly at boot)   → testing
+  $: _offBannerStatus = _offDownloading ? 'testing'
+                      : (_offFailed && !_offReady) ? 'fail'
+                      : _offFailed ? 'warn'
+                      : _offStale ? 'warn'
+                      : _offReady ? 'ok'
+                      : 'testing';
+  $: _offBannerOkLabel = 'Local Mirror';
+  // Badge stacks the failure mode (Refresh Failed / Stale) on top of the
+  // air-gap badge if both apply, so the warn state still communicates the
+  // policy at a glance.
+  $: _offBadgePolicy = envLocks?.off_local_only ? 'Air-Gap' : '';
+  $: _offBadgeState = (_offFailed && _offReady) ? 'Refresh Failed'
+                     : _offStale ? 'Stale'
+                     : '';
+  $: _offBannerBadge = [_offBadgePolicy, _offBadgeState].filter(Boolean).join(' · ');
+  $: _offBannerSubtext = _offDownloading
+        ? (offMirrorStatus?.size_bytes
+            ? `Downloading update… ${Math.round((_offRefresh?.progress || 0) * 100)}% (${_fmtGB(_offRefresh?.bytes_done)} / ${_offRefresh?.bytes_total ? _fmtGB(_offRefresh.bytes_total) : '?'})`
+            : `First download… ${Math.round((_offRefresh?.progress || 0) * 100)}% (${_fmtGB(_offRefresh?.bytes_done)} / ${_offRefresh?.bytes_total ? _fmtGB(_offRefresh.bytes_total) : '?'})`)
+      : _offFailed
+        ? `Last refresh failed: ${_offRefresh?.last_error || 'unknown error'}${offMirrorStatus?.size_bytes ? `; currently serving ${_fmtGB(offMirrorStatus.size_bytes)} from before` : ''}`
+      : _offStale
+        ? `${_fmtGB(offMirrorStatus?.size_bytes)} · ${_fmtAge(offMirrorStatus?.mtime_ms)}`
+      : _offReady
+        ? `${_fmtGB(offMirrorStatus?.size_bytes)} · ${_fmtAge(offMirrorStatus?.mtime_ms)}${envLocks?.off_local_only ? ' · remote OFF API disabled' : ''}`
+        : 'Lookups fall back to public OFF API until ready';
+  $: _offRefreshBtnLabel = _offFailed ? 'Retry' : 'Refresh Now';
+  $: _offRefreshTestingLabel = (!_offReady && _offDownloading) ? 'Downloading' : 'Syncing';
+
   // ── Env-lock state — which admin sections are locked by environment vars ───
   let envLocks = { smtp: false, ai: false, ai_enabled: false };
   onMount(async () => {
@@ -1410,6 +1529,7 @@
     return () => {
       if (_syncStoreUnsub) _syncStoreUnsub();
       if (_tickInterval) clearInterval(_tickInterval);
+      _stopOffMirrorPolling();
     };
   });
 </script>
@@ -2055,7 +2175,6 @@
           <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
             <div>
               <span class="setting-label">Calorie Goal Mode</span>
-              <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);vertical-align:middle">Experimental</span>
               <div class="setting-desc">How your daily calorie target is calculated</div>
             </div>
             <div class="seg-control" style="width:100%;--seg-count:3;--seg-active:{$calorieGoalMode === 'fixed' ? 0 : $calorieGoalMode === 'dynamic' ? 1 : 2}">
@@ -2350,6 +2469,41 @@
 
         <p class="sub-label">{$_('settings.connected_services.off.header')}</p>
         <div class="card settings-card">
+          {#if envLocks.off_local}
+            <ConnectionStatus
+              status={_offBannerStatus}
+              okLabel={_offBannerOkLabel}
+              connectedAs={_offBannerBadge}
+              subtext={_offBannerSubtext}
+              testingLabel={_offRefreshTestingLabel}
+              error={_offFailed ? '' : ''}
+              onRetest={$currentUser?.role === 'admin' ? _triggerOffRefresh : null}
+              retestDisabled={_offDownloading}
+              retestLabel={_offRefreshBtnLabel}
+            />
+            {#if $currentUser?.role === 'admin'}
+              <div class="setting-row">
+                <div>
+                  <span class="setting-label">{$_('settings.connected_services.off.auto_refresh')}</span>
+                  <div class="setting-desc">
+                    {$_('settings.connected_services.off.auto_refresh_desc')}
+                  </div>
+                </div>
+                <div class="select-wrap" style="width:130px">
+                  <select class="select sel-sm"
+                          value={offMirrorStatus?.refresh_interval || 'weekly'}
+                          disabled={offRefreshSaving}
+                          on:change={e => _setOffRefreshInterval(e.currentTarget.value)}>
+                    <option value="off">{$_('settings.connected_services.off.auto_refresh_off')}</option>
+                    <option value="daily">{$_('settings.connected_services.off.auto_refresh_daily')}</option>
+                    <option value="weekly">{$_('settings.connected_services.off.auto_refresh_weekly')}</option>
+                    <option value="monthly">{$_('settings.connected_services.off.auto_refresh_monthly')}</option>
+                  </select>
+                </div>
+              </div>
+              <div class="setting-divider"></div>
+            {/if}
+          {/if}
           <div class="setting-row">
             <div>
               <span class="setting-label">{$_('settings.connected_services.off.enable')}</span>
@@ -2976,10 +3130,19 @@
           </div>
           <div class="setting-divider"></div>
           <div class="about-desc" style="font-size:11px;color:var(--text-3);line-height:1.5">
-            NutriTrace is not medical software. It does not provide medical advice, diagnosis, or treatment.
-            Wellness scores, readiness, and stress estimates are approximations and should not be used for
-            medical decisions. Always consult a healthcare professional for medical advice. Food nutrition
-            data is sourced from public databases and may contain inaccuracies. Use at your own discretion.
+            <strong>Disclaimer.</strong> NutriTrace is not medical, health, or nutrition-professional
+            software. It does not provide medical advice, diagnosis, treatment, or personalized nutrition
+            prescriptions. Food entries, calorie and macro tracking, Trace AI suggestions, Smart Log
+            parsing, Scan Label output, Goal Insights, Adaptive TDEE recommendations, wellness scores
+            (readiness, stress, sleep quality), and any analytical output are for informational and
+            self-tracking purposes only. Nutrition decisions can interact with medical conditions
+            (diabetes, eating disorders, food allergies, pregnancy, breastfeeding, pediatric needs,
+            kidney or liver disease, metabolic disorders) in ways this app cannot assess. Consult a
+            qualified healthcare professional, registered dietitian, or licensed nutritionist before
+            starting a new eating plan, calorie target, or making significant dietary changes. Trace
+            AI answers can be incorrect or incomplete; treat them as a starting point, not a substitute
+            for human judgment or professional advice. Food nutrition data from Open Food Facts is
+            community-curated and may contain inaccuracies. Use at your own risk.
           </div>
         </div>
       </div>

@@ -12,6 +12,7 @@
     "@zxcvbn-ts/language-en": "^3.0.2",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^3.0.3",
+    "@duckdb/node-api": "^1.4.0-r.1",
     "better-sqlite3": "^9.4.3",
     "cookie-parser": "^1.4.6",
     "dotenv": "^16.4.5",

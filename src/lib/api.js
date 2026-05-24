@@ -4,12 +4,42 @@
 
 // In native mode, call external APIs directly (no CORS in WebView).
 // In web mode, go through the server proxy to avoid CORS.
+//
+// Exception: when the admin has configured a local OFF mirror on the server
+// (`off_local` env-lock true), the native server-connected path routes
+// through the server proxy too so the mirror actually gets used. Without
+// this gate, an admin running OFF_LOCAL_ONLY=1 would still see Android
+// users silently bypassing the air-gap via CapacitorHttp. The gate is
+// strictly opt-in — users who haven't enabled the mirror see no behavior
+// change. Standalone native (no server) keeps the direct call because
+// there's no proxy to route through. Issue #22.
 async function _extFetch(url) {
   if (isNative) {
-    // Use Capacitor's native HTTP to bypass CORS in the WebView
     const { CapacitorHttp } = await import('@capacitor/core');
+    const { apiUrl, getServerUrl, getAuthToken } = await import('./platform.js');
+    let envLockedOffLocal = false;
+    try {
+      const { get } = await import('svelte/store');
+      const { envLocks } = await import('../stores/settings.js');
+      envLockedOffLocal = !!get(envLocks)?.off_local;
+    } catch {}
+    if (envLockedOffLocal && getServerUrl()) {
+      // Server-connected native + admin enabled local OFF mirror: route
+      // through /api/proxy on the server so the local DB intercept fires.
+      const proxyUrl = apiUrl('/api/proxy?url=' + encodeURIComponent(url));
+      const headers = { 'Accept': 'application/json' };
+      const token = getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const resp = await CapacitorHttp.get({ url: proxyUrl, headers });
+      return {
+        ok: resp.status >= 200 && resp.status < 300,
+        status: resp.status,
+        json: async () => typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data,
+      };
+    }
+    // Default native path: direct call (bypasses WebView CORS, unchanged
+    // behavior for all users who don't enable the local mirror).
     const resp = await CapacitorHttp.get({ url, headers: { 'Accept': 'application/json' } });
-    // Wrap in a Response-like object so callers can use .ok / .json()
     return {
       ok: resp.status >= 200 && resp.status < 300,
       status: resp.status,
@@ -55,6 +85,22 @@ const API = {
   async contributeToOFF(food, settings) {
     const { name, barcode, brand, portion, unit, nutrition, imgUrl } = food;
     if (!name || !barcode) throw new Error("Name and barcode required");
+    // Air-gap honor: if the server has OFF_LOCAL_ONLY set, the admin
+    // explicitly opted into never calling out to OFF — refuse the upload
+    // instead of silently slipping through to the public API. (The lookup
+    // proxy already enforces this on reads; this closes the same loop on
+    // writes.)
+    try {
+      const { get } = await import('svelte/store');
+      const { envLocks } = await import('../stores/settings.js');
+      if (get(envLocks)?.off_local_only) {
+        throw new Error('OFF contributions are disabled on this server (air-gap mode).');
+      }
+    } catch (e) {
+      if (e.message?.startsWith('OFF contributions are disabled')) throw e;
+      // Store/import lookup failed for some unrelated reason — don't block
+      // the upload over an envLocks fetch glitch.
+    }
     const username = (settings && settings.offUsername) || "nutritrace-app";
     const password = (settings && settings.offPassword) || "nutritrace";
     const uploadCountry = (settings && settings.offUploadCountry) || "Auto";

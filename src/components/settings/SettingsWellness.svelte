@@ -1186,7 +1186,6 @@
     {#if isNative}
       <p class="sub-label" style="padding-top:16px">
         Health Connect
-        <span class="labs-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">Experimental</span>
       </p>
       <div class="card settings-card">
         {#if healthConnectEnabledVal && healthConnectAvailability === 'Available'}

@@ -9,6 +9,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.37] — 2026-05-24
+
+### Added
+
+- **Local Open Food Facts mirror** (self-hoster opt-in, env-gated). Point NutriTrace at a local DuckDB copy of OFF and barcode + name lookups hit it first for instant, network-free responses. Stale-mirror false negatives auto-heal by falling through to the public OFF API on a miss, so a week-old mirror still feels live. True air-gap mode (`OFF_LOCAL_ONLY=1`) blocks all remote traffic, including OFF account uploads. See `DEPLOY.md` → Local Open Food Facts mirror for the full setup. (Issue #22)
+- **In-app refresh control for the OFF mirror.** Settings → Connected Services → Open Food Facts (admin only) shows mirror size, last refresh, and an Auto-Refresh schedule (Off / Daily / Weekly / Monthly, default Weekly). A Refresh Now button kicks an immediate full download with live progress in the banner. Initial download happens automatically on first boot when the env var is set; no manual `wget` required. Refreshes use atomic swap, so no container restart is needed and a failed mid-flight download never corrupts the running mirror.
+- **Connection status banner for push notifications**, matching the pattern used by USDA / Mealie / AI / Wellness integrations. Top-of-card pill shows the configured provider; a Send Test button posts a test notification through whichever delivery method is active.
+
+### Changed
+
+- **Sleep score tuning.** Very short nights (under 5 hours) no longer balloon the deep+REM percentage above realistic ceilings (35% under 5h, 40% under 6h), bringing calculated scores closer to Fitbit's own.
+- **About → Disclaimer strengthened.** Spells out the medical conditions NutriTrace is not designed for (diabetes, eating disorders, allergies, pregnancy, breastfeeding, pediatric needs, kidney/liver disease, metabolic disorders), and underscores that Trace AI answers and Open Food Facts data can be incorrect.
+
+### Fixed
+
+- **Bulk-imported foods now sync immediately to Android.** After a successful bulk import on server-connected Android, the app triggers a full sync so the foods appear in the foods tab without waiting 30-60 seconds for the periodic sync. (Issue #39 followup)
+
+---
+
 ## [1.0.0-rc.36] — 2026-05-23
 
 ### Fixed

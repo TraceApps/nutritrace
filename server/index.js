@@ -29,6 +29,7 @@ import oidcAdminRoutes  from './routes/oidc-admin.js';
 import apiTokensRoutes  from './routes/api-tokens.js';
 import apiV1Routes      from './routes/api/v1/index.js';
 import nutritionImportRoutes from './routes/nutrition-import.js';
+import offLocalRoutes from './routes/off-local.js';
 import { logger }   from './logger.js';
 import { authenticate, userMgmtActive } from './middleware/auth.js';
 import { csrfProtect } from './middleware/csrf.js';
@@ -168,6 +169,7 @@ router.use('/api/upload', uploadRoutes);
 router.use('/api/mealie',     mealieRoutes);
 router.use('/api/settings',  settingsRoutes);
 router.use('/api/app-config',  appConfigRoutes);
+router.use('/api/off-local',   offLocalRoutes);
 router.use('/api/ai',          aiRoutes);
 router.use('/api/full-backup',        fullBackupRoutes);
 // Per-IP rate limit on OAuth callbacks — these run unauthenticated and trigger
@@ -293,6 +295,15 @@ app.listen(PORT, () => {
   // Start the notification + sync scheduler
   import('./lib/scheduler.js').then(({ startScheduler }) => startScheduler()).catch(e => {
     logger.warn(`[scheduler] failed to start: ${e.message}`);
+  });
+
+  // Local OFF mirror: kick initial download if file is missing, then start
+  // the periodic refresh tick. Both no-op when OFF_LOCAL_DB is unset.
+  import('./lib/off-local.js').then(({ primeFromStartup }) => primeFromStartup()).catch(e => {
+    logger.warn(`[off-local] prime failed: ${e.message}`);
+  });
+  import('./lib/off-local-scheduler.js').then(({ startOffLocalScheduler }) => startOffLocalScheduler()).catch(e => {
+    logger.warn(`[off-local-scheduler] failed to start: ${e.message}`);
   });
 
   // (Boot-time image migration removed deliberately. Earlier versions ran a

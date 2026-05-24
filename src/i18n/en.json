@@ -75,7 +75,13 @@
         "account_note":           "Optional, only needed to upload edits.",
         "account_create_link":    "Create an OFF account →",
         "username_placeholder":   "OFF account username",
-        "password_placeholder":   "OFF account password"
+        "password_placeholder":   "OFF account password",
+        "auto_refresh":           "Auto-Refresh",
+        "auto_refresh_desc":      "How often to re-download the mirror from Open Food Facts. Each refresh pulls the full snapshot (~4 GB).",
+        "auto_refresh_off":       "Off",
+        "auto_refresh_daily":     "Daily",
+        "auto_refresh_weekly":    "Weekly",
+        "auto_refresh_monthly":   "Monthly"
       }
     },
     "ai":                 { "section": "AI Assistant" },

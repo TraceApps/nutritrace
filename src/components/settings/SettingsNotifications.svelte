@@ -2,6 +2,7 @@
   import { slide } from 'svelte/transition';
   import Toggle from './Toggle.svelte';
   import TimePicker from '../ui/TimePicker.svelte';
+  import ConnectionStatus from './ConnectionStatus.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { DB } from '../../lib/db.js';
   import { scheduleSave } from '../../stores/settings.js';
@@ -41,8 +42,39 @@
   let _ntfyShowToken = false;
   let _gotifyTesting = false;
   let _gotifyShowToken = false;
+  // Result of the most recent push test — drives the banner state. null until
+  // a test runs; cleared when the user switches providers so a stale 'ok' or
+  // 'fail' pill doesn't carry over to a different service.
+  let _pushTestResult = null; // null | 'ok' | 'fail'
 
   $: _anyNotifEnabled = _notifLocal || _notifPushService !== 'none';
+
+  // Push service status banner. Stays "Configured" as soon as required
+  // fields are filled — push services (Gotify/ntfy/Apprise) are stateless
+  // HTTP, there's no persistent connection to claim. Test sends a real
+  // notification; success/failure surfaces via toast. Failed test flips
+  // to the danger pill with the error inline.
+  $: _pushConfigured = _notifPushService === 'gotify'  ? !!(_gotifyUrl && _gotifyToken)
+                     : _notifPushService === 'ntfy'    ? !!(_ntfyUrl && _ntfyTopic)
+                     : _notifPushService === 'apprise' ? !!_appriseUrl
+                     : false;
+  $: _pushBannerStatus = _gotifyTesting
+    ? 'testing'
+    : _pushTestResult === 'fail'
+      ? 'fail'
+      : (_pushConfigured ? 'ok' : '');
+  $: _pushBannerDisabled = _gotifyTesting || !_pushConfigured;
+  $: _pushProviderLabel  = _notifPushService === 'gotify'  ? 'Gotify'
+                         : _notifPushService === 'ntfy'    ? 'ntfy'
+                         : _notifPushService === 'apprise' ? 'Apprise'
+                         : '';
+  // Clear stale test result when switching providers so the banner doesn't
+  // carry over a "Last Test Sent" pill from a different service.
+  let _lastPushProvider = _notifPushService;
+  $: if (_notifPushService !== _lastPushProvider) {
+    _lastPushProvider = _notifPushService;
+    _pushTestResult = null;
+  }
 
   async function _requestNotifPermission() {
     try {
@@ -88,24 +120,46 @@
 
   async function _testPush() {
     _gotifyTesting = true;
-    // Save all current values before testing
+    _pushTestResult = null;
+    // Save all current values before testing so the push helper reads what's
+    // on screen, not what was last persisted.
     set('gotifyUrl', _gotifyUrl); set('gotifyToken', _gotifyToken);
     set('ntfyUrl', _ntfyUrl); set('ntfyTopic', _ntfyTopic); set('ntfyToken', _ntfyToken);
     set('appriseUrl', _appriseUrl); set('appriseTag', _appriseTag);
     try {
       const { sendPush } = await import('../../lib/notifications.js');
       await sendPush(_notifPushService, 'NutriTrace', 'Test notification, push service connected', 5);
+      _pushTestResult = 'ok';
       showSuccess('Test sent, check your device');
-    } catch (e) { showError(`Test failed: ${e.message || 'unknown error'}`); }
+    } catch (e) {
+      _pushTestResult = 'fail';
+      showError(`Test failed: ${e.message || 'unknown error'}`);
+    }
     _gotifyTesting = false;
   }
 </script>
 
 <div class="section-body" transition:slide={{ duration: 180 }}>
 
-  <!-- Delivery setup first -->
+  <!-- Delivery setup -->
   <p class="sub-label">Delivery</p>
   <div class="card settings-card">
+    <!-- Push service status banner — sits at the top of the Delivery card,
+         above the first setting-row. Matches the established NutriTrace
+         pattern used by USDA, Mealie, SMTP, AI Assistant, Wellness:
+         ConnectionStatus is part of the same card as its config, not its
+         own separate card. Renders only when a push provider is selected. -->
+    {#if _notifPushService !== 'none'}
+      <ConnectionStatus
+        status={_pushBannerStatus}
+        okLabel="Configured"
+        connectedAs={_pushProviderLabel}
+        error={_pushTestResult === 'fail' ? `${_pushProviderLabel} test failed, check the URL and credentials below` : ''}
+        onRetest={_testPush}
+        retestDisabled={_pushBannerDisabled}
+        retestLabel="Send Test"
+      />
+    {/if}
     <div class="setting-row">
       <div>
         <span class="setting-label">Device Notifications</span>
@@ -131,25 +185,18 @@
 
     <!-- Apprise config -->
     {#if _notifPushService === 'apprise'}
-      <div class="setting-divider"></div>
       <div class="form-group" style="padding:10px 16px 4px">
         <label class="form-label">Apprise Server URL</label>
         <input class="input" placeholder="https://apprise.example.com" bind:value={_appriseUrl} on:blur={() => set('appriseUrl', _appriseUrl)} />
       </div>
       <div class="form-group" style="padding:8px 16px 14px">
         <label class="form-label">Tag (optional)</label>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input class="input" style="flex:1" placeholder="e.g. nutritrace" bind:value={_appriseTag} on:blur={() => set('appriseTag', _appriseTag)} />
-          <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={_testPush} disabled={!_appriseUrl || _gotifyTesting}>
-            {#if _gotifyTesting}Testing…{:else}Test{/if}
-          </button>
-        </div>
+        <input class="input" placeholder="e.g. nutritrace" bind:value={_appriseTag} on:blur={() => set('appriseTag', _appriseTag)} />
       </div>
     {/if}
 
     <!-- Gotify config -->
     {#if _notifPushService === 'gotify'}
-      <div class="setting-divider"></div>
       <div class="form-group" style="padding:10px 16px 4px">
         <label class="form-label">Gotify Server URL</label>
         <input class="input" placeholder="https://gotify.example.com" bind:value={_gotifyUrl} on:blur={() => set('gotifyUrl', _gotifyUrl)} />
@@ -165,16 +212,12 @@
           <button class="btn-icon" on:click={() => _gotifyShowToken = !_gotifyShowToken} title={_gotifyShowToken ? 'Hide' : 'Show'}>
             <span class="material-symbols-rounded">{_gotifyShowToken ? 'visibility_off' : 'visibility'}</span>
           </button>
-          <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={_testPush} disabled={!_gotifyUrl || !_gotifyToken || _gotifyTesting}>
-            {#if _gotifyTesting}Testing…{:else}Test{/if}
-          </button>
         </div>
       </div>
     {/if}
 
     <!-- ntfy config -->
     {#if _notifPushService === 'ntfy'}
-      <div class="setting-divider"></div>
       <div class="form-group" style="padding:10px 16px 4px">
         <label class="form-label">ntfy Server URL</label>
         <input class="input" placeholder="https://ntfy.sh" bind:value={_ntfyUrl} on:blur={() => set('ntfyUrl', _ntfyUrl)} />
@@ -184,7 +227,7 @@
         <input class="input" placeholder="e.g. my-nutritrace" bind:value={_ntfyTopic} on:blur={() => set('ntfyTopic', _ntfyTopic)} />
       </div>
       <div class="form-group" style="padding:8px 16px 14px">
-        <label class="form-label">Access Token (optional — for private topics)</label>
+        <label class="form-label">Access Token (optional, for private topics)</label>
         <div style="display:flex;gap:8px;align-items:center">
           {#if _ntfyShowToken}
             <input class="input" style="flex:1" type="text" placeholder="Bearer token" bind:value={_ntfyToken} on:blur={() => set('ntfyToken', _ntfyToken)} />
@@ -193,9 +236,6 @@
           {/if}
           <button class="btn-icon" on:click={() => _ntfyShowToken = !_ntfyShowToken} title={_ntfyShowToken ? 'Hide' : 'Show'}>
             <span class="material-symbols-rounded">{_ntfyShowToken ? 'visibility_off' : 'visibility'}</span>
-          </button>
-          <button class="btn btn-primary" style="height:40px;font-size:13px;white-space:nowrap" on:click={_testPush} disabled={!_ntfyTopic || _gotifyTesting}>
-            {#if _gotifyTesting}Testing…{:else}Test{/if}
           </button>
         </div>
       </div>

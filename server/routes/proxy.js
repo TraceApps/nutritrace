@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { logger } from '../logger.js';
 import { makeRateLimiter } from '../middleware/rate-limit.js';
+import { isLocalOffEnabled, isLocalOffOnly, lookupByBarcode, searchByName } from '../lib/off-local.js';
 
 const router = Router();
 const proxyLimit = makeRateLimiter({ max: 60, windowMs: 60_000, label: 'proxy' });
@@ -33,6 +34,24 @@ router.get('/', async (req, res) => {
       return res.status(403).json({ error: 'Domain not allowed' });
     }
 
+    // Local OFF mirror intercept. When the admin has set OFF_LOCAL_DB, try
+    // a local DuckDB lookup before reaching the public OFF API. Falls back
+    // to remote on a miss or an error unless OFF_LOCAL_ONLY is set (true
+    // air-gap mode — return whatever the local mirror says, even if empty).
+    // See server/lib/off-local.js for the lookup semantics and DEPLOY.md
+    // for the full setup recipe. Issue #22 (duplaja).
+    if (isLocalOffEnabled() && isApiHost) {
+      const local = await _tryLocalOff(parsed);
+      if (local !== undefined) {
+        return res.json(local);
+      }
+      // local returned undefined → not an OFF request shape we handle, fall through to remote
+      if (isLocalOffOnly()) {
+        logger.warn(`[proxy] OFF_LOCAL_ONLY set but local mirror returned no shape match for ${url} — refusing remote per air-gap policy`);
+        return res.status(503).json({ error: 'Local OFF mirror has no answer; remote disabled (OFF_LOCAL_ONLY)' });
+      }
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     const response = await fetch(url, {
@@ -63,5 +82,51 @@ router.get('/', async (req, res) => {
     res.status(503).json({ error: e.message });
   }
 });
+
+/** Pattern-match OFF URLs and dispatch to the local mirror. Returns:
+ *  - parsed JSON object (use it as the response)
+ *  - undefined (URL didn't match a known OFF shape, OR mirror returned an
+ *               error / empty result and we should fall through to remote)
+ *
+ *  Known shapes:
+ *    https://world.openfoodfacts.org/api/v{N}/product/<barcode>(.json)?
+ *    https://search.openfoodfacts.org/search?q=<query>&page=<n>&page_size=<m>
+ *
+ *  Stale-mirror fallback: when the mirror cleanly returns "no match" (barcode
+ *  not in the local DB, or search hits empty) AND air-gap mode is off, we
+ *  treat that as a cache miss and fall through to the live OFF API. This
+ *  auto-heals the common case where a product was added to OFF after the
+ *  last mirror refresh — without it, scans of recently-added products would
+ *  give false negatives until the next snapshot pull. Air-gap mode keeps the
+ *  old behavior: trust the mirror as authoritative.
+ */
+async function _tryLocalOff(parsedUrl) {
+  const host = parsedUrl.hostname;
+  const path = parsedUrl.pathname;
+  const airGap = isLocalOffOnly();
+  // Barcode lookup: /api/vN/product/CODE.json (also handle .json-less)
+  if (host === 'world.openfoodfacts.org' && /^\/api\/v\d+\/product\//.test(path)) {
+    const m = path.match(/^\/api\/v\d+\/product\/([^/.]+)/);
+    if (!m) return undefined;
+    const code = m[1];
+    const result = await lookupByBarcode(code);
+    if (result == null) return undefined;          // mirror errored — fall through (or 503 in air-gap)
+    if (result.status === 0 && !airGap) return undefined;   // mirror miss in non-air-gap — try live
+    return result;
+  }
+  // Name search: /search?q=...&page=...&page_size=...
+  if (host === 'search.openfoodfacts.org' && path === '/search') {
+    const q = parsedUrl.searchParams.get('q') || '';
+    const page = parseInt(parsedUrl.searchParams.get('page') || '1', 10);
+    const pageSize = parseInt(parsedUrl.searchParams.get('page_size') || '20', 10);
+    const result = await searchByName(q, { page, pageSize });
+    if (result == null) return undefined;
+    if ((result.hits?.length ?? 0) === 0 && !airGap) return undefined;  // empty search in non-air-gap — try live
+    return result;
+  }
+  // Any other OFF endpoint (CGI scripts for product upload, images, etc.):
+  // no local equivalent, let it fall through to remote.
+  return undefined;
+}
 
 export default router;
