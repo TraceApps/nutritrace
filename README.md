@@ -311,9 +311,9 @@ The database schema migrates automatically on startup.
 
 | Layer | Technology |
 |---|---|
-| Frontend | Svelte 4, svelte-spa-router, Vite, PWA (service worker) |
+| Frontend | Svelte 5 (compat mode), svelte-spa-router, Vite 6, PWA (service worker) |
 | Mobile | Capacitor 8 (Android), `@capacitor-community/sqlite` for offline storage, ML Kit barcode scanning, Health Connect |
-| Backend | Node.js, Express, better-sqlite3 |
+| Backend | Node.js, Express 5, better-sqlite3, optional DuckDB for local Open Food Facts mirror |
 | Auth | JWT (httpOnly cookie), bcryptjs, OpenID Connect 1.0 (PKCE + state + nonce) |
 | Container | Docker, multi-stage Dockerfile |
 | CI/CD | GitHub Actions → GitHub Container Registry |
