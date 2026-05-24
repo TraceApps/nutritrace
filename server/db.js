@@ -448,13 +448,20 @@ if (!columnExists('meals', 'updated_at')) {
 }
 
 // Heal any rows where updated_at slipped through as NULL — possibly via
-// older POST /foods or POST /meals paths that didn't always set it.
-// Reported by tellis82 in #13: meals with null updated_at vanish from
-// the Android app because differential sync filters with `updated_at >= ?`
-// and SQLite's NULL never satisfies that comparison. Idempotent — only
-// rewrites NULL rows; existing non-null values are untouched.
-db.exec(`UPDATE foods SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL`);
-db.exec(`UPDATE meals SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL`);
+// older POST /foods or POST /meals paths that didn't always set it, or via
+// the bulk-import path before #39 was fixed (reported by nomad64 — rows
+// imported via Settings → Bulk Food Import never appeared on Android).
+// Reported originally by tellis82 in #13: rows with null updated_at vanish
+// from the Android app because differential sync filters with
+// `updated_at >= ?` and SQLite's NULL never satisfies that comparison.
+//
+// Use datetime('now') (not created_at) so previously-broken rows become
+// visible to the *next* delta pull. Setting to created_at would put the
+// timestamp in the past, often before the client's last-pull cursor, and
+// the rows would stay invisible until the next full re-sync. Idempotent:
+// only touches NULL rows; never overwrites a real updated_at.
+db.exec(`UPDATE foods SET updated_at = datetime('now') WHERE updated_at IS NULL`);
+db.exec(`UPDATE meals SET updated_at = datetime('now') WHERE updated_at IS NULL`);
 if (!columnExists('user_settings', 'updated_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN updated_at TEXT`);
   db.exec(`UPDATE user_settings SET updated_at = datetime('now')`);

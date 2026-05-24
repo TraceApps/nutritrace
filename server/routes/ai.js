@@ -21,10 +21,25 @@ router.get('/history', requireAuth, wrap((req, res) => {
 }));
 
 // ── POST /api/ai/history ──────────────────────────────────────────────────────
+// Dedup guard: if the most recent row for this user is identical (same role
+// and content) and was written within the last 3s, skip the insert. Prevents
+// duplicate rows from network retries, the tool-use loop emitting twice, or
+// two devices racing to record the same message — which previously poisoned
+// the chat list with rows the Svelte 5 each-key collision check would throw
+// on (#40). 3s is loose enough to absorb client retries; tighter than the
+// human typing cadence so two genuine consecutive messages still go through.
 router.post('/history', requireAuth, wrap((req, res) => {
   const { role, content } = req.body;
   if (!role || !content) return res.status(400).json({ error: 'role and content required' });
   const u = uid(req);
+
+  const recentSql = u == null
+    ? `SELECT role, content FROM ai_chat_history WHERE user_id IS NULL AND created_at >= datetime('now', '-3 seconds') ORDER BY created_at DESC LIMIT 1`
+    : `SELECT role, content FROM ai_chat_history WHERE user_id = ? AND created_at >= datetime('now', '-3 seconds') ORDER BY created_at DESC LIMIT 1`;
+  const recent = u == null ? db.prepare(recentSql).get() : db.prepare(recentSql).get(u);
+  if (recent && recent.role === role && recent.content === content) {
+    return res.json({ ok: true, deduped: true });
+  }
 
   if (u == null) {
     db.prepare(`INSERT INTO ai_chat_history (user_id, role, content) VALUES (NULL, ?, ?)`).run(role, content);

@@ -101,7 +101,7 @@ router.post('/:id/used', wrap((req, res) => {
   const date = (req.body?.date && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date))
     ? req.body.date
     : new Date().toISOString().slice(0, 10);
-  db.prepare(`UPDATE meals SET usage_count = usage_count + 1, last_used_at = MAX(COALESCE(last_used_at, ''), ?) WHERE id = ?`)
+  db.prepare(`UPDATE meals SET usage_count = usage_count + 1, last_used_at = MAX(COALESCE(last_used_at, ''), ?), updated_at = datetime('now') WHERE id = ?`)
     .run(date, req.params.id);
   res.json({ ok: true });
 }));
@@ -129,7 +129,7 @@ router.patch('/:id/share', wrap((req, res) => {
     return res.status(400).json({ error: 'visibility must be private, group, or specific' });
   }
 
-  db.prepare('UPDATE meals SET visibility = ? WHERE id = ?').run(visibility, meal.id);
+  db.prepare(`UPDATE meals SET visibility = ?, updated_at = datetime('now') WHERE id = ?`).run(visibility, meal.id);
   db.prepare('DELETE FROM meal_shares WHERE meal_id = ?').run(meal.id);
   if (visibility === 'specific' && Array.isArray(user_ids)) {
     const ins = db.prepare('INSERT OR IGNORE INTO meal_shares (meal_id, user_id) VALUES (?, ?)');

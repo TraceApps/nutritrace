@@ -9,7 +9,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.0.0-rc.35] — 2026-05-22
+## [1.0.0-rc.36] — 2026-05-23
+
+### Fixed
+
+- **Bulk-imported foods didn't show up on Android.** The server wasn't stamping `updated_at` on new rows, so the Android differential sync skipped them. PWA was unaffected. Includes a migration that recovers rows already imported. (Issue #39)
+- **AI Assistant chat panel could stop opening** after a tool-use round. Duplicate message keys broke the panel render until history was cleared. Keys are now position-stable and the server drops back-to-back identical history inserts. (Issue #40)
 
 ### Added
 

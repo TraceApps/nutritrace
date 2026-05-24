@@ -51,15 +51,19 @@ function restoreFromZip(zip) {
     `);
     for (const u of data.users || []) insUser.run(u);
 
+    // COALESCE updated_at to NOW: backups from before the column existed
+    // (or rows missing it) would otherwise restore with NULL, which the
+    // Android delta sync silently skips. Forcing NOW means restored rows
+    // become visible to the next pull (#39 followup).
     const insFood = db.prepare(`
       INSERT OR IGNORE INTO foods (id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, favorite, usage_count, last_used_at, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @created_at, @updated_at, @deleted_at)
+      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at)
     `);
     for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, updated_at: null, deleted_at: null, ...f });
 
     const insMeal = db.prepare(`
       INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @created_at, @updated_at, @deleted_at)
+      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at)
     `);
     for (const m of data.meals || []) insMeal.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, updated_at: null, deleted_at: null, servings: null, ...m });
 
@@ -76,7 +80,7 @@ function restoreFromZip(zip) {
     for (const d of data.diary || []) insDiary.run({ notes: null, deleted_at: null, ...d });
 
     const insSettings = db.prepare(`
-      INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at, deleted_at) VALUES (@user_id, @key, @value, @updated_at, @deleted_at)
+      INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at, deleted_at) VALUES (@user_id, @key, @value, COALESCE(@updated_at, datetime('now')), @deleted_at)
     `);
     for (const s of data.user_settings || []) insSettings.run({ updated_at: null, deleted_at: null, ...s });
 

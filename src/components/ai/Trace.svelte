@@ -1475,7 +1475,14 @@ Water: ${ctx.waterText}`
 
         {:else}
           <!-- Message list -->
-          {#each messages as msg (msg.time + msg.role + msg.content.slice(0,10))}
+          <!-- Position-stable key: the prior (time+role+content[:10]) composite
+               collided when two messages shared the same minute, role, and
+               opening characters (e.g. an assistant tool-use round emitting
+               two short replies). Svelte 5 throws each_key_duplicate on the
+               collision and bricks the chat panel for the user (#40). Index
+               is safe here because chat is strictly append-only — no reorders
+               or interior insertions to worry about. -->
+          {#each messages as msg, i (i + ':' + msg.role + ':' + msg.time)}
             <div class="ai-msg" class:user={msg.role === 'user'}>
               {#if msg.role === 'assistant'}
                 <div class="ai-msg-avatar">

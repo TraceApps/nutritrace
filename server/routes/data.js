@@ -36,25 +36,33 @@ router.post('/import', wrap((req, res) => {
   const { foodList = [], meals = [], recipes = [], diary = [], activity = [], fasts = [] } = req.body;
   const u = uid(req);
 
+  // updated_at must be set explicitly: the differential sync engine filters
+  // foods/meals by `updated_at >= since`, and rows inserted without it would
+  // never appear in the Android delta pull (#39 — reported by nomad64).
   const insFood = db.prepare(
-    `INSERT OR IGNORE INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT OR IGNORE INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
   const insMeal = db.prepare(
-    `INSERT OR IGNORE INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT OR IGNORE INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
+  // updated_at must be set explicitly on every insert: differential sync
+  // filters with `updated_at >= ?` and NULL never matches. Even tables that
+  // have a column-level DEFAULT (datetime('now')) lose it through
+  // INSERT OR REPLACE (the row is dropped and re-inserted; the default only
+  // applies when the column is omitted from the column list).
   const insDiary = db.prepare(
-    `INSERT OR REPLACE INTO diary (user_id, date, items, body_stats, water, notes)
-     VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT OR REPLACE INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   );
   const insActivity = db.prepare(
-    `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
   const insFast = db.prepare(
-    `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes)
-     VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))`
   );
 
   const run = db.transaction(() => {

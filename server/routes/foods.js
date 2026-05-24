@@ -118,7 +118,7 @@ router.post('/:id/used', wrap((req, res) => {
   const date = (req.body?.date && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date))
     ? req.body.date
     : new Date().toISOString().slice(0, 10);
-  db.prepare(`UPDATE foods SET usage_count = usage_count + 1, last_used_at = MAX(COALESCE(last_used_at, ''), ?) WHERE id = ?`)
+  db.prepare(`UPDATE foods SET usage_count = usage_count + 1, last_used_at = MAX(COALESCE(last_used_at, ''), ?), updated_at = datetime('now') WHERE id = ?`)
     .run(date, req.params.id);
   res.json({ ok: true });
 }));
@@ -146,7 +146,7 @@ router.patch('/:id/share', wrap((req, res) => {
     return res.status(400).json({ error: 'visibility must be private, group, or specific' });
   }
 
-  db.prepare('UPDATE foods SET visibility = ? WHERE id = ?').run(visibility, food.id);
+  db.prepare(`UPDATE foods SET visibility = ?, updated_at = datetime('now') WHERE id = ?`).run(visibility, food.id);
 
   // Sync specific-user grants
   db.prepare('DELETE FROM food_shares WHERE food_id = ?').run(food.id);
@@ -174,8 +174,8 @@ router.post('/:id/copy', wrap((req, res) => {
   }
 
   const result = db.prepare(
-    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', ?)`
+    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, datetime('now'))`
   ).run(u, food.name, food.brand, food.nutrition, food.portion, food.unit,
     food.img_url, food.notes, food.category, food.barcode, food.id);
   res.status(201).json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(result.lastInsertRowid)));
@@ -195,8 +195,8 @@ router.post('/bulk-share', wrap((req, res) => {
 
   // Foods
   if (doFoods) {
-    if (u != null) db.prepare(`UPDATE foods SET visibility = ? WHERE user_id = ?`).run(visibility, u);
-    else           db.prepare(`UPDATE foods SET visibility = ?`).run(visibility);
+    if (u != null) db.prepare(`UPDATE foods SET visibility = ?, updated_at = datetime('now') WHERE user_id = ?`).run(visibility, u);
+    else           db.prepare(`UPDATE foods SET visibility = ?, updated_at = datetime('now')`).run(visibility);
     if (u != null) db.prepare(`DELETE FROM food_shares WHERE food_id IN (SELECT id FROM foods WHERE user_id = ?)`).run(u);
     else           db.prepare(`DELETE FROM food_shares`).run();
     if (visibility === 'specific' && user_ids.length) {
@@ -212,8 +212,8 @@ router.post('/bulk-share', wrap((req, res) => {
   // Meals
   const mealFilter = doMeals && !doRecipes ? 'AND is_recipe = 0' : !doMeals && doRecipes ? 'AND is_recipe = 1' : '';
   if (doMeals || doRecipes) {
-    if (u != null) db.prepare(`UPDATE meals SET visibility = ? WHERE user_id = ? ${mealFilter}`).run(visibility, u);
-    else           db.prepare(`UPDATE meals SET visibility = ? ${mealFilter}`).run(visibility);
+    if (u != null) db.prepare(`UPDATE meals SET visibility = ?, updated_at = datetime('now') WHERE user_id = ? ${mealFilter}`).run(visibility, u);
+    else           db.prepare(`UPDATE meals SET visibility = ?, updated_at = datetime('now') ${mealFilter}`).run(visibility);
     if (u != null) db.prepare(`DELETE FROM meal_shares WHERE meal_id IN (SELECT id FROM meals WHERE user_id = ? ${mealFilter})`).run(u);
     else           db.prepare(`DELETE FROM meal_shares`).run();
     if (visibility === 'specific' && user_ids.length) {
