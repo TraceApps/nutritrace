@@ -7,6 +7,13 @@ services:
     volumes:
       - ${DATA_DB_PATH}:/data/db
       - ${DATA_UPLOADS_PATH}:/data/uploads
+    # Forward every variable from .env into the container. Without this, only
+    # variables explicitly named in the `environment:` block below reach the
+    # app, so .env settings like INSECURE_COOKIES were silently ignored (#41).
+    # The explicit `environment:` block stays as live documentation of the
+    # common options; .env values override defaults declared there.
+    env_file:
+      - .env
     environment:
       # Do not change — container-internal paths tied to volume mounts above
       - DB_PATH=/data/db/nutritrace.db
