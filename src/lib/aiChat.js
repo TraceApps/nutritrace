@@ -37,7 +37,7 @@ export const TOOLS = [
   },
   {
     name: 'get_diary',
-    description: 'Get food diary for a specific date. Returns all meals with food items (portions, quantities, brand, per-item notes like prep/serving info) and nutrition breakdown (calories, protein, carbs, fat). Also returns body stats (with explicit `weight_unit` / `length_unit` so you don\'t guess), water intake (ml), any free-text "day notes" the user wrote (sleep, energy, cravings, context), and any manually-logged activities for that day (name, kcal burned, duration, distance, source).',
+    description: 'Get the food diary for ONE specific date only. Returns meals + food items (portions, quantities, brand, per-item notes), nutrition breakdown (calories, protein, carbs, fat), body stats (with explicit `weight_unit` / `length_unit` so you don\'t guess), water intake (ml), any free-text "day notes" the user wrote (sleep, energy, cravings, context), and any manually-logged activities for that day (name, kcal burned, duration, distance, source). DO NOT use this tool for streak questions, "how many days have I been logging", "when did I start tracking", consecutive-day counts, or any multi-day aggregate — for those use get_logging_streak (streak) or get_diary_averages (averages over a window). This tool is for a single calendar date only.',
     parameters: {
       type: 'object',
       properties: {
@@ -91,14 +91,19 @@ export const TOOLS = [
   },
   {
     name: 'get_diary_averages',
-    description: 'Get the user\'s average daily nutrition intake over the last N days, plus logging consistency. Returns average calories, protein, carbs, fat, water, and other nutrients. Also returns how many days were logged vs total days (consistency %), and weight change over the period if available. Use this to compare actual intake against goals and offer evidence-based goal adjustment suggestions.',
+    description: 'Get the user\'s average daily nutrition intake over the last N days, plus logging consistency. Returns average calories, protein, carbs, fat, water, and other nutrients. Also returns how many days were logged vs total days (consistency %), and weight change over the period if available. Use this to compare actual intake against goals and offer evidence-based goal adjustment suggestions. Also use it to verify a logging streak: if days_logged equals period_days, the user has logged every day in that window; expand the period to find where the streak breaks.',
     parameters: {
       type: 'object',
       properties: {
-        days: { type: 'number', description: 'Number of days to average over (7, 14, 28, or 42 recommended)' },
+        days: { type: 'number', description: 'Number of days to average over. Common: 7, 14, 28, 42 for typical averages; 90, 180, 365, 730, 3650 for streak verification or long-history users (e.g. someone who imported years of MyFitnessPal data). Capped at 3650 (10 years).' },
       },
       required: ['days'],
     },
+  },
+  {
+    name: 'get_logging_streak',
+    description: 'Get the user\'s current diary-logging streak — the count of consecutive days they have recorded ANY content in the diary (food items, water, body stats, or day notes), walking backward from today (or yesterday if today is not yet logged so an ongoing day isn\'t penalized). Matches what users mean by "I\'ve been tracking for X days in a row" — engagement with the diary, not strictly food entries. Use this for any "how long is my streak", "do I have a streak", "when did my streak start" question. This is the correct tool for streak questions; do NOT abuse get_diary_averages with a huge days argument to infer the streak — the streak walk terminates naturally at the first gap regardless of how long the user has been logging, so this tool is cheaper and authoritative. Returns { streak_days, streak_start, streak_end, today_logged }. streak_days=0 when the most recent logging was 2+ days ago.',
+    parameters: { type: 'object', properties: {} },
   },
   {
     name: 'get_fasting_history',
@@ -114,6 +119,23 @@ export const TOOLS = [
     name: 'get_adaptive_tdee',
     description: 'Get the user\'s learned/adaptive TDEE (Total Daily Energy Expenditure) if they have enough history. Adaptive TDEE is computed from 35 days of weight trend × calorie intake using linear regression. Returns { ready, tdee, trendKgPerWeek, confidence, weightSource, daysAvailable, daysRequired }. When ready is false, the user doesn\'t yet have enough logged days (returns daysAvailable / daysRequired so you can tell them how close they are). Use this when the user asks about their actual calorie burn, learned/adjusted TDEE, weight trend, or whether their fixed goal is still right for them.',
     parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'log_quick_calories',
+    description: 'Log a Fitbit/MFP-style "Quick Calories" entry to the user\'s diary — a row with calories and optionally protein/carbs/fat, but no food, no portion. Use this when the user says something like "log 200 calories for lunch", "add 1200 kJ to dinner", "punch in 350 quick calories", or "log 240 kcal with 20g protein and 30g carbs for snack". Only the calorie value is required; macros are optional and only stored when the user explicitly mentions them. Optional short name (e.g. "Office snack") helps the user remember the entry later. If the user gives kJ, convert to kcal yourself (1 kcal = 4.184 kJ) and pass the kcal number. Returns { error } if the user has disabled Quick Calories in Settings → Diary.',
+    parameters: {
+      type: 'object',
+      properties: {
+        meal:      { type: 'number', description: 'Meal index: 0=breakfast, 1=lunch, 2=dinner, 3=snacks (or whatever custom meal names the user has set, by position). Defaults to 3 (snacks) if not clearly stated.' },
+        kcal:      { type: 'number', description: 'Calories as a positive integer in kcal. If the user said kJ, convert: kcal = kj / 4.184.' },
+        name:      { type: 'string', description: 'Optional short label (max 60 chars). Defaults to "Quick Calories" when omitted.' },
+        protein_g: { type: 'number', description: 'OPTIONAL protein in grams. Only pass if the user explicitly mentioned a protein number; do not estimate from calories.' },
+        carbs_g:   { type: 'number', description: 'OPTIONAL carbohydrates in grams. Only pass if the user explicitly mentioned a carbs number; do not estimate.' },
+        fat_g:     { type: 'number', description: 'OPTIONAL fat in grams. Only pass if the user explicitly mentioned a fat number; do not estimate.' },
+        date:      { type: 'string', description: 'Optional YYYY-MM-DD; defaults to today.' },
+      },
+      required: ['kcal'],
+    },
   },
   {
     name: 'get_activity_log',

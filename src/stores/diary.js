@@ -182,6 +182,41 @@ export async function addDiaryItem(foodItem, meal, date) {
   if (targetDate === viewDate) currentEntry.set(saved);
 }
 
+/** Add a "Quick Calories" entry to the diary — a calorie-(plus-optional-
+ *  macros)-only row that bypasses the food/portion flow. Used for
+ *  Fitbit-style "I just want to log 200 kcal and move on" cases AND the
+ *  MFP-style "kcal + the macros I know off the label" case (nomad64
+ *  follow-up on #42). Shape: type='quick_calories', name (user-supplied
+ *  or default), nutrition.{calories, proteins?, carbohydrates?, fat?}.
+ *  Optional macros are omitted entirely when blank so daily totals
+ *  aren't polluted with zero-filled phantoms. Renders as a dedicated row
+ *  in the diary; multiple entries per meal can be either summed or shown
+ *  separately per the `quickCaloriesDisplay` setting. */
+export async function addQuickCalories({ kcal, name, meal, date, proteins, carbohydrates, fat } = {}) {
+  const calories = Math.max(0, Math.round(Number(kcal) || 0));
+  if (!calories) throw new Error('Quick Calories requires a positive kcal value.');
+  const nutrition = { calories };
+  // Optional macros — only include when a positive numeric value was supplied.
+  // Round to 1 decimal place to match the rest of the diary's macro storage.
+  const _opt = v => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : null;
+  };
+  const p = _opt(proteins),       c = _opt(carbohydrates), f = _opt(fat);
+  if (p != null) nutrition.proteins      = p;
+  if (c != null) nutrition.carbohydrates = c;
+  if (f != null) nutrition.fat           = f;
+  const item = {
+    type: 'quick_calories',
+    name: (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 60) : 'Quick Calories',
+    nutrition,
+    // No portion/unit/quantity — render branch skips the portion line for this type.
+    // Diary totals sum item.nutrition.* regardless of type, so macros flow through
+    // to daily/weekly summaries + the existing macro ring without any extra wiring.
+  };
+  return addDiaryItem(item, meal, date);
+}
+
 export async function removeDiaryItem(index) {
   let entry = null;
   currentEntry.subscribe(v => entry = v)();

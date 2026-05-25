@@ -9,6 +9,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.38] — 2026-05-25
+
+### Added
+
+- **Gradient page banners.** New Settings → Appearance → Page Banners dropdown (Animated / Gradient / Off). Gradient is a compact, accent-tinted header with a glassy backdrop: middle ground between the tall illustrated banners and the bare compact header. New installs default to Gradient; existing users keep whatever they had. Header action buttons (water, stats, kebab, etc.) get a frosted-pill treatment in Gradient mode so they stay readable against the accent backdrop.
+- **Quick Calories** (Issue #42). Bolt button on each meal section opens a fast-entry sheet for logging just calories without food or portion data, Fitbit-style. Honors your energy unit (kcal / kJ). Optional protein / carbs / fat fields under the kcal input for MFP-style "log the macros from the label" use. Settings → Diary toggles to show/hide the button and choose Summed or Separate display when you have multiple Quick Calorie entries in one meal. Trace AI can also log entries via voice or chat ("log 240 kcal for lunch with 20g protein").
+- **Logging streak in Trace.** Ask "what's my food logging streak" and Trace answers from the actual diary: consecutive days walking back from today (or yesterday if today isn't logged yet) until the first gap. Counts any diary engagement (food, water, body stats, notes), matching the typical user mental model of "I tracked today."
+
+### Changed
+
+- **Statistics: days with food but 0 g of a nutrient now count as 0-day entries** instead of being silently dropped (Issue #45). Affects average, min, max, days-logged tally, chart, and history list. Avoiding added sugars on a day you otherwise logged food now shows as a 0 bar, not a blank, and your "days logged" matches across nutrients.
+- **Goals: weight, body fat, and measurements fall back to the most recent reading within the last 30 days** when today has no entry (Issue #46). A subtle "as of May 18" subtext under the value tells you the number isn't from today. Encourages weekly weighers without forcing daily re-entry. Nutrient and water goals are unchanged; those reset daily by design.
+- **AI assistant: nutrition-history queries no longer capped at 90 days** (Issue #44). The `get_diary_averages` window now goes back up to 10 years, and the tool does a single bulk fetch instead of one HTTP call per requested day, dramatically faster for long-history users (e.g. multi-year MyFitnessPal imports).
+
+### Fixed
+
+- **AI assistant streak hallucinations.** Mini-class models would invent streak numbers instead of calling the streak tool. Your streak is now pre-computed into Trace's context block on every chat round, so the answer is right in front of the model and doesn't depend on it picking the right tool.
+
+---
+
 ## [1.0.0-rc.37] — 2026-05-24
 
 ### Added

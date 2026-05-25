@@ -5,7 +5,7 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { portal } from '../lib/portal.js';
-  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, wellnessEnabled, fitbitEnabled, garminEnabled, calorieGoalMode, calorieGoalFactor, healthConnectEnabled } from '../stores/settings.js';
+  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, calorieGoalMode, calorieGoalFactor, healthConnectEnabled } from '../stores/settings.js';
   import GoalsBanner from '../components/banners/GoalsBanner.svelte';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
@@ -115,6 +115,16 @@
   let today = localDateStr();
   let todayTotals = {};
   let todayBodyStats = {};
+  // Most-recent body-stat readings within the last 30 days, used as a
+  // fallback when today's body_stats has no value for a given metric.
+  // Shape: { [stat_id]: { value, date } }. Lets users who don't weigh /
+  // measure every day still see their goal progress against their most
+  // recent reading instead of "—". A subtle "as of <date>" subtext under
+  // the value tells the user the number isn't from today. (Issue #46,
+  // duplaja.) Only applies to body-stat goals (weight, body fat,
+  // circumference measurements); nutrient + water + wellness goals reset
+  // daily and intentionally don't fall back.
+  let recentBodyStats = {};
   let todayWaterMl = 0;
   let todayWellness    = {}; // merged fitbit + garmin for today
   let _wellnessLoaded  = false;
@@ -154,6 +164,30 @@
       todayTotals = Nutrition.sum((entry.items || []).map(i => Nutrition.calculate(i)));
       todayWaterMl = (entry.water || []).reduce((s, l) => s + (l.amount || 0), 0);
     }
+    // Body-stat fallback history (issue #46): for each body-stat metric,
+    // find the most recent reading within the last 30 days. getTodayValue
+    // uses this when today's row has no entry for the stat so progress
+    // bars don't sit empty for users who weigh weekly. Older than 30 days
+    // = no fallback (encourages re-measuring instead of showing a months-
+    // old value as "current"). Single bulk fetch + linear scan; cheap.
+    try {
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const cutoffStr = localDateStr(cutoff);
+      const all = await NtApi.getAllDiary().catch(() => []);
+      const recent = (all || [])
+        .filter(e => e?.date && e.date >= cutoffStr && e.date <= today)
+        .sort((a, b) => b.date.localeCompare(a.date));   // newest first
+      const found = {};
+      for (const e of recent) {
+        const bs = e.body_stats || e.bodyStats || {};
+        for (const stat of BODY_STATS) {
+          if (found[stat.id]) continue;
+          const v = readBodyStat(bs, stat.id, $weightUnit, $lengthUnit);
+          if (v != null) found[stat.id] = { value: v, date: e.date };
+        }
+      }
+      recentBodyStats = found;
+    } catch {}
     // Dynamic goal from server — non-blocking
     if ($calorieGoalMode === 'dynamic') {
       NtApi.get(`/api/wellness/calories-out?date=${today}`)
@@ -290,8 +324,32 @@
     const b = bodyStats ?? todayBodyStats;
     const w = wellness  ?? todayWellness;
     if (stat.isWellness) return w[stat.id] ?? null;
-    if (stat.isBody) return readBodyStat(b, stat.id, $weightUnit, $lengthUnit);
+    if (stat.isBody) {
+      // Today's reading wins; otherwise fall back to the most recent
+      // value within the last 30 days (issue #46). Returns null only
+      // when no reading exists in that window.
+      const todayVal = readBodyStat(b, stat.id, $weightUnit, $lengthUnit);
+      if (todayVal != null) return todayVal;
+      return recentBodyStats[stat.id]?.value ?? null;
+    }
     return t[stat.id] ?? null;
+  }
+
+  /** Return a short "as of …" subtext when the displayed body-stat value
+   *  came from the fallback (a previous day) rather than today, or '' when
+   *  the value is today's (or no value exists). Used in the goal-row
+   *  template below the value line so users know the number isn't from
+   *  today. */
+  function getBodyStatStaleness(stat) {
+    if (!stat.isBody) return '';
+    const todayVal = readBodyStat(todayBodyStats, stat.id, $weightUnit, $lengthUnit);
+    if (todayVal != null) return '';
+    const rec = recentBodyStats[stat.id];
+    if (!rec) return '';
+    // Format: "as of May 18" — concise, locale-aware.
+    const dt = new Date(rec.date + 'T12:00:00');
+    const label = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return `as of ${label}`;
   }
 
   function getTarget(stat) {
@@ -320,8 +378,8 @@
 </script>
 
 <div class="page-shell">
-  <header class="page-header" class:has-banner={$pageBanners}>
-    {#if $pageBanners}<GoalsBanner />{/if}
+  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+    {#if $bannerStyle === 'animated'}<GoalsBanner />{/if}
     <h1>{$_('routes.goals.title')}</h1>
   </header>
 
@@ -425,12 +483,14 @@
                     {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
                     {@const isMin = $goals[stat.id]?.isMin}
                     {@const bad = cur != null && tgt != null && (isMin ? cur < tgt : cur > tgt)}
+                    {@const stale = getBodyStatStaleness(stat)}
                     <div class="goal-progress-bar">
                       <div class="goal-progress-fill" class:over={bad} style="width:{pct}%"></div>
                     </div>
                     <span class="text-3 text-sm">
                       {cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit || ''}
                       {#if isMin}<span style="opacity:0.6">(min)</span>{/if}
+                      {#if stale}<span class="goal-stale" title="Most recent reading within the last 30 days, used until you log a new value">· {stale}</span>{/if}
                     </span>
                   {:else}
                     <span class="text-3 text-sm">Not set</span>
@@ -532,10 +592,14 @@
                 {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
                 {@const tgt = getTarget(stat)}
                 {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                {@const stale = getBodyStatStaleness(stat)}
                 <div class="goal-progress-bar">
                   <div class="goal-progress-fill" style="width:{pct}%"></div>
                 </div>
-                <span class="text-3 text-sm">{cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit}</span>
+                <span class="text-3 text-sm">
+                  {cur != null ? (Math.round(cur*10)/10).toLocaleString() : '—'} / {tgt.toLocaleString()} {stat.unit}
+                  {#if stale}<span class="goal-stale" title="Most recent reading within the last 30 days, used until you log a new value">· {stale}</span>{/if}
+                </span>
               {:else}
                 <span class="text-3 text-sm" style="opacity:0.4">No goal</span>
               {/if}
@@ -890,6 +954,16 @@
     transition: width var(--dur-base) var(--ease-inout);
   }
   .goal-progress-fill.over { background: var(--red, #f44336); }
+  /* Subtle staleness indicator next to a body-stat value (Weight, Body Fat,
+     measurements) when the displayed reading is from a previous day, not
+     today. Lives under the value line so users know the number is a
+     fallback. Native tooltip on hover explains the 30-day window. */
+  .goal-stale {
+    color: var(--text-3);
+    opacity: 0.7;
+    font-style: italic;
+    margin-left: 2px;
+  }
   .empty-state {
     display: flex; flex-direction: column; align-items: center;
     gap: 8px; padding: 48px 16px; text-align: center;

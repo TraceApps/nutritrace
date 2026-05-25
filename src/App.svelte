@@ -10,7 +10,7 @@
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import { DB, localDateStr } from './lib/db.js';
   import { currentDate, loadEntry } from './stores/diary.js';
-  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners } from './stores/settings.js';
+  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle } from './stores/settings.js';
   import { locale } from 'svelte-i18n';
   import { currentUser, userMgmtActive, setupRequired, loadAuthState, handleOidcCallback } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl } from './lib/platform.js';
@@ -144,6 +144,13 @@
   // Apply/remove no-animations class when setting changes
   $: if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('no-animations', !!$disableAnimations);
+  }
+  // Apply/remove banner-gradient class on the document so portaled top-bar
+  // action buttons (which live outside the .page-header in the DOM, e.g.
+  // .diary-topbar-actions and .wl-topbar-actions) can pick up the frosted-
+  // pill treatment that the in-header buttons get from base.css.
+  $: if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('banner-gradient-mode', $bannerStyle === 'gradient');
   }
 
   onMount(async () => {

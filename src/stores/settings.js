@@ -32,6 +32,7 @@ export const USER_PREFS = new Set([
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
   'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes',
   'diaryShowActivity','manualActivityPolicy','activityAutoEstimate','calorieAdjustFromActivity',
+  'showQuickCalories','quickCaloriesDisplay',
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
   'foodsShowYesterdayMeals','foodsYesterdayCollapsed','foodsSavedCollapsed','foodsSort','mealsSort','recipesSort',
   'barcodeBeep','cropPhotos',
@@ -70,7 +71,7 @@ export const USER_PREFS = new Set([
   'notifWellnessAlerts','notifWorkoutSummary','notifSyncFailures',
   'appriseUrl','appriseTag','gotifyUrl','gotifyToken','ntfyUrl','ntfyTopic','ntfyToken',
   // UI behavior prefs that should match across devices
-  'accentColor','startPage','goalCelebrations','pageBanners','language',
+  'accentColor','startPage','goalCelebrations','pageBanners','bannerStyle','language',
 ]);
 
 // DEVICE_PREFS — local-only, never synced.
@@ -442,6 +443,14 @@ export const diaryShowNutritionUnits= createSettingStore('diaryShowNutritionUnit
 export const diaryShowMacroSummary  = createSettingStore('diaryShowMacroSummary',   true);
 export const diaryPromptQuantity    = createSettingStore('diaryPromptQuantity',     true);
 export const diaryShowPortionSize   = createSettingStore('diaryShowPortionSize',    false);
+// Quick Calories — Fitbit-style "punch in just kcal" entry per meal. Bolt
+// button on each meal section opens the QuickCaloriesSheet. Default ON for
+// discoverability on upgrade; users who don't want it can hide the button.
+// Display mode toggles whether multiple per-meal entries collapse to one
+// summed row ('summed', default) or render as separate rows ('separate').
+// Issue #42 (roseyhead).
+export const showQuickCalories      = createSettingStore('showQuickCalories',       true);
+export const quickCaloriesDisplay   = createSettingStore('quickCaloriesDisplay',    'summed');
 export const diaryShowNotes         = createSettingStore('diaryShowNotes',          true);
 // Activity logging (issue #3 — opt-in calorie-burn entry that offsets daily goal)
 export const diaryShowActivity      = createSettingStore('diaryShowActivity',        false);
@@ -584,8 +593,29 @@ export const catName    = c => typeof c === 'string' ? c : (c?.name    || '');
 export const catLabel   = c => typeof c === 'string' ? '' : (c?.label  || '');
 export const catDisplay = c => { const l = catLabel(c); return l ? `${l} ${catName(c)}` : catName(c); };
 
-// Page banners
-export const pageBanners          = createSettingStore('pageBanners',          true);
+// Page banners — three styles:
+//   'animated' = tall header with the page's illustrated SVG (original behavior)
+//   'gradient' = compact header filled with the active accent gradient (default)
+//   'off'      = compact header, no decoration
+// `pageBanners` is kept as a derived alias so existing call sites (route
+// has-banner class, padding maths) continue to mean "show the tall illustrated
+// header layout" — true ONLY for 'animated'. Mirrors LiftTrace abae691 +
+// cea4c15 + e7eda55.
+function _migrateBannerStyle() {
+  // Saved bannerStyle always wins — covers returning users who already chose.
+  const saved = DB.getSetting('bannerStyle', null);
+  if (saved != null) return saved;
+  // Legacy pageBanners=false → 'off' (respect explicit opt-out).
+  // Anything else → 'animated' (preserve the existing-user experience).
+  // New users completing onboarding get 'gradient' written into their
+  // settings batch by Wizard.svelte's finish() / skip() paths — that's
+  // a 100%-reliable "this is a new install" signal that doesn't require
+  // scraping localStorage. Mirrors LiftTrace d24bed5.
+  if (DB.getSetting('pageBanners', true) === false) return 'off';
+  return 'animated';
+}
+export const bannerStyle          = createSettingStore('bannerStyle',          _migrateBannerStyle());
+export const pageBanners          = derived(bannerStyle, $s => $s === 'animated');
 
 // Wellness (Activity Tracking)
 export const wellnessEnabled    = createSettingStore('wellnessEnabled',    false);

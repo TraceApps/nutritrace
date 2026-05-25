@@ -13,7 +13,7 @@
   import { currentUser } from '../../stores/auth.js';
   import SmartLogModal from '../diary/SmartLogModal.svelte';
   import { showError } from '../../stores/toast.js';
-  import { isNative } from '../../lib/platform.js';
+  import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
 
   // ── State ──────────────────────────────────────────────────────────────────
   let panelOpen  = false;
@@ -289,34 +289,44 @@
         }
         case 'get_diary_averages': {
           try {
-            const numDays = Math.min(Math.max(parseInt(args.days) || 28, 1), 90);
-            const today   = localDateStr();
+            // Cap at 3650 days (10 years) as a guardrail against the AI
+            // hallucinating an absurd number; with the bulk-fetch path below
+            // the cost is bounded by actual diary size regardless of the
+            // `days` argument, so any realistic NT user is covered. Was 90
+            // pre-rc.38 which silently truncated long-history users (issue #44:
+            // user imported 700+ days from MyFitnessPal, get_diary_averages
+            // for 180/365 was returning days_logged=90 because of this cap).
+            const numDays = Math.min(Math.max(parseInt(args.days) || 28, 1), 3650);
+            // Build the date window: the previous numDays days, excluding today.
+            const dates = new Set();
+            for (let i = numDays; i >= 1; i--) {
+              const d = new Date(); d.setDate(d.getDate() - i);
+              dates.add(d.toISOString().slice(0, 10));
+            }
+            // Single bulk fetch instead of N per-date round trips. The server
+            // returns every diary row for this user; we filter client-side.
+            // For a 365-day query this is ONE HTTP call instead of 365 —
+            // critical on Android server-connected mode.
+            const allEntries = await NtApi.getAllDiary().catch(() => []);
             const sums    = { calories: 0, proteins: 0, carbohydrates: 0, fat: 0, water_ml: 0 };
             let daysLogged = 0;
             let firstWeight = null, lastWeight = null;
-            const dates = [];
-            for (let i = numDays; i >= 1; i--) {
-              const d = new Date(); d.setDate(d.getDate() - i);
-              dates.push(d.toISOString().slice(0, 10));
-            }
-            for (const date of dates) {
-              try {
-                const entry = await NtApi.getDiaryDate(date);
-                if (entry?.items?.length) {
-                  daysLogged++;
-                  const tot = Nutrition.sum(entry.items.map(i => Nutrition.calculate(i)));
-                  sums.calories       += tot.calories       || 0;
-                  sums.proteins       += tot.proteins       || 0;
-                  sums.carbohydrates  += tot.carbohydrates  || 0;
-                  sums.fat            += tot.fat            || 0;
-                  sums.water_ml       += (entry.water || []).reduce((s, l) => s + (l.amount || 0), 0);
-                  const bs = entry.body_stats || entry.bodyStats || {};
-                  // Force conversion to kg so diff arithmetic is unit-stable
-                  // even when the user toggled their display unit mid-period.
-                  const w  = readBodyStat(bs, 'weight', 'kg', 'in');
-                  if (w != null) { if (firstWeight == null) firstWeight = { date, value: w }; lastWeight = { date, value: w }; }
-                }
-              } catch {}
+            const matching = (allEntries || []).filter(e => dates.has(e.date)).sort((a, b) => a.date.localeCompare(b.date));
+            for (const entry of matching) {
+              if (entry?.items?.length) {
+                daysLogged++;
+                const tot = Nutrition.sum(entry.items.map(i => Nutrition.calculate(i)));
+                sums.calories       += tot.calories       || 0;
+                sums.proteins       += tot.proteins       || 0;
+                sums.carbohydrates  += tot.carbohydrates  || 0;
+                sums.fat            += tot.fat            || 0;
+                sums.water_ml       += (entry.water || []).reduce((s, l) => s + (l.amount || 0), 0);
+                const bs = entry.body_stats || entry.bodyStats || {};
+                // Force conversion to kg so diff arithmetic is unit-stable
+                // even when the user toggled their display unit mid-period.
+                const w  = readBodyStat(bs, 'weight', 'kg', 'in');
+                if (w != null) { if (firstWeight == null) firstWeight = { date: entry.date, value: w }; lastWeight = { date: entry.date, value: w }; }
+              }
             }
             if (daysLogged === 0) return { error: 'No diary data found for this period.' };
             const avg = k => Math.round(sums[k] / daysLogged);
@@ -345,6 +355,69 @@
             }
             return result;
           } catch { return { error: 'Could not compute diary averages.' }; }
+        }
+        case 'get_logging_streak': {
+          // Streak walk: from today (or yesterday if today not yet logged)
+          // backward, counting consecutive days with ANY meaningful diary
+          // content (food items OR water OR body stats OR notes), stopping
+          // at the first gap. "Logging" matches the user's mental model of
+          // "I opened the diary and recorded something" — earlier versions
+          // only counted food items, which under-counted users who logged
+          // water/weight/notes on days they didn't eat-log.
+          //
+          // Open-ended by design — cost is bounded by actual streak length,
+          // not by user input. Single bulk diary fetch + Set lookup so even
+          // a multi-year streak runs in ms.
+          //
+          // Diary keys are LOCAL-date strings (per localDateStr / how the
+          // diary stores entries). Walk uses local-date formatting so that
+          // users in UTC+12 / UTC-12 timezones don't get a one-day skew that
+          // breaks the streak after step 1.
+          //
+          // Uses _aiFetchAllDiary so Android server-connected bypasses the
+          // possibly-stale local SQLite cache and gets authoritative server
+          // data — same reasoning as get_diary_averages.
+          try {
+            const all = await _aiFetchAllDiary();
+            const hasContent = e => (e?.items?.length > 0)
+              || (e?.water?.length > 0)
+              || (e?.body_stats && Object.keys(e.body_stats).length > 0)
+              || (e?.bodyStats && Object.keys(e.bodyStats).length > 0)
+              || (typeof e?.notes === 'string' && e.notes.trim().length > 0);
+            const logged = new Set((all || []).filter(hasContent).map(e => e.date));
+            const today = localDateStr();
+            // Don't penalize an ongoing day: if today isn't logged yet, walk
+            // from yesterday. This matches every streak UX users expect
+            // (Duolingo, Snapchat, etc.).
+            const todayLogged = logged.has(today);
+            const cursor = new Date();              // now (local)
+            cursor.setHours(12, 0, 0, 0);            // anchor at noon so DST shifts can't push us off-day
+            if (!todayLogged) cursor.setDate(cursor.getDate() - 1);
+            let streak = 0;
+            let streakStart = null;
+            let streakEnd = null;
+            const SANITY_CAP = 100000;   // > 270 years; only here to defeat clock pathologies
+            while (streak < SANITY_CAP) {
+              const ds = localDateStr(cursor);
+              if (!logged.has(ds)) break;
+              if (streakEnd == null) streakEnd = ds;
+              streakStart = ds;
+              streak++;
+              cursor.setDate(cursor.getDate() - 1);
+            }
+            return {
+              streak_days: streak,
+              streak_start: streakStart,    // null when streak_days === 0
+              streak_end: streakEnd,        // null when streak_days === 0
+              today_logged: todayLogged,
+              // Diagnostic context so the AI can sanity-check its answer
+              // against the user's mental model (and we can debug if the
+              // number disagrees with the diary they're looking at).
+              total_logged_days_in_history: logged.size,
+              earliest_logged_date: [...logged].sort()[0] || null,
+              latest_logged_date: [...logged].sort().slice(-1)[0] || null,
+            };
+          } catch (e) { return { error: 'Could not compute streak: ' + (e?.message || String(e)) }; }
         }
         case 'get_fasting_history': {
           try {
@@ -426,6 +499,38 @@
             return { error: 'Failed to save activity: ' + (e?.message || String(e)) };
           }
         }
+        case 'log_quick_calories': {
+          // Permission gate — same shape as add_activity_entry: feature must
+          // be on before the AI can log. Default is ON so this rarely trips
+          // for normal users; explicit opt-out users get a clear error.
+          const enabled = DB.getSetting('showQuickCalories', true);
+          if (!enabled) {
+            return { error: 'Quick Calories logging is disabled. The user must turn on Settings → Diary → Show Quick Calories Button before you can log a quick entry.' };
+          }
+          const kcal = args?.kcal != null ? Math.max(0, Math.round(Number(args.kcal))) : 0;
+          if (!kcal) return { error: 'kcal must be a positive integer.' };
+          const mealIdx = args?.meal != null ? Math.max(0, Math.min(3, Math.round(Number(args.meal)))) : 3;
+          const name = typeof args?.name === 'string' ? args.name.trim().slice(0, 60) : '';
+          const date = (typeof args?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.date)) ? args.date : localDateStr();
+          // Optional macros from MFP-style asks. Only pass values that were
+          // explicitly supplied; the store helper drops any non-positive
+          // value so blank/zero stays blank in the diary item.
+          const optMacro = v => {
+            if (v == null) return undefined;
+            const n = Number(v);
+            return Number.isFinite(n) && n > 0 ? n : undefined;
+          };
+          const proteins      = optMacro(args?.protein_g);
+          const carbohydrates = optMacro(args?.carbs_g);
+          const fat           = optMacro(args?.fat_g);
+          try {
+            const { addQuickCalories } = await import('../../stores/diary.js');
+            await addQuickCalories({ kcal, name, meal: mealIdx, date, proteins, carbohydrates, fat });
+            return { ok: true, date, meal: mealIdx, kcal, name: name || 'Quick Calories', protein_g: proteins ?? null, carbs_g: carbohydrates ?? null, fat_g: fat ?? null };
+          } catch (e) {
+            return { error: 'Failed to log quick calories: ' + (e?.message || String(e)) };
+          }
+        }
         default:
           return { error: `Unknown tool: ${name}` };
       }
@@ -445,6 +550,29 @@
     window.removeEventListener('nt:sync-complete', _refetchChatHistory);
     document.removeEventListener('visibilitychange', _onVisible);
   });
+
+  // AI tools need the FULL diary table, not just the locally-cached subset.
+  // On Android server-connected, NtApi.getAllDiary() reads only the local
+  // SQLite mirror (populated by the differential sync, which uses
+  // updated_at >= last_pull and omits historical rows that haven't been
+  // touched recently). That made get_logging_streak return short streaks
+  // and get_diary_averages report under-counted days_logged even after the
+  // #44 cap raise. AI tools are one-shot, can afford a direct HTTP fetch.
+  async function _aiFetchAllDiary() {
+    if (isNative && getServerUrl()) {
+      try {
+        const token = getAuthToken();
+        const res = await fetch(apiUrl('/api/diary'), {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+          credentials: 'include',
+        });
+        if (res.ok) return await res.json();
+      } catch {}
+      // Fall through to local cache on network failure so the AI can still
+      // answer offline, just with the possibly-stale cached set.
+    }
+    return await NtApi.getAllDiary().catch(() => []);
+  }
 
   function _onVisible() {
     if (document.visibilityState === 'visible') _refetchChatHistory();
@@ -1136,7 +1264,37 @@
       }
     } catch {}
 
-    return { today, userName, profileText, diaryText, goalsText, statsText, wellnessText, waterText,
+    // Pre-compute logging streak so it's always in the AI's context.
+    // mini-class models often skip the get_logging_streak tool and
+    // hallucinate streaks; having the value already in the system prompt
+    // bypasses tool-routing entirely. Uses the same broadened "any
+    // diary content" definition as the tool.
+    let streakText = '';
+    try {
+      const all = await _aiFetchAllDiary();
+      const hasContent = e => (e?.items?.length > 0)
+        || (e?.water?.length > 0)
+        || (e?.body_stats && Object.keys(e.body_stats).length > 0)
+        || (e?.bodyStats && Object.keys(e.bodyStats).length > 0)
+        || (typeof e?.notes === 'string' && e.notes.trim().length > 0);
+      const logged = new Set((all || []).filter(hasContent).map(e => e.date));
+      const todayLogged = logged.has(today);
+      const cursor = new Date();
+      cursor.setHours(12, 0, 0, 0);
+      if (!todayLogged) cursor.setDate(cursor.getDate() - 1);
+      let s = 0, sStart = null;
+      while (s < 100000) {
+        const ds = localDateStr(cursor);
+        if (!logged.has(ds)) break;
+        sStart = ds;
+        s++;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      if (s > 0) streakText = `${s} consecutive days (since ${sStart}; today ${todayLogged ? 'logged' : 'not yet logged'})`;
+      else streakText = `0 (no recent logging${todayLogged ? '' : '; today not yet logged'})`;
+    } catch {}
+
+    return { today, userName, profileText, diaryText, goalsText, statsText, wellnessText, waterText, streakText,
       weightUnit: DB.getSetting('weightUnit', 'lb'),
       distUnit: DB.getSetting('distUnit', 'km'),
       heightUnit: DB.getSetting('heightUnit', 'ft'),
@@ -1152,6 +1310,7 @@
 You have FULL ACCESS to the user's complete health data through tools. ALWAYS use tools to look up data — NEVER guess or make up numbers. Available data:
 - **Food diary**: meals, items, portions, full nutrition, plus per-item notes (prep/serving info) and free-text "day notes" the user writes about how they felt, slept, cravings, etc. (any date) — use get_diary
 - **Diary averages**: average daily intake over any period + logging consistency + weight trend — use get_diary_averages
+- **Logging streak**: current consecutive-days food-logging streak (walks from today/yesterday back to the first gap) — use get_logging_streak. Do NOT inflate get_diary_averages with a huge days value to infer the streak; the streak tool is authoritative and cheaper.
 - **Saved meals & recipes**: the user's library of reusable meals/recipes with items, notes, and totals — use get_meals (supports a name filter)
 - **Wellness metrics**: steps, calories burned, distance, active minutes, sleep (duration, stages, score, efficiency), heart rate (resting HR, HRV, SpO2), respiratory rate, readiness score, stress score, skin temp, VO2 max — from Fitbit, Garmin, Health Connect (any date range) — use get_wellness_data
 - **Body composition**: weight, body fat %, muscle mass, bone mass, body water, lean/fat mass, visceral fat, vascular age, metabolic age, BMR, nerve health, ECG — from Withings (any date range) — use get_body_composition
@@ -1160,11 +1319,19 @@ You have FULL ACCESS to the user's complete health data through tools. ALWAYS us
 
 When the user asks about their data (steps, sleep, weight, food log, etc.) for ANY date or date range, USE THE APPROPRIATE TOOL to fetch the real data. Do not estimate or hallucinate numbers.
 
+LOGGING STREAK — When the user asks about their food-logging streak in any phrasing ("how long have I been logging", "what's my streak", "when did I start logging", "first day I logged", "days in a row", "consecutive days"), you MUST call get_logging_streak FIRST and report the exact streak_days + streak_start values from its response. NEVER guess streak length or first-logged dates from context or memory. NEVER use get_diary_averages as a substitute. If the user pushes back ("that's wrong", "actually it's longer"), call get_logging_streak again and quote the streak_start + streak_days verbatim — do not adjust the number based on the user's claim, because the tool walks the actual diary table.
+
 LOGGING ACTIVITY — When the user describes a workout, exercise, or physical activity ("I hiked 10 miles", "did 45 min of yoga", "burned 540 at the gym"), use add_activity_entry to log it. Rules:
 - If the user provides a calorie number, trust it verbatim (source="user_stated").
 - If the user does NOT provide a number, you may compute one from their body weight (use the TODAY'S SUMMARY context if available) × MET × duration / 200, then call add_activity_entry with kcal set and source="ai_estimated", and tell the user the estimate so they can correct it.
 - Do not call add_activity_entry without a kcal value. The tool refuses kcal=0.
-- The tool itself enforces user permission gates (Activity section toggle, auto-estimate toggle, body profile completeness) — if it returns an error, relay the explanation to the user verbatim and ask for what's missing.`
+- The tool itself enforces user permission gates (Activity section toggle, auto-estimate toggle, body profile completeness) — if it returns an error, relay the explanation to the user verbatim and ask for what's missing.
+
+LOGGING QUICK CALORIES — When the user wants to log just a calorie number without a real food ("log 200 calories for lunch", "punch in 1200 kJ for dinner", "add 350 quick calories"), use log_quick_calories. This is the Fitbit-style quick-add path; no food row is created. Rules:
+- If the user gave kJ, convert to kcal yourself: kcal = kj / 4.184. Pass the kcal number.
+- Map meal words to indices: breakfast=0, lunch=1, dinner=2, snack/snacks=3. If unclear, ask or default to snacks (3).
+- Optional name field: if the user said "for office snack" or similar, pass that as name (max 60 chars).
+- Tool refuses kcal=0 and refuses if the user has disabled Quick Calories in Settings — relay any error message verbatim.`
          + ($aiGoalInsights ? `
 
 GOAL INSIGHTS MODE IS ENABLED. You have permission to proactively analyze the user's actual intake vs their goals and offer evidence-based suggestions. When relevant:
@@ -1194,9 +1361,11 @@ ${ctx.userName ? `\nGreet them by name occasionally and reference it when celebr
 TODAY'S SUMMARY (for quick reference — use tools for detailed or historical data):
 ${ctx.diaryText}
 Goals: ${ctx.goalsText}
-Water: ${ctx.waterText}`
+Water: ${ctx.waterText}
+Diary logging streak: ${ctx.streakText || '(unknown)'}`
          + (ctx.statsText    ? `\nBody stats: ${ctx.statsText}` : '')
-         + (ctx.wellnessText ? `\nWellness: ${ctx.wellnessText}` : '');
+         + (ctx.wellnessText ? `\nWellness: ${ctx.wellnessText}` : '')
+         + `\n\nFor any "what's my streak / how long have I been logging / when did I start logging" question, the answer is in the "Diary logging streak" line above — quote it directly, do not call any tool, do not estimate or guess.`;
   }
 
   function fmtTime() {

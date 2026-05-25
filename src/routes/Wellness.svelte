@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { _ } from 'svelte-i18n';
   import DatePicker from '../components/ui/DatePicker.svelte';
-  import { wellnessMetrics, wellnessSyncRange, distUnit, tempUnit, pageBanners, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations,
+  import { wellnessMetrics, wellnessSyncRange, distUnit, tempUnit, pageBanners, bannerStyle, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations,
     fitbitSyncMode, withingsSyncMode, garminSyncMode, healthConnectSyncMode, timeFormat } from '../stores/settings.js';
   import Chart from 'chart.js/auto';
   import WellnessBanner from '../components/banners/WellnessBanner.svelte';
@@ -1331,8 +1331,8 @@
 
 <div class="page-shell wl-shell">
   <!-- Header -->
-  <header class="page-header" class:has-banner={$pageBanners}>
-    {#if $pageBanners}<WellnessBanner />{/if}
+  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+    {#if $bannerStyle === 'animated'}<WellnessBanner />{/if}
     <h1>{$_('routes.wellness.title')}</h1>
   </header>
 

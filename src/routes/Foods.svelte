@@ -20,7 +20,7 @@
   import { Nutrition } from '../lib/nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
   import { resolveAssetUrl } from '../lib/platform.js';
-  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, catName as _catName, catDisplay as _catDisplay, pageBanners, energyUnit } from '../stores/settings.js';
+  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
   import FoodsBanner from '../components/banners/FoodsBanner.svelte';
 
@@ -727,8 +727,8 @@
 
 <div class="page-shell">
   <!-- Header -->
-  <header class="page-header" class:has-banner={$pageBanners}>
-    {#if $pageBanners}<FoodsBanner />{/if}
+  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+    {#if $bannerStyle === 'animated'}<FoodsBanner />{/if}
     {#if pickMode && selectedFoods.size > 0}
       <h1 class="pick-count-title">{$_('foods.n_selected', { values: { n: selectedFoods.size } })}</h1>
       <button class="btn btn-primary pick-confirm-btn" on:click={confirmMultiAdd} disabled={multiAdding} aria-label={$_('foods.add_selected_to_diary')}>

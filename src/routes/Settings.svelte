@@ -30,13 +30,14 @@
     diaryShowNutritionUnits, diaryShowMacroSummary, diaryPromptQuantity, diaryShowPortionSize,
     diaryShowNotes,
     diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
+    showQuickCalories, quickCaloriesDisplay,
     diaryShowNutritionBar,
     foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsShowThumbnails, foodsShowYesterdayMeals, foodsSort, mealsSort, recipesSort,
     barcodeBeep, barcodeFlashlight, cropPhotos,
     foodCategories, customUnits, visibleNutriments, nutrimentsOrder, customNutriments,
     bodyStatsOrder, hiddenBodyStats,
     dateFormat, timeFormat,
-    sidebarPersistent, goalCelebrations, pageBanners, language,
+    sidebarPersistent, goalCelebrations, pageBanners, bannerStyle, language,
     waterGoalMl, waterUnit, waterContainers, waterShowInStats, waterShowInDiary,
     calorieGoalMode, calorieGoalFactor,
     fitbitEnabled, garminEnabled, healthConnectEnabled,
@@ -1542,8 +1543,8 @@
        assumed. Pinning them together as one unit removes the whole
        class of header-height vs sub-bar-top mismatch bugs. -->
   <div class="settings-sticky-top">
-    <header class="page-header" class:has-banner={$pageBanners}>
-      {#if $pageBanners}<SettingsBanner />{/if}
+    <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+      {#if $bannerStyle === 'animated'}<SettingsBanner />{/if}
       <h1>{$_('routes.settings.title')}</h1>
     </header>
 
@@ -1683,9 +1684,15 @@
           <div class="setting-row">
             <div>
               <span class="setting-label">Page Banners</span>
-              <div class="setting-desc">Decorative animated illustrations at the top of every page</div>
+              <div class="setting-desc">Decorative header at the top of every page. Animated shows the illustrated SVG, Gradient uses the active accent gradient (compact), Off hides the banner entirely.</div>
             </div>
-            <Toggle checked={$pageBanners} on:change={e => pageBanners.set(e.detail)} />
+            <div class="select-wrap" style="width:130px">
+              <select class="select sel-sm" value={$bannerStyle} on:change={e => bannerStyle.set(e.currentTarget.value)}>
+                <option value="animated">Animated</option>
+                <option value="gradient">Gradient</option>
+                <option value="off">Off</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -1847,6 +1854,23 @@
             <div><span class="setting-label">Show Daily Notes</span><div class="setting-desc">Free-text notes section at the bottom of each day's diary</div></div>
             <Toggle checked={$diaryShowNotes} on:change={e => diaryShowNotes.set(e.detail)} />
           </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <div><span class="setting-label">Show Quick Calories Button</span><div class="setting-desc">Adds a bolt icon on each meal section for fast calorie-only entry (no food, no portion). Useful when you know the calories but don't want to model the food, or when you're coming from Fitbit-style "quick calories".</div></div>
+            <Toggle checked={$showQuickCalories} on:change={e => showQuickCalories.set(e.detail)} />
+          </div>
+          {#if $showQuickCalories}
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <div><span class="setting-label">Quick Calories Display</span><div class="setting-desc">How multiple Quick Calorie entries in the same meal appear in the diary. Summed collapses them into one row; Separate shows each entry on its own line.</div></div>
+              <div class="select-wrap" style="width:130px">
+                <select class="select sel-sm" value={$quickCaloriesDisplay} on:change={e => quickCaloriesDisplay.set(e.currentTarget.value)}>
+                  <option value="summed">Summed</option>
+                  <option value="separate">Separate</option>
+                </select>
+              </div>
+            </div>
+          {/if}
           <div class="setting-divider"></div>
           <div class="setting-row">
             <div><span class="setting-label">Show Activity Section</span><div class="setting-desc">A list-of-entries Activity section on the Diary for logging exercise. Each entry has a name + calories burned. Useful if you don't have a wearable integration.</div></div>

@@ -11,7 +11,7 @@
   import { readBodyStat } from '../lib/body-stats-unit.js';
   import { goals, energyUnit, weightUnit, lengthUnit, statsChartType, statsYZero,
            statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday, statsShowEmptyDays,
-           hiddenBodyStats, dateFormat, pageBanners,
+           hiddenBodyStats, dateFormat, pageBanners, bannerStyle,
            fitbitEnabled, garminEnabled, withingsEnabled, healthConnectEnabled, wellnessMetrics,
            calorieGoalMode,
            fastingEnabled } from '../stores/settings.js';
@@ -226,10 +226,27 @@
               const bs = entry.body_stats || entry.bodyStats || {};
               val = readBodyStat(bs, metric, $weightUnit, $lengthUnit);
             } else {
-              const totals = Nutrition.sum((entry.items || []).map(i => Nutrition.calculate(i)));
-              let raw = totals[metric] || null;
-              if (raw != null && metric === 'calories' && $energyUnit === 'kJ') raw = Nutrition.kcalToKj(raw);
-              val = raw != null ? Math.round(raw * 10) / 10 : null;
+              // Distinguish "no food logged" (val = null) from "food logged
+              // but this nutrient is 0 or absent" (val = 0). The second
+              // case happens two ways:
+              //   - all items have nutrient = 0 → totals[metric] === 0
+              //   - no item carries the nutrient field at all (common for
+              //     niche nutrients like added_sugars on plain foods)
+              //     → totals[metric] === undefined
+              // Both should count as a 0-g day in the chart + summary; only
+              // a truly empty diary row should drop out of the days-logged
+              // tally. Was: totals[metric] || null (collapsed 0 to null).
+              // (Issue #45, duplaja.)
+              const items = entry.items || [];
+              if (items.length > 0) {
+                const totals = Nutrition.sum(items.map(i => Nutrition.calculate(i)));
+                let raw = totals[metric] ?? 0;
+                if (metric === 'calories' && $energyUnit === 'kJ') raw = Nutrition.kcalToKj(raw);
+                val = Math.round(raw * 10) / 10;
+              }
+              // else: entry row exists (e.g. water-only day) but no food
+              // → val stays null so the day doesn't count toward nutrient
+              // stats. Water stats have their own separate path above.
             }
           }
         }
@@ -249,8 +266,11 @@
     }
     data = rows;
 
-    // Compute summary
-    const withData = data.filter(d => d.val !== null && d.val > 0);
+    // Compute summary. Number.isFinite keeps 0 (a logged day with 0g of
+    // the nutrient) but excludes null (no diary entry for the date), so
+    // days where the user avoided this nutrient still count toward the
+    // average + days-logged tally. (Issue #45, duplaja.)
+    const withData = data.filter(d => Number.isFinite(d.val));
     if (withData.length) {
       const vals = withData.map(d => d.val);
       summary = {
@@ -298,7 +318,7 @@
     // on the Statistics page and in Settings → Statistics.
     const displayData = $statsShowEmptyDays
       ? data
-      : data.filter(d => d.val !== null && d.val > 0);
+      : data.filter(d => Number.isFinite(d.val));
     const labels = displayData.map(d => {
       const dt = new Date(d.date + 'T12:00:00');
       return dt.toLocaleDateString(undefined, { month:'short', day:'numeric' });
@@ -507,8 +527,8 @@
 </script>
 
 <div class="page-shell">
-  <header class="page-header" class:has-banner={$pageBanners}>
-    {#if $pageBanners}<StatsBanner />{/if}
+  <header class="page-header" class:has-banner={$pageBanners} class:banner-gradient={$bannerStyle === 'gradient'}>
+    {#if $bannerStyle === 'animated'}<StatsBanner />{/if}
     <h1>{$_('routes.statistics.title')}</h1>
   </header>
 
@@ -636,7 +656,7 @@
         <div class="section-title">History</div>
         <div class="timeline-list card">
           {#each [...data].reverse() as row}
-            {#if row.val !== null && row.val > 0}
+            {#if Number.isFinite(row.val)}
               <div class="timeline-row">
                 <span class="timeline-date">
                   {(() => {

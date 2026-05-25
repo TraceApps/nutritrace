@@ -289,7 +289,7 @@
   function skip() {
     // Don't allow skip until account is created when forced
     if (_forceAccountCreation && !$userMgmtActive) return;
-    bulkSet({ setupComplete: true });
+    bulkSet({ setupComplete: true, bannerStyle: 'gradient' });
     push('/');
   }
 
@@ -388,6 +388,11 @@
       activity: activity || 'sedentary',
       tdee: tdee || 2000,
       setupComplete: true,
+      // New users finishing onboarding get gradient banners as their
+      // default first impression. Existing users (who never re-run the
+      // wizard) keep whatever bannerStyle / legacy pageBanners they had
+      // — the migration in settings.js handles that path.
+      bannerStyle: 'gradient',
     };
     if (waterGoal) batch.waterGoalMl = waterGoal;
     // Save the localUserName setting whenever the 'name' step appeared in

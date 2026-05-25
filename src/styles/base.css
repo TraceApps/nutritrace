@@ -140,6 +140,72 @@ input, select, textarea { font-family: inherit; }
   text-shadow: 0 2px 12px rgba(0,0,0,0.35);
 }
 
+/* Gradient variant — compact-height header (same geometry as the plain
+   .page-header:not(.has-banner) compact mode) but with the user's active
+   accent gradient as the background instead of glass. No tall-banner
+   padding, no SVG; just a themed compact bar. Top-left radial highlight
+   gives an otherwise-flat gradient a glossy, dimensional feel. Mirrors
+   LiftTrace abae691 + cea4c15 + d3df805, with an NT-flavored glass
+   overlay so it reads as part of the same sticky-chrome family as the
+   compact header rather than a hard accent block bolted on. */
+.page-header.banner-gradient {
+  background:
+    /* Subtle white film softens saturation and ties it to NT's overall
+       glass aesthetic without dulling the accent enough to matter. */
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.10) 0%,
+      rgba(255, 255, 255, 0.04) 100%),
+    radial-gradient(ellipse 80% 100% at 15% -10%,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0)   60%),
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--accent)   65%, transparent) 0%,
+      color-mix(in srgb, var(--accent-2) 55%, transparent) 100%),
+    var(--glass-surface);
+  /* Real backdrop refraction when anything peeks behind the sticky top. */
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border-bottom: 1px solid var(--border);
+}
+.page-header.banner-gradient h1 {
+  /* Solid white reads better on the saturated gradient than the accent-
+     gradient text fill (which would clash with the accent backdrop). */
+  background: none;
+  -webkit-text-fill-color: #fff;
+  color: #fff;
+}
+/* Header action buttons (hamburger, water/stats/etc.) blend into the
+   saturated gradient with their default transparent-bg + tinted-icon
+   look. Give them a subtle frosted-glass pill + pure-white icon so they
+   read as tappable surfaces, scoped to gradient mode only so the
+   compact/animated headers stay unchanged.
+   Diary and Wellness portal their right-side action buttons to body
+   (.diary-topbar-actions / .wl-topbar-actions) which puts them outside
+   the .page-header, so we ALSO target them via the documentElement-level
+   .banner-gradient-mode class that App.svelte toggles. */
+.page-header.banner-gradient .btn-icon,
+html.banner-gradient-mode .diary-topbar-actions .btn-icon,
+html.banner-gradient-mode .wl-topbar-actions .btn-icon,
+html.banner-gradient-mode .wl-topbar-actions .wl-sync-icon-btn {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.page-header.banner-gradient .btn-icon:hover,
+html.banner-gradient-mode .diary-topbar-actions .btn-icon:hover,
+html.banner-gradient-mode .wl-topbar-actions .btn-icon:hover,
+html.banner-gradient-mode .wl-topbar-actions .wl-sync-icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.22);
+}
+/* Material-symbols icons get pure-white. Brand SVGs (Fitbit/Garmin/etc.
+   logo components inside .wl-brand-icon) intentionally keep their own
+   colors so the integration is still recognizable on the pill. */
+.page-header.banner-gradient .btn-icon .material-symbols-rounded,
+html.banner-gradient-mode .diary-topbar-actions .btn-icon .material-symbols-rounded,
+html.banner-gradient-mode .wl-topbar-actions .btn-icon .material-symbols-rounded,
+html.banner-gradient-mode .wl-topbar-actions .wl-sync-icon-btn .material-symbols-rounded {
+  color: #fff;
+}
+
 /* Compact variant — applied automatically whenever the user has page
    banners turned off. The hamburger normally pushes the H1 onto its
    own line (via --hamburger-row in the padding-top calc). For pages

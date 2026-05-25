@@ -48,7 +48,15 @@
       "section":  "Regional & Units",
       "language": "Language"
     },
-    "diary":              { "section": "Diary" },
+    "diary":              {
+      "section": "Diary",
+      "show_quick_calories":        "Show Quick Calories Button",
+      "show_quick_calories_desc":   "Adds a bolt icon on each meal section for fast calorie-only entry (no food, no portion). Useful when you know the calories but don't want to model the food, or when you're coming from Fitbit-style quick calories.",
+      "quick_calories_display":     "Quick Calories Display",
+      "quick_calories_display_desc":"How multiple Quick Calorie entries in the same meal appear in the diary. Summed collapses them into one row; Separate shows each entry on its own line.",
+      "quick_calories_summed":      "Summed",
+      "quick_calories_separate":    "Separate"
+    },
     "water":              { "section": "Water" },
     "foods":              { "section": "Foods" },
     "categories":         { "section": "Categories" },
@@ -341,6 +349,19 @@
   "diary": {
     "add_food":          "Add Food",
     "notes_placeholder": "How did today feel? Sleep, energy, hunger, cravings…",
+    "quick_calories": {
+      "title":            "Quick Calories",
+      "title_meal":       "Quick Calories: {meal}",
+      "default_name":     "Quick Calories",
+      "help":             "Log just the {unit} when you don't have full nutrition info, or when you don't want to model the food. Adds straight to the diary; no food entry is created.",
+      "name_label":       "Name (optional)",
+      "name_placeholder": "Office snack, hotel breakfast...",
+      "value_label":      "{unit}",
+      "add":              "Add",
+      "adding":           "Adding…",
+      "cancel":           "Cancel",
+      "summed_hint":      "switch to Separate to edit individual entries"
+    },
     "nav": {
       "previous_day":  "Previous Day",
       "next_day":      "Next Day",

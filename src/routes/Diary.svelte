@@ -10,6 +10,7 @@
 
   import MacroRing    from '../components/diary/MacroRing.svelte';
   import AddActivitySheet from '../components/diary/AddActivitySheet.svelte';
+  import QuickCaloriesSheet from '../components/diary/QuickCaloriesSheet.svelte';
   import FastingWidget from '../components/diary/FastingWidget.svelte';
   import { mealIcon } from '../lib/mealIcon.js';
   import Sheet        from '../components/ui/Sheet.svelte';
@@ -30,7 +31,8 @@
            diaryShowTimestamps, diaryShowMacroSummary, diaryPromptQuantity,
            diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode,
            diaryShowAllNutrients, diaryShowNutritionUnits, visibleNutriments, hiddenBodyStats,
-           dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners,
+           showQuickCalories, quickCaloriesDisplay,
+           dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners, bannerStyle,
            calorieGoalMode, calorieGoalFactor,
            diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
            fastingEnabled,
@@ -355,6 +357,18 @@
     const scrollContainer = document.querySelector('.page-transition');
     editorState.diaryScrollY = scrollContainer ? scrollContainer.scrollTop : 0;
     push('/foods?pick=1&meal=' + mealIdx + '&date=' + $currentDate);
+  }
+
+  // ── Quick Calories sheet — Fitbit-style "log just a calorie number" entry
+  // opened from the bolt button in each meal section. Items land in
+  // diary.items as { type: 'quick_calories', name, nutrition: { calories } }
+  // and render via the dedicated branch below (summed or separate per the
+  // quickCaloriesDisplay setting). Issue #42 (roseyhead).
+  let _quickSheetOpen = false;
+  let _quickSheetMeal = 0;
+  function openQuickCalories(mealIdx) {
+    _quickSheetMeal = mealIdx;
+    _quickSheetOpen = true;
   }
 
   // Smart Log entry point lives on the assistant FAB (hold-to-record). Diary
@@ -998,8 +1012,8 @@
   </div>
 
   <!-- Standard page-header — identical to every other page -->
-  <header class="page-header diary-header" class:has-banner={$pageBanners && !selectMode}>
-    {#if $pageBanners && !selectMode}<DiaryBanner />{/if}
+  <header class="page-header diary-header" class:has-banner={$pageBanners && !selectMode} class:banner-gradient={$bannerStyle === 'gradient' && !selectMode}>
+    {#if $bannerStyle === 'animated' && !selectMode}<DiaryBanner />{/if}
     {#if selectMode}
       <h1 class="select-mode-title">{selectedItems.size} selected</h1>
     {:else}
@@ -1054,6 +1068,11 @@
           <button class="btn-icon ml-auto meal-menu-btn" on:click={() => openMealActionSheet(mealIdx)} aria-label="Meal actions for {meal}" title="Meal actions">
             <span class="material-symbols-rounded">more_vert</span>
           </button>
+          {#if $showQuickCalories}
+            <button class="btn-icon meal-quick-btn" on:click={() => openQuickCalories(mealIdx)} aria-label="Quick calories for {meal}" title="Quick Calories">
+              <span class="material-symbols-rounded">bolt</span>
+            </button>
+          {/if}
           <button class="btn-icon accent" on:click={() => openAddFood(mealIdx)} aria-label="Add food to {meal}" title="Add food to {meal}">
             <span class="material-symbols-rounded">add</span>
           </button>
@@ -1065,8 +1084,12 @@
             <span class="meal-empty-text">Tap to add food</span>
           </button>
         {:else}
+          {@const _foodItems  = items.filter(it => it.type !== 'quick_calories')}
+          {@const _quickItems = items.filter(it => it.type === 'quick_calories')}
+          {@const _quickTotalKcal = _quickItems.reduce((s, it) => s + (it.nutrition?.calories || 0), 0)}
+          {@const _quickTotalEnergy = Nutrition.displayEnergy(_quickTotalKcal, $energyUnit)}
           <div class="meal-items">
-            {#each items as item (item._i)}
+            {#each _foodItems as item (item._i)}
               {@const _itemEnergy = Nutrition.displayEnergy(formatKcal(item), $energyUnit)}
               <div class="diary-item" in:fly={{ y: 6, duration: _isInitialMount && !$disableAnimations ? 180 : 0 }}
                 class:item-selected={selectMode && selectedItems.has(item._i)}
@@ -1130,6 +1153,66 @@
                 </div>
               {/if}
             {/each}
+
+            <!-- Quick Calories rows. Rendered separately so the display mode
+                 (summed vs separate, per Settings → Diary) can collapse them
+                 without affecting the food-item loop above. Issue #42. -->
+            {#if _quickItems.length > 0}
+              {#if $quickCaloriesDisplay === 'separate'}
+                {#each _quickItems as qItem (qItem._i)}
+                  {@const _qE = Nutrition.displayEnergy(qItem.nutrition?.calories || 0, $energyUnit)}
+                  <div class="diary-item quick-cal-item" in:fly={{ y: 6, duration: _isInitialMount && !$disableAnimations ? 180 : 0 }}
+                    class:item-selected={selectMode && selectedItems.has(qItem._i)}
+                    on:contextmenu|preventDefault={() => { if (!selectMode) { actionItem = qItem; _lockAndOpen(() => showItemAction = true); } }}>
+                    {#if selectMode}
+                      <button class="item-select-btn" on:click={() => toggleItemSelect(qItem)} aria-label="Toggle selection">
+                        <span class="item-check material-symbols-rounded" class:item-check-on={selectedItems.has(qItem._i)}>
+                          {selectedItems.has(qItem._i) ? 'check_circle' : 'radio_button_unchecked'}
+                        </span>
+                      </button>
+                    {/if}
+                    <button class="diary-item-btn" on:click={() => selectMode ? toggleItemSelect(qItem) : openEditItem(qItem)}>
+                      {#if $diaryShowThumbnails}
+                        <div class="item-thumb-placeholder">
+                          <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">bolt</span>
+                        </div>
+                      {/if}
+                      <div class="item-info">
+                        <span class="item-name truncate">{qItem.name || 'Quick Calories'}</span>
+                        <span class="item-meta text-3 text-sm">
+                          {_qE.value.toLocaleString()} {_qE.unit}
+                          {#if $diaryShowTimestamps && qItem.addedAt} · {formatTime(qItem.addedAt)}{/if}
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+                {/each}
+              {:else}
+                <!-- Summed mode: one collapsed row with the total. Tap opens
+                     the standard per-item action sheet on the FIRST entry so
+                     users still have an edit/delete path; switching to
+                     Separate gives full per-entry control. -->
+                <div class="diary-item quick-cal-item quick-cal-summed"
+                  on:contextmenu|preventDefault={() => { if (!selectMode) { actionItem = _quickItems[0]; _lockAndOpen(() => showItemAction = true); } }}>
+                  <button class="diary-item-btn" on:click={() => openEditItem(_quickItems[0])}>
+                    {#if $diaryShowThumbnails}
+                      <div class="item-thumb-placeholder">
+                        <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">bolt</span>
+                      </div>
+                    {/if}
+                    <div class="item-info">
+                      <span class="item-name truncate">
+                        Quick Calories{_quickItems.length > 1 ? ` × ${_quickItems.length}` : ''}
+                      </span>
+                      <span class="item-meta text-3 text-sm">
+                        {_quickTotalEnergy.value.toLocaleString()} {_quickTotalEnergy.unit}
+                        {#if _quickItems.length > 1} · switch to Separate to edit individual entries{/if}
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              {/if}
+            {/if}
           </div>
         {/if}
         {#if items.length > 0}
@@ -1882,6 +1965,8 @@
 </Sheet>
 
 <AddActivitySheet bind:open={showActivitySheet} date={$currentDate} entry={editingActivity} on:close={() => editingActivity = null} />
+
+<QuickCaloriesSheet bind:open={_quickSheetOpen} meal={_quickSheetMeal} mealName={meals[_quickSheetMeal] || ''} />
 
 <ActionSheet
   bind:open={showActivityAction}
