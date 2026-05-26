@@ -25,6 +25,7 @@ const COOKIE_OPTS = {
   maxAge:   30 * 24 * 60 * 60 * 1000,
   secure:   !_insecureCookies,
 };
+const LOGOUT_COOKIE = 'nt_oidc_logout';
 
 /** Choose a redirect URI for this provider that matches one of the configured ones. */
 function _resolveRedirectUri(provider, req) {
@@ -177,6 +178,15 @@ router.get('/callback/:providerId', wrap(async (req, res) => {
     return res.redirect(`nutritrace://oidc-callback/?token=${encodeURIComponent(token)}`);
   }
   res.cookie('nt_token', token, { ...COOKIE_OPTS, maxAge: sessionMaxAge() });
+  // Save enough OIDC session context for RP-initiated logout later.
+  if (tokenSet?.id_token) {
+    res.cookie(LOGOUT_COOKIE, JSON.stringify({ providerId: provider.id, idTokenHint: tokenSet.id_token }), {
+      ...COOKIE_OPTS,
+      maxAge: sessionMaxAge(),
+    });
+  } else {
+    res.clearCookie(LOGOUT_COOKIE);
+  }
   return _redirectToLogin(res, stored.returnPath, null, 'ok');
 }));
 
@@ -198,9 +208,38 @@ function _redirectToLogin(res, returnPath, error, ok) {
  * redirect to the IdP's end_session_endpoint when available.
  */
 router.post('/logout', wrap(async (req, res) => {
+  const raw = req.cookies?.[LOGOUT_COOKIE];
   res.clearCookie('nt_token');
-  // We don't track which provider the user logged in via, so just acknowledge.
-  res.json({ ok: true });
+  res.clearCookie(LOGOUT_COOKIE);
+
+  if (!raw) return res.json({ ok: true });
+
+  let saved = null;
+  try { saved = JSON.parse(raw); } catch {}
+  if (!saved?.providerId) return res.json({ ok: true });
+
+  const provider = getProvider(saved.providerId);
+  if (!provider || !provider.is_active) return res.json({ ok: true });
+
+  try {
+    const client = await getClient(provider.id);
+    const endSessionEndpoint = client.issuer?.metadata?.end_session_endpoint;
+    if (!endSessionEndpoint) return res.json({ ok: true });
+
+    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const basePath = (process.env.BASE_URL || '').replace(/\/$/, '');
+    const postLogoutRedirectUri = `${proto}://${host}${basePath}/`;
+
+    const logoutUrl = new URL(endSessionEndpoint);
+    logoutUrl.searchParams.set('post_logout_redirect_uri', postLogoutRedirectUri);
+    if (saved.idTokenHint) logoutUrl.searchParams.set('id_token_hint', saved.idTokenHint);
+
+    return res.json({ ok: true, logoutUrl: logoutUrl.toString() });
+  } catch (e) {
+    logger.warn(`[oidc] logout failed for provider ${saved.providerId}: ${e?.message || e}`);
+    return res.json({ ok: true });
+  }
 }));
 
 /**

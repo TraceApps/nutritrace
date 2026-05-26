@@ -260,6 +260,12 @@ export async function handleOidcCallback() {
 }
 
 export async function logout() {
+  let logoutUrl = null;
+  try {
+    const oidcRes = await fetch(_apiUrl('/api/auth/oidc/logout'), { method: 'POST', credentials: 'include', headers: _authHeaders() });
+    const oidcData = await oidcRes.json().catch(() => null);
+    logoutUrl = oidcData?.logoutUrl || null;
+  } catch {}
   try { await fetch(_apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include', headers: _authHeaders() }); } catch {}
   // Clear auth state — but keep cached data (foods, images, server URL)
   if (isNative) {
@@ -281,4 +287,7 @@ export async function logout() {
   // userMgmtActive && !currentUser) and leaves the user stuck in a half-
   // rendered app. Keep the cached value too so a post-logout reload doesn't
   // briefly flicker into the wizard before the server confirms.
+  if (logoutUrl && !isNative) {
+    window.location.href = logoutUrl;
+  }
 }
