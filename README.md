@@ -413,6 +413,13 @@ Optional. Connect any OpenID Connect 1.0 compliant identity provider — **Authe
 
 **Mobile**: Android in server-connected mode supports SSO too. The app opens the IdP authorize URL in an in-app browser (Chrome Custom Tabs); the IdP redirects back via `nutritrace://oidc-callback/` deep link, the app intercepts it and signs you in — no manual paste, no token wrangling.
 
+**Logout (RP-initiated)**: when an SSO user signs out, NutriTrace also ends the session at the IdP via the standard OIDC end-session endpoint (using `id_token_hint`), so the next sign-in isn't silently completed by a still-alive IdP session. For this to work, register **two Post Logout Redirect URIs** at your IdP:
+
+   - `https://your-nutritrace-host/` (or your `BASE_URL` root) for PWA logouts.
+   - `nutritrace://oidc-callback` for Android logouts.
+
+If the IdP doesn't expose an `end_session_endpoint` (some don't), logout falls back to a local-only clear and the next login prompts again only if the IdP's own session has expired.
+
 **Security**: client secrets are encrypted at rest using the same key derivation as wearable OAuth tokens. Email-based auto-linking only fires when the IdP explicitly flags the email verified, AND the provider's `auto-register` is enabled — both gates have to be on, since email-based auto-link is the main account-takeover vector if the IdP is dishonest about verification.
 
 ---

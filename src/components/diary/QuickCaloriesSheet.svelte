@@ -117,28 +117,34 @@
     <p class="qc-section-label">Optional Macros</p>
     <div class="qc-macros">
       <div class="qc-macro-pill" style="background:var(--macro-protein-dim)">
-        <input class="qc-macro-input" type="number" inputmode="decimal"
-               min="0" step="0.1" placeholder="0"
-               style="color:var(--macro-protein)"
-               bind:value={_protein} on:keydown={_onKey} />
+        <div class="qc-macro-val-row">
+          <input class="qc-macro-input" type="number" inputmode="decimal"
+                 min="0" step="0.1" placeholder="0"
+                 style="color:var(--macro-protein); --qc-w:{Math.max(1, String(_protein || '').length)}ch"
+                 bind:value={_protein} on:keydown={_onKey} />
+          <span class="qc-macro-unit" style="color:var(--macro-protein)">g</span>
+        </div>
         <span class="qc-macro-label">Protein</span>
-        <span class="qc-macro-unit">g</span>
       </div>
       <div class="qc-macro-pill" style="background:var(--macro-carbs-dim)">
-        <input class="qc-macro-input" type="number" inputmode="decimal"
-               min="0" step="0.1" placeholder="0"
-               style="color:var(--macro-carbs)"
-               bind:value={_carbs} on:keydown={_onKey} />
+        <div class="qc-macro-val-row">
+          <input class="qc-macro-input" type="number" inputmode="decimal"
+                 min="0" step="0.1" placeholder="0"
+                 style="color:var(--macro-carbs); --qc-w:{Math.max(1, String(_carbs || '').length)}ch"
+                 bind:value={_carbs} on:keydown={_onKey} />
+          <span class="qc-macro-unit" style="color:var(--macro-carbs)">g</span>
+        </div>
         <span class="qc-macro-label">Carbs</span>
-        <span class="qc-macro-unit">g</span>
       </div>
       <div class="qc-macro-pill" style="background:var(--macro-fat-dim)">
-        <input class="qc-macro-input" type="number" inputmode="decimal"
-               min="0" step="0.1" placeholder="0"
-               style="color:var(--macro-fat)"
-               bind:value={_fat} on:keydown={_onKey} />
+        <div class="qc-macro-val-row">
+          <input class="qc-macro-input" type="number" inputmode="decimal"
+                 min="0" step="0.1" placeholder="0"
+                 style="color:var(--macro-fat); --qc-w:{Math.max(1, String(_fat || '').length)}ch"
+                 bind:value={_fat} on:keydown={_onKey} />
+          <span class="qc-macro-unit" style="color:var(--macro-fat)">g</span>
+        </div>
         <span class="qc-macro-label">Fat</span>
-        <span class="qc-macro-unit">g</span>
       </div>
     </div>
 
@@ -204,13 +210,26 @@
     padding: 10px 8px; border-radius: var(--radius-md);
     gap: 2px;
   }
+  /* Value + unit sit on one row so the macro pill reads "24g" inline,
+     matching .ns-macro-val ("24g" as a single token) in Diary.svelte's
+     nutrition summary card. Input is content-sized via field-sizing so
+     the "g" hugs the typed number instead of floating to the pill edge. */
+  .qc-macro-val-row {
+    display: inline-flex; align-items: baseline; justify-content: center;
+    gap: 1px;
+  }
   .qc-macro-input {
     background: transparent; border: 0; outline: 0;
     font-size: 20px; font-weight: 700;
-    width: 100%; text-align: center;
+    text-align: right;
     font-variant-numeric: tabular-nums;
-    /* Hide the spinner arrows so the field stays clean — users edit via
-       the soft keyboard or by typing. */
+    /* Width tracks the typed value's length via a per-input CSS variable
+       set inline so the "g" stays flush against the digits regardless of
+       value (10, 99, 999, 99.9, etc.). Works on every Capacitor WebView
+       since it's plain CSS, no field-sizing dependency. */
+    width: var(--qc-w, 1ch); min-width: 1ch; max-width: 6ch;
+    padding: 0;
+    /* Hide the spinner arrows so the field stays clean. */
     -moz-appearance: textfield;
   }
   .qc-macro-input::-webkit-outer-spin-button,
@@ -226,7 +245,8 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
-  .qc-macro-unit  { font-size: 10px; color: var(--text-3); }
+  /* Same size/weight as .ns-macro-val so "24g" reads as one token. */
+  .qc-macro-unit { font-size: 20px; font-weight: 700; }
 
   .qc-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
   .qc-actions .btn { min-width: 100px; }

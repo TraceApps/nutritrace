@@ -86,6 +86,19 @@
   let editUnit         = 'g';
   let editQuantity     = 1;     // number of servings — drives nutrition calc
   let showEditSheet    = false;
+  // Quick Calories edit fields. Mirror QuickCaloriesSheet's create flow so
+  // the user can change kcal / name / optional macros after the entry is in
+  // the diary. Serving Size / Number of Servings / Unit don't apply to
+  // quick-cal entries (they store nutrition directly with no portion math),
+  // so the edit sheet branches on editItem.type === 'quick_calories'.
+  // editKcalDisplay is in the user's current energy unit (kcal or kJ) for
+  // display; saved back to kcal at write time so internal storage stays
+  // consistent the same way QuickCaloriesSheet does.
+  let editName         = '';
+  let editKcalDisplay  = '';
+  let editProtein      = '';
+  let editCarbs        = '';
+  let editFat          = '';
 
   // Sheet lock helper - prevents backdrop click-through on mobile
   let _sheetLock = false;
@@ -133,6 +146,17 @@
     editUnit     = item.unit || 'g';
     editQuantity = item.quantity || 1;
     _editChildContext = null;
+    if (item?.type === 'quick_calories') {
+      const storedKcal = Math.round(item.nutrition?.calories || 0);
+      // Display in user's current energy unit; saved back to kcal.
+      editKcalDisplay = $energyUnit === 'kJ'
+        ? String(Math.round(storedKcal * 4.184))
+        : String(storedKcal);
+      editName    = (item.name && item.name !== 'Quick Calories') ? item.name : '';
+      editProtein = item.nutrition?.proteins      != null ? String(item.nutrition.proteins)      : '';
+      editCarbs   = item.nutrition?.carbohydrates != null ? String(item.nutrition.carbohydrates) : '';
+      editFat     = item.nutrition?.fat           != null ? String(item.nutrition.fat)           : '';
+    }
     _lockAndOpen(() => showEditSheet = true);
   }
 
@@ -155,6 +179,37 @@
 
   async function saveEditItem() {
     if (!editItem) return;
+    // Quick Calories items skip portion math entirely — nutrition is written
+    // straight from the edit fields. Blank optional macros drop the key so
+    // daily totals don't pick up zero-filled phantoms (same shape as
+    // addQuickCalories in src/stores/diary.js).
+    if (editItem.type === 'quick_calories') {
+      const raw = Number(editKcalDisplay);
+      if (!Number.isFinite(raw) || raw <= 0) {
+        showError(`Enter a positive ${$energyUnit === 'kJ' ? 'kJ' : 'kcal'} value.`);
+        return;
+      }
+      const kcal = $energyUnit === 'kJ' ? Math.round(raw / 4.184) : Math.round(raw);
+      const _opt = v => {
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : null;
+      };
+      const p = _opt(editProtein), c = _opt(editCarbs), f = _opt(editFat);
+      const nutrition = { calories: kcal };
+      if (p != null) nutrition.proteins      = p;
+      if (c != null) nutrition.carbohydrates = c;
+      if (f != null) nutrition.fat           = f;
+      const trimmed = (editName || '').trim().slice(0, 60);
+      const changes = {
+        name: trimmed || 'Quick Calories',
+        nutrition,
+      };
+      await updateDiaryItem(editItem._i, changes);
+      showEditSheet = false;
+      editItem = null;
+      showSuccess($_('diary.toast.updated'));
+      return;
+    }
     const origPortion = parseFloat(editItem.portion) || 100;
     const origUnit    = editItem.unit || 'g';
     const newPortion  = parseFloat(editPortion)      || 100;
@@ -715,6 +770,19 @@
   }
   $: if ($currentDate) _splitExpanded = new Set();
 
+  // Tracks which summed Quick Calories rows are currently expanded, keyed
+  // by the meal index (one summed row per meal). Lets users see + edit the
+  // individual entries that contributed to the sum without leaving Summed
+  // display mode. Same chevron + indented-children pattern as split
+  // recipes above. (Issue #42 follow-up from roseyhead.)
+  let _quickCalExpanded = new Set();
+  function toggleQuickCalExpand(mealIdx) {
+    if (_quickCalExpanded.has(mealIdx)) _quickCalExpanded.delete(mealIdx);
+    else                                _quickCalExpanded.add(mealIdx);
+    _quickCalExpanded = _quickCalExpanded;
+  }
+  $: if ($currentDate) _quickCalExpanded = new Set();
+
   async function onRemoveSplitChild(parentIdx, childIdx) {
     await removeSplitChild(parentIdx, childIdx);
   }
@@ -1188,13 +1256,19 @@
                   </div>
                 {/each}
               {:else}
-                <!-- Summed mode: one collapsed row with the total. Tap opens
-                     the standard per-item action sheet on the FIRST entry so
-                     users still have an edit/delete path; switching to
-                     Separate gives full per-entry control. -->
+                <!-- Summed mode: one collapsed row with the total + chevron
+                     to expand into the individual entries that built the
+                     sum. Same pattern as split-recipe ingredients above.
+                     Tapping a child row opens the standard item editor for
+                     that specific entry; right-click / long-press surfaces
+                     the per-item action sheet. (Issue #42 follow-up.) -->
+                {@const _expanded = _quickCalExpanded.has(mealIdx)}
+                {@const _single = _quickItems.length === 1}
                 <div class="diary-item quick-cal-item quick-cal-summed"
-                  on:contextmenu|preventDefault={() => { if (!selectMode) { actionItem = _quickItems[0]; _lockAndOpen(() => showItemAction = true); } }}>
-                  <button class="diary-item-btn" on:click={() => openEditItem(_quickItems[0])}>
+                  on:contextmenu|preventDefault={() => { if (!selectMode && _single) { actionItem = _quickItems[0]; _lockAndOpen(() => showItemAction = true); } }}>
+                  <button class="diary-item-btn"
+                    on:click={() => _single ? openEditItem(_quickItems[0]) : toggleQuickCalExpand(mealIdx)}
+                    aria-label={_single ? 'Edit Quick Calories entry' : (_expanded ? 'Collapse Quick Calorie entries' : 'Expand Quick Calorie entries')}>
                     {#if $diaryShowThumbnails}
                       <div class="item-thumb-placeholder">
                         <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">bolt</span>
@@ -1202,15 +1276,44 @@
                     {/if}
                     <div class="item-info">
                       <span class="item-name truncate">
-                        Quick Calories{_quickItems.length > 1 ? ` × ${_quickItems.length}` : ''}
+                        {#if _single}{_quickItems[0]?.name || 'Quick Calories'}{:else}Quick Calories × {_quickItems.length}{/if}
                       </span>
                       <span class="item-meta text-3 text-sm">
                         {_quickTotalEnergy.value.toLocaleString()} {_quickTotalEnergy.unit}
-                        {#if _quickItems.length > 1} · switch to Separate to edit individual entries{/if}
+                        {#if _quickItems.length > 1} · tap to {_expanded ? 'collapse' : 'expand'}{/if}
                       </span>
                     </div>
                   </button>
+                  {#if _quickItems.length > 1}
+                    <button type="button" class="split-toggle" on:click|stopPropagation={() => toggleQuickCalExpand(mealIdx)}
+                      aria-label={_expanded ? 'Collapse Quick Calorie entries' : 'Expand Quick Calorie entries'}
+                      title={_expanded ? 'Collapse Quick Calorie entries' : 'Expand Quick Calorie entries'}>
+                      <span class="material-symbols-rounded split-chevron" class:split-chevron-open={_expanded}>expand_more</span>
+                    </button>
+                  {/if}
                 </div>
+                {#if _expanded && _quickItems.length > 0}
+                  <div class="split-children">
+                    {#each _quickItems as qItem (qItem._i)}
+                      {@const _qcE = Nutrition.displayEnergy(qItem.nutrition?.calories || 0, $energyUnit)}
+                      <div class="split-child">
+                        <button type="button" class="split-child-btn" on:click={() => openEditItem(qItem)}
+                          on:contextmenu|preventDefault={() => { if (!selectMode) { actionItem = qItem; _lockAndOpen(() => showItemAction = true); } }}
+                          aria-label="Edit {qItem.name || 'Quick Calories'}" title="Edit entry">
+                          <span class="split-child-name truncate">{qItem.name || 'Quick Calories'}</span>
+                          <span class="split-child-meta text-3 text-sm">
+                            {_qcE.value.toLocaleString()} {_qcE.unit}
+                            {#if $diaryShowTimestamps && qItem.addedAt} · {formatTime(qItem.addedAt)}{/if}
+                          </span>
+                        </button>
+                        <button type="button" class="btn-icon split-child-del" on:click|stopPropagation={() => removeDiaryItem(qItem._i)}
+                          aria-label="Remove Quick Calories entry" title="Remove entry">
+                          <span class="material-symbols-rounded" style="font-size:16px">close</span>
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
               {/if}
             {/if}
           </div>
@@ -1615,6 +1718,57 @@
 <Sheet bind:open={showEditSheet} title={editItem ? editItem.name : ''} on:close={() => showEditSheet = false}>
   {#if editItem}
     <div class="edit-sheet-body">
+      {#if editItem.type === 'quick_calories'}
+        <!-- Quick Calories edit — mirrors the create sheet (kcal pill + 3-up
+             macros + optional name). No Serving Size / Unit / Number of
+             Servings because the entry has no portion concept. -->
+        {@const _qcUnit = $energyUnit === 'kJ' ? 'kJ' : 'kcal'}
+        <label class="form-label" for="qce-name">Name (optional)</label>
+        <input id="qce-name" class="input" type="text" maxlength="60"
+               placeholder="Office snack, hotel breakfast..."
+               bind:value={editName} />
+        <div class="qce-kcal-pill" style="background:var(--macro-calories-dim);margin-top:12px">
+          <input class="qce-kcal-input" type="number" inputmode="numeric"
+                 min="1" step="1"
+                 style="color:var(--macro-calories)"
+                 bind:value={editKcalDisplay} />
+          <span class="qce-kcal-unit" style="color:var(--macro-calories)">{_qcUnit.toUpperCase()}</span>
+        </div>
+        <p class="qce-section-label">Optional Macros</p>
+        <div class="qce-macros">
+          <div class="qce-macro-pill" style="background:var(--macro-protein-dim)">
+            <div class="qce-macro-val-row">
+              <input class="qce-macro-input" type="number" inputmode="decimal"
+                     min="0" step="0.1" placeholder="0"
+                     style="color:var(--macro-protein); --qce-w:{Math.max(1, String(editProtein || '').length)}ch"
+                     bind:value={editProtein} />
+              <span class="qce-macro-unit" style="color:var(--macro-protein)">g</span>
+            </div>
+            <span class="qce-macro-label">Protein</span>
+          </div>
+          <div class="qce-macro-pill" style="background:var(--macro-carbs-dim)">
+            <div class="qce-macro-val-row">
+              <input class="qce-macro-input" type="number" inputmode="decimal"
+                     min="0" step="0.1" placeholder="0"
+                     style="color:var(--macro-carbs); --qce-w:{Math.max(1, String(editCarbs || '').length)}ch"
+                     bind:value={editCarbs} />
+              <span class="qce-macro-unit" style="color:var(--macro-carbs)">g</span>
+            </div>
+            <span class="qce-macro-label">Carbs</span>
+          </div>
+          <div class="qce-macro-pill" style="background:var(--macro-fat-dim)">
+            <div class="qce-macro-val-row">
+              <input class="qce-macro-input" type="number" inputmode="decimal"
+                     min="0" step="0.1" placeholder="0"
+                     style="color:var(--macro-fat); --qce-w:{Math.max(1, String(editFat || '').length)}ch"
+                     bind:value={editFat} />
+              <span class="qce-macro-unit" style="color:var(--macro-fat)">g</span>
+            </div>
+            <span class="qce-macro-label">Fat</span>
+          </div>
+        </div>
+        <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveEditItem}>Save</button>
+      {:else}
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">Serving Size</label>
@@ -1634,24 +1788,25 @@
         <span style="font-size:14px;font-weight:500">{Math.round((parseFloat(editPortion) || 100) * (parseFloat(editQuantity) || 1) * 10) / 10}{editUnit}</span>
       </div>
       <div class="edit-macros">
-        <div class="edit-macro-pill">
-          <span class="edit-macro-val">{_editEnergy.value.toLocaleString()}</span>
+        <div class="edit-macro-pill" style="background:var(--macro-calories-dim)">
+          <span class="edit-macro-val" style="color:var(--macro-calories)">{_editEnergy.value.toLocaleString()}</span>
           <span class="edit-macro-label">{_editEnergy.unit}</span>
         </div>
-        <div class="edit-macro-pill">
-          <span class="edit-macro-val">{Math.round((editCalc.proteins || 0) * 10)/10}g</span>
+        <div class="edit-macro-pill" style="background:var(--macro-protein-dim)">
+          <span class="edit-macro-val" style="color:var(--macro-protein)">{Math.round((editCalc.proteins || 0) * 10)/10}g</span>
           <span class="edit-macro-label">protein</span>
         </div>
-        <div class="edit-macro-pill">
-          <span class="edit-macro-val">{Math.round((editCalc.carbohydrates || 0) * 10)/10}g</span>
+        <div class="edit-macro-pill" style="background:var(--macro-carbs-dim)">
+          <span class="edit-macro-val" style="color:var(--macro-carbs)">{Math.round((editCalc.carbohydrates || 0) * 10)/10}g</span>
           <span class="edit-macro-label">carbs</span>
         </div>
-        <div class="edit-macro-pill">
-          <span class="edit-macro-val">{Math.round((editCalc.fat || 0) * 10)/10}g</span>
+        <div class="edit-macro-pill" style="background:var(--macro-fat-dim)">
+          <span class="edit-macro-val" style="color:var(--macro-fat)">{Math.round((editCalc.fat || 0) * 10)/10}g</span>
           <span class="edit-macro-label">fat</span>
         </div>
       </div>
       <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveEditItem}>Save</button>
+      {/if}
     </div>
   {/if}
 </Sheet>
@@ -2426,7 +2581,6 @@
   .edit-macro-pill {
     flex: 1;
     min-width: 60px;
-    background: var(--surface-2);
     border-radius: var(--radius-md);
     padding: 8px;
     text-align: center;
@@ -2434,8 +2588,65 @@
     flex-direction: column;
     gap: 2px;
   }
-  .edit-macro-val   { font-size: 15px; font-weight: 700; color: var(--text-1); }
+  .edit-macro-val   { font-size: 15px; font-weight: 700; }
   .edit-macro-label { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: .4px; }
+
+  /* Quick Calories edit — same look as the create sheet
+     (src/components/diary/QuickCaloriesSheet.svelte). Kept in this file
+     rather than extracted because it's tightly coupled to the edit-sheet
+     flow + Svelte 4's per-component scoping makes sharing pill styles
+     awkward without lifting them into a global stylesheet. */
+  .qce-kcal-pill {
+    display: flex; align-items: baseline; justify-content: center; gap: 8px;
+    padding: 14px 16px; border-radius: var(--radius-md);
+  }
+  .qce-kcal-input {
+    background: transparent; border: 0; outline: 0;
+    font-size: 28px; font-weight: 700;
+    width: 130px; text-align: right;
+    font-variant-numeric: tabular-nums;
+    -moz-appearance: textfield;
+  }
+  .qce-kcal-input::-webkit-outer-spin-button,
+  .qce-kcal-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .qce-kcal-unit {
+    font-size: 12px; font-weight: 700; min-width: 36px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .qce-section-label {
+    font-size: 12px; font-weight: 600;
+    color: var(--text-2);
+    margin: 14px 0 6px 0;
+    letter-spacing: 0.02em;
+  }
+  .qce-macros {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  .qce-macro-pill {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 10px 8px; border-radius: var(--radius-md);
+    gap: 2px;
+  }
+  .qce-macro-val-row {
+    display: inline-flex; align-items: baseline; justify-content: center;
+    gap: 1px;
+  }
+  .qce-macro-input {
+    background: transparent; border: 0; outline: 0;
+    font-size: 20px; font-weight: 700;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    width: var(--qce-w, 1ch); min-width: 1ch; max-width: 6ch;
+    padding: 0;
+    -moz-appearance: textfield;
+  }
+  .qce-macro-input::-webkit-outer-spin-button,
+  .qce-macro-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .qce-macro-label {
+    font-size: 11px; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .qce-macro-unit { font-size: 20px; font-weight: 700; }
 
   /* Sheet backdrop */
   .sheet-backdrop {

@@ -319,18 +319,24 @@
     return stat && (stat.id in MACRO_DENSITY);
   }
 
-  function getTodayValue(stat, totals, bodyStats, wellness) {
+  function getTodayValue(stat, totals, bodyStats, wellness, recent) {
     const t = totals    ?? todayTotals;
     const b = bodyStats ?? todayBodyStats;
     const w = wellness  ?? todayWellness;
+    const r = recent    ?? recentBodyStats;
     if (stat.isWellness) return w[stat.id] ?? null;
     if (stat.isBody) {
       // Today's reading wins; otherwise fall back to the most recent
       // value within the last 30 days (issue #46). Returns null only
       // when no reading exists in that window.
+      // `recent` is passed explicitly so Svelte 5's reactive tracker
+      // re-evaluates the @const call sites when recentBodyStats updates
+      // async after onMount. Reading it via closure only would leave the
+      // initial "Your Goals" tab rendering with empty fallbacks until
+      // the user switched tabs (issue #46 follow-up from duplaja).
       const todayVal = readBodyStat(b, stat.id, $weightUnit, $lengthUnit);
       if (todayVal != null) return todayVal;
-      return recentBodyStats[stat.id]?.value ?? null;
+      return r[stat.id]?.value ?? null;
     }
     return t[stat.id] ?? null;
   }
@@ -339,12 +345,14 @@
    *  came from the fallback (a previous day) rather than today, or '' when
    *  the value is today's (or no value exists). Used in the goal-row
    *  template below the value line so users know the number isn't from
-   *  today. */
-  function getBodyStatStaleness(stat) {
+   *  today. `recent` is passed in for the same reactive-tracking reason as
+   *  getTodayValue above. */
+  function getBodyStatStaleness(stat, recent) {
     if (!stat.isBody) return '';
     const todayVal = readBodyStat(todayBodyStats, stat.id, $weightUnit, $lengthUnit);
     if (todayVal != null) return '';
-    const rec = recentBodyStats[stat.id];
+    const r = recent ?? recentBodyStats;
+    const rec = r[stat.id];
     if (!rec) return '';
     // Format: "as of May 18" — concise, locale-aware.
     const dt = new Date(rec.date + 'T12:00:00');
@@ -369,8 +377,8 @@
     return Math.round(calGoal * raw / 100 / density);
   }
 
-  function getPct(stat, totals, bodyStats, wellness) {
-    const cur = getTodayValue(stat, totals, bodyStats, wellness);
+  function getPct(stat, totals, bodyStats, wellness, recent) {
+    const cur = getTodayValue(stat, totals, bodyStats, wellness, recent);
     const tgt = getTarget(stat);
     if (cur == null || tgt == null || tgt === 0) return 0;
     return Math.min(100, Math.round(cur / tgt * 100));
@@ -478,12 +486,12 @@
                 <div class="goal-info">
                   <span class="font-medium">{stat.label}</span>
                   {#if getTarget(stat) != null}
-                    {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                    {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                     {@const tgt = getTarget(stat)}
-                    {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                    {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                     {@const isMin = $goals[stat.id]?.isMin}
                     {@const bad = cur != null && tgt != null && (isMin ? cur < tgt : cur > tgt)}
-                    {@const stale = getBodyStatStaleness(stat)}
+                    {@const stale = getBodyStatStaleness(stat, recentBodyStats)}
                     <div class="goal-progress-bar">
                       <div class="goal-progress-fill" class:over={bad} style="width:{pct}%"></div>
                     </div>
@@ -512,7 +520,7 @@
                   <span class="font-medium">{stat.label}{#if stat.id === 'calories' && $calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null} ⚡{:else if stat.id === 'calories' && $calorieGoalMode === 'adaptive' && _adaptive?.ready} 📈{/if}</span>
                   {#if getTarget(stat) != null}
                     {@const tgt = stat.id === 'calories' && ($calorieGoalMode === 'dynamic' || ($calorieGoalMode === 'adaptive' && _adaptive?.ready)) ? _effectiveCalGoal : getTarget(stat)}
-                    {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                    {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                     {@const pct = tgt > 0 ? Math.min(100, Math.round((cur ?? 0) / tgt * 100)) : 0}
                     {@const isMin = $goals[stat.id]?.isMin}
                     {@const bad = cur != null && tgt != null && (isMin ? cur < tgt : cur > tgt)}
@@ -559,9 +567,9 @@
               <div class="goal-info">
                 <span class="font-medium">{stat.label}</span>
                 {#if getTarget(stat) != null}
-                  {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                  {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                   {@const tgt = getTarget(stat)}
-                  {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                  {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                   <div class="goal-progress-bar">
                     <div class="goal-progress-fill" style="width:{pct}%"></div>
                   </div>
@@ -589,10 +597,10 @@
             <div class="goal-info">
               <span class="font-medium">{stat.label}</span>
               {#if $goals[stat.id]}
-                {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                 {@const tgt = getTarget(stat)}
-                {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
-                {@const stale = getBodyStatStaleness(stat)}
+                {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
+                {@const stale = getBodyStatStaleness(stat, recentBodyStats)}
                 <div class="goal-progress-bar">
                   <div class="goal-progress-fill" style="width:{pct}%"></div>
                 </div>
@@ -618,9 +626,9 @@
             <div class="goal-info">
               <span class="font-medium">{stat.label}</span>
               {#if $goals[stat.id]}
-                {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                 {@const tgt = getTarget(stat)}
-                {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                {@const cur = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                 <div class="goal-progress-bar">
                   <div class="goal-progress-fill" style="width:{pct}%"></div>
                 </div>
@@ -661,9 +669,9 @@
               <div class="goal-info">
                 <span class="font-medium">{stat.label}</span>
                 {#if $goals[stat.id]}
-                  {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness)}
+                  {@const pct = getPct(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                   {@const _tgtRaw = getTarget(stat)}
-                  {@const _curRaw = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness)}
+                  {@const _curRaw = getTodayValue(stat, todayTotals, todayBodyStats, todayWellness, recentBodyStats)}
                   {@const tgt = _kjMode && _tgtRaw != null ? Math.round(Nutrition.kcalToKj(_tgtRaw)) : _tgtRaw}
                   {@const cur = _kjMode && _curRaw != null ? Nutrition.kcalToKj(_curRaw) : _curRaw}
                   <div class="goal-progress-bar">

@@ -260,6 +260,36 @@ export async function handleOidcCallback() {
 }
 
 export async function logout() {
+  let logoutUrl = null;
+  try {
+    // Mobile flag tells the server to use the nutritrace://oidc-callback
+    // deep link as post_logout_redirect_uri so the Capacitor browser can
+    // route back into the app after the IdP destroys the session. PWA
+    // uses the HTTPS root URL of the deployment.
+    const logoutPath = isNative
+      ? '/api/auth/oidc/logout?mobile=1'
+      : '/api/auth/oidc/logout';
+    // Native clients send back the id_token_hint + providerId they were
+    // handed at OIDC login time. PWA leaves the body empty and the server
+    // reads the matching httpOnly cookie instead.
+    let body = null;
+    if (isNative) {
+      try {
+        const raw = localStorage.getItem('nt:oidc_logout_hint');
+        if (raw) body = JSON.parse(raw);
+      } catch {}
+    }
+    const oidcRes = await fetch(_apiUrl(logoutPath), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { ..._authHeaders(), 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const oidcData = await oidcRes.json().catch(() => null);
+    logoutUrl = oidcData?.logoutUrl || null;
+    // Hint served its purpose; clear it whether or not the call succeeded.
+    try { localStorage.removeItem('nt:oidc_logout_hint'); } catch {}
+  } catch {}
   try { await fetch(_apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include', headers: _authHeaders() }); } catch {}
   // Clear auth state — but keep cached data (foods, images, server URL)
   if (isNative) {
@@ -281,4 +311,17 @@ export async function logout() {
   // userMgmtActive && !currentUser) and leaves the user stuck in a half-
   // rendered app. Keep the cached value too so a post-logout reload doesn't
   // briefly flicker into the wizard before the server confirms.
+  if (logoutUrl) {
+    if (isNative) {
+      // Open the IdP's end-session URL in @capacitor/browser; the IdP
+      // redirects to nutritrace://oidc-callback when done, which
+      // App.svelte's appUrlOpen listener catches and closes the browser.
+      try {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: logoutUrl, presentationStyle: 'popover' });
+      } catch {}
+    } else {
+      window.location.href = logoutUrl;
+    }
+  }
 }

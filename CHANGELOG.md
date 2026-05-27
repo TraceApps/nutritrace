@@ -9,6 +9,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.39] — 2026-05-27
+
+### Added
+
+- **OIDC RP-initiated logout (PWA + Android).** Signing out now also ends the
+  session at your identity provider, so the next sign-in isn't silently
+  completed by a still-alive IdP session. Requires registering two Post Logout
+  Redirect URIs at your IdP (HTTPS root for PWA, `nutritrace://oidc-callback`
+  for Android). Thanks to @jimmielightner. (Issue #48, PR #49)
+- **Edit any Quick Calories entry.** Tap a Quick Calories row in the diary to
+  change the kcal, name, or any of the three optional macros.
+
+### Changed
+
+- **OFF local mirror now uses the Hugging Face Parquet snapshot** since OFF
+  retired the previous DuckDB source. Existing setups keep working without
+  renaming; format is auto-detected. (Issue #22 followup)
+- **Quick Calories diary row uses your custom name** when a meal has just one
+  Quick Calories entry. Multi-entry meals still collapse to "Quick Calories × N".
+- **Diary edit sheet macro pills get the four-color treatment** (yellow / purple
+  / green / orange) to match the Quick Calories card and Foods quantity sheet.
+- **Number-input spinner arrows removed app-wide** across food, meal, recipe,
+  and diary edits.
+
+### Fixed
+
+- **Docker image now actually loads DuckDB.** Base swapped from Alpine to
+  Debian-slim so the OFF mirror feature works end to end. Image grows ~30 MB.
+  (Reported by @duplaja)
+- **Goals: body-stat fallback now appears on the initial "Your Goals" tab**
+  instead of only after switching tabs. (Issue #46 followup from @duplaja)
+- **Quick Calories: macro input width grows with the typed value** so the "g"
+  stays flush against the digits regardless of length.
+
+---
+
 ## [1.0.0-rc.38] — 2026-05-25
 
 ### Added

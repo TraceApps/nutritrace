@@ -11,8 +11,16 @@ COPY . .
 RUN npm run build
 
 # ── Stage 2: Express server + static frontend ────────────────────────────────
-FROM node:20-alpine
-RUN apk add --no-cache python3 make g++
+# Debian-slim base (not Alpine) — the @duckdb/node-bindings-linux-x64 native
+# library used by the OFF mirror feature is glibc-linked and won't load on
+# musl-based images. On Alpine, DuckDB fails with "Error loading shared
+# library ld-linux-x86-64.so.2: No such file or directory" because the
+# glibc dynamic linker isn't present. DuckDB does not ship a musl variant
+# of those node bindings, so a glibc base is required.
+FROM node:20-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 build-essential \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY server/package*.json ./
 RUN npm install --omit=dev

@@ -38,6 +38,20 @@
 }
 .input::placeholder { color: var(--text-3); }
 
+/* Hide number-input spinner arrows globally. Spinners are tap-unfriendly
+   on touch and the soft keyboard already gives users numeric input; they
+   only added visual noise to every Serving Size / Number of Servings /
+   macro field in the app. */
+.input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.input[type="number"]::-webkit-inner-spin-button,
+.input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* Textarea */
 .textarea {
   resize: vertical;

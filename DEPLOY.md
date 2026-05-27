@@ -145,23 +145,25 @@ Self-hosters on air-gapped networks, in strict-egress environments, or just want
 
 1. Uncomment the OFF mirror volume mount in `docker-compose.yml`:
    ```yaml
-   - ${OFF_LOCAL_DB_HOST_PATH:-./off.duckdb}:/data/off.duckdb
+   - ${OFF_LOCAL_DB_HOST_PATH:-./off.parquet}:/data/off.parquet
    ```
    Note: the mount is read-write so NutriTrace can perform in-place refresh via atomic swap. Earlier docs suggested `:ro`; if you previously set that, change it to writable so scheduled and manual refreshes work.
 
 2. Set the env vars in `.env`:
    ```bash
-   OFF_LOCAL_DB_HOST_PATH=/path/on/host/off.duckdb   # the host path (will be created if missing)
-   OFF_LOCAL_DB=/data/off.duckdb                     # the in-container path
-   # Optional — pin the download URL (defaults to the official OFF nightly build).
-   # OFF_LOCAL_URL=https://challenges.openfoodfacts.org/products.duckdb
+   OFF_LOCAL_DB_HOST_PATH=/path/on/host/off.parquet   # the host path (will be created if missing)
+   OFF_LOCAL_DB=/data/off.parquet                     # the in-container path
+   # Optional — pin the download URL (defaults to the maintained Hugging Face Parquet dump).
+   # OFF_LOCAL_URL=https://huggingface.co/datasets/openfoodfacts/product-database/resolve/main/food.parquet?download=true
    # Optional — full air-gap mode (never call api.openfoodfacts.org)
    # OFF_LOCAL_ONLY=1
    ```
 
+   Note on file formats: since rc.39, NutriTrace defaults to the OFF Parquet dump on Hugging Face (~7-8 GB) because OFF retired their pre-built native DuckDB snapshot. The lookup code transparently opens the Parquet via DuckDB's `read_parquet()` so per-barcode queries are still fast (DuckDB row-group prunes). If you still have a legacy `.duckdb` file at `OFF_LOCAL_DB`, that path is auto-detected by file extension and continues to work unchanged.
+
 3. `docker compose up -d` to recreate the container.
 
-4. **NutriTrace handles the initial download automatically.** On startup, if `OFF_LOCAL_DB` is set and the file is missing, it pulls the full snapshot (~4 GB) from `OFF_LOCAL_URL` in the background. Lookups during the initial pull fall through to the public OFF API (or, in air-gap mode, return "not found") until the download completes. Watch the container logs for `[off-local] refresh complete` to confirm readiness, or open Settings → Connected Services → Open Food Facts; the banner shows live download progress.
+4. **NutriTrace handles the initial download automatically.** On startup, if `OFF_LOCAL_DB` is set and the file is missing, it pulls the full snapshot (~7-8 GB) from `OFF_LOCAL_URL` in the background. Lookups during the initial pull fall through to the public OFF API (or, in air-gap mode, return "not found") until the download completes. Watch the container logs for `[off-local] refresh complete` to confirm readiness, or open Settings → Connected Services → Open Food Facts; the banner shows live download progress.
 
 ### Refreshing the mirror
 
@@ -174,8 +176,8 @@ You can also click **Refresh Now** in the same panel to force an immediate refre
 Prefer the command line? You can still drop a fresh file in place manually:
 
 ```bash
-wget https://challenges.openfoodfacts.org/products.duckdb -O /path/on/host/off.duckdb.new
-mv /path/on/host/off.duckdb.new /path/on/host/off.duckdb
+wget 'https://huggingface.co/datasets/openfoodfacts/product-database/resolve/main/food.parquet?download=true' -O /path/on/host/off.parquet.new
+mv /path/on/host/off.parquet.new /path/on/host/off.parquet
 # Optional — trigger reopen without waiting for the next lookup:
 docker compose restart
 ```
@@ -198,7 +200,7 @@ The native Android client normally calls `api.openfoodfacts.org` directly (bypas
 
 The mirror file is **deliberately excluded from NutriTrace's full-backup ZIPs**. It's a ~4 GB reproducible snapshot of public OFF data; bundling it would balloon backups for no real benefit. Backups continue to contain only your SQLite database (foods, meals, diary, settings, etc.) and your uploaded photos. Your chosen Auto-Refresh interval is preserved (it's a tiny `app_config` row), so after restoring on a fresh install the schedule comes back automatically; the next refresh cycle (or a manual Refresh Now) re-populates the mirror file itself.
 
-If you want a mirror snapshot in your own off-site storage, copy the `off.duckdb` host file directly with whatever tool you already use (rsync, restic, borg, etc.) — separate from NutriTrace's backup flow.
+If you want a mirror snapshot in your own off-site storage, copy the `off.parquet` (or legacy `off.duckdb`) host file directly with whatever tool you already use (rsync, restic, borg, etc.) — separate from NutriTrace's backup flow.
 
 ### Caveats
 

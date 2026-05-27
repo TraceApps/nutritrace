@@ -43,13 +43,24 @@ import path from 'path';
 import { pipeline } from 'stream/promises';
 import { logger } from '../logger.js';
 
-const DEFAULT_DOWNLOAD_URL = 'https://challenges.openfoodfacts.org/products.duckdb';
+// OFF removed their pre-built DuckDB snapshot from challenges.openfoodfacts.org
+// some time before rc.38 shipped (the URL now 302s back to the main site,
+// confirmed dead via curl + verified no replacement DuckDB endpoint exists at
+// static.openfoodfacts.org or world.openfoodfacts.org). The maintained dump
+// is now the Parquet file on Hugging Face; DuckDB can query it natively via
+// read_parquet() so the lookup code below stays mostly the same — we just
+// open an in-memory DB and create a view over the Parquet on first init
+// when the local file ends in .parquet. Existing users with a real .duckdb
+// file from before rc.39 continue to work unchanged (extension auto-detect).
+const DEFAULT_DOWNLOAD_URL = 'https://huggingface.co/datasets/openfoodfacts/product-database/resolve/main/food.parquet?download=true';
 
 let _conn = null;            // DuckDB connection — created lazily on first use
 let _instance = null;        // DuckDB instance — kept so we can close + reopen on swap
 let _initPromise = null;     // single-flight init guard
 let _disabled = false;       // permanent kill switch after init failure
 let _dbPath = null;          // resolved path for log messages
+let _isParquet = false;      // true when the mirror is the HF Parquet shape;
+                             // controls which SQL + which JS adapter run
 
 // Refresh state — mirrored back to the client via /api/off-local/status.
 // Single in-flight refresh at a time (mutex via _refreshPromise).
@@ -135,9 +146,30 @@ async function _init() {
     try {
       // Dynamic import so the dep isn't loaded when the feature is off.
       const { DuckDBInstance } = await import('@duckdb/node-api');
-      _instance = await DuckDBInstance.create(_dbPath, { access_mode: 'READ_ONLY' });
-      _conn = await _instance.connect();
-      logger.info(`[off-local] ready — mirror at ${_dbPath}${process.env.OFF_LOCAL_ONLY ? ' (air-gap mode, remote disabled)' : ''}`);
+      // Two supported file formats:
+      //   *.parquet — open an IN-MEMORY DuckDB, expose the parquet file as a
+      //               view named `products`. Required since OFF retired their
+      //               native .duckdb snapshot; the maintained dump is parquet
+      //               on Hugging Face. DuckDB does row-group pruning so per-
+      //               barcode lookups are still <1s on the 7-8 GB file.
+      //   *.duckdb  — open the file directly read-only. Legacy path for users
+      //               who pointed OFF_LOCAL_DB at a pre-rc.39 .duckdb file.
+      // Detect format by file CONTENT (magic bytes), not filename. Lets
+      // users keep their old OFF_LOCAL_DB=/data/off.duckdb path even when
+      // the downloaded file is actually Parquet, and vice versa.
+      // Parquet files start (and end) with "PAR1"; DuckDB native files do
+      // not. Any other content fails open in the catch below.
+      _isParquet = _sniffParquet(_dbPath);
+      if (_isParquet) {
+        _instance = await DuckDBInstance.create(':memory:');
+        _conn = await _instance.connect();
+        const safePath = _dbPath.replace(/'/g, "''");
+        await _conn.run(`CREATE OR REPLACE VIEW products AS SELECT * FROM read_parquet('${safePath}');`);
+      } else {
+        _instance = await DuckDBInstance.create(_dbPath, { access_mode: 'READ_ONLY' });
+        _conn = await _instance.connect();
+      }
+      logger.info(`[off-local] ready — mirror at ${_dbPath} (${_isParquet ? 'parquet via in-memory view' : 'native duckdb'})${process.env.OFF_LOCAL_ONLY ? ' (air-gap mode, remote disabled)' : ''}`);
       return _conn;
     } catch (e) {
       _disabled = true;
@@ -213,15 +245,24 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
   const startPattern = `${q.toLowerCase().replace(/[%_]/g, c => '\\' + c)}%`;
   const offset = Math.max(0, (page - 1) * pageSize);
   try {
-    const reader = await conn.runAndReadAll(
-      `SELECT *, CASE WHEN LOWER(product_name) LIKE $2 ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
-         FROM products
-        WHERE LOWER(product_name) LIKE $1 ESCAPE '\\'
-           OR LOWER(brands) LIKE $1 ESCAPE '\\'
-        ORDER BY _rank ASC, LENGTH(COALESCE(product_name, '')) ASC
-        LIMIT $3 OFFSET $4`,
-      [pattern, startPattern, pageSize, offset]
-    );
+    // Two SQL shapes — Parquet's product_name is LIST<{lang,text}> so we
+    // need list_filter to LIKE-match any localized entry; legacy DuckDB's
+    // product_name is a single string so the simple LIKE works directly.
+    const sql = _isParquet
+      ? `SELECT *,
+              CASE WHEN LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $2 ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
+           FROM products
+          WHERE LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $1 ESCAPE '\\')) > 0
+             OR LOWER(brands) LIKE $1 ESCAPE '\\'
+          ORDER BY _rank ASC
+          LIMIT $3 OFFSET $4`
+      : `SELECT *, CASE WHEN LOWER(product_name) LIKE $2 ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
+           FROM products
+          WHERE LOWER(product_name) LIKE $1 ESCAPE '\\'
+             OR LOWER(brands) LIKE $1 ESCAPE '\\'
+          ORDER BY _rank ASC, LENGTH(COALESCE(product_name, '')) ASC
+          LIMIT $3 OFFSET $4`;
+    const reader = await conn.runAndReadAll(sql, [pattern, startPattern, pageSize, offset]);
     const rows = reader.getRowObjects();
     return {
       hits: rows.map(_toOffProduct),
@@ -296,14 +337,26 @@ async function _runRefresh(source) {
     const nodeReadable = Readable.fromWeb(res.body);
     await pipeline(nodeReadable, progressTap, writeStream);
 
-    // Validate the new file opens before swapping. If OFF served a partial
-    // or corrupt response, abort the swap so we keep serving the old mirror.
+    // Validate the new file opens before swapping. If OFF / Hugging Face
+    // served a partial or corrupt response, abort the swap so we keep
+    // serving the old mirror. Same magic-byte detection as _init() — we
+    // don't trust the path's extension so a user who keeps the old
+    // /data/off.duckdb path but downloads Parquet content still gets
+    // validated correctly.
     const { DuckDBInstance } = await import('@duckdb/node-api');
+    const isParquet = _sniffParquet(newPath);
     let testInstance = null;
     let testConn = null;
     try {
-      testInstance = await DuckDBInstance.create(newPath, { access_mode: 'READ_ONLY' });
-      testConn = await testInstance.connect();
+      if (isParquet) {
+        testInstance = await DuckDBInstance.create(':memory:');
+        testConn = await testInstance.connect();
+        const safePath = newPath.replace(/'/g, "''");
+        await testConn.run(`CREATE VIEW products AS SELECT * FROM read_parquet('${safePath}');`);
+      } else {
+        testInstance = await DuckDBInstance.create(newPath, { access_mode: 'READ_ONLY' });
+        testConn = await testInstance.connect();
+      }
       const probe = await testConn.runAndReadAll('SELECT COUNT(*) AS n FROM products LIMIT 1');
       const rows = probe.getRowObjects();
       if (!rows.length) throw new Error('products table empty');
@@ -361,10 +414,74 @@ export function primeFromStartup() {
   }
 }
 
+/** Read the first 4 bytes of a file and check the Parquet magic header
+ *  ("PAR1"). Returns true for Parquet, false for anything else
+ *  (including unreadable files — caller handles open errors separately).
+ *  Used to dispatch to read_parquet() view vs native DuckDB open, so
+ *  filename / extension doesn't have to match content. */
+function _sniffParquet(filePath) {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(4);
+      const n = fs.readSync(fd, buf, 0, 4, 0);
+      if (n < 4) return false;
+      return buf.toString('ascii') === 'PAR1';
+    } finally {
+      try { fs.closeSync(fd); } catch {}
+    }
+  } catch {
+    return false;
+  }
+}
+
 // ── Row → API shape ────────────────────────────────────────────────────────
+// Two schemas supported, dispatched on row.product_name's runtime shape:
+//
+//   HF Parquet (rc.39+ default):
+//     product_name:  LIST<{lang: string, text: string}>     (localized)
+//     generic_name:  LIST<{lang, text}>                     (fallback)
+//     brands:        string
+//     brands_tags:   LIST<string>
+//     categories:    string
+//     categories_tags: LIST<string>
+//     serving_size, serving_quantity, quantity: string
+//     nutriments:    LIST<{name, value, 100g, serving, unit, prepared_*}>
+//     images:        LIST<{key, imgid, rev, sizes:{100,200,400,full},...}>
+//     lang:          string  (product's primary language)
+//
+//   Legacy native DuckDB (pre-rc.39 .duckdb files OFF used to publish):
+//     product_name:  string
+//     brands:        string
+//     image_url, image_small_url, image_front_url: string
+//     nutriments:    STRUCT keyed by `${nutrient}_100g` etc., OR fields
+//                    flattened as top-level columns
+//
+// The branching is on Array.isArray(row.product_name) — Parquet returns an
+// array, legacy returns a string. Both paths produce the same OFF-API
+// response shape so callers (proxy.js, the client) don't need to know
+// which file format was used.
 
 function _toOffProduct(row) {
-  const nutriments = _flattenNutriments(row.nutriments) || _pickNutrimentColumns(row);
+  if (Array.isArray(row.product_name)) {
+    // Parquet shape
+    const name = _extractLocalized(row.product_name) || _extractLocalized(row.generic_name);
+    return {
+      code: row.code,
+      product_name: name,
+      brands: row.brands || '',
+      brands_tags: row.brands_tags || [],
+      categories: row.categories || '',
+      categories_tags: row.categories_tags || [],
+      ..._buildImageUrls(row.images, row.code, row.lang || 'en'),
+      serving_size: row.serving_size || '',
+      serving_quantity: row.serving_quantity != null ? String(row.serving_quantity) : '',
+      quantity: row.quantity || '',
+      nutriments: _unfoldNutrimentsList(row.nutriments),
+    };
+  }
+  // Legacy native DuckDB shape
+  const nutriments = _flattenNutrimentsStruct(row.nutriments) || _pickNutrimentColumns(row);
   return {
     code: row.code,
     product_name: row.product_name || '',
@@ -382,13 +499,83 @@ function _toOffProduct(row) {
   };
 }
 
-function _flattenNutriments(n) {
-  if (!n || typeof n !== 'object') return null;
+/** Pull the best-fit text from an OFF localized field
+ *  (`product_name`, `generic_name`, `ingredients_text`, etc.).
+ *  Preference order: requested lang → 'main' (OFF's canonical entry) →
+ *  first entry with non-empty text. Returns '' if nothing usable.
+ *  preferLang defaults to 'en'; could later read from the user's offSearchLanguage setting. */
+function _extractLocalized(list, preferLang = 'en') {
+  if (!Array.isArray(list)) return '';
+  const byLang = (l) => list.find(x => x && x.lang === l && x.text);
+  return (byLang(preferLang)?.text)
+      || (byLang('main')?.text)
+      || (list.find(x => x && x.text)?.text)
+      || '';
+}
+
+/** Unfold the HF Parquet nutriments list-of-objects into the flat
+ *  `{name_100g, name_serving, name_value, name_unit}` shape the rest of
+ *  NutriTrace expects (matches OFF's public API response shape).
+ *  Skips elements with no name or no numeric value. */
+function _unfoldNutrimentsList(list) {
+  if (!Array.isArray(list)) return {};
+  const out = {};
+  const num = v => (typeof v === 'bigint' ? Number(v) : v);
+  for (const n of list) {
+    if (!n?.name) continue;
+    if (n['100g']    != null) out[`${n.name}_100g`]    = num(n['100g']);
+    if (n.serving    != null) out[`${n.name}_serving`] = num(n.serving);
+    if (n.value      != null) out[`${n.name}_value`]   = num(n.value);
+    if (n.unit       != null) out[`${n.name}_unit`]    = n.unit;
+  }
+  return out;
+}
+
+/** Legacy DuckDB nested-struct nutriments → flat object. */
+function _flattenNutrimentsStruct(n) {
+  if (!n || typeof n !== 'object' || Array.isArray(n)) return null;
   const out = {};
   for (const [k, v] of Object.entries(n)) {
     if (v != null) out[k] = typeof v === 'bigint' ? Number(v) : v;
   }
   return Object.keys(out).length ? out : null;
+}
+
+/** OFF stores images at a path derived from the barcode:
+ *    barcodes >= 13 chars → split 3/3/3/rest (e.g. 5449000131805 → 544/900/013/1805)
+ *    shorter barcodes     → used as-is
+ *  Combined with the image element's {key, rev} this yields:
+ *    https://images.openfoodfacts.org/images/products/<path>/<key>.<rev>.<size>.jpg
+ *  where size is one of 100, 200, 400, full. */
+function _offImagePath(code) {
+  if (code == null) return '';
+  const s = String(code);
+  if (s.length < 13) return s;
+  return `${s.slice(0,3)}/${s.slice(3,6)}/${s.slice(6,9)}/${s.slice(9)}`;
+}
+
+/** Pick the best front image from the HF Parquet `images` list and build
+ *  the three URL variants the client expects (image_url, image_small_url,
+ *  image_front_url). Preference: front_<lang> → front_main → front_<any
+ *  lang> → bare 'front' → first numeric raw upload. */
+function _buildImageUrls(images, code, lang = 'en') {
+  const empty = { image_url: '', image_small_url: '', image_front_url: '' };
+  if (!Array.isArray(images) || code == null) return empty;
+  const path = _offImagePath(code);
+  if (!path) return empty;
+  const front = images.find(x => x?.key === `front_${lang}`)
+             || images.find(x => x?.key === 'front_main')
+             || images.find(x => x?.key && typeof x.key === 'string' && x.key.startsWith('front_'))
+             || images.find(x => x?.key === 'front')
+             || images.find(x => x?.key && /^\d+$/.test(String(x.key)));
+  if (!front || front.rev == null || !front.key) return empty;
+  const rev = typeof front.rev === 'bigint' ? Number(front.rev) : front.rev;
+  const base = `https://images.openfoodfacts.org/images/products/${path}/${front.key}.${rev}`;
+  return {
+    image_url:       `${base}.400.jpg`,    // medium — used in lists, food picker
+    image_small_url: `${base}.100.jpg`,    // thumb
+    image_front_url: `${base}.full.jpg`,   // hi-res
+  };
 }
 
 function _pickNutrimentColumns(row) {
