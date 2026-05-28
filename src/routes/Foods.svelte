@@ -599,7 +599,20 @@
   }
 
   async function handleScan({ detail }) {
-    const code = detail.code;
+    const rawCode = detail.code;
+    if (!rawCode) return;
+    // UPC-A → EAN-13 normalization. Barcode scanners return UPC-A codes
+    // in their raw 12-digit form, but OFF (and most product databases)
+    // store them with a leading zero as canonical EAN-13. Padding here
+    // means the local mirror lookup, the remote OFF fallback, the food
+    // editor's _refreshOffPresence preflight, and any saved food.barcode
+    // all see the same canonical form (no "two codes for one product"
+    // downstream). Idempotent for non-12-digit codes (EAN-13, EAN-8,
+    // ITF-14, non-numeric QR payloads all pass through unchanged).
+    // _normBarcode handles cross-form library matching for foods saved
+    // under the old 12-digit form. (Issue #22 followup; duplaja noticed
+    // the redundant remote-OFF roundtrip from the double-lookup log.)
+    const code = /^\d{12}$/.test(rawCode) ? '0' + rawCode : rawCode;
     if (!code) return;
     try {
       // 1. Check the user's library first. If they've already saved this

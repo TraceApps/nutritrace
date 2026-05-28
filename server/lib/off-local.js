@@ -215,11 +215,27 @@ export async function lookupByBarcode(code) {
   const safeCode = String(code || '').trim();
   if (!safeCode) return null;
   try {
-    const reader = await conn.runAndReadAll(
+    let rows = (await conn.runAndReadAll(
       `SELECT * FROM products WHERE code = $1 LIMIT 1`,
       [safeCode]
-    );
-    const rows = reader.getRowObjects();
+    )).getRowObjects();
+
+    // UPC-A → EAN-13 retry. OFF stores 12-digit UPC-A codes with a
+    // leading zero (canonical EAN-13 form), so a caller passing the raw
+    // 12-digit scan misses unless we retry padded. The PWA scanner path
+    // already normalizes via Foods.svelte#handleScan; this is the
+    // defensive layer covering any other caller — AI tools that look up
+    // a product by user-typed code, manual barcode entry in the food
+    // editor, sync-time validation, or third-party callers of the proxy.
+    // Single retry, only when the original code is exactly 12 digits, so
+    // we don't accidentally widen the search for other formats.
+    if (!rows.length && /^\d{12}$/.test(safeCode)) {
+      rows = (await conn.runAndReadAll(
+        `SELECT * FROM products WHERE code = $1 LIMIT 1`,
+        ['0' + safeCode]
+      )).getRowObjects();
+    }
+
     if (!rows.length) {
       return { status: 0, status_verbose: 'product not found', code: safeCode };
     }

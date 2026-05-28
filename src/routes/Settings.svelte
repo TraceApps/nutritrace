@@ -3719,7 +3719,13 @@
     color: var(--text-3);
     padding: 4px 2px 2px;
   }
-  .sel-sm { height: 36px; font-size: 13px; }
+  /* width:auto stops the global .select { width:100% } from blowing the
+     dropdown out to the full row width, which would squeeze the
+     adjacent .setting-label into a 1ch column and (combined with
+     overflow-wrap:anywhere on labels) stack the label vertically one
+     character per line. max-width keeps wider option text from
+     overflowing the card. */
+  .sel-sm { height: 36px; font-size: 13px; width: auto; max-width: 100%; }
 
   .cat-chips-wrap {
     display: flex; flex-wrap: wrap; gap: 8px;

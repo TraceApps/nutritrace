@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.41] - 2026-05-28
+
+### Fixed
+
+- **Settings: long labels next to dropdowns rendered vertically.** Some
+  rows like Water → Display Unit were squeezing the label down to a
+  single-character column and stacking it letter by letter. Capped the
+  small-dropdown width so labels render normally again.
+- **OFF local mirror: scanning a UPC-A barcode no longer makes a
+  pointless call to the public OFF API.** Scans now use the same
+  canonical 13-digit format Open Food Facts stores its codes in, so the
+  local mirror hits on the first lookup instead of after a roundtrip.
+  (Issue #22 followup, reported by duplaja)
+
+---
+
 ## [1.0.0-rc.40] — 2026-05-28
 
 ### Fixed
@@ -16,14 +32,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Diary: meal kcal footer truncated meals over 1000 kcal.** The per-meal
   subtotal at the bottom of each diary card was dropping digits after the
   thousands comma, so a 1,234 kcal lunch displayed as "1 kcal".
-  (Issue #51, reported by @LoveHonorGirth)
+  (Issue #51, reported by LoveHonorGirth)
 - **OFF local mirror: barcode scans threw a JS error on the client.** The
   Parquet schema adapter assumed `product_name` lists were always real
   Arrays, but the DuckDB Node API can return list-like iterables that
   broke the assumption and leaked through as a non-string field, crashing
   the client's `.trim()` call. Now coerces to a real Array up front and
   guarantees a string output in both schema branches.
-  (Issue #22 followup, reported by @duplaja)
+  (Issue #22 followup, reported by duplaja)
 
 ### Changed
 
@@ -55,7 +71,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   displays. Available as a metric on Goals, Statistics, and the
   Settings visibility toggle list, with the same hide-by-default
   behavior as other optional body stats. (Issue #52, requested by
-  @LoveHonorGirth)
+  LoveHonorGirth)
 
 ---
 
@@ -87,9 +103,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Docker image now actually loads DuckDB.** Base swapped from Alpine to
   Debian-slim so the OFF mirror feature works end to end. Image grows ~30 MB.
-  (Reported by @duplaja)
+  (Reported by duplaja)
 - **Goals: body-stat fallback now appears on the initial "Your Goals" tab**
-  instead of only after switching tabs. (Issue #46 followup from @duplaja)
+  instead of only after switching tabs. (Issue #46 followup from duplaja)
 - **Quick Calories: macro input width grows with the typed value** so the "g"
   stays flush against the digits regardless of length.
 
