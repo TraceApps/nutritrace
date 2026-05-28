@@ -570,6 +570,34 @@
     return String(b || '').trim().replace(/^0+/, '');
   }
 
+  // Loading overlay state — shown while a scanned barcode is being looked
+  // up against Open Food Facts. Without it the user could be left staring
+  // at the Foods tab between camera close and editor open on slow or
+  // first-cold mirror queries (duplaja's barcode UX note on #22). The
+  // overlay only appears for the OFF lookup leg; library hits are
+  // instantaneous and never flash it.
+  //
+  // Deferred reveal: 400ms grace before the indicator becomes visible,
+  // so the typical sub-half-second lookup flashes nothing. Slow lookups
+  // (cold DuckDB, sluggish OFF API, overloaded mirror) get a clear
+  // indicator past that threshold. Auto-dismisses on success / error /
+  // exception via the finally block.
+  let _scanLookupActive    = false;
+  let _scanLookupCode      = '';
+  let _scanIndicatorVisible = false;
+  let _scanIndicatorTimer   = null;
+  function _armScanIndicator() {
+    clearTimeout(_scanIndicatorTimer);
+    _scanIndicatorTimer = setTimeout(() => {
+      if (_scanLookupActive) _scanIndicatorVisible = true;
+    }, 400);
+  }
+  function _disarmScanIndicator() {
+    clearTimeout(_scanIndicatorTimer);
+    _scanIndicatorTimer    = null;
+    _scanIndicatorVisible  = false;
+  }
+
   async function handleScan({ detail }) {
     const code = detail.code;
     if (!code) return;
@@ -593,6 +621,9 @@
       //    the user can enter the food manually and optionally contribute
       //    it back to OFF via the editor's Contribute button. Previously
       //    this just showed a dead-end "Barcode not found" toast.
+      _scanLookupCode   = code;
+      _scanLookupActive = true;
+      _armScanIndicator();
       const { API } = await import('../lib/api.js');
       const result = await API.lookupBarcode(code);
       if (result) {
@@ -606,6 +637,10 @@
       const { showError: se } = await import('../stores/toast.js');
       se('Lookup failed — opening editor so you can enter manually');
       openEditor({ barcode: code }, 'foodList');
+    } finally {
+      _scanLookupActive = false;
+      _scanLookupCode   = '';
+      _disarmScanIndicator();
     }
   }
 
@@ -1207,6 +1242,24 @@
 
 <BarcodeScanner bind:open={scannerOpen} on:scan={handleScan} on:close={() => scannerOpen = false} />
 
+<!-- Barcode-lookup loading overlay. Deferred reveal (see _armScanIndicator
+     above) means fast lookups don't flash this UI; only lookups that run
+     past 400ms render it. Non-modal: doesn't catch clicks, just signals
+     activity. Dismisses automatically when handleScan's finally fires. -->
+{#if _scanIndicatorVisible}
+  <div class="scan-lookup-overlay" transition:fade={{ duration: 150 }}>
+    <div class="scan-lookup-card" role="status" aria-live="polite">
+      <span class="material-symbols-rounded scan-lookup-spin">progress_activity</span>
+      <div class="scan-lookup-text">
+        <span class="scan-lookup-title">Looking up barcode</span>
+        {#if _scanLookupCode}
+          <span class="scan-lookup-code">{_scanLookupCode}</span>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
 <ActionSheet
   bind:open={showItemActions}
   title={selectedItem ? selectedItem.name : ''}
@@ -1518,5 +1571,53 @@
     border-color: var(--accent);
     color: var(--surface-1);
     font-weight: 600;
+  }
+
+  /* Barcode-lookup loading overlay. Centered card, soft backdrop, polished
+     spinner. pointer-events: none on the wrapper so the user can still
+     interact with the page underneath (e.g. cancel by navigating away).
+     Lives above the bottom nav (~900) and below toasts (~9999). */
+  .scan-lookup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+    padding: 16px;
+  }
+  .scan-lookup-card {
+    pointer-events: auto;
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 18px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 10px 32px -8px rgba(0, 0, 0, 0.35),
+                0 2px 6px rgba(0, 0, 0, 0.18);
+    min-width: 220px; max-width: min(360px, 90vw);
+  }
+  .scan-lookup-spin {
+    font-size: 28px;
+    color: var(--accent);
+    flex-shrink: 0;
+    animation: scan-lookup-rotate 1s linear infinite;
+  }
+  .scan-lookup-text {
+    display: flex; flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .scan-lookup-title {
+    font-size: 14px; font-weight: 600;
+    color: var(--text-1);
+  }
+  .scan-lookup-code {
+    font-size: 12px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  @keyframes scan-lookup-rotate {
+    to { transform: rotate(360deg); }
   }
 </style>

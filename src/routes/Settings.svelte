@@ -842,7 +842,8 @@
   const BODY_STATS = [
     { id:'weight', label:'Weight' }, { id:'neck', label:'Neck' }, { id:'waist', label:'Waist' },
     { id:'hips', label:'Hips' }, { id:'chest', label:'Chest' }, { id:'thighs', label:'Thighs' },
-    { id:'biceps', label:'Biceps' }, { id:'calves', label:'Calves' }, { id:'body_fat', label:'Body Fat %' },
+    { id:'biceps', label:'Biceps' }, { id:'calves', label:'Calves' },
+    { id:'body_fat', label:'Body Fat %' }, { id:'body_water', label:'Body Water %' },
   ];
   function isStatVisible(id) {
     const hidden = $hiddenBodyStats || [];

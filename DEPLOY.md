@@ -143,16 +143,16 @@ Self-hosters on air-gapped networks, in strict-egress environments, or just want
 
 ### Setup
 
-1. Uncomment the OFF mirror volume mount in `docker-compose.yml`:
+1. Uncomment the OFF mirror volume mount in `docker-compose.yml`. **Bind-mount a parent directory, not the file itself** — Docker auto-creates missing single-file bind-mount sources as directories on the host, which then surfaces inside the container as a directory at the mount point and breaks atomic-swap refresh with `EISDIR` (issue #22 followup):
    ```yaml
-   - ${OFF_LOCAL_DB_HOST_PATH:-./off.parquet}:/data/off.parquet
+   - ${OFF_LOCAL_DB_HOST_PATH:-./off-mirror}:/data/off-mirror
    ```
-   Note: the mount is read-write so NutriTrace can perform in-place refresh via atomic swap. Earlier docs suggested `:ro`; if you previously set that, change it to writable so scheduled and manual refreshes work.
+   The mount is read-write so NutriTrace can perform in-place refresh via atomic swap. Earlier docs suggested `:ro`; if you previously set that, change it to writable so scheduled and manual refreshes work.
 
 2. Set the env vars in `.env`:
    ```bash
-   OFF_LOCAL_DB_HOST_PATH=/path/on/host/off.parquet   # the host path (will be created if missing)
-   OFF_LOCAL_DB=/data/off.parquet                     # the in-container path
+   OFF_LOCAL_DB_HOST_PATH=/path/on/host/off-mirror        # parent directory on host
+   OFF_LOCAL_DB=/data/off-mirror/off.parquet              # in-container path to the file
    # Optional — pin the download URL (defaults to the maintained Hugging Face Parquet dump).
    # OFF_LOCAL_URL=https://huggingface.co/datasets/openfoodfacts/product-database/resolve/main/food.parquet?download=true
    # Optional — full air-gap mode (never call api.openfoodfacts.org)
@@ -176,8 +176,8 @@ You can also click **Refresh Now** in the same panel to force an immediate refre
 Prefer the command line? You can still drop a fresh file in place manually:
 
 ```bash
-wget 'https://huggingface.co/datasets/openfoodfacts/product-database/resolve/main/food.parquet?download=true' -O /path/on/host/off.parquet.new
-mv /path/on/host/off.parquet.new /path/on/host/off.parquet
+wget 'https://huggingface.co/datasets/openfoodfacts/product-database/resolve/main/food.parquet?download=true' -O /path/on/host/off-mirror/off.parquet.new
+mv /path/on/host/off-mirror/off.parquet.new /path/on/host/off-mirror/off.parquet
 # Optional — trigger reopen without waiting for the next lookup:
 docker compose restart
 ```

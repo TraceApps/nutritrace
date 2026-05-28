@@ -13,15 +13,16 @@
   import { showSuccess } from '../stores/toast.js';
 
   const BODY_STATS = [
-    { id: 'weight',   label: 'Weight',   isBody: true },
-    { id: 'neck',     label: 'Neck',     isBody: true },
-    { id: 'waist',    label: 'Waist',    isBody: true },
-    { id: 'hips',     label: 'Hips',     isBody: true },
-    { id: 'chest',    label: 'Chest',    isBody: true },
-    { id: 'thighs',   label: 'Thighs',   isBody: true },
-    { id: 'biceps',   label: 'Biceps',   isBody: true },
-    { id: 'calves',   label: 'Calves',   isBody: true },
-    { id: 'body_fat', label: 'Body Fat', isBody: true, unit: '%' },
+    { id: 'weight',     label: 'Weight',     isBody: true },
+    { id: 'neck',       label: 'Neck',       isBody: true },
+    { id: 'waist',      label: 'Waist',      isBody: true },
+    { id: 'hips',       label: 'Hips',       isBody: true },
+    { id: 'chest',      label: 'Chest',      isBody: true },
+    { id: 'thighs',     label: 'Thighs',     isBody: true },
+    { id: 'biceps',     label: 'Biceps',     isBody: true },
+    { id: 'calves',     label: 'Calves',     isBody: true },
+    { id: 'body_fat',   label: 'Body Fat',   isBody: true, unit: '%' },
+    { id: 'body_water', label: 'Body Water', isBody: true, unit: '%' },
   ];
 
   $: wUnit = $weightUnit || 'kg';

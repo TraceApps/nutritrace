@@ -463,12 +463,26 @@ function _sniffParquet(filePath) {
 // which file format was used.
 
 function _toOffProduct(row) {
-  if (Array.isArray(row.product_name)) {
-    // Parquet shape
-    const name = _extractLocalized(row.product_name) || _extractLocalized(row.generic_name);
+  // Normalize LIST<STRUCT> columns up front: DuckDB Node API can return
+  // LIST values as either a real Array (typical) or a list-like object
+  // (iterable but not Array.isArray) depending on version. The previous
+  // Array.isArray check missed the latter case and dropped through to the
+  // legacy branch, which then leaked the raw list object out as
+  // product_name and broke the client's .trim() call (issue #22 followup
+  // from @duplaja). Coerce to a real Array here so both branches see the
+  // shape they expect.
+  const _asArray = v => Array.isArray(v)
+    ? v
+    : (v != null && typeof v !== 'string' && typeof v[Symbol.iterator] === 'function')
+      ? Array.from(v)
+      : null;
+  const pnList = _asArray(row.product_name);
+  if (pnList) {
+    // Parquet shape: product_name is LIST<{lang, text}>
+    const name = _extractLocalized(pnList) || _extractLocalized(_asArray(row.generic_name));
     return {
       code: row.code,
-      product_name: name,
+      product_name: typeof name === 'string' ? name : '',
       brands: row.brands || '',
       brands_tags: row.brands_tags || [],
       categories: row.categories || '',
@@ -480,11 +494,11 @@ function _toOffProduct(row) {
       nutriments: _unfoldNutrimentsList(row.nutriments),
     };
   }
-  // Legacy native DuckDB shape
+  // Legacy native DuckDB shape (product_name is a plain string column)
   const nutriments = _flattenNutrimentsStruct(row.nutriments) || _pickNutrimentColumns(row);
   return {
     code: row.code,
-    product_name: row.product_name || '',
+    product_name: typeof row.product_name === 'string' ? row.product_name : '',
     brands: row.brands || '',
     brands_tags: row.brands_tags || [],
     categories: row.categories || '',

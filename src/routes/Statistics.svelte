@@ -76,15 +76,16 @@
 
   // All available metrics = NUTRIMENTS + body stats + wellness
   $: BODY_STATS = [
-    { value: 'weight',   label: 'Weight',    unit: $weightUnit || 'lb' },
-    { value: 'neck',     label: 'Neck',      unit: $lengthUnit || 'in' },
-    { value: 'waist',    label: 'Waist',     unit: $lengthUnit || 'in' },
-    { value: 'hips',     label: 'Hips',      unit: $lengthUnit || 'in' },
-    { value: 'chest',    label: 'Chest',     unit: $lengthUnit || 'in' },
-    { value: 'thighs',   label: 'Thighs',    unit: $lengthUnit || 'in' },
-    { value: 'biceps',   label: 'Biceps',    unit: $lengthUnit || 'in' },
-    { value: 'calves',   label: 'Calves',    unit: $lengthUnit || 'in' },
-    { value: 'body_fat', label: 'Body Fat',  unit: '%'  },
+    { value: 'weight',     label: 'Weight',     unit: $weightUnit || 'lb' },
+    { value: 'neck',       label: 'Neck',       unit: $lengthUnit || 'in' },
+    { value: 'waist',      label: 'Waist',      unit: $lengthUnit || 'in' },
+    { value: 'hips',       label: 'Hips',       unit: $lengthUnit || 'in' },
+    { value: 'chest',      label: 'Chest',      unit: $lengthUnit || 'in' },
+    { value: 'thighs',     label: 'Thighs',     unit: $lengthUnit || 'in' },
+    { value: 'biceps',     label: 'Biceps',     unit: $lengthUnit || 'in' },
+    { value: 'calves',     label: 'Calves',     unit: $lengthUnit || 'in' },
+    { value: 'body_fat',   label: 'Body Fat',   unit: '%'  },
+    { value: 'body_water', label: 'Body Water', unit: '%'  },
   ];
   $: METRICS = [
     ...NUTRIMENTS.filter(n => n.default),
@@ -111,7 +112,13 @@
     let fromStr = '', toStr = localDateStr();
 
     const isWellness   = metric.startsWith('wl_');
-    const isBodyDevice = (metric === 'weight' || metric === 'body_fat') && ($withingsEnabled || $healthConnectEnabled);
+    // Withings + Health Connect both report weight + body fat; Withings is
+    // the only device that reports body water % (Health Connect's
+    // "Hydration" data type is drink intake, not body composition), so
+    // body_water is device-sourced only when Withings is connected.
+    const isBodyDevice =
+      ((metric === 'weight' || metric === 'body_fat') && ($withingsEnabled || $healthConnectEnabled)) ||
+      (metric === 'body_water' && $withingsEnabled);
 
     if (range === 'all' && (isWellness || isBodyDevice)) {
       // Wellness data doesn't come from diary — use last 365 days
@@ -207,7 +214,9 @@
 
         if (isBodyDevice) {
           // Device-first: Withings wins, then HC, then diary fallback
-          const apiField = metric === 'weight' ? 'weight_kg' : 'body_fat_pct';
+          const apiField = metric === 'weight'     ? 'weight_kg'
+                         : metric === 'body_water' ? 'body_water_pct'
+                                                   : 'body_fat_pct';
           const raw = withingsData[date]?.[apiField]?.value ?? hcBodyData[date]?.[apiField] ?? null;
           if (raw != null) {
             val = metric === 'weight' && $weightUnit === 'lb' ? raw * 2.20462 : raw;

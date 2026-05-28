@@ -12,11 +12,18 @@ services:
       # OFF_LOCAL_DB in .env. NutriTrace downloads the initial ~7-8 GB
       # Parquet snapshot from Hugging Face automatically on first boot if
       # the file is missing; subsequent refreshes happen on a schedule from
-      # the Settings UI. Mount is read-write so atomic swap during refresh
-      # succeeds. File extension is auto-detected — Parquet (default) or
-      # legacy .duckdb both supported. See DEPLOY.md → "Local Open Food
+      # the Settings UI. File extension is auto-detected — Parquet (default)
+      # or legacy .duckdb both supported. See DEPLOY.md → "Local Open Food
       # Facts mirror" for the full recipe.
-      # - ${OFF_LOCAL_DB_HOST_PATH:-./off.parquet}:/data/off.parquet
+      #
+      # IMPORTANT: bind-mount a parent DIRECTORY, not the file itself.
+      # Docker auto-creates missing single-file bind-mount sources as
+      # directories on the host, which then surfaces inside the container
+      # as a directory at the mount point and breaks the atomic-swap
+      # rename during refresh with EISDIR (issue #22 followup, reported
+      # by @duplaja). The file lives inside the mounted directory; set
+      # OFF_LOCAL_DB to the in-container path of the file below.
+      # - ${OFF_LOCAL_DB_HOST_PATH:-./off-mirror}:/data/off-mirror
     # Forward every variable from .env into the container. Without this, only
     # variables explicitly named in the `environment:` block below reach the
     # app, so .env settings like INSECURE_COOKIES were silently ignored (#41).
@@ -80,11 +87,12 @@ services:
       # and are read-only there — edit via .env / docker-compose / k8s secrets.
       # Optional — Local Open Food Facts mirror (Issue #22). When set,
       # barcode + name lookups try the local mirror before reaching out
-      # to api.openfoodfacts.org. Path is the in-container path matching
-      # the volume mount above. File extension is auto-detected — Parquet
-      # (default since rc.39) or legacy .duckdb both supported. See
-      # DEPLOY.md for download / refresh.
-      # - OFF_LOCAL_DB=${OFF_LOCAL_DB:-}                        # e.g. /data/off.parquet
+      # to api.openfoodfacts.org. Path is the in-container path to the
+      # mirror file, which lives inside the directory bind-mount above.
+      # File extension is auto-detected (Parquet default since rc.39, or
+      # legacy .duckdb still supported). See DEPLOY.md for download /
+      # refresh.
+      # - OFF_LOCAL_DB=${OFF_LOCAL_DB:-}                        # e.g. /data/off-mirror/off.parquet
       # - OFF_LOCAL_ONLY=${OFF_LOCAL_ONLY:-}                    # 1 = air-gap mode, never call remote OFF
       # - OFF_LOCAL_URL=${OFF_LOCAL_URL:-}                      # override download source (defaults to HF Parquet)
       # Any server env var may also be supplied via <NAME>_FILE, for example:

@@ -9,6 +9,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.40] — 2026-05-28
+
+### Fixed
+
+- **Diary: meal kcal footer truncated meals over 1000 kcal.** The per-meal
+  subtotal at the bottom of each diary card was dropping digits after the
+  thousands comma, so a 1,234 kcal lunch displayed as "1 kcal".
+  (Issue #51, reported by @LoveHonorGirth)
+- **OFF local mirror: barcode scans threw a JS error on the client.** The
+  Parquet schema adapter assumed `product_name` lists were always real
+  Arrays, but the DuckDB Node API can return list-like iterables that
+  broke the assumption and leaked through as a non-string field, crashing
+  the client's `.trim()` call. Now coerces to a real Array up front and
+  guarantees a string output in both schema branches.
+  (Issue #22 followup, reported by @duplaja)
+
+### Changed
+
+- **OFF local mirror Docker example now uses a parent-directory bind
+  mount** (`./off-mirror:/data/off-mirror` with
+  `OFF_LOCAL_DB=/data/off-mirror/off.parquet`) across `docker-compose.yml`,
+  `DEPLOY.md`, and `.env.example`. The previous single-file bind-mount
+  example tripped Docker's auto-create-as-directory behavior on a fresh
+  host path, which then broke the atomic-swap refresh with `EISDIR`.
+  Existing setups that already work are unaffected. (Issue #22 followup)
+
+### Added
+
+- **Per-query debug logs for the OFF local mirror.** With
+  `LOG_LEVEL=debug`, every barcode and name-search lookup now prints
+  whether it was served from the local mirror or fell through to the
+  remote OFF API, with hit counts for searches.
+- **Loading indicator for barcode scan lookups.** Slow Open Food Facts
+  lookups (cold local-mirror queries, overloaded remote API, sluggish
+  networks) used to leave the user staring at the Foods tab between
+  camera close and editor open with no feedback. A centered "Looking
+  up barcode" card now appears if the lookup hasn't returned within
+  400ms; fast lookups still flash nothing. Library hits remain instant
+  with no indicator.
+- **Body Water % as a body stat.** New manual-entry field on the body
+  stats sheet, alongside Body Fat %. Withings already auto-syncs this
+  via type 77 (and continues to), so connected users see it without
+  typing; non-Withings users can now log the number their smart scale
+  displays. Available as a metric on Goals, Statistics, and the
+  Settings visibility toggle list, with the same hide-by-default
+  behavior as other optional body stats. (Issue #52, requested by
+  @LoveHonorGirth)
+
+---
+
 ## [1.0.0-rc.39] — 2026-05-27
 
 ### Added

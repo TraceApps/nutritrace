@@ -581,7 +581,13 @@
     const p = Math.round((t.proteins || 0) * 4 / cal * 100);
     const c = Math.round((t.carbohydrates || 0) * 4 / cal * 100);
     const f = Math.round((t.fat || 0) * 9 / cal * 100);
-    return { cal: Math.round(cal).toLocaleString(), p, c, f };
+    // cal stays as a number — the meal-macro-footer passes it through
+    // Nutrition.displayEnergy() which does parseFloat() internally. Returning
+    // a locale-formatted string like "29,710" used to break that parseFloat
+    // (it'd stop at the comma and yield 29), truncating meal kcal totals
+    // above 1000 to the leading digit(s). The template handles display-side
+    // commas via _mtEnergy.value.toLocaleString() below. (Issue #51)
+    return { cal: Math.round(cal), p, c, f };
   }
 
   function getMealItems(entryItems, mealIdx) {
@@ -1983,6 +1989,10 @@
           {#if !($hiddenBodyStats||[]).includes('body_fat')}
           <div><label class="form-label">Body Fat %</label>
             <input class="input" type="number" step="0.1" min="0" max="100" bind:value={bodyStatsData.body_fat} /></div>
+          {/if}
+          {#if !($hiddenBodyStats||[]).includes('body_water')}
+          <div><label class="form-label">Body Water %</label>
+            <input class="input" type="number" step="0.1" min="0" max="100" bind:value={bodyStatsData.body_water} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('neck')}
           <div><label class="form-label">Neck ({$lengthUnit||'in'})</label>

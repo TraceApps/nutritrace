@@ -110,8 +110,15 @@ async function _tryLocalOff(parsedUrl) {
     if (!m) return undefined;
     const code = m[1];
     const result = await lookupByBarcode(code);
-    if (result == null) return undefined;          // mirror errored — fall through (or 503 in air-gap)
-    if (result.status === 0 && !airGap) return undefined;   // mirror miss in non-air-gap — try live
+    if (result == null) {
+      logger.debug(`[off-local] barcode ${code} → mirror error, falling through to remote OFF`);
+      return undefined;
+    }
+    if (result.status === 0 && !airGap) {
+      logger.debug(`[off-local] barcode ${code} → miss, falling through to remote OFF`);
+      return undefined;
+    }
+    logger.debug(`[off-local] barcode ${code} → hit from local mirror${airGap && result.status === 0 ? ' (air-gap, returning empty)' : ''}`);
     return result;
   }
   // Name search: /search?q=...&page=...&page_size=...
@@ -120,8 +127,16 @@ async function _tryLocalOff(parsedUrl) {
     const page = parseInt(parsedUrl.searchParams.get('page') || '1', 10);
     const pageSize = parseInt(parsedUrl.searchParams.get('page_size') || '20', 10);
     const result = await searchByName(q, { page, pageSize });
-    if (result == null) return undefined;
-    if ((result.hits?.length ?? 0) === 0 && !airGap) return undefined;  // empty search in non-air-gap — try live
+    if (result == null) {
+      logger.debug(`[off-local] search "${q}" → mirror error, falling through to remote OFF`);
+      return undefined;
+    }
+    const hitCount = result.hits?.length ?? 0;
+    if (hitCount === 0 && !airGap) {
+      logger.debug(`[off-local] search "${q}" → 0 hits, falling through to remote OFF`);
+      return undefined;
+    }
+    logger.debug(`[off-local] search "${q}" → ${hitCount} hits from local mirror${airGap && hitCount === 0 ? ' (air-gap, returning empty)' : ''}`);
     return result;
   }
   // Any other OFF endpoint (CGI scripts for product upload, images, etc.):
