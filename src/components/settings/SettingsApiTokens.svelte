@@ -14,9 +14,11 @@
    */
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
+  import { _ } from 'svelte-i18n';
   import { apiUrl, isNative, getServerUrl, getAuthToken } from '../../lib/platform.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
+  import Spinner from '../ui/Spinner.svelte';
 
   // NT sub-components are body-only — the section-toggle button is
   // rendered externally in Settings.svelte. This component only renders
@@ -79,7 +81,7 @@
 
   async function createNewToken() {
     if (creating) return;
-    if (!newName.trim()) { showError('Name required'); return; }
+    if (!newName.trim()) { showError($_('common.errors.name_required')); return; }
     if (newScopes.size === 0) { showError('At least one scope required'); return; }
 
     creating = true;
@@ -168,9 +170,10 @@
 
 <div class="section-body" transition:slide={{ duration: 180 }}>
       <p class="sub-label" style="padding:0 0 6px">
-        Bearer tokens for sister TraceApps (CookTrace, LiftTrace) or other authorized
-        integrations to read your data via the federation API at <code>/api/v1/</code>.
-        See <a href="https://github.com/traceapps/nutritrace/blob/main/docs/federation.md" target="_blank" rel="noopener">docs/federation.md</a>.
+        Bearer tokens for sister TraceApps (LiftTrace, CookTrace <em>(in development)</em>) or
+        other authorized integrations to read or write your data via the federation API at
+        <code>/api/v1/</code>. See
+        <a href="https://github.com/traceapps/nutritrace/blob/main/docs/federation.md" target="_blank" rel="noopener">docs/federation.md</a>.
       </p>
 
       {#if justCreatedRaw}
@@ -197,7 +200,7 @@
 
       <div class="card settings-card">
         {#if loading && tokens.length === 0}
-          <div class="setting-row"><span class="text-3 text-sm">Loading…</span></div>
+          <Spinner block size="sm" />
         {:else if tokens.length === 0}
           <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:14px 16px">
             <span class="setting-label">No tokens yet</span>

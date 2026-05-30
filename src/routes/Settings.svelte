@@ -51,7 +51,7 @@
   import { NUTRIMENTS } from '../lib/nutrition.js';
   import { UNIT_GROUPS } from '../lib/units.js';
   import ConnectionStatus from '../components/settings/ConnectionStatus.svelte';
-  import { currentUser, userMgmtActive, serverFeatures } from '../stores/auth.js';
+  import { currentUser, userMgmtActive } from '../stores/auth.js';
   import { isNative, getServerUrl, setServerUrl, setNativeMode, getNativeMode, setAuthToken, apiUrl, getAuthToken, resolveAssetUrl, explainConnectError } from '../lib/platform.js';
   import { _ } from 'svelte-i18n';
   import { AVAILABLE_LOCALES } from '../i18n/index.js';
@@ -315,12 +315,12 @@
     customUnits:       ['units','custom units','unit dropdown','shot','scoop','stick','add unit'],
     nutrients:         ['nutrients','nutriments','custom nutrients','vitamins','minerals'],
     goals:             ['goals','calorie goal','dynamic calorie','adaptive','adaptive tdee','adaptive calorie','tdee','energy expenditure','burn','calories out','factor','lose','gain','maintain','activity','exercise','weight trend','macrofactor','learn','fixed'],
-    bodyStats:         ['body stats','body','weight','measurements','stats'],
+    bodyStats:         ['body stats','body','weight','measurements','stats','body fat','body water','hydration','muscle','bone'],
     statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
     connectedServices: ['food sources','connected services','usda','open food facts','mealie','recipe','search language','country','api key','credentials','username','password'],
     ai:                ['ai','trace','assistant','provider','model','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights','claude','openai','gemini','ollama','lm studio','deepseek','groq','openai compatible','oai-compat','base url'],
     notifications:     ['notifications','reminders','water reminder','meal reminder','weigh-in','weigh in','gotify','apprise','ntfy','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
-    wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress'],
+    wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress','lifttrace','workout','calories burned','wearable'],
     sharing:           ['sharing','share','group','catalogue','catalog','visibility','private','members','food sharing'],
     backup:            ['backup','full backup','restore','zip','images','clear data','reset','defaults','clear settings','danger zone'],
     importExport:      ['import','export','import & export','json','csv','bulk import','foods bulk','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','migrate','migration','from another app','diary csv'],
@@ -3075,8 +3075,11 @@
     {/if}
     {/if}
 
-    <!-- ── API Tokens (federation API access — admin only on multi-user, gated by NT_FEATURES_API=1) ── -->
-    {#if $serverFeatures.apiTokens && $userMgmtActive && $currentUser?.role === 'admin'}
+    <!-- ── API Tokens (federation API for sister TraceApps — admin only). ──
+         No env var gate anymore (was NT_FEATURES_API=1, removed in rc.42).
+         Visible in both multi-user mode (real admin user) and single-user
+         mode (the synthetic local user is admin by definition). -->
+    {#if $currentUser?.role === 'admin'}
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} on:click={() => toggleSection('apiTokens')}>
       <span class="material-symbols-rounded si">key</span>
       <span>API Tokens</span>

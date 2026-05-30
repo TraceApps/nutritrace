@@ -21,9 +21,12 @@ export const userMgmtActive = writable(false);
 export const setupRequired = writable(false);
 
 /** Server-controlled feature flags (mirrors process.env on the server).
- *  Off by default so dev-only / preview features stay invisible until the
- *  operator opts in. Populated from /api/auth/me responses. */
-export const serverFeatures = writable({ apiTokens: false });
+ *  Populated from /api/auth/me responses. Currently empty; kept as a
+ *  writable for forward compatibility so future flags can land without
+ *  reintroducing the import surface. The apiTokens flag was retired in
+ *  rc.42 once the federation API matured into a documented product
+ *  feature; the Settings panel is now always visible to admins. */
+export const serverFeatures = writable({});
 
 // Synthetic local user for native standalone mode (no server configured).
 // full_name is overridden at load time from the localUserName setting (set

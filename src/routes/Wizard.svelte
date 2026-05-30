@@ -408,11 +408,33 @@
       try { await loadAuthState(); } catch {}
     }
 
-    push('/');
+    // Celebration beat — swap the wizard step content for a small "All
+    // Set" hero card with confetti before navigating home, so onboarding
+    // ends with a real beat instead of just snapping to the diary. Skip
+    // path goes straight to '/'; only Finish gets the celebration.
+    // Honors prefers-reduced-motion (confetti hidden, icon static).
+    // TraceApps parity port from LiftTrace's GA polish pass (LT 452a3ad).
+    wizardDone = true;
+    setTimeout(() => push('/'), 1800);
   }
+
+  let wizardDone = false;
 </script>
 
 <div class="wizard-shell">
+  {#if wizardDone}
+    <!-- Celebration screen — brief beat between finishing the wizard and
+         landing in the diary so onboarding has a moment of closure
+         instead of just blinking to the home page. -->
+    <div class="wizard-done">
+      <div class="wizard-confetti" aria-hidden="true">
+        {#each Array(14) as _, i}<span class="conf c{i % 7}" style:--i={i}></span>{/each}
+      </div>
+      <span class="material-symbols-rounded wizard-done-icon">emoji_events</span>
+      <h2 class="wizard-done-title">You're All Set!</h2>
+      <p class="wizard-done-sub">Welcome to NutriTrace. Loading your diary…</p>
+    </div>
+  {:else}
   <!-- Skip button -->
   <div class="wizard-topbar">
     {#if step > 0 && step < ALL_STEPS.length - 1 && !(_forceAccountCreation && !$userMgmtActive)}
@@ -919,6 +941,7 @@
       {/if}
     </button>
   </div>
+  {/if}
 </div>
 
 {#if skipSetupConfirm}
@@ -1142,5 +1165,58 @@
   .dob-input-wrap {
     margin: 24px auto 0;
     max-width: 360px;
+  }
+
+  /* Celebration screen shown briefly between finishing the wizard and
+     landing in the diary. Ported byte-for-byte from LiftTrace's Wizard
+     polish so the cross-app onboarding closure feels identical. */
+  .wizard-done {
+    position: relative;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px;
+    padding: 48px 16px;
+    text-align: center;
+    overflow: hidden;
+  }
+  .wizard-done-icon {
+    font-size: 72px;
+    color: var(--accent);
+    filter: drop-shadow(0 2px 14px color-mix(in srgb, var(--accent) 40%, transparent));
+    animation: wizard-done-pop 0.5s var(--ease-out, cubic-bezier(0.34, 1.56, 0.64, 1)) both;
+  }
+  .wizard-done-title {
+    font-size: 24px; font-weight: 800; margin: 0; color: var(--text-1);
+    letter-spacing: -0.01em;
+  }
+  .wizard-done-sub { font-size: 14px; color: var(--text-3); margin: 0; }
+  .wizard-confetti {
+    position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  }
+  .wizard-confetti .conf {
+    position: absolute; top: -8px; left: var(--x, 50%);
+    width: 8px; height: 8px; border-radius: 2px;
+    --x: calc(50% + (var(--i) - 7) * 22px);
+    animation: wizard-conf-fall 1.6s ease-out var(--d, 0s) forwards;
+    --d: calc(var(--i) * 60ms);
+  }
+  .wizard-confetti .c0 { background: var(--accent); }
+  .wizard-confetti .c1 { background: color-mix(in srgb, var(--accent) 70%, white); }
+  .wizard-confetti .c2 { background: #ffd166; }
+  .wizard-confetti .c3 { background: #06d6a0; }
+  .wizard-confetti .c4 { background: #ef476f; }
+  .wizard-confetti .c5 { background: #118ab2; }
+  .wizard-confetti .c6 { background: #f78c6b; }
+  @keyframes wizard-done-pop {
+    0%   { transform: scale(0.4); opacity: 0; }
+    60%  { transform: scale(1.1); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes wizard-conf-fall {
+    0%   { transform: translate(0, -20px) rotate(0deg); opacity: 1; }
+    100% { transform: translate(calc((var(--i) - 7) * 6px), 220px) rotate(540deg); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wizard-confetti { display: none; }
+    .wizard-done-icon { animation: none; }
   }
 </style>

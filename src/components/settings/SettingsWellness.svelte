@@ -7,6 +7,7 @@
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
     wellnessEnabled, fitbitEnabled, healthConnectEnabled, wellnessMetrics, workoutsEnabled,
+    lifttraceOverlapFill, envLocks,
     wellnessSyncRange,
     fitbitSyncMode, fitbitSyncInterval, fitbitSyncWindowStart, fitbitSyncWindowEnd,
     withingsSyncRange, withingsEnabled,
@@ -27,6 +28,7 @@
   let withingsEnabledVal   = DB.getSetting('withingsEnabled',   false);
   let healthConnectEnabledVal = DB.getSetting('healthConnectEnabled', false);
   let workoutsEnabledVal     = DB.getSetting('workoutsEnabled',     false);
+  let lifttraceOverlapFillVal = DB.getSetting('lifttraceOverlapFill', true);
   let healthConnectAvailability = 'checking';
   let healthConnectPermissions = { read: [] };
 
@@ -1293,6 +1295,28 @@
             </div>
           </div>
         {/if}
+      </div>
+    {/if}
+
+    <!-- LiftTrace cross-source workout reconciliation. Renders only when
+         BOTH a wearable that reports daily calorie totals is enabled AND
+         a LiftTrace API token is active for this user (lifttrace_connected
+         from /api/app-config/env-locks, which checks for a non-expired
+         api_tokens row with write:workouts scope). Without both halves
+         the conflict the toggle resolves cannot occur, so the toggle
+         would just be UI noise. Lives in its own sub-section at the
+         bottom of the wellness group so the placement reads as
+         cross-cutting rather than nested under any one wearable. -->
+    {#if (fitbitEnabledVal || garminEnabledVal || withingsEnabledVal || healthConnectEnabledVal) && $envLocks?.lifttrace_connected}
+      <p class="sub-label" style="padding-top:16px">LiftTrace</p>
+      <div class="card settings-card">
+        <div class="setting-row">
+          <div>
+            <span class="setting-label">Prefer Wearable Data Over LiftTrace</span>
+            <div class="setting-desc">When LiftTrace sends a completed workout's estimated calories burned and a wearable (Fitbit, Garmin, Google Health, Health Connect) has already logged a daily total for the same date, the wearable's number wins to avoid double-counting (its daily total already includes the workout). LiftTrace workouts still show in Wellness; they just don't add on top. Turn off if your wearable misses lifting sessions and you'd rather count LiftTrace's per-workout estimate instead.</div>
+          </div>
+          <Toggle checked={lifttraceOverlapFillVal} on:change={e => { lifttraceOverlapFillVal = e.detail; lifttraceOverlapFill.set(e.detail); }} />
+        </div>
       </div>
     {/if}
 

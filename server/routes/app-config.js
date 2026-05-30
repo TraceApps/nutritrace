@@ -48,6 +48,23 @@ router.get('/env-locks', requireAuth, wrap(async (req, res) => {
   // call it out separately. See server/lib/off-local.js. Issue #22.
   const off_local = !!process.env.OFF_LOCAL_DB;
   const off_local_only = off_local && !!process.env.OFF_LOCAL_ONLY;
+  // lifttrace_connected: true when this user has at least one active
+  // (non-expired) API token with the write:workouts scope. That scope is
+  // what LiftTrace pushes workouts through, so its presence is the
+  // canonical signal for "the LiftTrace integration is set up for me".
+  // Used by SettingsWellness to gate the visibility of the
+  // "Prefer Wearable Data Over LiftTrace" toggle so it only renders
+  // when the conflict it resolves can actually occur (a wearable IS
+  // enabled AND LiftTrace IS connected). scopes is stored as a JSON
+  // array string; LIKE catches it without needing a JSON parse per row.
+  const ltRow = db.prepare(
+    `SELECT 1 FROM api_tokens
+     WHERE user_id = ?
+       AND (expires_at IS NULL OR expires_at > datetime('now'))
+       AND scopes LIKE '%write:workouts%'
+     LIMIT 1`
+  ).get(req.user?.id ?? 0);
+  const lifttrace_connected = !!ltRow;
   res.json({
     smtp: isSmtpEnvLocked(),
     ai: aiLocked,
@@ -55,6 +72,7 @@ router.get('/env-locks', requireAuth, wrap(async (req, res) => {
     off_local,
     off_local_only,
     oidc_provider_ids: getEnvLockedProviderIds(),
+    lifttrace_connected,
   });
 }));
 

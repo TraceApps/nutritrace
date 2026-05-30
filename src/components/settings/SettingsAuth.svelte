@@ -261,7 +261,7 @@
         body: JSON.stringify(body),
       });
       const data = await r.json();
-      if (!r.ok) { showError(data?.error || 'Save failed'); return; }
+      if (!r.ok) { showError(data?.error || $_('common.errors.save_failed')); return; }
       showSuccess(isEdit ? 'Provider updated' : 'Provider created');
       oidcEditing = null;
       await loadData();
@@ -294,7 +294,7 @@
       });
       if (!r.ok) {
         const data = await r.json().catch(() => ({}));
-        showError(data?.error || 'Delete failed'); return;
+        showError(data?.error || $_('common.errors.delete_failed')); return;
       }
       showSuccess('Provider deleted');
       await loadData();
@@ -315,7 +315,7 @@
         body: JSON.stringify({ enabled: next }),
       });
       const data = await r.json();
-      if (!r.ok) { showError(data?.error || 'Save failed'); return; }
+      if (!r.ok) { showError(data?.error || $_('common.errors.save_failed')); return; }
       enablePasswordLogin = !!data.enable_email_password_login;
       showSuccess(enablePasswordLogin ? 'Password login enabled' : 'Password login disabled');
     } catch { showError('Could not reach server'); }

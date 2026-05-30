@@ -71,6 +71,9 @@ const router = express.Router();
 // is already populated and it short-circuits.
 router.use('/api/data/import', express.json({ limit: '25mb' }));
 router.use('/api/sync/push',   express.json({ limit: '25mb' }));
+// Trace AI chat carries base64'd meal photos (phone camera shots inflate to
+// ~3-7 MB after base64), so its body needs more headroom than the global cap.
+router.use('/api/ai/chat',     express.json({ limit: '12mb' }));
 // Global cap: 1 MB. Prevents a single authed user from filling memory with
 // repeated large requests. Anything above belongs on a per-route opt-in.
 router.use(express.json({ limit: '1mb' }));
@@ -187,7 +190,7 @@ router.use('/api/wellness/withings',      withingsRoutes);
 router.use('/api/wellness/garmin',        garminRoutes);
 
 // Cross-source calories_out lookup — for Dynamic Calorie Goal
-// Returns yesterday's merged TDEE from fitbit/garmin/health_connect
+// Returns yesterday's merged TDEE from fitbit/garmin/health_connect/lifttrace
 router.get('/api/wellness/calories-out', (req, res) => {
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -196,8 +199,16 @@ router.get('/api/wellness/calories-out', (req, res) => {
   const base = date ? new Date(date + 'T12:00:00Z') : new Date();
   base.setUTCDate(base.getUTCDate() - 1);
   const yesterday = base.toISOString().slice(0, 10);
-  // Priority: garmin > health_connect > fitbit (all provide true TDEE)
-  const PRIORITY = ['garmin', 'health_connect', 'fitbit'];
+  // Wearables provide true daily TDEE (BMR + activity). LiftTrace is a
+  // per-workout slice that only covers the workout's incremental burn,
+  // so it's the LOWEST priority — it fills in when no wearable has data
+  // for the date. The lifttraceOverlapFill setting (default ON) lets
+  // users flip that: when OFF, LT wins over wearables (use this if your
+  // wearable misses lifting sessions and you trust LT's estimate more).
+  const overlapFill = _readBoolSetting(userId, 'lifttraceOverlapFill', true);
+  const PRIORITY = overlapFill
+    ? ['garmin', 'health_connect', 'fitbit', 'lifttrace']
+    : ['lifttrace', 'garmin', 'health_connect', 'fitbit'];
   const rows = db.prepare(
     `SELECT source, value FROM wellness_data
      WHERE user_id=? AND date=? AND metric_type='calories_out'`
@@ -209,6 +220,15 @@ router.get('/api/wellness/calories-out', (req, res) => {
   }
   res.json(result || { calories_out: null, source: null, date: yesterday });
 });
+
+function _readBoolSetting(userId, key, defaultValue) {
+  const row = db.prepare(`SELECT value FROM user_settings WHERE user_id = ? AND key = ?`).get(userId, key);
+  if (!row || row.value == null) return defaultValue;
+  try {
+    const v = JSON.parse(row.value);
+    return typeof v === 'boolean' ? v : defaultValue;
+  } catch { return defaultValue; }
+}
 router.use('/api/sync',             syncRoutes);
 
 // Adaptive TDEE — compute on demand from 35-day intake + weight trend.

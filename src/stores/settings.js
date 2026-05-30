@@ -48,10 +48,11 @@ export const USER_PREFS = new Set([
   // the server's full_name / nickname / avatar_url). In USER_PREFS so they're
   // captured by the local full-backup ZIP. In server mode they're unused.
   'localUserName','localUserNickname','localUserAvatar',
-  'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','aiKeyVerified','quickLogEnabled','aiGoalInsights',
+  'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','aiKeyVerified','quickLogEnabled','aiGoalInsights','smartLogVoiceLang',
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'wellnessEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
+  'lifttraceOverlapFill',
   'wellnessSyncRange',
   'fitbitSyncMode','fitbitSyncInterval','fitbitSyncWindowStart','fitbitSyncWindowEnd',
   'googleHealthSyncMode','googleHealthSyncInterval','googleHealthSyncWindowStart','googleHealthSyncWindowEnd',
@@ -624,6 +625,15 @@ export const googleHealthEnabled = createSettingStore('googleHealthEnabled', fal
 export const healthConnectEnabled = createSettingStore('healthConnectEnabled', false);
 export const wellnessMetrics    = createSettingStore('wellnessMetrics',    null); // null = all visible
 export const workoutsEnabled   = createSettingStore('workoutsEnabled',   false); // show workout history + GPS maps in Movement tab
+// Federation: when ON, a LiftTrace-imported workout for a given date is
+// counted toward TDEE only if no wearable (Fitbit / Garmin / Google Health /
+// Health Connect) has a daily calories_burned row for the same date.
+// Off = LiftTrace's per-workout estimate always counts (use this if your
+// wearable is unreliable or you don't wear it during lifts). See
+// SettingsWellness for the user-facing description. Server-side, the
+// /api/v1/workouts handler reads this and sets metadata.suppressed_by
+// on the LT wellness_data row so the TDEE consumer can skip it.
+export const lifttraceOverlapFill = createSettingStore('lifttraceOverlapFill', true);
 // Legacy shared sync settings (kept for backward compat — new code uses per-device below)
 // wellnessSyncRange remains as the shared "how many days back" setting
 // across all wellness sources. Per-source sync mode/interval moved to
@@ -680,6 +690,16 @@ export const aiAssistantName = createSettingStore('aiAssistantName', 'Trace');
 // page. Cleared automatically when any auth field (provider, model,
 // key, baseUrl) changes, so the user has to re-verify.
 export const aiKeyVerified   = createSettingStore('aiKeyVerified',   false);
+// Smart Log voice input language. 'auto' (default) means use the device
+// locale via navigator.language. Anything else is a BCP-47 tag passed
+// straight to the Web Speech API + Capacitor SpeechRecognition plugin.
+// Needed because device locale is the wrong signal for users who set
+// their device to English but speak another language — common in non-
+// English-speaking countries (Italy, Germany, Poland, Korea, etc.).
+// Without this override, the speech engine transcribes their native
+// speech as English phonetics and the food match silently fails
+// (issue #47 from @jonskywalkersith).
+export const smartLogVoiceLang = createSettingStore('smartLogVoiceLang', 'auto');
 
 // One-time migration: existing installs that never customized the assistant
 // name end up with 'FitBot' (the old default). Bump those to 'Trace' so the
@@ -731,7 +751,7 @@ export const ntfyToken            = createSettingStore('ntfyToken',            '
 // AND the effective enabled state for env-controlled features. Fixes #36
 // where AI_ENABLED=true in compose locked the toggle in its OFF state
 // because the per-user `aiEnabled` was never flipped.
-export const envLocks = writable({ smtp: false, ai: false, ai_enabled: false, off_local: false, off_local_only: false, oidc_provider_ids: [] });
+export const envLocks = writable({ smtp: false, ai: false, ai_enabled: false, off_local: false, off_local_only: false, oidc_provider_ids: [], lifttrace_connected: false });
 // Derived: AI Assistant is effectively enabled when either the per-user
 // toggle is on, OR an operator set AI_ENABLED=true in env and env-locked it.
 // Use this instead of $aiEnabled wherever the FAB / chat / Smart Log

@@ -8,6 +8,36 @@
  * 2. If AI responds with tool_use, execute the tool and send result back
  * 3. Repeat until AI responds with text (max 5 tool rounds)
  */
+import { NUTRIMENTS } from './nutrition.js';
+
+// Nutrition schema for the propose_* tools — generated from the canonical
+// NUTRIMENTS list so adding a new nutrient anywhere in the app automatically
+// makes it estimable by Trace, without a second place to edit. Mini-class
+// models (gpt-4o-mini etc.) read `properties:` as a literal allow-list, so
+// listing every NT-tracked key explicitly is what gets them to send
+// fiber / sugars / sat-fat / sodium / vitamin-d / iron / calcium / etc.
+// instead of just the four headline macros.
+const NUTRITION_SCHEMA = (() => {
+  const properties = {};
+  for (const n of NUTRIMENTS) properties[n.id] = { type: 'number' };
+  return {
+    type: 'object',
+    description:
+      'Estimated nutrition values keyed by NutriTrace nutriment ID. All numeric. ' +
+      '`calories` is required. ESTIMATE EVERY KEY YOU CAN — fiber, sugars, sodium, ' +
+      'saturated fat, cholesterol, vitamins, minerals — anything the food contains ' +
+      'in non-trivial amounts. Omit a key only when the value would genuinely be ~0 ' +
+      "or you have no basis to estimate it. Don't restrict yourself to the four " +
+      'headline macros; the user wants the full nutrition profile.',
+    properties,
+    required: ['calories'],
+    additionalProperties: { type: 'number' },
+  };
+})();
+
+// Human-readable list for the system prompt, so the AI knows at a glance
+// what nutriment IDs are valid without having to re-read the JSON schema.
+const NUTRIMENT_ID_LIST = NUTRIMENTS.map(n => n.id).join(', ');
 
 // ── Tool definitions (shared across all providers) ────────────────────────────
 export const TOOLS = [
@@ -138,6 +168,39 @@ export const TOOLS = [
     },
   },
   {
+    name: 'propose_quick_calories',
+    description: 'Propose a Quick Calories entry for the user to REVIEW before anything is written to the diary. This tool DOES NOT WRITE to the diary, DOES NOT CREATE a food, and DOES NOT LOG anything — it ONLY displays an estimate card with Discard / Add to Diary buttons for the user to confirm. Treat the tool returning `ok: true` as "the card was shown to the user", NOT as "the food was logged". After calling this tool you MUST NOT say things like "I\'ve added X" or "Logged X to your diary" — the user has not yet confirmed. Instead say something like "Here\'s my estimate — tap Add to Diary to log it." Use this tool whenever the user attaches a meal photo and wants a quick kcal-style log (no permanent food row needed), or when they explicitly say "log this quick", "add this as quick calories", "quick add this". For photos where the user wants a reusable food (not a kcal-only entry), use propose_food instead.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name:        { type: 'string',  description: 'Short descriptive name for what you see (e.g. "Grilled chicken sandwich + fries", "Bowl of oatmeal with berries"). Max 60 chars.' },
+        meal:          { type: 'number', description: 'Meal index the entry will be filed under: 0=breakfast, 1=lunch, 2=dinner, 3=snacks. Defaults to 3 if you cannot tell from context. The user can change this on the card before committing.' },
+        date:          { type: 'string', description: 'Optional YYYY-MM-DD; defaults to today.' },
+        serving_grams: { type: 'number', description: 'STRONGLY RECOMMENDED for photo estimates. Estimated weight of the food in the photo, in grams. Lets the user sanity-check the basis of the nutrition estimate ("if you think this is 350 g, but it\'s actually 500 g, scale the calories up"). Provide this whenever the food has a sensible weight; omit only for things that don\'t weigh meaningfully on their own (e.g. a glass of water).' },
+        serving_size:  { type: 'string', description: 'Optional plain-language serving description ("1 plate", "medium bowl", "1 slice"). Use ALONGSIDE serving_grams to add useful context, or INSTEAD of it for items where grams aren\'t meaningful.' },
+        nutrition:     NUTRITION_SCHEMA,
+      },
+      required: ['name', 'nutrition'],
+    },
+  },
+  {
+    name: 'propose_food',
+    description: 'Propose a reusable FOOD entry for the user to REVIEW before anything is created. This tool DOES NOT WRITE to the Foods library, DOES NOT WRITE to the diary — it ONLY displays a review card so the user can decide to (a) Save to Foods only, (b) Save & Add to Diary, or (c) Discard. Treat the tool returning `ok: true` as "the card was shown", NOT as "the food was saved" or "added to diary". After calling this tool you MUST NOT say things like "I\'ve added X to your Foods" or "Added X to your diary" — the user has not yet confirmed. Say something like "Here\'s my estimate — pick Save to Foods if you just want to keep it for later, or Save & Add to Diary to also add it to today." Use this when the user wants a REUSABLE food (not a one-off kcal entry): "add this to my foods", "save this as a food", "remember this for later", "create a food entry for this". Nutrition values are per the portion you specify (default 100 g if you cannot tell).',
+    parameters: {
+      type: 'object',
+      properties: {
+        name:      { type: 'string', description: 'Short food name (e.g. "Chicken Pot Pie", "Grilled Salmon Bowl"). Max 60 chars.' },
+        brand:     { type: 'string', description: 'Optional brand name if it looks like packaged food.' },
+        portion:   { type: 'number', description: 'STRONGLY RECOMMENDED: estimated weight in grams of the photographed portion (e.g. 250 for a typical chicken pot pie slice). The nutrition values you pass are PER this portion. Falls back to 100 (per 100 g/ml) only if you have no basis to estimate.' },
+        unit:      { type: 'string', description: 'Portion unit, defaults to "g". Common: g, ml, piece, slice, cup, oz. Prefer "g" for solid foods so the user can correct it numerically.' },
+        nutrition: NUTRITION_SCHEMA,
+        meal_hint: { type: 'number', description: 'OPTIONAL meal-index suggestion (0=breakfast, 1=lunch, 2=dinner, 3=snacks) the user can apply on the card if they choose "Save & Log". Defaults to 3 (snacks).' },
+        notes:     { type: 'string', description: 'OPTIONAL human-friendly serving descriptor saved to the food\'s Notes field (e.g. "14 chips", "1/4 cup uncooked", "1 medium slice", "approx 1 cup cooked"). Lets the user see what the per-portion weight actually corresponds to in everyday terms. Shown in the diary when "Show item notes" is enabled in Settings. Skip when the portion + unit already says everything that needs saying.' },
+      },
+      required: ['name', 'nutrition'],
+    },
+  },
+  {
     name: 'get_activity_log',
     description: 'Get the user\'s manually-logged activity entries from the Diary\'s Activity section (separate from wearable-synced workouts — use get_workouts for those). Each entry has name, kcal burned, duration_min, distance, source, date. Use this when the user asks about manual workouts they logged, exercise they typed in, or activities not synced from a wearable.',
     parameters: {
@@ -176,35 +239,73 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
 
 /**
  * Server-side proxy call — used when AI config is env-locked.
- * The API key stays on the server; only messages + systemPrompt are sent.
+ *
+ * The API key stays on the server; only messages + systemPrompt + tool
+ * schemas are sent. Wire format is OpenAI-shape (the server adapts to
+ * Claude / Gemini at the proxy boundary), so messages going in must use
+ * `image_url` for images and `tool_calls` / `role:'tool'` for tool use.
+ *
+ * Tool execution stays client-side — tools touch local DB + UI state the
+ * server doesn't have. This function runs the multi-round loop: send
+ * messages → if proxy returns toolCalls, execute them locally, append
+ * the assistant message + tool result messages, loop. Up to 5 rounds,
+ * matching the direct-call cap in _callOpenAIWithTools.
  *
  * Auth: PWA uses cookies + CSRF; native server mode uses a Bearer token
- * (cookies don't persist across the Android WebView's reloads). Matches the
- * pattern in api.js#_fetch — without the Bearer header, env-locked AI calls
- * from Android return 401 even though the chat path looks fine in the UI.
+ * (cookies don't persist across the Android WebView's reloads). Matches
+ * the pattern in api.js#_fetch — without the Bearer header, env-locked
+ * AI calls from Android return 401 even though the chat path looks fine.
  */
-export async function callAIProxy({ messages, systemPrompt }) {
+export async function callAIProxy({ messages, systemPrompt, tools, onToolCall }) {
   const { apiUrl, isNative, getServerUrl, getAuthToken } = await import('./platform.js');
-  const headers = { 'Content-Type': 'application/json' };
-  if (isNative && getServerUrl()) {
-    const token = getAuthToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-  } else {
-    const csrf = localStorage.getItem('nt:csrf');
-    if (csrf) headers['X-CSRF-Token'] = csrf;
+
+  let currentMessages = [...messages];
+  const MAX_ROUNDS = 5;
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (isNative && getServerUrl()) {
+      const token = getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      const csrf = localStorage.getItem('nt:csrf');
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+    }
+    const res = await fetch(apiUrl('/api/ai/chat'), {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify({ messages: currentMessages, systemPrompt, tools }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401) throw new Error('Not signed in — sign in again to use AI features.');
+      throw new Error(data.error || `AI proxy error ${res.status}`);
+    }
+
+    // No tools fired — final reply, return it.
+    if (!data.toolCalls || data.toolCalls.length === 0) {
+      return data.text || '';
+    }
+
+    // Tools fired: append assistant message verbatim, execute each tool
+    // locally, append tool result messages, loop for next round.
+    currentMessages.push(data.assistantMessage);
+    for (const tc of data.toolCalls) {
+      if (onToolCall) onToolCall(tc.name);
+      const result = await _executeTool(tc.name, tc.args || {});
+      currentMessages.push({
+        role: 'tool',
+        tool_call_id: tc.id,
+        // Gemini's adapter needs the original tool name to construct a
+        // functionResponse part; OpenAI + Claude ignore the name field.
+        name: tc.name,
+        content: JSON.stringify(result),
+      });
+    }
   }
-  const res = await fetch(apiUrl('/api/ai/chat'), {
-    method: 'POST',
-    credentials: 'include',
-    headers,
-    body: JSON.stringify({ messages, systemPrompt }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    if (res.status === 401) throw new Error('Not signed in — sign in again to use AI features.');
-    throw new Error(data.error || `AI proxy error ${res.status}`);
-  }
-  return data.text;
+
+  throw new Error('Too many tool call rounds');
 }
 
 // ── Default models per provider ───────────────────────────────────────────────

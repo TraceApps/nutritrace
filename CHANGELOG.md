@@ -9,6 +9,77 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.42] - 2026-05-30
+
+### Added
+
+- **AI Meal Photos.** Attach a meal photo in Trace and get an editable
+  Nutrition Facts card to review before anything writes to your diary.
+  Two card variants depending on what you ask for: Quick Calories
+  (one-off entry, just kcal + macros for today) or Food entry (saves a
+  reusable Food in your library with the option to also log it to
+  today's meal). Estimates cover the full nutrition profile (fiber,
+  sugars, sodium, sat fat, cholesterol, vitamins, minerals) at the
+  portion size visible in the photo. Pick the destination meal on the
+  card before confirming.
+- **LiftTrace workout sync.** Receive completed workouts from a
+  LiftTrace install via the federation API. Synced sessions appear in
+  Workout History alongside Fitbit / Garmin / Health Connect pushes,
+  and their calories flow into the dynamic calorie goal lookup. Set up
+  by giving LiftTrace an API token from Settings → API Tokens with the
+  `write:workouts` scope. New "Prefer Wearable Data Over LiftTrace"
+  toggle under Settings → Wellness (default ON) prevents
+  double-counting when both sources cover the same day.
+- **Voice Input Language picker for Smart Log.** Settings → AI
+  Assistant → Smart Log → Voice Input Language. Pick the language the
+  mic listens in, independently of your device locale. Lets users who
+  keep their device set to English speak in their native language for
+  food logging. Defaults to "Auto (use device language)" so behavior
+  is unchanged unless you set it.
+- **API Tokens panel now available to single-user installs.** Was
+  previously gated behind a `NT_FEATURES_API` env var and multi-user
+  mode. Now any admin (including the synthetic admin on solo installs)
+  sees Settings → API Tokens directly. Makes wiring LiftTrace
+  federation a one-step setup.
+- **Wizard celebration screen.** Onboarding now ends with a brief
+  "You're All Set" beat (trophy + confetti, ~1.8s, honors
+  prefers-reduced-motion) instead of snapping straight to the diary.
+
+### Fixed
+
+- **Local OFF mirror search returned empty results.** Backend was
+  finding hits but the foods list dropped them all due to a DuckDB v1
+  shape regression in how VARCHAR fields are returned. Searching the
+  local mirror returns real products again. Server-side fix; restart
+  the container to pick it up.
+- **Tapping a reminder notification on Android now opens NutriTrace.**
+  Meal / water / weigh-in reminders had no tap target, so tapping just
+  dismissed the notification. Now they launch the app via the standard
+  task-resume path.
+- **Env-locked AI deployments now support the full Trace tool set.**
+  The server-side AI proxy used when `AI_API_KEY` is set in env was
+  built before tool use shipped, so on env-locked installs Trace
+  silently dropped every tool call (`get_diary`, `get_wellness`,
+  `log_quick_calories`, etc.) and replied with text only. Now full
+  parity with the direct-key configuration across Claude, OpenAI, and
+  Gemini.
+- **Backup list errors no longer silently swallowed.** Settings →
+  Backup's full-backup list was catching network errors AND non-2xx
+  responses into an empty list, so a failed fetch looked identical to
+  "no backups exist." Now surfaces the server error message + status
+  code.
+
+### Changed
+
+- New shared loading spinner with reduced-motion fallback; adopted in
+  API Tokens loading row + Meal Editor food picker.
+- Trace AI can now see manually-entered Body Water %, matching how it
+  already saw Body Fat %.
+- Settings search now finds the body-stat visibility toggles via
+  keywords like "body water", "hydration", "muscle", "bone".
+
+---
+
 ## [1.0.0-rc.41] - 2026-05-28
 
 ### Fixed

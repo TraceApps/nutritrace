@@ -35,7 +35,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Per-day free-text notes (e.g. "felt bloated after lunch", "post-workout") — toggleable, with an indicator on dates that have a note
 
 <p align="center">
-  <img src="docs/screenshots/06-diary-mobile.png" alt="NutriTrace diary on Android — same diary view, mobile layout" width="320">
+  <img src="docs/screenshots/07-diary-mobile.png" alt="NutriTrace diary on Android — same diary view, mobile layout" width="320">
 </p>
 
 ### Foods & Meals
@@ -56,12 +56,14 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 
 > **Migrating from MyFitnessPal?** Community member nomad64 wrote two helper scripts at [github.com/nomad64/mfp-to-nutritrace](https://github.com/nomad64/mfp-to-nutritrace): one exports your "My Foods" list into NutriTrace's bulk-import JSON format, and another scrapes per-food diary rows that MFP's official export omits (their export gives only per-meal totals). Both are unaffiliated and rely on your browser session cookies.
 
+![NutriTrace Foods library — saved foods with thumbnails and source filter chips (Local / OFF / USDA / Mealie), barcode-scan search, tabs for Foods, Meals, and Recipes](docs/screenshots/02-foods.png)
+
 ### Statistics
 - Charts for any tracked nutrient or body stat over time
 - Bar and line chart modes; average, trend, and goal overlay lines
 - Configurable date ranges
 
-![NutriTrace statistics — calorie trend over time with average, goal, and trend overlays](docs/screenshots/02-statistics.png)
+![NutriTrace statistics — calorie trend over time with average, goal, and trend overlays](docs/screenshots/04-statistics.png)
 
 ### Goals
 - Calorie and nutrient goals with template support
@@ -94,7 +96,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Tool use across all providers: Trace can query your real diary (with day notes + per-item notes), saved meals/recipes library, wellness metrics, body composition, workouts, and goals — no hallucinated numbers
 - Optional Goal Insights mode: proactive analysis of actual intake vs targets with evidence-based suggestions
 
-![Trace AI Assistant chat — answering a nutrition question by querying real diary data](docs/screenshots/04-ai-assistant.png)
+![Trace AI Assistant chat — answering a nutrition question by querying real diary data](docs/screenshots/05-ai-assistant.png)
 
 ### Notifications & Reminders
 - Optional device notifications for water reminders, meal prompts, weigh-ins, and goal celebrations (one celebration per goal per day). Native on Android, Web Notification API on PWA
@@ -117,7 +119,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 Smart Log is an experimental feature that lets you log food by **pressing and holding the Trace button** on any page and saying what you ate. The AI parses your sentence and matches each item against your saved foods, meals, recipes, or yesterday's diary.
 
 <p align="center">
-  <img src="docs/screenshots/05-smart-log.png" alt="Smart Log review modal — voice input parsed into matched food items, edit before adding to diary" width="320">
+  <img src="docs/screenshots/06-smart-log.png" alt="Smart Log review modal — voice input parsed into matched food items, edit before adding to diary" width="320">
 </p>
 
 ### Setup

@@ -492,42 +492,84 @@ function _toOffProduct(row) {
     : (v != null && typeof v !== 'string' && typeof v[Symbol.iterator] === 'function')
       ? Array.from(v)
       : null;
+  // Every string column gets routed through _coerceString — see issue #53
+  // for why a raw VARCHAR value reaching the client unconverted can crash
+  // the whole search (.split / .trim on a Uint8Array throws and the
+  // client's .map(_mapOFFProduct) wraps the lot in [].
+  const coerceList = v => Array.isArray(v) ? v.map(_coerceString).filter(Boolean) : [];
   const pnList = _asArray(row.product_name);
   if (pnList) {
     // Parquet shape: product_name is LIST<{lang, text}>
     const name = _extractLocalized(pnList) || _extractLocalized(_asArray(row.generic_name));
     return {
-      code: row.code,
-      product_name: typeof name === 'string' ? name : '',
-      brands: row.brands || '',
-      brands_tags: row.brands_tags || [],
-      categories: row.categories || '',
-      categories_tags: row.categories_tags || [],
-      ..._buildImageUrls(row.images, row.code, row.lang || 'en'),
-      serving_size: row.serving_size || '',
-      serving_quantity: row.serving_quantity != null ? String(row.serving_quantity) : '',
-      quantity: row.quantity || '',
+      code: _coerceString(row.code),
+      product_name: _coerceString(name),
+      brands: _coerceString(row.brands),
+      brands_tags: coerceList(row.brands_tags),
+      categories: _coerceString(row.categories),
+      categories_tags: coerceList(row.categories_tags),
+      ..._buildImageUrls(row.images, row.code, _coerceString(row.lang) || 'en'),
+      serving_size: _coerceString(row.serving_size),
+      serving_quantity: row.serving_quantity != null ? _coerceString(row.serving_quantity) : '',
+      quantity: _coerceString(row.quantity),
       nutriments: _unfoldNutrimentsList(row.nutriments),
     };
   }
   // Legacy native DuckDB shape (product_name is a plain string column)
   const nutriments = _flattenNutrimentsStruct(row.nutriments) || _pickNutrimentColumns(row);
   return {
-    code: row.code,
-    product_name: typeof row.product_name === 'string' ? row.product_name : '',
-    brands: row.brands || '',
-    brands_tags: row.brands_tags || [],
-    categories: row.categories || '',
-    categories_tags: row.categories_tags || [],
-    image_url: row.image_url || '',
-    image_small_url: row.image_small_url || row.image_url || '',
-    image_front_url: row.image_front_url || row.image_url || '',
-    serving_size: row.serving_size || '',
-    serving_quantity: row.serving_quantity != null ? String(row.serving_quantity) : '',
-    quantity: row.quantity || '',
+    code: _coerceString(row.code),
+    product_name: _coerceString(row.product_name),
+    brands: _coerceString(row.brands),
+    brands_tags: coerceList(row.brands_tags),
+    categories: _coerceString(row.categories),
+    categories_tags: coerceList(row.categories_tags),
+    image_url: _coerceString(row.image_url),
+    image_small_url: _coerceString(row.image_small_url) || _coerceString(row.image_url),
+    image_front_url: _coerceString(row.image_front_url) || _coerceString(row.image_url),
+    serving_size: _coerceString(row.serving_size),
+    serving_quantity: row.serving_quantity != null ? _coerceString(row.serving_quantity) : '',
+    quantity: _coerceString(row.quantity),
     nutriments,
   };
 }
+
+/** Coerce a DuckDB value (string | bigint | Uint8Array | Buffer | wrapper)
+ *  to a plain JS string. Returns '' for null / undefined / unrecognized.
+ *  @duckdb/node-api v1.x has been observed to return VARCHAR fields as raw
+ *  UTF-8 Uint8Arrays in some contexts (issue #53 from @duplaja: local OFF
+ *  mirror returned 20 hits but every product_name came out as Uint8Array,
+ *  which `typeof name === 'string'` collapsed to '' upstream, dropping
+ *  every result client-side via `.filter(Boolean)`). */
+function _coerceString(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'bigint') return String(v);
+  if (v instanceof Uint8Array) {
+    try { return new TextDecoder('utf-8').decode(v); } catch { return ''; }
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(v)) {
+    return v.toString('utf-8');
+  }
+  // Last-ditch: object/wrapper with a meaningful toString.
+  const s = String(v);
+  return s === '[object Object]' ? '' : s;
+}
+
+/** Property access that tolerates both plain-object STRUCTs and Map-like
+ *  STRUCTs (duckdb-node returns one or the other depending on version). */
+function _readField(x, key) {
+  if (x == null) return undefined;
+  if (typeof x.get === 'function') {
+    const v = x.get(key);
+    if (v !== undefined) return v;
+  }
+  return x[key];
+}
+
+// One-shot diagnostic flag — log the first puzzling row only, then stop
+// spamming logs. Reset on process restart.
+let _loggedExtractFallthrough = false;
 
 /** Pull the best-fit text from an OFF localized field
  *  (`product_name`, `generic_name`, `ingredients_text`, etc.).
@@ -535,28 +577,67 @@ function _toOffProduct(row) {
  *  first entry with non-empty text. Returns '' if nothing usable.
  *  preferLang defaults to 'en'; could later read from the user's offSearchLanguage setting. */
 function _extractLocalized(list, preferLang = 'en') {
-  if (!Array.isArray(list)) return '';
-  const byLang = (l) => list.find(x => x && x.lang === l && x.text);
-  return (byLang(preferLang)?.text)
-      || (byLang('main')?.text)
-      || (list.find(x => x && x.text)?.text)
-      || '';
+  if (!Array.isArray(list) || list.length === 0) return '';
+  const wantLang = String(preferLang || '').toLowerCase();
+  const getLang = x => _coerceString(_readField(x, 'lang')
+                      ?? _readField(x, 'language')
+                      ?? _readField(x, 'language_code')).toLowerCase();
+  const getText = x => _coerceString(_readField(x, 'text')
+                      ?? _readField(x, 'value')
+                      ?? _readField(x, 'name'));
+  // Pass 1: requested lang. Pass 2: 'main'. Pass 3: any non-empty text.
+  for (const x of list) { if (getLang(x) === wantLang) { const t = getText(x); if (t) return t; } }
+  for (const x of list) { if (getLang(x) === 'main')   { const t = getText(x); if (t) return t; } }
+  for (const x of list) { const t = getText(x);          if (t) return t; }
+
+  // Fell through despite a non-empty list — surface the actual element
+  // shape ONCE so we can see what's happening if a future schema/runtime
+  // change breaks the extractor again.
+  if (!_loggedExtractFallthrough) {
+    _loggedExtractFallthrough = true;
+    const sample = list[0];
+    let keys = '?', preview = '?';
+    try {
+      if (sample && typeof sample === 'object') {
+        keys = (typeof sample.keys === 'function' ? [...sample.keys()] : Object.keys(sample)).join(',');
+      }
+      preview = JSON.stringify(sample, (_, v) =>
+        typeof v === 'bigint' ? String(v) : (v instanceof Uint8Array ? '<Uint8Array>' : v))?.slice(0, 200);
+    } catch {}
+    logger.warn(`[off-local] _extractLocalized fell through on non-empty list; sample type=${typeof sample}, keys=[${keys}], preview=${preview}`);
+  }
+  return '';
 }
 
 /** Unfold the HF Parquet nutriments list-of-objects into the flat
  *  `{name_100g, name_serving, name_value, name_unit}` shape the rest of
  *  NutriTrace expects (matches OFF's public API response shape).
- *  Skips elements with no name or no numeric value. */
+ *  Skips elements with no name or no numeric value.
+ *
+ *  Uses _readField + _coerceString so the same DuckDB-Node STRUCT-shape
+ *  quirks that broke product_name (issue #53) don't silently zero out
+ *  every kcal value here too. */
 function _unfoldNutrimentsList(list) {
   if (!Array.isArray(list)) return {};
   const out = {};
-  const num = v => (typeof v === 'bigint' ? Number(v) : v);
+  const num = v => {
+    if (v == null) return null;
+    if (typeof v === 'bigint') return Number(v);
+    if (typeof v === 'number') return v;
+    const n = parseFloat(_coerceString(v));
+    return Number.isFinite(n) ? n : null;
+  };
   for (const n of list) {
-    if (!n?.name) continue;
-    if (n['100g']    != null) out[`${n.name}_100g`]    = num(n['100g']);
-    if (n.serving    != null) out[`${n.name}_serving`] = num(n.serving);
-    if (n.value      != null) out[`${n.name}_value`]   = num(n.value);
-    if (n.unit       != null) out[`${n.name}_unit`]    = n.unit;
+    const name = _coerceString(_readField(n, 'name'));
+    if (!name) continue;
+    const v100  = num(_readField(n, '100g'));
+    const vSrv  = num(_readField(n, 'serving'));
+    const vVal  = num(_readField(n, 'value'));
+    const vUnit = _coerceString(_readField(n, 'unit'));
+    if (v100  != null) out[`${name}_100g`]    = v100;
+    if (vSrv  != null) out[`${name}_serving`] = vSrv;
+    if (vVal  != null) out[`${name}_value`]   = vVal;
+    if (vUnit)         out[`${name}_unit`]    = vUnit;
   }
   return out;
 }
@@ -593,14 +674,28 @@ function _buildImageUrls(images, code, lang = 'en') {
   if (!Array.isArray(images) || code == null) return empty;
   const path = _offImagePath(code);
   if (!path) return empty;
-  const front = images.find(x => x?.key === `front_${lang}`)
-             || images.find(x => x?.key === 'front_main')
-             || images.find(x => x?.key && typeof x.key === 'string' && x.key.startsWith('front_'))
-             || images.find(x => x?.key === 'front')
-             || images.find(x => x?.key && /^\d+$/.test(String(x.key)));
-  if (!front || front.rev == null || !front.key) return empty;
-  const rev = typeof front.rev === 'bigint' ? Number(front.rev) : front.rev;
-  const base = `https://images.openfoodfacts.org/images/products/${path}/${front.key}.${rev}`;
+  // Read .key + .rev via _readField/_coerceString so the same STRUCT-shape
+  // quirks that broke product_name (issue #53) don't quietly blank out
+  // every image URL too.
+  const keyOf = x => _coerceString(_readField(x, 'key'));
+  const revOf = x => {
+    const r = _readField(x, 'rev');
+    if (r == null) return null;
+    if (typeof r === 'bigint') return Number(r);
+    if (typeof r === 'number') return r;
+    const n = parseInt(_coerceString(r), 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const front = images.find(x => keyOf(x) === `front_${lang}`)
+             || images.find(x => keyOf(x) === 'front_main')
+             || images.find(x => { const k = keyOf(x); return k && k.startsWith('front_'); })
+             || images.find(x => keyOf(x) === 'front')
+             || images.find(x => { const k = keyOf(x); return k && /^\d+$/.test(k); });
+  if (!front) return empty;
+  const key = keyOf(front);
+  const rev = revOf(front);
+  if (!key || rev == null) return empty;
+  const base = `https://images.openfoodfacts.org/images/products/${path}/${key}.${rev}`;
   return {
     image_url:       `${base}.400.jpg`,    // medium — used in lists, food picker
     image_small_url: `${base}.100.jpg`,    // thumb

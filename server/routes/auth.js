@@ -116,18 +116,15 @@ router.get('/status', wrap((req, res) => {
   });
 }));
 
-// ── Server-controlled feature flags surfaced to the client UI ────────────
-// Off-by-default so the public build doesn't expose half-baked features;
-// operators flip these on per-deployment via env vars.
-function _serverFeatures() {
-  return {
-    apiTokens: process.env.NT_FEATURES_API === '1',
-  };
-}
-
 // ── Who am I? ─────────────────────────────────────────────────────────────
+// `features` is kept in the response shape for forward compatibility but is
+// currently empty. The federation API (Settings → API Tokens) used to be
+// gated by NT_FEATURES_API=1; that gate was removed in rc.42 once the API
+// matured and sister apps (LiftTrace public, CookTrace in private beta)
+// started relying on it as a documented product feature. New feature flags
+// can be added back to this object as needed.
 router.get('/me', wrap((req, res) => {
-  const features = _serverFeatures();
+  const features = {};
   if (!req.user) return res.json({ user: null, csrf: null, features });
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: user ? safeUser(user) : null, csrf: req.user.csrf || null, features });

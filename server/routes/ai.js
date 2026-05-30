@@ -84,16 +84,51 @@ const GEMINI_RETIRED = new Set([
  */
 // Payload caps to bound a misbehaving client (or compromised account) from
 // burning through the admin's AI API budget with one giant request.
+// 8 MB cap leaves comfortable headroom for a downscaled meal photo
+// (~150-300 KB base64) plus several rounds of tool-use chat history; still
+// orders of magnitude under what would let a single user DoS the proxy.
 const AI_MAX_MESSAGES   = 60;
-const AI_MAX_BYTES      = 200_000; // ~200 KB combined messages + system prompt
+const AI_MAX_BYTES      = 8_000_000;
 
+/**
+ * POST /api/ai/chat
+ *
+ * Server-side proxy used when AI config is env-locked. The API key never
+ * leaves the server; clients send a provider-neutral, OpenAI-shaped
+ * request and get an OpenAI-shaped response back.
+ *
+ * Wire shape (request):
+ *   {
+ *     messages:     [...openai-style messages...],
+ *     systemPrompt: string,
+ *     tools?:       [{name, description, parameters}]  // NT tool schema
+ *   }
+ *
+ * Wire shape (response):
+ *   { text: string }                                // final reply, no tools
+ *   { assistantMessage, toolCalls: [{id,name,args}] } // tools fired
+ *
+ * The client's callAIProxy runs the multi-round tool loop: when toolCalls
+ * are returned, it executes them locally (tools touch the client's DB +
+ * UI), appends `{role:'tool', tool_call_id, content}` messages, and
+ * re-invokes the proxy. Tool execution intentionally stays client-side —
+ * tools like get_diary / propose_quick_calories need access to local
+ * state the server doesn't have.
+ *
+ * Provider translation happens at the proxy boundary: OpenAI passes
+ * through; Claude and Gemini get message + response shape adapters so
+ * env-locked deployments support the full tool set regardless of which
+ * provider the admin chose.
+ */
 router.post('/chat', requireAuth, aiChatLimit, wrap(async (req, res) => {
-  const { messages, systemPrompt } = req.body;
+  const { messages, systemPrompt, tools } = req.body;
   if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages array required' });
   if (messages.length > AI_MAX_MESSAGES) {
     return res.status(413).json({ error: `Too many messages (max ${AI_MAX_MESSAGES})` });
   }
-  const payloadBytes = JSON.stringify(messages).length + (typeof systemPrompt === 'string' ? systemPrompt.length : 0);
+  const payloadBytes = JSON.stringify(messages).length
+                     + (typeof systemPrompt === 'string' ? systemPrompt.length : 0)
+                     + (Array.isArray(tools) ? JSON.stringify(tools).length : 0);
   if (payloadBytes > AI_MAX_BYTES) {
     return res.status(413).json({ error: `Payload too large (${payloadBytes} bytes; max ${AI_MAX_BYTES})` });
   }
@@ -104,22 +139,46 @@ router.post('/chat', requireAuth, aiChatLimit, wrap(async (req, res) => {
   const provider = cfg.ai_provider || 'claude';
   const model    = cfg.ai_model    || AI_DEFAULT_MODELS[provider] || '';
   const apiKey   = cfg.ai_api_key;
+  const toolsArr = Array.isArray(tools) ? tools : [];
 
-  let text;
+  let result;
   switch (provider) {
-    case 'claude':  text = await _callClaude(apiKey, model, messages, systemPrompt); break;
-    case 'openai':  text = await _callOpenAI(apiKey, model, messages, systemPrompt); break;
-    case 'gemini':  text = await _callGemini(apiKey, model, messages, systemPrompt); break;
+    case 'claude':  result = await _callClaude(apiKey, model, messages, systemPrompt, toolsArr); break;
+    case 'openai':  result = await _callOpenAI(apiKey, model, messages, systemPrompt, toolsArr); break;
+    case 'gemini':  result = await _callGemini(apiKey, model, messages, systemPrompt, toolsArr); break;
     default: return res.status(400).json({ error: `Unknown provider: ${provider}` });
   }
-  res.json({ text });
+  res.json(result);
 }));
 
 export default router;
 
 // ── Provider implementations (server-side) ────────────────────────────────────
+//
+// Each adapter takes OpenAI-shape inputs and returns one of:
+//   { text: string }                                — final assistant reply
+//   { assistantMessage, toolCalls: [{id,name,args}] } — model wants tools
+//
+// assistantMessage is OpenAI-shape (role:'assistant', content, tool_calls)
+// so the client can append it verbatim to its message history before
+// dispatching tool results back through the proxy.
 
-async function _callClaude(apiKey, model, messages, systemPrompt) {
+async function _callClaude(apiKey, model, messages, systemPrompt, tools) {
+  const claudeMessages = _openaiToClaudeMessages(messages);
+  const claudeTools    = (tools || []).map(t => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters,
+  }));
+
+  const body = {
+    model,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: claudeMessages,
+  };
+  if (claudeTools.length) body.tools = claudeTools;
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -127,52 +186,256 @@ async function _callClaude(apiKey, model, messages, systemPrompt) {
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
-    }),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || `Claude API error ${res.status}`);
-  return data.content[0].text;
+
+  const blocks    = data.content || [];
+  const toolUses  = blocks.filter(b => b.type === 'tool_use');
+  const textParts = blocks.filter(b => b.type === 'text').map(b => b.text);
+
+  if (toolUses.length === 0 || data.stop_reason !== 'tool_use') {
+    return { text: textParts.join('\n') || '' };
+  }
+  // Build OpenAI-shape assistant message echoing the tool calls. The
+  // client appends this, executes tools, then re-invokes the proxy with
+  // tool-result messages — we translate back to Claude on the next round.
+  const assistantMessage = {
+    role: 'assistant',
+    content: textParts.join('\n') || null,
+    tool_calls: toolUses.map(tu => ({
+      id: tu.id,
+      type: 'function',
+      function: { name: tu.name, arguments: JSON.stringify(tu.input || {}) },
+    })),
+  };
+  const toolCalls = toolUses.map(tu => ({ id: tu.id, name: tu.name, args: tu.input || {} }));
+  return { assistantMessage, toolCalls };
 }
 
-async function _callOpenAI(apiKey, model, messages, systemPrompt) {
+async function _callOpenAI(apiKey, model, messages, systemPrompt, tools) {
+  const openaiTools = (tools || []).map(t => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+
+  const body = {
+    model,
+    max_tokens: 4096,
+    messages: [{ role: 'system', content: systemPrompt }, ...messages],
+  };
+  if (openaiTools.length) body.tools = openaiTools;
+
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      messages: [{ role: 'system', content: systemPrompt }, ...messages],
-    }),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || `OpenAI API error ${res.status}`);
-  return data.choices[0].message.content;
+
+  const msg = data.choices?.[0]?.message || {};
+  if (!msg.tool_calls || msg.tool_calls.length === 0) {
+    return { text: msg.content || '' };
+  }
+  const toolCalls = msg.tool_calls.map(tc => ({
+    id:   tc.id,
+    name: tc.function?.name,
+    args: _safeJsonParse(tc.function?.arguments, {}),
+  }));
+  return { assistantMessage: msg, toolCalls };
 }
 
-async function _callGemini(apiKey, model, messages, systemPrompt) {
+async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
   const m = GEMINI_RETIRED.has(model) ? AI_DEFAULT_MODELS.gemini : (model || AI_DEFAULT_MODELS.gemini);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
-  const contents = messages.map(msg => ({
-    role: msg.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: msg.content }],
-  }));
+
+  const contents = _openaiToGeminiContents(messages);
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents,
+  };
+  if ((tools || []).length) {
+    body.tools = [{
+      functionDeclarations: tools.map(t => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      })),
+    }];
+  }
+
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents,
-    }),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || `Gemini API error ${res.status}`);
-  return data.candidates[0].content.parts[0].text;
+
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const fnCalls = parts.filter(p => p.functionCall);
+  const textParts = parts.filter(p => p.text).map(p => p.text);
+
+  if (fnCalls.length === 0) {
+    return { text: textParts.join('\n') || '' };
+  }
+  // Gemini's functionCall has no ID. Mint stable synthetic IDs so the
+  // OpenAI-shape tool_call_id round-trips correctly through the client.
+  const assistantMessage = {
+    role: 'assistant',
+    content: textParts.join('\n') || null,
+    tool_calls: fnCalls.map((p, i) => ({
+      id: `gem_${Date.now()}_${i}`,
+      type: 'function',
+      function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) },
+    })),
+  };
+  const toolCalls = fnCalls.map((p, i) => ({
+    id:   `gem_${Date.now()}_${i}`,
+    name: p.functionCall.name,
+    args: p.functionCall.args || {},
+  }));
+  return { assistantMessage, toolCalls };
+}
+
+// ── OpenAI-shape ↔ provider-native translators ────────────────────────────────
+
+function _safeJsonParse(s, fallback) {
+  if (typeof s !== 'string') return fallback;
+  try { return JSON.parse(s); } catch { return fallback; }
+}
+
+/**
+ * OpenAI messages → Claude messages.
+ *
+ * - system is passed separately by Claude's API; the proxy already pulls
+ *   it from systemPrompt, so a stray {role:'system'} here is filtered.
+ * - user / assistant text passes through.
+ * - user content arrays carrying {type:'image_url'} get the data: URL
+ *   parsed into Claude's {type:'image', source:{base64}} block.
+ * - assistant tool_calls become {type:'tool_use'} blocks.
+ * - tool messages become Claude {type:'tool_result'} blocks wrapped in a
+ *   user message (Claude's required shape for tool results).
+ */
+function _openaiToClaudeMessages(messages) {
+  const out = [];
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+    if (m.role === 'tool') {
+      // Coalesce consecutive tool results into one user message.
+      const block = { type: 'tool_result', tool_use_id: m.tool_call_id, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) };
+      const last  = out[out.length - 1];
+      if (last && last.role === 'user' && Array.isArray(last.content)) {
+        last.content.push(block);
+      } else {
+        out.push({ role: 'user', content: [block] });
+      }
+      continue;
+    }
+    if (m.role === 'assistant') {
+      const blocks = [];
+      if (m.content) blocks.push({ type: 'text', text: typeof m.content === 'string' ? m.content : String(m.content) });
+      for (const tc of (m.tool_calls || [])) {
+        blocks.push({
+          type: 'tool_use',
+          id:   tc.id,
+          name: tc.function?.name,
+          input: _safeJsonParse(tc.function?.arguments, {}),
+        });
+      }
+      out.push({ role: 'assistant', content: blocks.length ? blocks : [{ type: 'text', text: '' }] });
+      continue;
+    }
+    // user
+    if (typeof m.content === 'string') {
+      out.push({ role: 'user', content: m.content });
+    } else if (Array.isArray(m.content)) {
+      const blocks = [];
+      for (const part of m.content) {
+        if (part.type === 'text') {
+          blocks.push({ type: 'text', text: part.text || '' });
+        } else if (part.type === 'image_url') {
+          const url  = part.image_url?.url || '';
+          const mm   = /^data:([^;]+);base64,(.+)$/.exec(url);
+          if (mm) blocks.push({ type: 'image', source: { type: 'base64', media_type: mm[1], data: mm[2] } });
+        }
+      }
+      out.push({ role: 'user', content: blocks });
+    }
+  }
+  return out;
+}
+
+/**
+ * OpenAI messages → Gemini contents.
+ *
+ * - system handled by Gemini's systemInstruction; filtered here.
+ * - assistant ↔ model role rename.
+ * - text content becomes a text part.
+ * - image_url content (data:base64 URL) becomes an inlineData part.
+ * - assistant tool_calls become functionCall parts.
+ * - tool messages become functionResponse parts wrapped in a user-role
+ *   content block (Gemini's required shape for tool results).
+ */
+function _openaiToGeminiContents(messages) {
+  const out = [];
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+    if (m.role === 'tool') {
+      const responsePart = {
+        functionResponse: {
+          // Gemini ignores the id but wants a name. The client must echo
+          // the original tool name in a side-channel; for now Trace doesn't
+          // re-call after a Gemini-issued tool_call in env-locked mode
+          // beyond the first round, and the first round has the name on
+          // the assistant message we just sent back. Fallback to empty.
+          name: m.name || '',
+          response: typeof m.content === 'string' ? _safeJsonParse(m.content, { result: m.content }) : (m.content || {}),
+        },
+      };
+      const last = out[out.length - 1];
+      if (last && last.role === 'user') {
+        last.parts.push(responsePart);
+      } else {
+        out.push({ role: 'user', parts: [responsePart] });
+      }
+      continue;
+    }
+    if (m.role === 'assistant') {
+      const parts = [];
+      if (m.content) parts.push({ text: typeof m.content === 'string' ? m.content : String(m.content) });
+      for (const tc of (m.tool_calls || [])) {
+        parts.push({
+          functionCall: {
+            name: tc.function?.name,
+            args: _safeJsonParse(tc.function?.arguments, {}),
+          },
+        });
+      }
+      out.push({ role: 'model', parts: parts.length ? parts : [{ text: '' }] });
+      continue;
+    }
+    // user
+    if (typeof m.content === 'string') {
+      out.push({ role: 'user', parts: [{ text: m.content }] });
+    } else if (Array.isArray(m.content)) {
+      const parts = [];
+      for (const part of m.content) {
+        if (part.type === 'text') {
+          parts.push({ text: part.text || '' });
+        } else if (part.type === 'image_url') {
+          const url = part.image_url?.url || '';
+          const mm  = /^data:([^;]+);base64,(.+)$/.exec(url);
+          if (mm) parts.push({ inlineData: { mimeType: mm[1], data: mm[2] } });
+        }
+      }
+      out.push({ role: 'user', parts });
+    }
+  }
+  return out;
 }

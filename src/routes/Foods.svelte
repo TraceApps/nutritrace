@@ -1264,7 +1264,7 @@
     <div class="scan-lookup-card" role="status" aria-live="polite">
       <span class="material-symbols-rounded scan-lookup-spin">progress_activity</span>
       <div class="scan-lookup-text">
-        <span class="scan-lookup-title">Looking up barcode</span>
+        <span class="scan-lookup-title">{$_('foods.looking_up_barcode')}</span>
         {#if _scanLookupCode}
           <span class="scan-lookup-code">{_scanLookupCode}</span>
         {/if}

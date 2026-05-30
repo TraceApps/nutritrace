@@ -5,9 +5,43 @@
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
     aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName,
-    aiKeyVerified, quickLogEnabled, aiGoalInsights,
+    aiKeyVerified, quickLogEnabled, aiGoalInsights, smartLogVoiceLang,
     activityAutoEstimate, diaryShowActivity,
   } from '../../stores/settings.js';
+
+  // Smart Log voice-input language options. 'auto' uses navigator.language
+  // (device locale). Explicit choices override for users whose device
+  // locale doesn't match what they actually speak — see settings.js
+  // comment on smartLogVoiceLang for the why. Covers OFF's 20 top food
+  // languages plus a few extra; users typing into the box (no picker UI)
+  // can still pass any BCP-47 tag the underlying engine accepts.
+  const VOICE_LANGS = [
+    { value: 'auto',  label: 'Auto (use device language)' },
+    { value: 'en-US', label: 'English (US)' },
+    { value: 'en-GB', label: 'English (UK)' },
+    { value: 'it-IT', label: 'Italian' },
+    { value: 'es-ES', label: 'Spanish (Spain)' },
+    { value: 'es-MX', label: 'Spanish (Mexico)' },
+    { value: 'fr-FR', label: 'French' },
+    { value: 'de-DE', label: 'German' },
+    { value: 'pt-BR', label: 'Portuguese (Brazil)' },
+    { value: 'pt-PT', label: 'Portuguese (Portugal)' },
+    { value: 'nl-NL', label: 'Dutch' },
+    { value: 'pl-PL', label: 'Polish' },
+    { value: 'ru-RU', label: 'Russian' },
+    { value: 'sv-SE', label: 'Swedish' },
+    { value: 'da-DK', label: 'Danish' },
+    { value: 'nb-NO', label: 'Norwegian' },
+    { value: 'fi-FI', label: 'Finnish' },
+    { value: 'cs-CZ', label: 'Czech' },
+    { value: 'tr-TR', label: 'Turkish' },
+    { value: 'ja-JP', label: 'Japanese' },
+    { value: 'ko-KR', label: 'Korean' },
+    { value: 'zh-CN', label: 'Chinese (Simplified)' },
+    { value: 'zh-TW', label: 'Chinese (Traditional)' },
+    { value: 'hi-IN', label: 'Hindi' },
+    { value: 'ar-SA', label: 'Arabic' },
+  ];
   import { AI_PROVIDERS, AI_MODELS, AI_DEFAULT_MODELS, callAI, callAIProxy } from '../../lib/aiChat.js';
   import { DB } from '../../lib/db.js';
   import { scheduleSave } from '../../stores/settings.js';
@@ -284,6 +318,19 @@
         <Toggle checked={quickLogEnabledVal} on:change={e => quickLogEnabledVal = e.detail} />
       </div>
       {#if quickLogEnabledVal}
+        <div class="setting-divider"></div>
+        <div class="setting-row">
+          <div>
+            <span class="setting-label">Voice Input Language</span>
+            <div class="setting-desc">Language the microphone listens for. Defaults to your device language; override if you speak a different language than your device is set to.</div>
+          </div>
+          <select class="select sel-sm" style="width:auto" value={$smartLogVoiceLang}
+                  on:change={e => smartLogVoiceLang.set(e.target.value)}>
+            {#each VOICE_LANGS as opt}
+              <option value={opt.value}>{opt.label}</option>
+            {/each}
+          </select>
+        </div>
         <div class="setting-divider"></div>
         <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:6px">
           <div class="setting-desc" style="line-height:1.55">

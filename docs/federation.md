@@ -1,8 +1,8 @@
 # TraceApps Federation API
 
-A read-first, Bearer-authenticated REST API that NutriTrace exposes for
-sister apps in the TraceApps ecosystem (CookTrace, LiftTrace, plus any
-self-hosted custom integrations) to consume.
+A Bearer-authenticated REST API that NutriTrace exposes for sister apps
+in the TraceApps ecosystem (LiftTrace public, CookTrace in private
+development, plus any self-hosted custom integrations) to consume.
 
 This is an **internal cross-app contract**, not a public API for
 third-party developers. The wire format is stable across NT releases
@@ -43,16 +43,16 @@ logs and credential scanners.
 ### Scopes
 
 Each token carries a list of scopes. Calls outside a token's scopes
-return `403 Forbidden`. Phase 1 is **read-only** and ships only one
-scope:
+return `403 Forbidden`. Available scopes:
 
-| Scope          | Grants                                          |
-|----------------|-------------------------------------------------|
-| `read:foods`   | List + read foods owned by the user             |
+| Scope             | Grants                                                                           |
+|-------------------|----------------------------------------------------------------------------------|
+| `read:foods`      | List + read foods owned by the user. Used by CookTrace (in private development). |
+| `write:workouts`  | Push completed workouts to the user's wellness data via `POST /api/v1/workouts`. Used by LiftTrace so its calorie estimates feed NutriTrace's dynamic-TDEE calculations. |
 
-Future read scopes (`read:meals`, `read:diary`) and any write scopes
-will be added alongside the endpoints they unlock; gating tokens on
-scopes the server can't actually serve is confusing UI.
+Future scopes (`read:meals`, `read:diary`, etc.) will be added alongside
+the endpoints they unlock; gating tokens on scopes the server can't
+actually serve is confusing UI.
 
 ### Rate limiting
 

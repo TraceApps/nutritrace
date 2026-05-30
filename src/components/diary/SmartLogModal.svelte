@@ -12,7 +12,16 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
-  import { mealNames, energyUnit } from '../../stores/settings.js';
+  import { mealNames, energyUnit, smartLogVoiceLang } from '../../stores/settings.js';
+
+  // Resolve the configured voice-input language. 'auto' (default) means
+  // use the device locale; anything else is a BCP-47 tag the user picked
+  // explicitly in Settings -> AI Assistant.
+  function _resolveVoiceLang() {
+    const v = smartLogVoiceLang.get();
+    if (v && v !== 'auto') return v;
+    return navigator.language || 'en-US';
+  }
   import { Nutrition } from '../../lib/nutrition.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { parseInput, matchItems, saveItems, resolveMealSlot } from '../../lib/quick-log.js';
@@ -77,7 +86,7 @@
         webRecognition = new SR();
         webRecognition.continuous = false;
         webRecognition.interimResults = false;
-        webRecognition.lang = navigator.language || 'en-US';
+        webRecognition.lang = _resolveVoiceLang();
         webRecognition.onresult = (e) => {
           const transcript = e.results[0]?.[0]?.transcript || '';
           if (transcript) inputText = (inputText ? inputText + ' ' : '') + transcript;
@@ -133,7 +142,7 @@
         }
         listening = true;
         const result = await SpeechRecognition.start({
-          language: navigator.language || 'en-US',
+          language: _resolveVoiceLang(),
           maxResults: 1,
           prompt: 'Tell me what you ate',
           partialResults: false,
@@ -250,7 +259,7 @@
       }
     } catch (e) {
       console.error('[smart-log] save failed:', e);
-      errorMsg = 'Save failed: ' + e.message;
+      errorMsg = $_('common.errors.save_failed') + ': ' + e.message;
       phase = 'review';
     }
   }

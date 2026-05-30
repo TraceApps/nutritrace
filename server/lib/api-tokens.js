@@ -23,6 +23,10 @@ const TOKEN_BYTES = 32;  // 256-bit secret
  *  can't actually serve is just confusing UI. */
 export const KNOWN_SCOPES = new Set([
   'read:foods',
+  // write:workouts unlocks POST /api/v1/workouts — used by LiftTrace to
+  // log completed-workout calorie burns into the user's wellness data so
+  // the dynamic-TDEE calc has the additional energy expenditure.
+  'write:workouts',
 ]);
 
 function _hash(raw) {

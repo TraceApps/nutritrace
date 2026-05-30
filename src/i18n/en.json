@@ -32,9 +32,15 @@
     "unlinked":     "Unlinked",
     "admin":        "admin",
     "errors": {
-      "cant_reach_server": "Could not reach server",
-      "failed":            "Failed",
-      "unlink_failed":     "Could not unlink"
+      "cant_reach_server":     "Could not reach server",
+      "failed":                "Failed",
+      "unlink_failed":         "Could not unlink",
+      "save_failed":           "Save failed",
+      "delete_failed":         "Delete failed",
+      "name_required":         "Name is required",
+      "network_error_upload":  "Network error during upload",
+      "voice_unsupported":     "Voice input not supported in this browser",
+      "cant_start_mic":        "Couldn't start microphone"
     }
   },
   "settings": {
@@ -433,6 +439,7 @@
     "search_in":               "Search {source}",
     "searching_in":            "Searching {source}…",
     "no_results_in":           "No results in {source}",
+    "looking_up_barcode":      "Looking up barcode",
     "sources": {
       "local":       "Local",
       "from_others": "From Others"

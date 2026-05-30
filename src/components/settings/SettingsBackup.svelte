@@ -1,6 +1,7 @@
 <script>
   import { tick } from 'svelte';
   import { slide } from 'svelte/transition';
+  import { _ } from 'svelte-i18n';
   import Dialog from '../ui/Dialog.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { DB } from '../../lib/db.js';
@@ -187,7 +188,7 @@
       await loadLocalBackups();
     } catch (e) {
       console.error('[backup] delete failed:', e);
-      showError('Delete failed: ' + e.message);
+      showError($_('common.errors.delete_failed') + ': ' + e.message);
     }
   }
 
@@ -234,8 +235,19 @@
     if (isNativeLocal) return;
     try {
       const res = await fetch(apiUrl('/api/full-backup'), _fetchOpts());
-      if (res.ok) fullBackups = await res.json();
-    } catch {}
+      if (!res.ok) {
+        // Surface the server's error so the user knows the list is empty
+        // because of a failure (not because there are no backups). The
+        // catch block previously swallowed both fetch errors AND non-2xx
+        // responses, leaving the user with a silent empty list.
+        const body = await res.json().catch(() => ({}));
+        showError(body?.error || `Couldn't load backups (${res.status})`);
+        return;
+      }
+      fullBackups = await res.json();
+    } catch (e) {
+      showError(e?.message || $_('common.errors.cant_reach_server'));
+    }
   }
 
   async function createFullBackup() {
@@ -283,8 +295,8 @@
     try {
       const res = await fetch(apiUrl(`/api/full-backup/${encodeURIComponent(filename)}`), { method: 'DELETE', ..._fetchOpts() });
       if (res.ok) { showSuccess('Backup deleted'); await loadFullBackups(); }
-      else showError('Delete failed');
-    } catch { showError('Delete failed'); }
+      else showError($_('common.errors.delete_failed'));
+    } catch { showError($_('common.errors.delete_failed')); }
   }
 
   function fmtBytes(bytes) {
@@ -356,7 +368,7 @@
     xhr.onerror = () => {
       fullBackupBusy = false;
       restoreStatus = null;
-      showError('Restore failed: network error');
+      showError($_('common.errors.network_error_upload'));
     };
 
     xhr.send(form);

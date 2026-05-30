@@ -7,6 +7,7 @@
   import { isNative, resolveAssetUrl } from '../lib/platform.js';
   import { portal } from '../lib/portal.js';
   import Sheet from '../components/ui/Sheet.svelte';
+  import Spinner from '../components/ui/Spinner.svelte';
   import UnitPicker from '../components/ui/UnitPicker.svelte';
   import { scaleFactor as _unitScaleFactor } from '../lib/units.js';
   import { showSuccess, showError } from '../stores/toast.js';
@@ -780,7 +781,7 @@
     </div>
     <div class="picker-list">
       {#if pickerLoading}
-        <div class="picker-empty">Loading…</div>
+        <Spinner block size="sm" />
       {:else if pickerFiltered.length === 0}
         <div class="picker-empty">{pickerSearch ? 'No results found' : 'No items yet. Add some in the Foods tab first.'}</div>
       {:else}

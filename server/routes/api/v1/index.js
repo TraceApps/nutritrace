@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { bearerAuth } from '../../../middleware/bearer-auth.js';
 import meRouter from './me.js';
 import foodsRouter from './foods.js';
+import workoutsRouter from './workouts.js';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use(bearerAuth);
 
 router.use('/me', meRouter);
 router.use('/foods', foodsRouter);
+router.use('/workouts', workoutsRouter);
 
 export default router;

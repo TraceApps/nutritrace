@@ -61,6 +61,13 @@ function _tick() {
 let _timer = null;
 export function startOffLocalScheduler() {
   if (_timer) return;
+  // No mirror configured → skip scheduling entirely. Without this, the
+  // hourly tick still ran (and immediately bailed at isLocalOffEnabled)
+  // but the startup log line "[off-local-scheduler] running every 60 min"
+  // misled users who weren't opted in to think the feature was active.
+  // If OFF_LOCAL_DB gets set later (env change + container restart), the
+  // next boot picks it up cleanly.
+  if (!isLocalOffEnabled()) return;
   // Run once shortly after startup so an overdue mirror gets refreshed
   // without waiting a full hour. 30s gives the initial primeFromStartup
   // download (if any) time to start before we step on it.

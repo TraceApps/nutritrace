@@ -649,24 +649,24 @@
           </p>
           <div class="um-add-form">
             <div class="um-form-row">
-              <input class="input" type="text" bind:value={enableAdminUser} placeholder="Username *" autocomplete="username" />
-              <input class="input" type="text" bind:value={enableAdminName} placeholder="Full name (optional)" />
+              <input class="input" type="text" bind:value={enableAdminUser} placeholder={$_('settings.users.username_required')} autocomplete="username" />
+              <input class="input" type="text" bind:value={enableAdminName} placeholder={$_('settings.users.full_name')} />
             </div>
             <div class="um-form-row">
               <div style="display:flex;gap:4px;align-items:center;flex:1">
                 {#if enableShowPass}
-                  <input class="input" style="flex:1" type="text" bind:value={enableAdminPass} placeholder="Password *" autocomplete="new-password" />
+                  <input class="input" style="flex:1" type="text" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
                 {:else}
-                  <input class="input" style="flex:1" type="password" bind:value={enableAdminPass} placeholder="Password *" autocomplete="new-password" />
+                  <input class="input" style="flex:1" type="password" bind:value={enableAdminPass} placeholder={$_('settings.users.password_required')} autocomplete="new-password" />
                 {/if}
                 <button class="btn-icon" on:click={() => enableShowPass = !enableShowPass} style="flex-shrink:0">
                   <span class="material-symbols-rounded" style="font-size:18px">{enableShowPass ? 'visibility_off' : 'visibility'}</span>
                 </button>
               </div>
               {#if enableShowPass}
-                <input class="input" type="text" bind:value={enableAdminConf} placeholder="Confirm *" autocomplete="new-password" />
+                <input class="input" type="text" bind:value={enableAdminConf} placeholder={$_('settings.users.confirm_required')} autocomplete="new-password" />
               {:else}
-                <input class="input" type="password" bind:value={enableAdminConf} placeholder="Confirm *" autocomplete="new-password" />
+                <input class="input" type="password" bind:value={enableAdminConf} placeholder={$_('settings.users.confirm_required')} autocomplete="new-password" />
               {/if}
             </div>
             {#if enableUmError}<p class="um-error">{enableUmError}</p>{/if}
