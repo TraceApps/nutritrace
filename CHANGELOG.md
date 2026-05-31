@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.43] - 2026-05-31
+
+### Fixed
+
+- **Local OFF mirror: search + barcode lookups now return real product
+  names and nutrition info again** on installs where the parquet stores
+  localized fields in a format rc.42 didn't recognize. Search results
+  were showing a long serialized blob as the product name and barcode
+  lookups came up with no nutrition. Server-side fix; restart the
+  container to pick it up. (Issue #53 round 2, reported by duplaja)
+
+---
+
 ## [1.0.0-rc.42] - 2026-05-30
 
 ### Added

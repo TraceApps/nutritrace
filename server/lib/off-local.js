@@ -497,10 +497,26 @@ function _toOffProduct(row) {
   // the whole search (.split / .trim on a Uint8Array throws and the
   // client's .map(_mapOFFProduct) wraps the lot in [].
   const coerceList = v => Array.isArray(v) ? v.map(_coerceString).filter(Boolean) : [];
-  const pnList = _asArray(row.product_name);
-  if (pnList) {
-    // Parquet shape: product_name is LIST<{lang, text}>
-    const name = _extractLocalized(pnList) || _extractLocalized(_asArray(row.generic_name));
+  // pnList resolves the LIST<STRUCT> from any of three shapes:
+  //   1. Real Array — native parquet LIST → DuckDB Array
+  //   2. Iterable list-like — older DuckDB Node API versions
+  //   3. String containing a Python-repr serialized list — some parquet
+  //      exports persist the list as a string instead of native LIST
+  //      (issue #53 round 2: product_name came through as
+  //      "[{'lang': 'main', 'text': 'Soymilk'}, ...]" verbatim because
+  //      shape 3 wasn't being parsed). Same fallback applied to
+  //      nutriments + images so 0-kcal rows + missing photos disappear.
+  const pnList = _asArray(row.product_name) || _maybeParseListString(row.product_name);
+  const nutrList = _asArray(row.nutriments)  || _maybeParseListString(row.nutriments);
+  const imgList  = _asArray(row.images)      || _maybeParseListString(row.images);
+  if (pnList || nutrList || imgList) {
+    // Parquet shape: product_name is LIST<{lang, text}>, possibly via
+    // string-parse fallback. At least one of the three columns resolved
+    // to a list — treat this as the modern parquet branch even if some
+    // came through as null (the helpers below tolerate empty input).
+    const pn       = pnList || [];
+    const generic  = _asArray(row.generic_name) || _maybeParseListString(row.generic_name) || [];
+    const name     = _extractLocalized(pn) || _extractLocalized(generic);
     return {
       code: _coerceString(row.code),
       product_name: _coerceString(name),
@@ -508,11 +524,11 @@ function _toOffProduct(row) {
       brands_tags: coerceList(row.brands_tags),
       categories: _coerceString(row.categories),
       categories_tags: coerceList(row.categories_tags),
-      ..._buildImageUrls(row.images, row.code, _coerceString(row.lang) || 'en'),
+      ..._buildImageUrls(imgList || [], row.code, _coerceString(row.lang) || 'en'),
       serving_size: _coerceString(row.serving_size),
       serving_quantity: row.serving_quantity != null ? _coerceString(row.serving_quantity) : '',
       quantity: _coerceString(row.quantity),
-      nutriments: _unfoldNutrimentsList(row.nutriments),
+      nutriments: _unfoldNutrimentsList(nutrList || []),
     };
   }
   // Legacy native DuckDB shape (product_name is a plain string column)
@@ -532,6 +548,195 @@ function _toOffProduct(row) {
     quantity: _coerceString(row.quantity),
     nutriments,
   };
+}
+
+/** Convert a Python-repr string into valid JSON. Walks character by
+ *  character so apostrophes inside string values ("Reese's") are
+ *  handled correctly instead of being treated as delimiters. None /
+ *  True / False replacements apply only OUTSIDE string literals so a
+ *  product description containing "True Story" doesn't get mangled.
+ *
+ *  Handles the full Python-repr surface that's plausibly emittable by
+ *  any parquet exporter — triple-quoted strings, raw / byte / unicode
+ *  string prefixes (r'', b'', u'', rb''), Python-only escape sequences
+ *  (\a \v \0 \xHH \NNN octal), control characters, trailing commas in
+ *  lists / dicts, and embedded quotes of the opposite kind. Designed
+ *  to be defensive — if a shape appears that we don't recognize, the
+ *  outer caller logs the failure once via the diagnostic in
+ *  _extractLocalized so we can extend rather than guess.
+ */
+function _pythonReprToJson(s) {
+  let out = '';
+  let outsideStart = 0;       // chars [outsideStart..i) are outside any string
+  let i = 0;
+  const n = s.length;
+
+  const flushOutside = (end) => {
+    let chunk = s.slice(outsideStart, end);
+    // Python literals → JSON. \b word boundaries keep us from mangling
+    // identifiers containing these substrings (e.g. "Noneuk_disease").
+    chunk = chunk.replace(/\bNone\b/g,  'null')
+                 .replace(/\bTrue\b/g,  'true')
+                 .replace(/\bFalse\b/g, 'false');
+    // Python allows trailing commas in lists / dicts; JSON doesn't.
+    // Match comma + optional whitespace + closing bracket.
+    chunk = chunk.replace(/,(\s*[\]}])/g, '$1');
+    out += chunk;
+  };
+
+  while (i < n) {
+    const c = s[i];
+
+    // String literal prefix detection: r' b' u' rb' br' (case-insensitive)
+    // followed by the actual quote char. Track whether 'r' was part of
+    // the prefix — raw strings disable escape processing inside the
+    // body so r'no\nescapes' must keep the backslash + n literally.
+    let prefLen = 0;
+    let isRaw = false;
+    if (/[rRbBuU]/.test(c) && i + 1 < n) {
+      const c1 = s[i + 1];
+      if (c1 === "'" || c1 === '"') {
+        prefLen = 1;
+        isRaw = (c === 'r' || c === 'R');
+      } else if (i + 2 < n && /[rRbBuU]/.test(c1)
+                 && (s[i + 2] === "'" || s[i + 2] === '"')) {
+        prefLen = 2;
+        isRaw = (c === 'r' || c === 'R' || c1 === 'r' || c1 === 'R');
+      }
+    }
+    const stringChar = prefLen > 0 ? s[i + prefLen] : c;
+    const isStringStart = stringChar === "'" || stringChar === '"';
+
+    if (isStringStart) {
+      // Entering a string literal (with or without prefix). Emit
+      // accumulated outside chunk with Python-literal replacements,
+      // then skip the prefix bytes (they're not part of the value).
+      flushOutside(i);
+      if (prefLen > 0) {
+        outsideStart = i + prefLen;
+        i += prefLen;
+      }
+      const quote = stringChar;
+      // Triple-quoted? Three consecutive same-quote chars.
+      const isTriple = (i + 2 < n && s[i + 1] === quote && s[i + 2] === quote);
+      const delimLen = isTriple ? 3 : 1;
+      out += '"';
+      i += delimLen;
+      while (i < n) {
+        const ch = s[i];
+
+        // Closing delimiter detection (checked first so raw + non-raw
+        // both terminate correctly).
+        if (isTriple && ch === quote
+            && i + 2 < n && s[i + 1] === quote && s[i + 2] === quote) {
+          out += '"';
+          i += 3; break;
+        }
+        if (!isTriple && ch === quote) {
+          out += '"';
+          i++; break;
+        }
+
+        if (isRaw) {
+          // Raw string: backslashes are literal characters, no escape
+          // processing. Still need to JSON-escape special chars so the
+          // produced output is valid JSON.
+          if (ch === '\\') { out += '\\\\'; i++; continue; }
+          if (ch === '"' && quote === "'") { out += '\\"'; i++; continue; }
+          if (ch === '\n') { out += '\\n'; i++; continue; }
+          if (ch === '\r') { out += '\\r'; i++; continue; }
+          if (ch === '\t') { out += '\\t'; i++; continue; }
+          const code = ch.charCodeAt(0);
+          if (code < 0x20) { out += '\\u' + code.toString(16).padStart(4, '0'); i++; continue; }
+          out += ch;
+          i++;
+          continue;
+        }
+
+        // Non-raw string: process escape sequences.
+        if (ch === '\\' && i + 1 < n) {
+          const nxt = s[i + 1];
+          if (nxt === quote) {
+            // Escaped delimiter. In JSON closing delimiter is always ",
+            // so if quote is ' we emit a literal apostrophe; if quote
+            // is " we keep the escape.
+            out += quote === '"' ? '\\"' : "'";
+            i += 2; continue;
+          }
+          // Python-only escapes → JSON equivalents.
+          if (nxt === 'a') { out += '\\u0007'; i += 2; continue; }  // bell
+          if (nxt === 'v') { out += '\\u000b'; i += 2; continue; }  // vtab
+          if (nxt === '0') { out += '\\u0000'; i += 2; continue; }  // null
+          if (nxt === 'x' && i + 3 < n) {
+            // \xHH (hex) → \u00HH (JSON). Two hex digits.
+            out += '\\u00' + s.slice(i + 2, i + 4);
+            i += 4; continue;
+          }
+          if (/[0-7]/.test(nxt)) {
+            // \NNN octal escape, up to 3 digits. Convert to \u00XX.
+            let octDigits = nxt;
+            let j = i + 2;
+            while (j < i + 4 && j < n && /[0-7]/.test(s[j])) {
+              octDigits += s[j]; j++;
+            }
+            const code = parseInt(octDigits, 8);
+            if (code <= 0xff) {
+              out += '\\u00' + code.toString(16).padStart(2, '0');
+              i = j; continue;
+            }
+          }
+          // Standard JSON escapes (\\ \/ \b \f \n \r \t \uXXXX) pass
+          // through unchanged. Anything else (unknown \X) also passes
+          // through — JSON.parse rejects it and the outer fallback
+          // diagnostic catches the case.
+          out += ch + nxt;
+          i += 2; continue;
+        }
+        if (ch === '"' && quote === "'") {
+          // Unescaped " inside single-quoted string — escape for JSON.
+          out += '\\"'; i++; continue;
+        }
+        // Newlines / control chars need JSON escaping.
+        if (ch === '\n') { out += '\\n'; i++; continue; }
+        if (ch === '\r') { out += '\\r'; i++; continue; }
+        if (ch === '\t') { out += '\\t'; i++; continue; }
+        const code = ch.charCodeAt(0);
+        if (code < 0x20) {
+          out += '\\u' + code.toString(16).padStart(4, '0');
+          i++; continue;
+        }
+        out += ch;
+        i++;
+      }
+      outsideStart = i;
+    } else {
+      i++;
+    }
+  }
+  flushOutside(n);
+  return out;
+}
+
+/** When a column that SHOULD be LIST<STRUCT> arrives as a plain string
+ *  (some parquet exports + some DuckDB versions emit the list as a
+ *  Python-repr string instead of the native list shape — issue #53
+ *  followup from @duplaja: rc.42 fixed the Uint8Array case but the
+ *  parquet itself was storing the list as a string with single-quoted
+ *  Python syntax, so product_name + nutriments + images all came
+ *  through as the WHOLE serialized list), try to parse it back into a
+ *  real array so the existing list-aware extractors can consume it.
+ *  Returns null if the string doesn't look like an array literal or
+ *  can't be parsed. */
+function _maybeParseListString(s) {
+  if (typeof s !== 'string') return null;
+  const t = s.trim();
+  if (!t.startsWith('[')) return null;
+  // Strict JSON first — covers canonical JSON sources cheaply.
+  try { return JSON.parse(t); } catch {}
+  // Python repr fallback — convert via the apostrophe-aware tokenizer
+  // above so values like "Reese's" don't break the parse.
+  try { return JSON.parse(_pythonReprToJson(t)); } catch {}
+  return null;
 }
 
 /** Coerce a DuckDB value (string | bigint | Uint8Array | Buffer | wrapper)
