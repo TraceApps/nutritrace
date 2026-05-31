@@ -725,19 +725,41 @@ function _pythonReprToJson(s) {
  *  Python syntax, so product_name + nutriments + images all came
  *  through as the WHOLE serialized list), try to parse it back into a
  *  real array so the existing list-aware extractors can consume it.
- *  Returns null if the string doesn't look like an array literal or
- *  can't be parsed. */
+ *  Returns null if the input can't be coerced to a list literal.
+ *
+ *  IMPORTANT: coerces via _coerceString FIRST so Uint8Array + Buffer
+ *  inputs (DuckDB Node API hands VARCHAR cells back as raw UTF-8 bytes
+ *  in some versions — rc.43 round 1 missed this and went to the legacy
+ *  branch, which passed the raw serialized list through as the product
+ *  name — the actual reason "rc.43 didn't fix anything" for duplaja).
+ *  Also strips a UTF-8 BOM if present (some exporters prepend one). */
 function _maybeParseListString(s) {
-  if (typeof s !== 'string') return null;
-  const t = s.trim();
+  if (s == null) return null;
+  // Decode whatever DuckDB gave us into a real JS string before we
+  // make any decisions. Uint8Array, Buffer, BigInt, plain string all
+  // collapse to the same shape here.
+  const decoded = _coerceString(s);
+  if (!decoded) return null;
+  // Strip UTF-8 BOM + whitespace.
+  const t = decoded.replace(/^﻿/, '').trim();
   if (!t.startsWith('[')) return null;
   // Strict JSON first — covers canonical JSON sources cheaply.
   try { return JSON.parse(t); } catch {}
   // Python repr fallback — convert via the apostrophe-aware tokenizer
   // above so values like "Reese's" don't break the parse.
   try { return JSON.parse(_pythonReprToJson(t)); } catch {}
+  // Both parse attempts failed on a non-empty list-like string. Log
+  // ONCE per process so a future schema we haven't seen surfaces in
+  // the docker logs instead of silently dropping back to the legacy
+  // branch (which would once again pass the raw blob through as the
+  // product name and make this look unfixed).
+  if (!_loggedListParseFallthrough) {
+    _loggedListParseFallthrough = true;
+    logger.warn(`[off-local] _maybeParseListString fell through; sample (first 240 chars): ${t.slice(0, 240)}`);
+  }
   return null;
 }
+let _loggedListParseFallthrough = false;
 
 /** Coerce a DuckDB value (string | bigint | Uint8Array | Buffer | wrapper)
  *  to a plain JS string. Returns '' for null / undefined / unrecognized.

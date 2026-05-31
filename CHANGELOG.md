@@ -9,6 +9,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.44] - 2026-05-31
+
+### Fixed
+
+- **Manual Google Health sync no longer throws an unhandled rejection.**
+  A leftover variable reference from an earlier internal refactor was
+  crashing the manual sync flow on Android. (Issue #55, reported by
+  nomad64)
+- **Local OFF mirror: search + barcode lookups now actually return
+  real product names and nutrition again.** rc.43 added the parser
+  but the entry-point check rejected a shape DuckDB returns on some
+  installs, so it silently fell back to passing the raw serialized
+  text through. rc.44 decodes the input before the parser runs.
+  (Issue #53 round 3, reported by duplaja)
+
+---
+
 ## [1.0.0-rc.43] - 2026-05-31
 
 ### Fixed

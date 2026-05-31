@@ -380,7 +380,6 @@
     garminSyncing    = false;
     _insightsLoaded  = false;
     _readinessLoaded = false;
-    _stressLoaded    = false;
   }
 
   async function connectGarmin() {
@@ -1102,7 +1101,7 @@
     }
     _checkWellnessGoals({ ...garminData, ...data }, withingsData);
     loadingData = false;
-    if (activeTab === 'heart') { _readinessLoaded = false; _stressLoaded = false; }
+    if (activeTab === 'heart') { _readinessLoaded = false; }
     loadSparklines();
     loadWorkouts();
   }
@@ -1133,8 +1132,10 @@
     await loadGarminData();
     _checkWellnessGoals({ ...garminData, ...data }, withingsData);
     loadingData = false;
-    // Refresh readiness + stress if on heart tab (today's values just changed)
-    if (activeTab === 'heart') { _readinessLoaded = false; _stressLoaded = false; }
+    // Refresh readiness if on heart tab (today's value just changed).
+    // (Stress was replaced by Resilience in v2 of the scoring; the
+    // _stressLoaded flag is gone.)
+    if (activeTab === 'heart') { _readinessLoaded = false; }
     // Load sparklines in background (not awaited — don't block date display)
     loadSparklines();
     loadWorkouts();
@@ -1190,7 +1191,6 @@
     syncWorkouts(); // fetch workout activity logs alongside metrics
     _insightsLoaded  = false;
     _readinessLoaded = false;
-    _stressLoaded    = false;
   }
 
   async function connect() {
