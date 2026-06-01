@@ -31,7 +31,14 @@ const NUTRITION_SCHEMA = (() => {
       'headline macros; the user wants the full nutrition profile.',
     properties,
     required: ['calories'],
-    additionalProperties: { type: 'number' },
+    // No `additionalProperties` — Gemini's function-calling schema is a
+    // subset of OpenAPI 3.0 and rejects that field with "Unknown name
+    // 'additionalProperties'" (issue #56 from @nomad64). JSON Schema
+    // default behavior allows extras anyway, so dropping the explicit
+    // clause doesn't lose functional capability for Claude / OpenAI /
+    // oai-compat providers. NUTRIMENTS already enumerates every
+    // supported key in `properties`, so the AI has the full key
+    // universe regardless.
   };
 })();
 

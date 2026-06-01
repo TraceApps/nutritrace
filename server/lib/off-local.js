@@ -575,9 +575,22 @@ function _pythonReprToJson(s) {
     let chunk = s.slice(outsideStart, end);
     // Python literals → JSON. \b word boundaries keep us from mangling
     // identifiers containing these substrings (e.g. "Noneuk_disease").
-    chunk = chunk.replace(/\bNone\b/g,  'null')
-                 .replace(/\bTrue\b/g,  'true')
-                 .replace(/\bFalse\b/g, 'false');
+    // Python literals (Title-case) AND SQL-export literals (UPPER-case)
+    // both map to JSON's lowercase null/true/false. Some parquet
+    // exporters (issue #53 round 4 from @duplaja: nutriments column
+    // had NULL not None) write SQL-style literals when the source data
+    // had SQL nulls. We accept either spelling. Already-lowercase
+    // null/true/false pass through unchanged because they're already
+    // valid JSON. Replacement runs only on OUTSIDE-string chunks so a
+    // literal product description containing "NULL" inside quotes is
+    // preserved as-is.
+    chunk = chunk
+      .replace(/\bNone\b/g,  'null')
+      .replace(/\bNULL\b/g,  'null')
+      .replace(/\bTrue\b/g,  'true')
+      .replace(/\bTRUE\b/g,  'true')
+      .replace(/\bFalse\b/g, 'false')
+      .replace(/\bFALSE\b/g, 'false');
     // Python allows trailing commas in lists / dicts; JSON doesn't.
     // Match comma + optional whitespace + closing bracket.
     chunk = chunk.replace(/,(\s*[\]}])/g, '$1');

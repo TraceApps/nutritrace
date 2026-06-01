@@ -9,6 +9,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.45] - 2026-06-01
+
+### Fixed
+
+- **Local OFF mirror: nutrition values now load alongside product
+  names** on installs where the parquet stores nutriment data in a
+  format rc.44's parser didn't fully understand. rc.44 got names and
+  barcodes working but nutrition fields came up empty. Server-side
+  fix; restart the container to pick it up. (Issue #53 round 4,
+  reported by duplaja)
+- **AI Assistant now works with Gemini again**. A schema field added
+  with the AI Meal Photos feature in rc.42 was being rejected by
+  Gemini's API. Claude and OpenAI both ignored it, so the breakage
+  only affected Gemini users. (Issue #56, reported by nomad64)
+
+---
+
 ## [1.0.0-rc.44] - 2026-05-31
 
 ### Fixed
