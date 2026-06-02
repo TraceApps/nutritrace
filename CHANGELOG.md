@@ -9,6 +9,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.46] - 2026-06-02
+
+### Fixed
+
+- **Wellness goal progress bars (Daily Steps, Active Minutes, Floors,
+  etc.) stayed at 0** for users whose only wellness source was Google
+  Health or Health Connect. Goals now reads from those sources too.
+  (Issue #57, reported by duplaja)
+
+---
+
 ## [1.0.0-rc.45] - 2026-06-01
 
 ### Fixed

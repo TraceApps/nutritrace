@@ -245,6 +245,9 @@ export const NtApiNative = {
       return await computeAdaptiveTdeeLocal();
     }
     if (path.startsWith('/api/wellness/calories-out')) return _caloriesOutLocal(path);
+    if (path.startsWith('/api/wellness/fitbit/data'))   return _wellnessDataLocal(path, ['fitbit', 'health_connect']);
+    if (path.startsWith('/api/wellness/garmin/data'))   return _wellnessDataLocal(path, ['garmin']);
+    if (path.startsWith('/api/wellness/withings/data')) return _wellnessDataLocal(path, ['withings']);
     console.warn(`[NtApiNative] GET ${path} — not available in local mode`);
     return {};
   },
@@ -341,6 +344,43 @@ async function _caloriesOutLocal(path) {
     if (row) return { calories_out: row.value, source: src, date: yesterday };
   }
   return { calories_out: null, source: null, date: yesterday };
+}
+
+// Local dispatcher for per-source /api/wellness/<source>/data?date= or
+// ?from=&to=. Mirrors the server shape { [date]: { [metric_type]: value } }.
+// `sources` may include multiple values (Fitbit endpoint serves both fitbit
+// and health_connect rows so a Health-Connect-only user on Android local mode
+// still sees Goals progress).
+async function _wellnessDataLocal(path, sources) {
+  const { getDb, LOCAL_USER_ID } = await import('./db-native.js');
+  const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+  const date = q.get('date');
+  const from = q.get('from');
+  const to   = q.get('to');
+  const db = await getDb();
+  const placeholders = sources.map(() => '?').join(',');
+  let sql, params;
+  if (date) {
+    sql = `SELECT date, metric_type, value, source FROM wellness_data
+           WHERE user_id = ? AND date = ? AND source IN (${placeholders})
+           ORDER BY CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`;
+    params = [LOCAL_USER_ID, date, ...sources];
+  } else {
+    const start = from || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const end   = to   || new Date().toISOString().slice(0, 10);
+    sql = `SELECT date, metric_type, value, source FROM wellness_data
+           WHERE user_id = ? AND date >= ? AND date <= ? AND source IN (${placeholders})
+           ORDER BY date, CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`;
+    params = [LOCAL_USER_ID, start, end, ...sources];
+  }
+  const r = await db.query(sql, params);
+  const rows = r?.values || [];
+  const byDate = {};
+  for (const row of rows) {
+    byDate[row.date] ??= {};
+    byDate[row.date][row.metric_type] = row.value;
+  }
+  return byDate;
 }
 
 async function _fastsLocalDelete(path) {

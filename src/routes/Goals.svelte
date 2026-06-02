@@ -5,7 +5,7 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { portal } from '../lib/portal.js';
-  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, calorieGoalMode, calorieGoalFactor, healthConnectEnabled } from '../stores/settings.js';
+  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, calorieGoalMode, calorieGoalFactor } from '../stores/settings.js';
   import GoalsBanner from '../components/banners/GoalsBanner.svelte';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
@@ -145,17 +145,23 @@
          ? Math.round(_adaptive.tdee * $calorieGoalFactor)
        : _fixedGoal;
 
+  // The Fitbit /data endpoint already merges Fitbit + Health Connect rows, and
+  // Google Health Web API writes its rows tagged source='fitbit'. So one call
+  // covers fitbit + google-health + health-connect; we just need any of those
+  // three flags to fire it.
+  $: _fitbitFamilyEnabled = $fitbitEnabled || $googleHealthEnabled || $healthConnectEnabled;
+
   async function loadWellnessToday() {
     _wellnessLoaded = true;
     let fitbit = {}, garmin = {};
-    try { if ($fitbitEnabled) { const r = await NtApi.get(`/api/wellness/fitbit/data?date=${today}`); fitbit = r[today] || {}; } } catch {}
+    try { if (_fitbitFamilyEnabled) { const r = await NtApi.get(`/api/wellness/fitbit/data?date=${today}`); fitbit = r[today] || {}; } } catch {}
     try { if ($garminEnabled) { const r = await NtApi.get(`/api/wellness/garmin/data?date=${today}`); garmin = r[today] || {}; } } catch {}
     todayWellness = { ...fitbit, ...garmin };
   }
 
   // Fire as soon as settings stores resolve true — avoids the first-load race
   // where onMount ran before settings loaded from server (both start false).
-  $: if (($fitbitEnabled || $garminEnabled) && !_wellnessLoaded) loadWellnessToday();
+  $: if ((_fitbitFamilyEnabled || $garminEnabled) && !_wellnessLoaded) loadWellnessToday();
 
   onMount(async () => {
     // Load diary data first — don't block on server calls
