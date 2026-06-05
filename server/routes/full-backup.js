@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import AdmZip from 'adm-zip';
 import multer from 'multer';
 import db from '../db.js';
+import { logger } from '../logger.js';
 import { seedSmtpFromEnv } from '../email.js';
 import { seedAiFromEnv } from '../ai.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
@@ -19,6 +20,163 @@ const UPLOADS_DIR = process.env.UPLOADS_PATH  || path.resolve(__dirname, '..', '
 const BACKUPS_DIR = process.env.BACKUPS_PATH  || path.join(UPLOADS_DIR, 'backups');
 
 fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+
+// ── Schedule config (admin-global, stored in app_config) ──────────────────
+//
+// Values:
+//   backup_schedule       — 'off' | 'daily' | 'weekly' | 'monthly'
+//   backup_time           — 'HH:MM' (24h, local server time)
+//   backup_retention      — integer >= 1 (number of archives to keep)
+//   backup_last_auto_run  — ISO timestamp of last successful auto-backup
+//   backup_last_auto_error— string, last error message (cleared on success)
+//
+// Env-lock: BACKUP_SCHEDULE / BACKUP_TIME / BACKUP_RETENTION env vars
+// override the stored values and lock the UI inputs. Lets ops operators
+// bake the policy into Docker Compose without touching the admin UI.
+const SCHEDULES = new Set(['off', 'daily', 'weekly', 'monthly']);
+const DEFAULT_SCHEDULE = 'off';
+const DEFAULT_TIME = '03:00';
+const DEFAULT_RETENTION = 7;
+
+export function isBackupEnvLocked() {
+  return !!(process.env.BACKUP_SCHEDULE
+         || process.env.BACKUP_TIME
+         || process.env.BACKUP_RETENTION);
+}
+
+function _cfg(key) {
+  return db.prepare('SELECT value FROM app_config WHERE key = ?').get(key)?.value;
+}
+function _setCfg(key, value) {
+  db.prepare('INSERT INTO app_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(key, value == null ? '' : String(value));
+}
+
+export function getScheduleConfig() {
+  const envSchedule  = process.env.BACKUP_SCHEDULE;
+  const envTime      = process.env.BACKUP_TIME;
+  const envRetention = process.env.BACKUP_RETENTION;
+  const schedule = SCHEDULES.has(envSchedule) ? envSchedule
+                 : SCHEDULES.has(_cfg('backup_schedule')) ? _cfg('backup_schedule')
+                 : DEFAULT_SCHEDULE;
+  const time     = (envTime && /^\d{1,2}:\d{2}$/.test(envTime)) ? envTime
+                 : (_cfg('backup_time') && /^\d{1,2}:\d{2}$/.test(_cfg('backup_time'))) ? _cfg('backup_time')
+                 : DEFAULT_TIME;
+  const retention = Math.max(1, Math.min(99, parseInt(envRetention || _cfg('backup_retention') || DEFAULT_RETENTION, 10) || DEFAULT_RETENTION));
+  return {
+    schedule, time, retention,
+    lastAutoRun:   _cfg('backup_last_auto_run')   || null,
+    lastAutoError: _cfg('backup_last_auto_error') || null,
+    envLocked:     isBackupEnvLocked(),
+  };
+}
+
+export function setScheduleConfig({ schedule, time, retention }) {
+  if (isBackupEnvLocked()) {
+    const err = new Error('Backup schedule is locked by environment variable');
+    err.code = 'ENV_LOCKED';
+    throw err;
+  }
+  if (schedule != null) {
+    if (!SCHEDULES.has(schedule)) throw new Error('schedule must be one of: off, daily, weekly, monthly');
+    _setCfg('backup_schedule', schedule);
+  }
+  if (time != null) {
+    if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('time must be HH:MM');
+    const [h, m] = time.split(':').map(n => parseInt(n, 10));
+    if (h < 0 || h > 23 || m < 0 || m > 59) throw new Error('time out of range');
+    _setCfg('backup_time', `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  }
+  if (retention != null) {
+    const r = parseInt(retention, 10);
+    if (!Number.isFinite(r) || r < 1 || r > 99) throw new Error('retention must be 1-99');
+    _setCfg('backup_retention', String(r));
+  }
+  return getScheduleConfig();
+}
+
+/** Create a full ZIP backup on disk and return {filename, size, createdAt}.
+ *  Shared by the POST /api/full-backup handler AND the scheduler's
+ *  auto-backup path so both produce identical archives. */
+export function createBackup() {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const filename  = `nutritrace-backup-${timestamp}.zip`;
+  const destPath  = path.join(BACKUPS_DIR, filename);
+  const zip = new AdmZip();
+  zip.addFile('database.json', Buffer.from(JSON.stringify(dumpDatabase(), null, 2), 'utf8'));
+  if (fs.existsSync(UPLOADS_DIR)) {
+    const addDir = (dir, zipPath) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        const zp   = zipPath ? `${zipPath}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          if (full === BACKUPS_DIR) continue;
+          addDir(full, zp);
+        } else {
+          zip.addFile(`images/${zp}`, fs.readFileSync(full));
+        }
+      }
+    };
+    addDir(UPLOADS_DIR, '');
+  }
+  zip.writeZip(destPath);
+  const stat = fs.statSync(destPath);
+  return { filename, size: stat.size, createdAt: new Date().toISOString() };
+}
+
+/** Delete archives beyond the retention limit, keeping the N newest.
+ *  Sorts by filename timestamp (which is in the name itself) rather than
+ *  mtime so a `cp -p` or similar copy doesn't reshuffle the keep order.
+ *  Returns the list of deleted filenames. */
+export function pruneOldBackups(retention) {
+  const keep = Math.max(1, Math.min(99, parseInt(retention, 10) || DEFAULT_RETENTION));
+  const all = fs.readdirSync(BACKUPS_DIR)
+    .filter(f => f.startsWith('nutritrace-backup-') && f.endsWith('.zip'))
+    .sort()
+    .reverse(); // newest first (timestamp filenames sort lex-correctly)
+  const toDelete = all.slice(keep);
+  for (const f of toDelete) {
+    try { fs.unlinkSync(path.join(BACKUPS_DIR, f)); }
+    catch (e) { logger.warn(`[backup] prune failed for ${f}: ${e.message}`); }
+  }
+  return toDelete;
+}
+
+/** Run a scheduled backup: create, prune, mark success/failure in
+ *  app_config so the status banner can surface what happened. Called by
+ *  scheduler.js when the schedule says it's due. */
+export async function runScheduledBackup() {
+  const cfg = getScheduleConfig();
+  try {
+    const result = createBackup();
+    pruneOldBackups(cfg.retention);
+    _setCfg('backup_last_auto_run', new Date().toISOString());
+    _setCfg('backup_last_auto_error', '');
+    logger.info(`[backup] scheduled backup ok: ${result.filename} (${(result.size / 1024 / 1024).toFixed(1)} MB), pruned to ${cfg.retention}`);
+    // Best-effort failure notification via push-notify if configured.
+    // Success is silent (no notification on every successful nightly run);
+    // failures notify because they need attention. Comment kept inline in
+    // case we ever want a "weekly success digest" opt-in.
+    return result;
+  } catch (e) {
+    _setCfg('backup_last_auto_error', e.message || String(e));
+    logger.warn(`[backup] scheduled backup failed: ${e.message}`);
+    // Push failure to the first admin user's configured channel if any.
+    // Backups are admin-global, so the natural recipient is whichever admin
+    // owns the box. Silent fallback if no admin has push-notify configured.
+    try {
+      const adminRow = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+      if (adminRow) {
+        const { pushNotify } = await import('../lib/push-notify.js');
+        await pushNotify(adminRow.id, 'notifBackupFailed',
+          '🛟 NutriTrace backup failed',
+          `Scheduled backup error: ${e.message || 'unknown'}`,
+          7);
+      }
+    } catch {}
+    throw e;
+  }
+}
 
 // Multer: stream to disk (temp dir) so large ZIPs don't OOM the container.
 // 512 MB cap is generous for a full backup (DB + photos) but bounds disk-fill
@@ -210,42 +368,33 @@ function dumpDatabase() {
   };
 }
 
-// ── POST /api/full-backup  — create a new backup ───────────────────────────
+// ── POST /api/full-backup  — create a new backup (manual button) ──────────
 router.post('/', requireAdmin, (req, res) => {
   try {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const filename  = `nutritrace-backup-${timestamp}.zip`;
-    const destPath  = path.join(BACKUPS_DIR, filename);
-
-    const zip = new AdmZip();
-
-    // 1. Database dump as JSON
-    const dbDump = JSON.stringify(dumpDatabase(), null, 2);
-    zip.addFile('database.json', Buffer.from(dbDump, 'utf8'));
-
-    // 2. Uploaded images (skip the backups sub-directory)
-    if (fs.existsSync(UPLOADS_DIR)) {
-      const addDir = (dir, zipPath) => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          const full = path.join(dir, entry.name);
-          const zp   = zipPath ? `${zipPath}/${entry.name}` : entry.name;
-          if (entry.isDirectory()) {
-            if (full === BACKUPS_DIR) continue; // never include backup archives
-            addDir(full, zp);
-          } else {
-            zip.addFile(`images/${zp}`, fs.readFileSync(full));
-          }
-        }
-      };
-      addDir(UPLOADS_DIR, '');
-    }
-
-    zip.writeZip(destPath);
-
-    const stat = fs.statSync(destPath);
-    res.json({ filename, size: stat.size, createdAt: new Date().toISOString() });
+    const result = createBackup();
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/full-backup/schedule  — read auto-backup config + status ─────
+router.get('/schedule', requireAdmin, (req, res) => {
+  try {
+    res.json(getScheduleConfig());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PUT /api/full-backup/schedule  — write auto-backup config ─────────────
+router.put('/schedule', requireAdmin, (req, res) => {
+  try {
+    const result = setScheduleConfig(req.body || {});
+    res.json(result);
+  } catch (err) {
+    const status = err.code === 'ENV_LOCKED' ? 409 : 400;
+    res.status(status).json({ error: err.message });
   }
 });
 

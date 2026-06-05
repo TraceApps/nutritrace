@@ -3,6 +3,7 @@
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import DatePicker from '../components/ui/DatePicker.svelte';
+  import DateInput  from '../components/ui/DateInput.svelte';
   import { resolveAssetUrl, isNative, getServerUrl } from '../lib/platform.js';
   import { fade, slide, fly } from 'svelte/transition';
   import { tweened } from 'svelte/motion';
@@ -257,6 +258,36 @@
     : { items: [], bodyStats: {} };
   $: totals = $diaryTotals || {};
 
+  // Nutrition Summary drill-down: tap a nutrient row → show top contributing
+  // items for that nutrient sorted descending. Only one expanded at a time so
+  // the modal stays compact. Auto-collapses when the modal closes. The
+  // "+N more" rollup row is itself clickable — tap to swap from top-5 to the
+  // full list.
+  let _nsExpanded = null;
+  let _nsShowAll  = false;
+  $: if (!$diaryShowNutritionSummary) { _nsExpanded = null; _nsShowAll = false; }
+  function _nsToggle(id) {
+    _nsExpanded = (_nsExpanded === id) ? null : id;
+    _nsShowAll  = false;
+  }
+  $: _nsContributors = (() => {
+    if (!_nsExpanded || !entry?.items?.length) return null;
+    const id = _nsExpanded;
+    const rows = entry.items.map(it => {
+      const calc = Nutrition.calculate(it);
+      const value = calc[id] || 0;
+      if (value <= 0) return null;
+      const isQuick = it.type === 'quick_calories';
+      const portion = isQuick ? null
+        : `${Math.round((it.portion || it.amount || 100) * (it.quantity || 1) * 10) / 10}${it.unit || 'g'}`;
+      return { name: it.name || 'Item', value, isQuick, portion };
+    }).filter(Boolean).sort((a, b) => b.value - a.value);
+    const visible    = _nsShowAll ? rows : rows.slice(0, 5);
+    const hidden     = _nsShowAll ? []   : rows.slice(5);
+    const hiddenSum  = hidden.reduce((s, c) => s + c.value, 0);
+    return { visible, hiddenCount: hidden.length, hiddenSum, allShown: _nsShowAll };
+  })();
+
   // Dynamic calorie goal — fetch yesterday's calories_out when mode = 'dynamic'
   let _dynamicCaloriesOut = null;   // raw burn from device (yesterday)
   let _dynamicGoalDate    = null;   // which diary date we fetched for
@@ -478,11 +509,8 @@
   // Meal-level actions (⋮ on meal header)
   let showMealAction       = false;
   let actionMealIdx        = null;
-  let mealActionMode       = null;   // 'copy' | 'move' — picks target meal
+  let mealActionMode       = 'move';   // 'move' — picks target meal (used by the same-date move sheet below)
   let showMealTargetPicker = false;
-  let showCopyToDateStep1  = false;  // date input
-  let showCopyToDateStep2  = false;  // target meal picker after date chosen
-  let copyToDateValue      = '';
   let showClearMealDialog  = false;
   let showSaveAsMeal       = false;
   let saveAsMealName       = '';
@@ -496,9 +524,17 @@
 
   function onMealAction(e) {
     const val = e.detail?.value;
-    if (val === 'copy')      { mealActionMode = 'copy'; _lockAndOpen(() => showMealTargetPicker = true); }
-    else if (val === 'move') { mealActionMode = 'move'; _lockAndOpen(() => showMealTargetPicker = true); }
-    else if (val === 'copy_date') { copyToDateValue = $currentDate; _lockAndOpen(() => showCopyToDateStep1 = true); }
+    if (val === 'move') { mealActionMode = 'move'; _lockAndOpen(() => showMealTargetPicker = true); }
+    else if (val === 'copy_to') {
+      // Same single-sheet date+meal picker the per-item Copy uses,
+      // sharing one component for both flows. copyMode tells the
+      // Copy handler whether to addDiaryItem (per-item) or
+      // copyMealToDate (per-meal).
+      copyMode = 'meal';
+      copyDate = $currentDate;
+      copyMeal = Number(actionMealIdx) || 0;
+      _lockAndOpen(() => showCopySheet = true);
+    }
     else if (val === 'save_meal') {
       saveAsMealName = meals[actionMealIdx] || '';
       _lockAndOpen(() => showSaveAsMeal = true);
@@ -526,40 +562,17 @@
   }
 
   async function onMealTargetPick(e) {
+    // Only 'move' uses this same-date target picker now; the old 'copy'
+    // path was consolidated into the single Copy sheet (date+meal).
     const targetIdx = e.detail?.value;
     const from = actionMealIdx;
     if (targetIdx == null || from == null) return;
     try {
-      if (mealActionMode === 'copy') {
-        const n = await copyMealItems(from, targetIdx);
-        if (n) showSuccess(`Copied ${n} item${n === 1 ? '' : 's'} to ${meals[targetIdx]}`);
-      } else if (mealActionMode === 'move') {
-        if (targetIdx === from) { showInfo('Already in that meal'); return; }
-        const n = await moveMealItems(from, targetIdx);
-        if (n) showSuccess(`Moved ${n} item${n === 1 ? '' : 's'} to ${meals[targetIdx]}`);
-      }
+      if (targetIdx === from) { showInfo('Already in that meal'); return; }
+      const n = await moveMealItems(from, targetIdx);
+      if (n) showSuccess(`Moved ${n} item${n === 1 ? '' : 's'} to ${meals[targetIdx]}`);
     } catch (err) {
       showError(err?.message || 'Action failed');
-    }
-  }
-
-  function onCopyToDateNext() {
-    if (!copyToDateValue) return;
-    showCopyToDateStep1 = false;
-    _lockAndOpen(() => showCopyToDateStep2 = true);
-  }
-
-  async function onCopyToDatePick(e) {
-    const targetIdx = e.detail?.value;
-    const from = actionMealIdx;
-    const targetDate = copyToDateValue;
-    if (targetIdx == null || from == null || !targetDate) return;
-    try {
-      const n = await copyMealToDate(from, targetDate, targetIdx);
-      if (n) showSuccess(`Copied ${n} item${n === 1 ? '' : 's'} to ${meals[targetIdx]} on ${targetDate}`);
-      else showInfo('Nothing to copy');
-    } catch (err) {
-      showError(err?.message || 'Copy failed');
     }
   }
 
@@ -740,12 +753,73 @@
   function onItemAction(e) {
     const val = e.detail?.value;
     if (!actionItem) return;
-    if (val === 'edit')    { openEditItem(actionItem); }
-    if (val === 'replace') { replaceItem(actionItem); }
-    if (val === 'move')    { _lockAndOpen(() => showMoveToMeal = true); }
+    if (val === 'edit')        { openEditItem(actionItem); }
+    if (val === 'replace')     { replaceItem(actionItem); }
+    if (val === 'move')        { _lockAndOpen(() => showMoveToMeal = true); }
+    if (val === 'copy_to') {
+      // Open the shared Copy sheet in 'item' mode. Same single-sheet UX
+      // the per-meal Copy uses; copyMode tells the Copy handler which
+      // backend call to fire (addDiaryItem for items, copyMealToDate
+      // for meals).
+      copyMode = 'item';
+      copyDate = $currentDate;
+      copyMeal = Number(actionItem.meal) || 0;
+      _lockAndOpen(() => showCopySheet = true);
+    }
     if (val === 'select')  { enterSelectMode(actionItem); }
     if (val === 'split')   { splitRecipe(actionItem); }
     if (val === 'delete')  { confirmDelete(actionItem._i); }
+  }
+
+  // Shared "Copy" sheet for both per-item AND per-meal copy actions.
+  // copyMode === 'item' → uses addDiaryItem to copy actionItem.
+  // copyMode === 'meal' → uses copyMealToDate to copy every item in
+  // actionMealIdx. Same single-sheet date+meal picker for both flows
+  // so the UX is identical (consolidated from the previous two-step
+  // per-meal copy_date flow that the user found redundant).
+  let showCopySheet = false;
+  let copyMode = 'item'; // 'item' | 'meal'
+  let copyDate = null;
+  let copyMeal = 0;
+  let copyBusy = false;
+
+  $: copySourceName = copyMode === 'meal'
+    ? (meals[actionMealIdx] || 'meal')
+    : (actionItem?.name || 'item');
+
+  async function onConfirmCopy() {
+    if (!copyDate || copyBusy) return;
+    copyBusy = true;
+    try {
+      const targetMeal = Number(copyMeal) || 0;
+      const mealLabel  = meals[targetMeal] || 'meal';
+      const sameDay    = copyDate === $currentDate;
+      if (copyMode === 'meal') {
+        const from = actionMealIdx;
+        if (from == null) return;
+        const n = await copyMealToDate(from, copyDate, targetMeal);
+        if (n) showSuccess(sameDay
+          ? `Copied ${n} item${n === 1 ? '' : 's'} to ${mealLabel}`
+          : `Copied ${n} item${n === 1 ? '' : 's'} to ${mealLabel} on ${copyDate}`);
+        else showInfo('Nothing to copy');
+      } else {
+        if (!actionItem) return;
+        const { addDiaryItem } = await import('../stores/diary.js');
+        // Shallow clone + scrub the fields that bind the item to its
+        // current row. addDiaryItem generates a new index + id on the
+        // destination day. Image references + notes are preserved.
+        const { _i, id, ...rest } = actionItem;
+        await addDiaryItem(rest, targetMeal, copyDate);
+        showSuccess(sameDay
+          ? `Copied to ${mealLabel}`
+          : `Copied to ${mealLabel} on ${copyDate}`);
+      }
+      showCopySheet = false;
+    } catch (err) {
+      showError(err?.message || 'Copy failed');
+    } finally {
+      copyBusy = false;
+    }
   }
 
   // Split a recipe diary item into its scaled ingredients. Saved recipe in
@@ -1845,10 +1919,11 @@
   bind:open={showItemAction}
   title={actionItem?.name || ''}
   actions={[
-    { label: 'Edit',            icon: 'edit',          value: 'edit'    },
-    { label: 'Replace',         icon: 'find_replace',  value: 'replace' },
-    { label: 'Move to Meal',    icon: 'swap_horiz',    value: 'move'    },
-    { label: 'Select Multiple', icon: 'checklist',     value: 'select'  },
+    { label: 'Edit',            icon: 'edit',          value: 'edit'        },
+    { label: 'Replace',         icon: 'find_replace',  value: 'replace'     },
+    { label: 'Move to Meal',    icon: 'swap_horiz',    value: 'move'        },
+    { label: 'Copy',            icon: 'content_copy',  value: 'copy_to'     },
+    { label: 'Select Multiple', icon: 'checklist',     value: 'select'      },
     ...(_actionItemIsRecipe ? [{ label: 'Split Recipe', icon: 'call_split', value: 'split' }] : []),
     { label: 'Delete',          icon: 'delete',        value: 'delete', danger: true },
   ]}
@@ -1871,11 +1946,10 @@
     bind:open={showMealAction}
     title={meals[actionMealIdx] + (_hasItems ? ` · ${_mealItems.length} item${_mealItems.length === 1 ? '' : 's'}` : ' · empty')}
     actions={_hasItems ? [
-      { label: 'Copy Items to…',          icon: 'content_copy', value: 'copy'      },
-      { label: 'Move Items to…',          icon: 'swap_horiz',   value: 'move'      },
-      { label: 'Copy Meal to Another Date…', icon: 'event_repeat', value: 'copy_date' },
-      { label: 'Save as Meal…',           icon: 'bookmark_add', value: 'save_meal' },
-      { label: 'Clear All Items',         icon: 'delete_sweep', value: 'clear', danger: true },
+      { label: 'Move Items to…', icon: 'swap_horiz',   value: 'move'      },
+      { label: 'Copy',           icon: 'content_copy', value: 'copy_to'   },
+      { label: 'Save as Meal…',  icon: 'bookmark_add', value: 'save_meal' },
+      { label: 'Clear All Items', icon: 'delete_sweep', value: 'clear', danger: true },
     ] : [
       { label: 'Add Food', icon: 'add', value: 'add' },
     ]}
@@ -1889,37 +1963,49 @@
 <!-- Meal target picker (for copy/move items to…) -->
 <ActionSheet
   bind:open={showMealTargetPicker}
-  title={mealActionMode === 'copy' ? 'Copy to meal' : 'Move to meal'}
+  title="Move to meal"
   actions={meals.map((m, i) => ({ label: m, icon: mealIcon(m), value: i }))}
   on:select={onMealTargetPick}
 />
 
-<!-- Copy meal to another date: step 1 — pick date -->
-{#if showCopyToDateStep1}
-  <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock) showCopyToDateStep1 = false; }} on:keydown={() => {}}>
+<!-- Shared Copy sheet for both per-ITEM and per-MEAL copy actions.
+     copyMode drives the title + the backend call (addDiaryItem for items,
+     copyMealToDate for meals). Single combined date+meal picker —
+     consolidated from the previous two-step per-meal flow at user
+     request, so both surfaces share one identical UX.
+
+     Backdrop uses a custom class (copy-to-backdrop) with low z-index
+     so the nested DateInput calendar Sheet can layer above it (see
+     the CSS comment block below). The standard .sheet-backdrop is
+     locally overridden to z-200 in Diary which would have buried the
+     calendar; this one stays at z-90 to let z-100 nested Sheets win. -->
+{#if showCopySheet}
+  <div use:portal class="copy-to-backdrop" role="dialog" aria-modal="true"
+    on:click={() => { if (!_sheetLock) showCopySheet = false; }} on:keydown={() => {}}>
     <div class="bs-sheet copy-date-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
-      <p class="sheet-title">Copy {meals[actionMealIdx] || 'meal'} to…</p>
+      <p class="sheet-title">Copy "{copySourceName}" to…</p>
       <label class="copy-date-label">
-        <span>Target date</span>
-        <input type="date" bind:value={copyToDateValue} class="copy-date-input" />
+        <span>Date</span>
+        <DateInput bind:value={copyDate} />
+      </label>
+      <label class="copy-date-label">
+        <span>Meal</span>
+        <select bind:value={copyMeal} class="select sel-sm" style="width:100%">
+          {#each meals as m, i}
+            <option value={i}>{m}</option>
+          {/each}
+        </select>
       </label>
       <div class="copy-date-actions">
-        <button class="btn btn-ghost" on:click={() => showCopyToDateStep1 = false}>Cancel</button>
-        <button class="btn btn-primary" on:click={onCopyToDateNext} disabled={!copyToDateValue}>Next</button>
+        <button class="btn btn-ghost" on:click={() => showCopySheet = false} disabled={copyBusy}>Cancel</button>
+        <button class="btn btn-primary" on:click={onConfirmCopy} disabled={!copyDate || copyBusy}>
+          {copyBusy ? 'Copying…' : 'Copy'}
+        </button>
       </div>
     </div>
   </div>
 {/if}
-
-<!-- Copy meal to another date: step 2 — pick target meal -->
-<ActionSheet
-  bind:open={showCopyToDateStep2}
-  title={`Copy to meal on ${copyToDateValue}`}
-  actions={meals.map((m, i) => ({ label: m, icon: mealIcon(m), value: i }))}
-  on:select={onCopyToDatePick}
-/>
 
 <!-- Clear meal confirm -->
 <Dialog
@@ -2078,13 +2164,53 @@
             <span class="ns-macro-lbl">{_nsTotEnergy.unit}</span>
           </div>
         </div>
-        <!-- All nutrients -->
+        <!-- All nutrients — tap a row to drill into top contributors -->
         <div class="ns-rows">
           {#each NUTRIMENTS.filter(n => ($diaryShowAllNutrients ? true : n.default) && (totals[n.id] || 0) > 0) as n}
-            <div class="ns-row">
+            {@const isOpen = _nsExpanded === n.id}
+            <div class="ns-row ns-row-clickable" role="button" tabindex="0"
+                 on:click={() => _nsToggle(n.id)}
+                 on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _nsToggle(n.id); } }}>
               <span>{n.label}</span>
-              <span class="font-medium">{(Math.round((totals[n.id]||0)*10)/10).toLocaleString()} {n.unit}</span>
+              <span class="ns-row-right">
+                <span class="font-medium">{(Math.round((totals[n.id]||0)*10)/10).toLocaleString()} {n.unit}</span>
+                <span class="material-symbols-rounded ns-chev" class:open={isOpen}>chevron_right</span>
+              </span>
             </div>
+            {#if isOpen && _nsContributors}
+              <div class="ns-contrib" transition:slide={{ duration: 160 }}>
+                <div class="ns-contrib-head">
+                  {_nsContributors.allShown ? 'All Contributors' : 'Top Contributors'}
+                </div>
+                {#if _nsContributors.visible.length === 0}
+                  <div class="ns-contrib-empty">No items contribute to this nutrient.</div>
+                {:else}
+                  {#each _nsContributors.visible as c}
+                    <div class="ns-contrib-row">
+                      <span class="ns-contrib-name">
+                        {c.name}{#if c.portion}<span class="ns-contrib-meta"> — {c.portion}</span>{/if}{#if c.isQuick}<span class="ns-contrib-meta"> (Quick entry)</span>{/if}
+                      </span>
+                      <span class="ns-contrib-val">{(Math.round(c.value*10)/10).toLocaleString()} {n.unit}</span>
+                    </div>
+                  {/each}
+                  {#if _nsContributors.hiddenCount > 0}
+                    <div class="ns-contrib-row ns-contrib-more" role="button" tabindex="0"
+                         on:click|stopPropagation={() => _nsShowAll = true}
+                         on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _nsShowAll = true; } }}>
+                      <span class="ns-contrib-name">
+                        + {_nsContributors.hiddenCount} more {_nsContributors.hiddenCount === 1 ? 'item' : 'items'}
+                        <span class="ns-contrib-meta">(tap to expand)</span>
+                      </span>
+                      <span class="ns-contrib-val">{(Math.round(_nsContributors.hiddenSum*10)/10).toLocaleString()} {n.unit}</span>
+                    </div>
+                  {:else if _nsContributors.allShown && _nsContributors.visible.length > 5}
+                    <button class="ns-contrib-collapse" on:click|stopPropagation={() => _nsShowAll = false}>
+                      Show top 5
+                    </button>
+                  {/if}
+                {/if}
+              </div>
+            {/if}
           {/each}
         </div>
       </div>
@@ -2659,6 +2785,25 @@
   .qce-macro-unit { font-size: 20px; font-weight: 700; }
 
   /* Sheet backdrop */
+  /* Copy-to-day backdrop — sits BELOW any DateInput-triggered calendar
+     Sheet (which uses the global z-100 from Sheet.svelte) so the nested
+     calendar can layer above this card. The other inline Diary sheets
+     keep their z-200 to stay above bottom nav etc; this one stays low
+     because it's the only one that triggers a nested Sheet inside it. */
+  .copy-to-backdrop {
+    position: fixed; inset: 0; z-index: 90;
+    background: var(--overlay);
+    backdrop-filter: var(--backdrop-blur);
+    -webkit-backdrop-filter: var(--backdrop-blur);
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  /* When the DateInput calendar opens from within the copy sheet, push
+     its portal-rendered Sheet above any other portal at z-300. The
+     global Sheet stays at z-100 in other contexts. :global() because
+     the Sheet component portals to document.body, outside this scoped
+     style's reach. */
+  :global(.copy-to-backdrop ~ .sheet-backdrop) { z-index: 300 !important; }
+
   .sheet-backdrop {
     position: fixed; inset: 0; z-index: 200;
     background: rgba(0,0,0,0.5);
@@ -2719,6 +2864,66 @@
   .ns-rows { display: flex; flex-direction: column; gap: 6px; }
   .ns-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
   .ns-row:last-child { border-bottom: none; }
+  .ns-row-clickable {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    border-radius: var(--radius-sm, 6px);
+    transition: background 120ms;
+  }
+  .ns-row-clickable:hover { background: color-mix(in srgb, var(--text-1) 4%, transparent); }
+  .ns-row-right { display: inline-flex; align-items: center; gap: 6px; }
+  .ns-chev {
+    font-size: 18px;
+    color: var(--text-3);
+    transition: transform 160ms;
+  }
+  .ns-chev.open { transform: rotate(90deg); }
+  .ns-contrib {
+    padding: 8px 10px 10px 14px;
+    background: var(--surface-2);
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius-sm, 6px);
+    margin: 2px 0 4px;
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 13px;
+  }
+  .ns-contrib-head {
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 2px;
+  }
+  .ns-contrib-empty { color: var(--text-3); font-style: italic; padding: 2px 0; }
+  .ns-contrib-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 2px 0; }
+  .ns-contrib-name { color: var(--text-1); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ns-contrib-meta { color: var(--text-3); font-size: 12px; }
+  .ns-contrib-val { font-weight: 600; color: var(--text-1); white-space: nowrap; }
+  .ns-contrib-more {
+    color: var(--text-3); font-style: italic;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    border-radius: var(--radius-sm, 6px);
+    transition: background 120ms;
+    margin: 2px -6px 0;
+    padding: 4px 6px;
+  }
+  .ns-contrib-more:hover { background: color-mix(in srgb, var(--text-1) 5%, transparent); }
+  .ns-contrib-more .ns-contrib-name, .ns-contrib-more .ns-contrib-val { color: var(--text-3); }
+  .ns-contrib-collapse {
+    margin-top: 6px;
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 0;
+    align-self: flex-start;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ns-contrib-collapse:hover { text-decoration: underline; }
 
   /* Meal macro footer */
   .meal-macro-footer {

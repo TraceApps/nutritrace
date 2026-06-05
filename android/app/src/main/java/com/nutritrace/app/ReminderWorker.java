@@ -2,7 +2,9 @@ package com.nutritrace.app;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
@@ -460,12 +462,30 @@ public class ReminderWorker extends Worker {
             .setContentTitle(title)
             .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true);
+            .setAutoCancel(true)
+            .setContentIntent(_buildLaunchIntent(ctx, id));
         try {
             NotificationManagerCompat.from(ctx).notify(id, builder.build());
         } catch (SecurityException e) {
             Log.w(TAG, "notify denied: " + e.getMessage());
         }
+    }
+
+    /** PendingIntent that launches NutriTrace when the user taps the
+     *  notification. Without this the notification is informational only
+     *  (autoCancel dismisses it on tap and nothing else happens, so users
+     *  who tap a meal reminder hoping to land in the diary just see it
+     *  disappear). Uses getLaunchIntentForPackage rather than naming
+     *  MainActivity directly so the launcher icon's standard behavior
+     *  (resume existing task vs cold-start) carries over. Request code =
+     *  notification id so concurrent reminders don't collide on
+     *  FLAG_UPDATE_CURRENT. FLAG_IMMUTABLE required since API 31. */
+    private PendingIntent _buildLaunchIntent(Context ctx, int id) {
+        Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+        if (launch == null) return null;
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+        return PendingIntent.getActivity(ctx, id, launch, flags);
     }
 
     private void ensureChannel(Context ctx) {

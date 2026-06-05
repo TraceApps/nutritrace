@@ -81,6 +81,7 @@
     z-index: 100;
     display: flex;
     align-items: flex-end;
+    justify-content: center;
   }
   .sheet-panel {
     width: 100%;
@@ -93,6 +94,25 @@
     flex-direction: column;
     padding-bottom: var(--safe-bottom);
     position: relative;
+  }
+
+  /* Desktop / wide tablet — cap the panel so the sheet doesn't sprawl
+     across a 1920px viewport with empty side gutters. Mirrors the same
+     720px cap CookTrace uses on its Sheet for TraceApps brand cohesion.
+     Without this, two-column layouts inside sheets (like FoodDetailSheet)
+     balloon out and the 1:1 photo eats the right column. Mobile (<768px)
+     keeps the edge-to-edge bottom-sheet behavior, so no regression on
+     phone widths. */
+  @media (min-width: 768px) {
+    .sheet-panel {
+      width: min(720px, calc(100% - 48px));
+      max-height: min(85dvh, 800px);
+      margin-bottom: 24px;
+      border-radius: var(--radius-xl);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.45);
+    }
+    /* Drag handle is a touch affordance; on desktop it's noise. */
+    .sheet-handle { display: none; }
   }
   .sheet-overlay-close {
     position: absolute;

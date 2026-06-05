@@ -6,6 +6,7 @@
   export let value = '12:00'; // HH:MM (24h internal)
   export let label = '';
   export let placeholder = '';
+  export let disabled = false;
 
   const dispatch = createEventDispatcher();
 
@@ -65,7 +66,7 @@
   const MINUTES = [0,5,10,15,20,25,30,35,40,45,50,55];
 </script>
 
-<button class="tp-trigger" on:click={() => { _parse(value); open = true; }}>
+<button class="tp-trigger" {disabled} on:click={() => { _parse(value); open = true; }}>
   {#if label}<span class="tp-label">{label}</span>{/if}
   <span class="tp-value" class:tp-placeholder={!value && placeholder}>{_display(value)}</span>
   <span class="material-symbols-rounded" style="font-size:18px;color:var(--text-3)">schedule</span>

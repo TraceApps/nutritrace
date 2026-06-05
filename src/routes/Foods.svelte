@@ -9,6 +9,7 @@
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
   import Dialog      from '../components/ui/Dialog.svelte';
   import Sheet       from '../components/ui/Sheet.svelte';
+  import FoodDetailSheet from '../components/ui/FoodDetailSheet.svelte';
   import UnitPicker  from '../components/ui/UnitPicker.svelte';
   import { scaleFactor as _unitScaleFactor } from '../lib/units.js';
   import { diaryPromptQuantity } from '../stores/settings.js';
@@ -147,6 +148,12 @@
   let promptFood = null;
   let promptServings = 1;
   let promptPortion = 100;
+  // Phase 2 of the NutritionFactsBox rollout: tap a food on the Foods tab
+  // now opens this slide-up read-only sheet instead of the full FoodEditor
+  // route. Edit button on the sheet still routes to the editor for any
+  // changes the user wants to make.
+  let detailSheetOpen = false;
+  let detailSheetFood = null;
   let promptUnit = 'g';
 
   // Reactive nutrition preview for the qty prompt — recomputes whenever
@@ -342,6 +349,56 @@
     push('/foods/edit');
   }
 
+  // ── FoodDetailSheet handlers (Phase 2) ───────────────────────────────────
+  // The sheet dispatches `edit` and `addToDiary` with the food. The sheet
+  // closes itself before these fire so the slide-down + next-action
+  // animations overlap rather than chain. The transition is intentionally
+  // fast (~200ms) so it reads as a single motion: sheet drops, editor or
+  // qty prompt comes up underneath in the same beat.
+  function onDetailEdit(e) {
+    openEditor(e.detail.food, 'foodList');
+  }
+
+  async function onDetailAddToDiary(e) {
+    const food = e.detail.food;
+    if (!food) return;
+    // Meal is now picked by the user on the sheet itself (defaults to
+    // last-used). Routing through the qty prompt when diaryPromptQuantity
+    // is on still works the same way — the picked meal rides into the
+    // existing pickMeal slot so confirmQtyPrompt uses it.
+    const chosenMeal = Number(e.detail.meal) || 0;
+    pickMeal = String(chosenMeal);
+    pickDate = localDateStr();
+    if ($diaryPromptQuantity) {
+      promptFood = food;
+      promptServings = 1;
+      promptPortion = food.portion || 100;
+      promptUnit = food.unit || 'g';
+      showQtyPrompt = true;
+      return;
+    }
+    // No-prompt path: log 1 serving at the food's stored portion to the
+    // chosen meal + today, then surface a toast naming the meal as
+    // visible confirmation.
+    const { addDiaryItem } = await import('../stores/diary.js');
+    let savedFood = food;
+    if (!food.id || typeof food.id !== 'number') {
+      const { id: _drop, ...rest } = food;
+      savedFood = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+    }
+    const item = {
+      ...savedFood,
+      portion: savedFood.portion || 100,
+      unit: savedFood.unit || 'g',
+      quantity: 1,
+      nutrition: savedFood.nutrition,
+    };
+    await addDiaryItem(item, chosenMeal);
+    editorState.lastMealAdded = chosenMeal;
+    const names = mealNames.get() || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
+    showSuccess($_('foods.detail.added_to', { values: { meal: names[chosenMeal] || 'meal' } }));
+  }
+
   function openMealEditor(item, isRecipe) {
     _saveScrollState();
     editorState.mealPrefill  = item ? { ...item } : null;
@@ -351,10 +408,16 @@
 
   async function pickFood(food) {
     if (!pickMode) {
-      // Meals/Recipes open the meal editor; Foods open the food editor
+      // Meals/Recipes open the meal editor; Foods open the read-only
+      // detail sheet (Phase 2 of the NutritionFactsBox rollout). The sheet
+      // handles its own Edit + Add to Diary actions, so we return here.
+      // Previous behavior was openEditor(food, 'foodList') — full-page
+      // navigation to /foods/edit; preserved as the Edit-button destination
+      // on the new sheet so no FoodEditor functionality is lost.
       if (activeTab === 1) { openMealEditor(food, false); return; }
       if (activeTab === 2) { openMealEditor(food, true);  return; }
-      openEditor(food, 'foodList');
+      detailSheetFood = food;
+      detailSheetOpen = true;
       return;
     }
 
@@ -1108,6 +1171,19 @@
     </button>
   </div>
 </Sheet>
+
+<!-- Phase 2 of NutritionFactsBox rollout: read-only food detail sheet that
+     replaces tap-to-edit on the Foods tab. Slides up over the food list;
+     Edit button on the sheet closes it and pushes /foods/edit so no
+     FoodEditor functionality is lost. Edit transition is intentionally
+     overlapping (sheet slides down ~200ms while editor route slides in)
+     so it reads as a single motion. -->
+<FoodDetailSheet
+  bind:open={detailSheetOpen}
+  food={detailSheetFood}
+  on:edit={onDetailEdit}
+  on:addToDiary={onDetailAddToDiary}
+  on:deleted={() => { detailSheetFood = null; load(); }} />
 
 <!-- Quantity prompt sheet -->
 <Sheet bind:open={showQtyPrompt} title={promptFood ? promptFood.name : 'Add to Diary'}>

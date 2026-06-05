@@ -154,6 +154,16 @@
   }
 
   onMount(async () => {
+    // Local-mode scheduled backup tick — JS-side scheduler that fires
+    // exportLocalBackup() when the user's schedule is due. No-ops in
+    // PWA / server modes. See src/lib/local-backup-scheduler.js for
+    // why this is JS-only (vs WorkManager) and the storage layout.
+    if (isNative && getNativeMode() === 'local') {
+      import('./lib/local-backup-scheduler.js').then(({ startLocalBackupScheduler }) => {
+        startLocalBackupScheduler();
+      }).catch(e => console.warn('[local-backup] scheduler start failed:', e?.message));
+    }
+
     // Android back button: navigate back or confirm exit
     if (isNative) {
       import('@capacitor/app').then(({ App }) => {

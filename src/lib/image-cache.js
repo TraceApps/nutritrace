@@ -11,6 +11,29 @@ import { Capacitor } from '@capacitor/core';
 import { getServerUrl, getAuthToken } from './platform.js';
 
 const CACHE_DIR = 'image_cache';
+// Bump when the cache key derivation changes so existing users invalidate
+// their (collision-prone) imageMap once and re-download cleanly. v1 used
+// the trailing filename only — colliding for OFF image URLs that all end
+// with names like "front_en.4.400.jpg" across different products (#61).
+// v2 uses a hash of the full URL.
+const CACHE_VERSION = 2;
+
+/**
+ * Derive a collision-safe cache filename from a full image URL. The trailing
+ * URL segment alone is not unique (OFF image URLs across different products
+ * share filenames like "front_en.4.400.jpg"). Hash the full URL and preserve
+ * the original extension so the OS still picks up the right MIME type.
+ */
+function _cacheFilename(serverUrl) {
+  // 32-bit FNV-1a-style fold — deterministic, cheap, no crypto dep needed.
+  let h = 0;
+  for (let i = 0; i < serverUrl.length; i++) {
+    h = ((h << 5) - h + serverUrl.charCodeAt(i)) | 0;
+  }
+  const extMatch = serverUrl.match(/\.(jpe?g|png|webp|gif|bmp|avif)(?:\?|$)/i);
+  const ext = (extMatch?.[1] || 'jpg').toLowerCase();
+  return `${(h >>> 0).toString(36)}.${ext}`;
+}
 
 /**
  * Download a single image from the server and cache it locally.
@@ -19,9 +42,7 @@ const CACHE_DIR = 'image_cache';
 async function _downloadImage(serverUrl) {
   if (!serverUrl || !serverUrl.startsWith('http')) return null;
 
-  // Extract filename from URL
-  const urlPath = new URL(serverUrl).pathname;
-  const filename = urlPath.split('/').pop();
+  const filename = _cacheFilename(serverUrl);
   if (!filename) return null;
 
   // Check if already cached
@@ -71,11 +92,29 @@ async function _downloadImage(serverUrl) {
 /**
  * Build the image mapping table: server URL → local URI.
  * Stored in sync_meta as JSON so resolveAssetUrl can use it.
+ *
+ * The map is gated on a cache-version key. When CACHE_VERSION changes
+ * (e.g., #61 fix bumped v1 → v2), the old map is treated as empty so
+ * the next sync re-downloads every image into the new collision-safe
+ * cache keys. Stale cache files on disk are left in place; the OS will
+ * eventually reclaim them, or the user can clear via Settings.
  */
 async function _loadImageMap() {
   try {
     const { getDb } = await import('./db-native.js');
     const db = await getDb();
+    const vr = await db.query(`SELECT value FROM sync_meta WHERE key = 'image_cache_version'`, []);
+    const storedVersion = parseInt(vr?.values?.[0]?.value || '1', 10);
+    if (storedVersion !== CACHE_VERSION) {
+      // Old map keys point at filenames that may have collided. Wipe the row
+      // from sync_meta so platform.js's independent loadImageMap also sees
+      // an empty map on next read — otherwise it would keep serving stale
+      // (wrong-image) entries to resolveAssetUrl until the next app restart.
+      // The version key is rewritten by _saveImageMap once cacheAllImages
+      // repopulates the map.
+      try { await db.run(`DELETE FROM sync_meta WHERE key = 'image_map'`, []); } catch {}
+      return {};
+    }
     const r = await db.query(`SELECT value FROM sync_meta WHERE key = 'image_map'`, []);
     const row = r?.values?.[0];
     if (row?.value) return JSON.parse(row.value);
@@ -90,6 +129,10 @@ async function _saveImageMap(map) {
     await db.run(
       `INSERT INTO sync_meta (key, value) VALUES ('image_map', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [JSON.stringify(map)]
+    );
+    await db.run(
+      `INSERT INTO sync_meta (key, value) VALUES ('image_cache_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [String(CACHE_VERSION)]
     );
   } catch {}
 }

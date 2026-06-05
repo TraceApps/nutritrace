@@ -701,6 +701,19 @@ export const aiKeyVerified   = createSettingStore('aiKeyVerified',   false);
 // (issue #47 from @jonskywalkersith).
 export const smartLogVoiceLang = createSettingStore('smartLogVoiceLang', 'auto');
 
+// Local-mode scheduled backup. Same shape as the server-side admin
+// config (schedule/time/retention) but stored per-device in localStorage
+// since there's no server to write to in local mode. Tick runs JS-side
+// while the app is open (App.svelte starts/stops the timer); fires
+// exportLocalBackup() when due, then prunes ZIPs in
+// Documents/nutritrace-backups/ that match the auto-backup naming
+// pattern past the retention limit. Off by default.
+export const localBackupSchedule  = createSettingStore('localBackupSchedule',  'off');     // off|daily|weekly|monthly
+export const localBackupTime      = createSettingStore('localBackupTime',      '03:00');   // HH:MM (device local)
+export const localBackupRetention = createSettingStore('localBackupRetention', 7);
+export const localBackupLastRun   = createSettingStore('localBackupLastRun',   null);      // ISO timestamp
+export const localBackupLastError = createSettingStore('localBackupLastError', null);      // string
+
 // One-time migration: existing installs that never customized the assistant
 // name end up with 'FitBot' (the old default). Bump those to 'Trace' so the
 // rename is visible without manual action. Users who picked their own name

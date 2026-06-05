@@ -65,6 +65,12 @@ router.get('/env-locks', requireAuth, wrap(async (req, res) => {
      LIMIT 1`
   ).get(req.user?.id ?? 0);
   const lifttrace_connected = !!ltRow;
+  // backup: any of BACKUP_SCHEDULE / BACKUP_TIME / BACKUP_RETENTION set →
+  // the Auto Backup section in Settings → Backup should disable its
+  // inputs and show a "locked by environment" note. Settings UI uses
+  // this to keep admins from editing what their compose file controls.
+  const { isBackupEnvLocked } = await import('./full-backup.js').catch(() => ({}));
+  const backup_locked = typeof isBackupEnvLocked === 'function' ? isBackupEnvLocked() : false;
   res.json({
     smtp: isSmtpEnvLocked(),
     ai: aiLocked,
@@ -73,6 +79,7 @@ router.get('/env-locks', requireAuth, wrap(async (req, res) => {
     off_local_only,
     oidc_provider_ids: getEnvLockedProviderIds(),
     lifttrace_connected,
+    backup_locked,
   });
 }));
 

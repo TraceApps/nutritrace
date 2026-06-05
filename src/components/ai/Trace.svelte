@@ -1531,6 +1531,15 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     input    = '';
     attachedImage = null;
     loading  = true;
+    // Clear any COMMITTED-state proposal indicators when the user sends
+    // a new message. The "Logged X kcal to Lunch" / "Saved to Foods"
+    // indicators were sticking around past the turn that committed them,
+    // so subsequent messages still rendered them under the card slot
+    // and read as "the card keeps coming back" to the user. Leaving the
+    // pending-but-uncommitted state alone so a user who's mid-review
+    // can't lose their unconfirmed card by sending an aside.
+    if (_proposalCommitted)     { _pendingProposal = null;     _proposalCommitted = false; _proposalCommittedKcal = 0; }
+    if (_foodProposalCommitted) { _pendingFoodProposal = null; _foodProposalCommitted = false; _foodProposalCommittedKind = ''; }
     await tick();
     _scrollBottom();
 
@@ -1554,17 +1563,25 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         apiMessages[lastIdx] = _buildImageMessage(imgProvider, content || 'What is this?', image);
       }
       const onToolCall = (toolName) => { _toolStatus = `Fetching ${toolName.replace(/_/g, ' ')}…`; };
-      // When the user attached a meal photo, REMOVE the silent-write tools
-      // from the schema entirely. Mini-class models (gpt-4o-mini and
-      // friends) cannot be trusted to honor "use propose_X instead of
-      // log_X" prose in the system prompt when the user's verb matches a
-      // write tool's purpose ("add this to lunch"). Stripping the tools
-      // from the schema is bulletproof — the model can't call a tool that
-      // isn't there. Forces the photo path through propose_quick_calories
-      // / propose_food, which both surface a review card.
+      // Photo turn: REMOVE the silent-write tool (log_quick_calories) so
+      // the photo path is forced through propose_quick_calories /
+      // propose_food, which both surface a review card. Mini-class
+      // models (gpt-4o-mini and friends) cannot be trusted to honor
+      // "use propose_X instead of log_X" prose in the system prompt
+      // when the user's verb matches a write tool's purpose.
+      //
+      // Text-only turn: REMOVE the propose_* tools so a mini model that
+      // saw a previous propose_* call in chat history doesn't re-call
+      // them on a follow-up text question ("kept showing me the
+      // nutrition card" — the propose card kept re-rendering because
+      // the chat history primed the model to keep calling propose_*).
+      // Stripping the tools from the schema is bulletproof; the model
+      // physically cannot call a tool that isn't in the schema this
+      // round.
       const toolsForRound = image
         ? TOOLS.filter(t => t.name !== 'log_quick_calories')
-        : TOOLS;
+        : TOOLS.filter(t => t.name !== 'propose_quick_calories'
+                         && t.name !== 'propose_food');
       const reply = aiEnvLocked
         ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall })
         : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall });
@@ -1644,10 +1661,18 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     messages = [];
     localStorage.removeItem('wl:aiChatHistory');
     NtApi.del('/api/ai/history').catch(() => {});
-    // Also drop any pending proposal so a cleared chat doesn't strand
-    // a review card with no context above it.
+    // Clear ANY pending review card so a cleared chat doesn't strand a
+    // proposal floating with no context above it. Covers both flows:
+    // propose_quick_calories (_pendingProposal) AND propose_food
+    // (_pendingFoodProposal). Earlier version only cleared the quick
+    // one, leaving the food card visible after Clear.
     _pendingProposal = null;
     _proposalCommitted = false;
+    _proposalCommittedKcal = 0;
+    _pendingFoodProposal = null;
+    _foodProposalCommitted = false;
+    _foodProposalCommittedKind = '';
+    _foodProposalCommittedMealIdx = 0;
   }
 
   function quickAsk(q) { input = q; send(); }

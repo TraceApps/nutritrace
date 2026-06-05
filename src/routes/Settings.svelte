@@ -903,6 +903,7 @@
   // ── Backup ref (for triggering load when section opens) ───────────────────
   let backupRef;
   $: if (openSections.backup && $currentUser?.role === 'admin' && !isNativeLocal) backupRef?.loadFullBackups();
+  $: if (openSections.backup && $currentUser?.role === 'admin' && !isNativeLocal) backupRef?.loadSchedule();
   $: if (openSections.backup && isNativeLocal) backupRef?.loadLocalBackups();
 
   // ── Sharing ────────────────────────────────────────────────────────────────
@@ -1160,6 +1161,23 @@
       // User cancelled — silent.
     }
   }
+  // Share a file from Directory.Data via the Android share intent. Direct
+  // file:// URIs into private app data fail silently on Android target SDK
+  // 24+: the receiving app gets the intent but can't read the URI, so it
+  // falls back to the share intent's text field and saves THAT as the file
+  // contents (the title-only file bug from #60). Fix: copy the source file
+  // into Directory.Cache first; Capacitor's auto-generated FileProvider XML
+  // whitelists the cache directory and translates the file URI into a
+  // content:// URI the receiving app can actually read.
+  async function _shareFileViaCache({ srcPath, cacheBasename, title, text, dialogTitle }) {
+    const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem');
+    const src = await Filesystem.readFile({ path: srcPath, directory: Directory.Data, encoding: Encoding.UTF8 });
+    const cachePath = `${cacheBasename}-${Date.now()}.txt`;
+    await Filesystem.writeFile({ path: cachePath, data: src.data, directory: Directory.Cache, encoding: Encoding.UTF8 });
+    const { uri } = await Filesystem.getUri({ path: cachePath, directory: Directory.Cache });
+    const { Share } = await import('@capacitor/share');
+    await Share.share({ title, text, url: uri, dialogTitle });
+  }
   // Share the persistent log file as a real file attachment (native only,
   // and only useful when verbose / diagnostic mode has been on long enough
   // to write something to disk).
@@ -1167,11 +1185,11 @@
     try {
       const f = await getLogFileUri();
       if (!f) { showError('No log file yet — turn on Verbose logs and reproduce the issue first'); return; }
-      const { Share } = await import('@capacitor/share');
-      await Share.share({
+      await _shareFileViaCache({
+        srcPath: f.path,
+        cacheBasename: 'nutritrace-log',
         title: 'NutriTrace diagnostic logs',
         text: 'NutriTrace log file',
-        url: f.uri,
         dialogTitle: 'Share NutriTrace log file',
       });
     } catch (e) {
@@ -1184,11 +1202,11 @@
     try {
       const f = await getLastCrashFileUri();
       if (!f) { _hasCrashReport = false; return; }
-      const { Share } = await import('@capacitor/share');
-      await Share.share({
+      await _shareFileViaCache({
+        srcPath: f.path,
+        cacheBasename: 'nutritrace-crash',
         title: 'NutriTrace crash report',
         text: 'NutriTrace crash report',
-        url: f.uri,
         dialogTitle: 'Share NutriTrace crash report',
       });
     } catch (e) {

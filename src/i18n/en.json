@@ -26,6 +26,7 @@
     "cancel":       "Cancel",
     "back":         "Back",
     "close":        "Close",
+    "delete":       "Delete",
     "signed_in":    "Signed in",
     "signed_out":   "Signed out",
     "linked":       "Linked",
@@ -440,6 +441,20 @@
     "searching_in":            "Searching {source}…",
     "no_results_in":           "No results in {source}",
     "looking_up_barcode":      "Looking up barcode",
+    "detail": {
+      "edit":            "Edit",
+      "edit_aria":       "Edit food",
+      "add_to_diary":    "Add to Diary",
+      "add_to_diary_aria": "Add to diary",
+      "add_to_which_meal": "Add to which meal?",
+      "per_serving":     "per serving",
+      "barcode":         "Barcode",
+      "added_to":        "Added to {meal}",
+      "delete_aria":     "Delete food",
+      "delete_confirm_title": "Delete this food?",
+      "delete_confirm_body":  "\"{name}\" will be removed from your foods. Existing diary entries that reference this food are kept.",
+      "deleted":         "Food deleted"
+    },
     "sources": {
       "local":       "Local",
       "from_others": "From Others"

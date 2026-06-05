@@ -1,6 +1,6 @@
 {
   "name": "nutritrace",
-  "version": "1.0.0-rc.46",
+  "version": "1.0.0-rc.47",
   "private": true,
   "type": "module",
   "scripts": {

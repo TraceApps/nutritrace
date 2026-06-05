@@ -548,9 +548,54 @@ async function _tick() {
     } catch (e) {
       logger.debug(`[scheduler] invite cleanup error: ${e.message}`);
     }
+
+    // Scheduled full backup (admin-global setting in app_config).
+    // Fires at most once per interval; off by default. Tick granularity is
+    // 15 min, so the "scheduled time" lands within a ~15-min window of the
+    // configured HH:MM. Good enough for nightly-cron-style use; users
+    // wanting second-precision should use external cron + the API.
+    try {
+      await _checkBackupSchedule();
+    } catch (e) {
+      logger.debug(`[scheduler] backup check error: ${e.message}`);
+    }
   } catch (e) {
     logger.debug(`[scheduler] tick error: ${e.message}`);
   }
+}
+
+// ── Backup schedule check ────────────────────────────────────────────────
+// Reads schedule config from app_config (or env-var override) and fires
+// runScheduledBackup() when due. Uses local server time for HH:MM matching;
+// interval-since-last-run gating handles re-tick safety so a 15-min tick
+// can't accidentally fire two backups in the same window.
+
+const _BACKUP_INTERVAL_MS = {
+  daily:   22 * 60 * 60 * 1000,           // 22h (DST + tick buffer)
+  weekly:  6.5 * 24 * 60 * 60 * 1000,     // 6.5 days
+  monthly: 28 * 24 * 60 * 60 * 1000,      // 28 days
+};
+
+async function _checkBackupSchedule() {
+  const { getScheduleConfig, runScheduledBackup } = await import('../routes/full-backup.js');
+  const cfg = getScheduleConfig();
+  if (cfg.schedule === 'off') return;
+  const intervalMs = _BACKUP_INTERVAL_MS[cfg.schedule];
+  if (!intervalMs) return;
+
+  const [hh, mm] = cfg.time.split(':').map(n => parseInt(n, 10));
+  const now = new Date();
+  const scheduledMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0).getTime();
+  if (now.getTime() < scheduledMs) return; // not yet scheduled time today
+
+  if (cfg.lastAutoRun) {
+    const lastMs = new Date(cfg.lastAutoRun).getTime();
+    if (Number.isFinite(lastMs) && now.getTime() - lastMs < intervalMs) return;
+  }
+
+  logger.info(`[backup] auto-backup due (schedule=${cfg.schedule}, time=${cfg.time}, retention=${cfg.retention}, last=${cfg.lastAutoRun || 'never'})`);
+  try { await runScheduledBackup(); }
+  catch (e) { /* runScheduledBackup logs + stores the error itself */ }
 }
 
 /** Force sync all connected services for a user — bypasses schedule check */

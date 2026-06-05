@@ -6,7 +6,7 @@
   import { createEventDispatcher } from 'svelte';
   import { resolveAssetUrl, isNative } from '../../lib/platform.js';
   import { currentUser, userMgmtActive, logout } from '../../stores/auth.js';
-  import { wellnessEnabled, fitbitEnabled, withingsEnabled, garminEnabled } from '../../stores/settings.js';
+  import { wellnessEnabled, fitbitEnabled, withingsEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled } from '../../stores/settings.js';
   import WellnessIcon from '../icons/WellnessIcon.svelte';
   import { APP_VERSION } from '../../lib/version.js';
 
@@ -40,7 +40,11 @@
 
   $: WELLNESS_NAV = { path: '/wellness', customIcon: WellnessIcon, label: $_('nav.wellness') };
 
-  $: showWellness = $wellnessEnabled && ($fitbitEnabled || $withingsEnabled || $garminEnabled);
+  // Must mirror BottomNav.svelte's predicate so the sidebar shows Wellness
+  // for the same source set: Fitbit / Withings / Garmin / Google Health /
+  // Health Connect. Earlier omission of healthConnect caused #62 (sidebar
+  // hid Wellness for HC-only users while bottom nav showed it).
+  $: showWellness = $wellnessEnabled && ($fitbitEnabled || $withingsEnabled || $garminEnabled || $googleHealthEnabled || $healthConnectEnabled);
   $: navItems = showWellness
     ? [...BASE_NAV.slice(0, 2), WELLNESS_NAV, ...BASE_NAV.slice(2)]
     : BASE_NAV;
