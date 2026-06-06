@@ -664,6 +664,34 @@ export const garminSyncInterval     = createSettingStore('garminSyncInterval',  
 export const garminSyncWindowStart  = createSettingStore('garminSyncWindowStart',  null);
 export const garminSyncWindowEnd    = createSettingStore('garminSyncWindowEnd',    null);
 
+// ── Wellness-source aggregate predicates ─────────────────────────────────
+//
+// Every wellness consumer that gates a fetch, a UI element, or a feature
+// availability check on "is there ANY source connected" needs to consider
+// the WHOLE family of sources, not just the original Fitbit/Garmin pair.
+// Forgetting one source caused a recurring class of bug (issues #57 Goals,
+// #62 Sidebar, #65 Statistics, plus several Wellness-page omissions).
+// Importing these derived stores instead of writing the predicate inline
+// stops the next added source from re-introducing the same gap.
+//
+// fitbitFamilyEnabled — Fitbit + Google Health + Health Connect. These
+// three all flow through the SAME server-side /api/wellness/fitbit/data
+// endpoint (which returns merged source IN ('fitbit', 'health_connect')
+// rows; Google Health writes its rows tagged source='fitbit'). Use this
+// to gate either the UI surface or the data fetch.
+//
+// anyWellnessSourceEnabled — full union including Garmin + Withings.
+// Use for "is any wellness source connected at all" questions (Wellness
+// link visibility, "has wearable" gates that drive feature toggles, etc.).
+export const fitbitFamilyEnabled = derived(
+  [fitbitEnabled, googleHealthEnabled, healthConnectEnabled],
+  ([$fitbit, $gh, $hc]) => $fitbit || $gh || $hc
+);
+export const anyWellnessSourceEnabled = derived(
+  [fitbitEnabled, garminEnabled, withingsEnabled, googleHealthEnabled, healthConnectEnabled],
+  ([$fitbit, $garmin, $withings, $gh, $hc]) => $fitbit || $garmin || $withings || $gh || $hc
+);
+
 export const healthConnectSyncMode         = createSettingStore('healthConnectSyncMode',         null);
 export const healthConnectSyncInterval     = createSettingStore('healthConnectSyncInterval',     null);
 export const healthConnectSyncWindowStart  = createSettingStore('healthConnectSyncWindowStart',  null);

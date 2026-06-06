@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { _ } from 'svelte-i18n';
   import DatePicker from '../components/ui/DatePicker.svelte';
-  import { wellnessMetrics, wellnessSyncRange, distUnit, tempUnit, pageBanners, bannerStyle, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations,
+  import { wellnessMetrics, wellnessSyncRange, distUnit, tempUnit, pageBanners, bannerStyle, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, googleHealthEnabled, fitbitFamilyEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations,
     fitbitSyncMode, withingsSyncMode, garminSyncMode, healthConnectSyncMode, timeFormat } from '../stores/settings.js';
   import Chart from 'chart.js/auto';
   import WellnessBanner from '../components/banners/WellnessBanner.svelte';
@@ -66,14 +66,15 @@
     { id: 'max_hr',           label: 'Max Heart Rate',     unit: 'bpm',       group: 'heart', icon: 'favorite',       fmt: v => Math.round(v), sources: ['garmin'], desc: 'Highest heart rate recorded during the day. Useful for tracking workout intensity and your true max effort.' },
   ];
 
-  // Returns true if at least one of this metric's source integrations is enabled
+  // Returns true if at least one of this metric's source integrations is
+  // enabled. The 'fitbit' bucket covers the whole fitbit family (Fitbit
+  // OAuth, Google Health Web API, on-device Health Connect) since all
+  // three flow through the same server-side data plumbing.
   function isSourceEnabled(m) {
     if (!m.sources) return true;
-    // Health Connect provides data for fitbit/garmin metric types too
-    if ($healthConnectEnabled) return true;
     return m.sources.some(s =>
-      (s === 'fitbit'   && $fitbitEnabled)  ||
-      (s === 'garmin'   && $garminEnabled)  ||
+      (s === 'fitbit'   && $fitbitFamilyEnabled) ||
+      (s === 'garmin'   && $garminEnabled)       ||
       (s === 'withings' && $withingsEnabled)
     );
   }
@@ -591,7 +592,7 @@
     } else {
       // /api/wellness/fitbit/data also returns Health Connect rows (see rc.24),
       // so fire the fetch whenever Fitbit OR Health Connect is enabled.
-      try { if ($fitbitEnabled || $healthConnectEnabled) fitbitRows = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
+      try { if ($fitbitFamilyEnabled) fitbitRows = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
       try { if ($garminEnabled)  garminRows  = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
     }
 
@@ -747,7 +748,7 @@
 
     let fitbitRows = {}, garminRows = {};
     // /api/wellness/fitbit/data also returns Health Connect rows (see rc.24).
-    try { if ($fitbitEnabled || $healthConnectEnabled) fitbitRows = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
+    try { if ($fitbitFamilyEnabled) fitbitRows = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
     try { if ($garminEnabled) garminRows = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
 
     // History = all days EXCEPT today (today's values come from displayData)
@@ -861,7 +862,7 @@
       try { fitbitRange = await _getWellnessRange(null, fromStr, toStr); } catch {}
     } else {
       // /api/wellness/fitbit/data also returns Health Connect rows (see rc.24).
-      try { if ($fitbitEnabled || $healthConnectEnabled) fitbitRange = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
+      try { if ($fitbitFamilyEnabled) fitbitRange = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
       try { if ($garminEnabled)  garminRange  = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
     }
 
@@ -1027,12 +1028,13 @@
     await initGarmin();
 
     // Initial load fires when any wellness source has data on the server:
-    // Fitbit OAuth, Garmin OAuth, or Health Connect (whose data is pushed
-    // up by the Android app via the differential sync engine — see #23).
-    // Without Health Connect in the gate, an HC-only user landed on a blank
-    // Wellness tab and had to flip to Yesterday and back to trigger
-    // loadData via the prevDay/nextDay path.
-    if (status.connected || garminStatus?.connected || $healthConnectEnabled) {
+    // Fitbit OAuth, Google Health Web API, Garmin OAuth, or Health Connect
+    // (HC data is pushed up by the Android app via the differential sync
+    // engine, see #23). Without the full fitbit-family in the gate, a
+    // Google-Health-only or HC-only user landed on a blank Wellness tab
+    // and had to flip to Yesterday and back to trigger loadData via the
+    // prevDay/nextDay path.
+    if (status.connected || garminStatus?.connected || $fitbitFamilyEnabled) {
       await loadData(); // loadData already calls loadWorkouts()
       if (isToday) {
         const key = `wl_wellness_lastSync_${dateStr}`;
@@ -1229,6 +1231,18 @@
     // Post-OAuth redirect: signal is in window.location.search (before the #)
     // so the router always lands on /wellness correctly regardless of query params
     const params = new URLSearchParams(window.location.search);
+    // Date hand-off from Statistics → Wellness (#64). When a wellness
+    // metric's history row is tapped, Statistics writes the target date
+    // to sessionStorage (matches the nt:replaceItem pattern Diary uses
+    // for cross-route state). Consume + clear the key so navigating away
+    // and back doesn't keep applying it.
+    try {
+      const handOff = sessionStorage.getItem('nt:wellnessTargetDate');
+      if (handOff && /^\d{4}-\d{2}-\d{2}$/.test(handOff)) {
+        dateStr = handOff;
+      }
+      sessionStorage.removeItem('nt:wellnessTargetDate');
+    } catch {}
     if (params.get('fitbit') === 'connected') {
       history.replaceState({}, '', '/#/wellness');
       showSuccess('Fitbit connected!');
@@ -1300,7 +1314,7 @@
         if (v != null) merged[k] = v;
       }
     }
-    if ($fitbitEnabled || $healthConnectEnabled || (isNative && Object.keys(data).length)) {
+    if ($fitbitFamilyEnabled || (isNative && Object.keys(data).length)) {
       for (const [k, v] of Object.entries(data)) {
         if (v != null) {
           // Garmin sleep_score is device-measured; don't let Fitbit's estimate overwrite it
@@ -1454,7 +1468,7 @@
       <!-- ── Fitbit tabs (Activity / Sleep / Heart) ── -->
       {#if activeTab === 'activity' || activeTab === 'sleep' || activeTab === 'heart'}
 
-        {#if !status.connected && !garminStatus?.connected && !withingsStatus?.connected && !$healthConnectEnabled && !(isNative && _hasLocalData)}
+        {#if !status.connected && !garminStatus?.connected && !withingsStatus?.connected && !$fitbitFamilyEnabled && !(isNative && _hasLocalData)}
           <!-- Fitbit configured but not yet connected -->
           {#if !status.configured}
             <div class="connect-card">
@@ -1917,7 +1931,7 @@
 
       <!-- ── Body tab (Withings) ── -->
       {:else if activeTab === 'body'}
-        {#if withingsStatus.connected || $healthConnectEnabled || (isNative && _hasLocalData)}
+        {#if withingsStatus.connected || $fitbitFamilyEnabled || (isNative && _hasLocalData)}
           <div class="metric-grid">
             {#each BODY_METRICS.filter(m => isVisible(m.id)) as m}
               {@const raw = withingsData[m.id] ?? data[m.id] ?? null}

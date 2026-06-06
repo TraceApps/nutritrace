@@ -2,17 +2,19 @@
   import { onMount, onDestroy } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
+  import { push } from 'svelte-spa-router';
   import { portal } from '../lib/portal.js';
   import { dragScroll } from '../lib/drag-scroll.js';
   import Chart from 'chart.js/auto';
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
+  import { currentDate } from '../stores/diary.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
   import { goals, energyUnit, weightUnit, lengthUnit, statsChartType, statsYZero,
            statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday, statsShowEmptyDays,
            hiddenBodyStats, dateFormat, pageBanners, bannerStyle,
-           fitbitEnabled, garminEnabled, withingsEnabled, healthConnectEnabled, wellnessMetrics,
+           fitbitEnabled, garminEnabled, withingsEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, wellnessMetrics,
            calorieGoalMode,
            fastingEnabled } from '../stores/settings.js';
   import FastingInsights from '../components/diary/FastingInsights.svelte';
@@ -55,8 +57,12 @@
     return false;
   }
 
-  // Wellness metrics — shown only when relevant integration is enabled
-  $: _hasWellness = $fitbitEnabled || $garminEnabled || $healthConnectEnabled;
+  // Wellness metrics — shown only when relevant integration is enabled.
+  // The "fitbit family" (fitbit / google-health / health-connect) all flow
+  // through the same /api/wellness/fitbit/data endpoint server-side; the
+  // shared derived store lives in stores/settings.js so every consumer
+  // stays in sync as new sources are added.
+  $: _hasWellness = $fitbitFamilyEnabled || $garminEnabled;
   function _wlVisible(apiField) {
     return $wellnessMetrics == null || $wellnessMetrics.includes(apiField);
   }
@@ -69,7 +75,7 @@
       ...(_wlVisible('hrv_daily_rmssd')   ? [{ value: 'wl_hrv',    label: 'HRV',           unit: 'ms',    apiSource: 'fitgarm', apiField: 'hrv_daily_rmssd' }] : []),
       ...(_wlVisible('spo2_avg')          ? [{ value: 'wl_spo2',   label: 'SpO2',          unit: '%',     apiSource: 'fitgarm', apiField: 'spo2_avg' }] : []),
     ] : []),
-    ...(($withingsEnabled || $healthConnectEnabled) && _wlVisible('muscle_mass_kg') ? [
+    ...(($withingsEnabled || $fitbitFamilyEnabled) && _wlVisible('muscle_mass_kg') ? [
       { value: 'wl_muscle', label: 'Muscle Mass',   unit: '',      apiSource: 'withings', apiField: 'muscle_mass_kg', isWeight: true },
     ] : []),
   ];
@@ -117,7 +123,7 @@
     // "Hydration" data type is drink intake, not body composition), so
     // body_water is device-sourced only when Withings is connected.
     const isBodyDevice =
-      ((metric === 'weight' || metric === 'body_fat') && ($withingsEnabled || $healthConnectEnabled)) ||
+      ((metric === 'weight' || metric === 'body_fat') && ($withingsEnabled || $fitbitFamilyEnabled)) ||
       (metric === 'body_water' && $withingsEnabled);
 
     if (range === 'all' && (isWellness || isBodyDevice)) {
@@ -161,8 +167,14 @@
 
       if (wlMeta.apiSource === 'fitgarm') {
         let fitbitData = {}, garminData = {}, hcData = {};
-        try { if ($fitbitEnabled)  fitbitData  = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
-        try { if ($garminEnabled)  garminData  = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
+        // The fitbit /data endpoint already merges source IN ('fitbit',
+        // 'health_connect') server-side, and Google Health Web API rows are
+        // tagged source='fitbit', so one call covers fitbit + google-health
+        // + health-connect for all server-mode users (browser + Android).
+        try { if ($fitbitFamilyEnabled)  fitbitData  = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
+        try { if ($garminEnabled)        garminData  = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
+        // Android local-only mode (no server): fall back to the local
+        // SQLite where on-device Health Connect data is stored directly.
         if ($healthConnectEnabled && isNative) {
           try {
             const { dbGetWellnessGrouped } = await import('../lib/db-native.js');
@@ -176,8 +188,12 @@
           return { date: d, val };
         });
       } else if (wlMeta.apiSource === 'withings') {
-        let withingsData = {}, hcData = {};
+        let withingsData = {}, fitbitData = {}, hcData = {};
         try { if ($withingsEnabled) withingsData = await NtApi.get(`/api/wellness/withings/data?from=${fromStr}&to=${toStr}`); } catch {}
+        // The fitbit /data endpoint surfaces HC body-comp metrics too
+        // (weight, body_fat, muscle_mass) since it returns source IN
+        // ('fitbit', 'health_connect') for every metric_type.
+        try { if ($fitbitFamilyEnabled) fitbitData = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
         if ($healthConnectEnabled && isNative) {
           try {
             const { dbGetWellnessGrouped } = await import('../lib/db-native.js');
@@ -185,17 +201,23 @@
           } catch {}
         }
         rows = dates.map(d => {
-          const raw = withingsData[d]?.[wlMeta.apiField]?.value ?? hcData[d]?.[wlMeta.apiField] ?? null;
+          const raw = withingsData[d]?.[wlMeta.apiField]?.value
+            ?? fitbitData[d]?.[wlMeta.apiField]
+            ?? hcData[d]?.[wlMeta.apiField]
+            ?? null;
           const val = raw != null && wlMeta.isWeight && $weightUnit === 'lb' ? raw * 2.20462 : raw;
           return { date: d, val };
         });
       }
 
     } else {
-      // Load from diary; body comp metrics also check device data (Withings, Health Connect)
-      let withingsData = {}, hcBodyData = {};
+      // Load from diary; body comp metrics also check device data (Withings,
+      // Google Health, Health Connect). The fitbit /data endpoint covers HC
+      // and Google Health server-side; local SQLite covers Android offline.
+      let withingsData = {}, fitbitBodyData = {}, hcBodyData = {};
       if (isBodyDevice) {
         try { if ($withingsEnabled) withingsData = await NtApi.get(`/api/wellness/withings/data?from=${fromStr}&to=${toStr}`); } catch {}
+        try { if ($fitbitFamilyEnabled) fitbitBodyData = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
         if ($healthConnectEnabled && isNative) {
           try {
             const { dbGetWellnessGrouped } = await import('../lib/db-native.js');
@@ -213,11 +235,16 @@
         let val = null;
 
         if (isBodyDevice) {
-          // Device-first: Withings wins, then HC, then diary fallback
+          // Device-first priority: Withings → server-merged fitbit/HC/GH
+          // (covers browser + Android server-mode) → local HC SQLite
+          // (Android local-only) → diary fallback.
           const apiField = metric === 'weight'     ? 'weight_kg'
                          : metric === 'body_water' ? 'body_water_pct'
                                                    : 'body_fat_pct';
-          const raw = withingsData[date]?.[apiField]?.value ?? hcBodyData[date]?.[apiField] ?? null;
+          const raw = withingsData[date]?.[apiField]?.value
+            ?? fitbitBodyData[date]?.[apiField]
+            ?? hcBodyData[date]?.[apiField]
+            ?? null;
           if (raw != null) {
             val = metric === 'weight' && $weightUnit === 'lb' ? raw * 2.20462 : raw;
           } else {
@@ -503,6 +530,29 @@
   ];
 
   function _todayStr() { return localDateStr(); }
+
+  // Tap-to-drill-into-day from History (#64). The current metric drives
+  // the destination route — wellness metrics open the Wellness page on
+  // that day, everything else (nutrients, water, body stats) opens the
+  // Diary. Pairs with the Diary nutrient drill-down (#58) so a user can
+  // see a Statistics spike, tap into that day, and inspect contributors
+  // without juggling the calendar picker.
+  //
+  // Diary uses the currentDate store. Wellness owns its date as a local
+  // var (no store), so the cross-route hand-off goes via sessionStorage
+  // — same pattern Diary uses for nt:replaceItem to pass state through
+  // a navigation. Wellness reads + clears the key on mount.
+  function _drillIntoDate(date) {
+    if (!date) return;
+    if (metric.startsWith('wl_')) {
+      sessionStorage.setItem('nt:wellnessTargetDate', date);
+      push('/wellness');
+    } else {
+      currentDate.set(date);
+      push('/');
+    }
+  }
+
   function fmtDate(iso) {
     if (!iso) return 'Pick date';
     return new Date(iso + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -667,7 +717,10 @@
           {#each [...data].reverse() as row}
             {#if Number.isFinite(row.val)}
               <div class="timeline-row">
-                <span class="timeline-date">
+                <button class="timeline-date-link" type="button"
+                  on:click={() => _drillIntoDate(row.date)}
+                  title={metric.startsWith('wl_') ? 'Open this day in Wellness' : 'Open this day in Diary'}
+                  aria-label={metric.startsWith('wl_') ? `Open Wellness for ${row.date}` : `Open Diary for ${row.date}`}>
                   {(() => {
                     const dt = new Date(row.date + 'T12:00:00');
                     const fmt = $dateFormat || 'ISO';
@@ -676,7 +729,7 @@
                     if (fmt === 'natural') return dt.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
                     return row.date;
                   })()}
-                </span>
+                </button>
                 <span class="timeline-val accent-text">{row.val.toLocaleString()} {_metricUnit}</span>
               </div>
             {/if}
@@ -944,6 +997,35 @@
   .timeline-row:last-child { border-bottom: none; }
   .timeline-date { color: var(--text-2); }
   .timeline-val  { font-weight: 600; color: var(--accent); }
+  /* Tap-into-day link (#64). Styled as a subtle link so the affordance
+     is discoverable without making the whole row feel clicky/footgun-y
+     on mobile. The value column stays unstyled so scrolling past the
+     list without intent doesn't accidentally trigger navigation. */
+  .timeline-date-link {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: var(--text-2);
+    cursor: pointer;
+    text-align: left;
+    border-radius: 4px;
+    transition: color 120ms, background 120ms;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .timeline-date-link:hover,
+  .timeline-date-link:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    outline: none;
+  }
+  .timeline-date-link:focus-visible {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    padding: 2px 6px;
+    margin: -2px -6px;
+  }
 
   :global(.spin) { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }

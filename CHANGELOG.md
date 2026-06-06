@@ -9,6 +9,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0-rc.48] - 2026-06-06
+
+### Added
+
+- **Tap a date in the Statistics History list to jump straight to that
+  day.** Nutrient, water, and body-stat metrics open the Diary on that
+  date (where you can drill into the Nutrition Summary to see what
+  contributed); wellness metrics like Steps, Sleep, HRV, and Resting HR
+  open the Wellness page on that date. Pairs with the rc.47 Diary
+  Nutrition Summary drill-down for an end-to-end "Statistics shows the
+  spike, day page shows the cause" flow. (Issue #64, reported by
+  duplaja)
+
+### Fixed
+
+- **Statistics charts were blank for users whose only wellness source
+  was Health Connect or Google Health.** Steps, Sleep, HRV, RHR,
+  Active Minutes, and other wellness metrics showed empty even on days
+  with synced data. Same shape as the rc.46 and rc.47 fixes for Goals
+  and the sidebar. Every wellness-source check across the app now
+  routes through a single shared gate, so adding a future source can
+  no longer silently leave another surface broken. (Issue #65,
+  reported by duplaja)
+
+---
+
 ## [1.0.0-rc.47] - 2026-06-05
 
 ### Added

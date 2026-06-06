@@ -40,11 +40,14 @@
     sidebarPersistent, goalCelebrations, pageBanners, bannerStyle, language,
     waterGoalMl, waterUnit, waterContainers, waterShowInStats, waterShowInDiary,
     calorieGoalMode, calorieGoalFactor,
-    fitbitEnabled, garminEnabled, healthConnectEnabled,
+    fitbitEnabled, garminEnabled, healthConnectEnabled, fitbitFamilyEnabled,
     fastingEnabled, fastingDefaultHours, fastingNotifyOnGoal,
     fastingScheduleEnabled, fastingScheduleTime, fastingScheduleDays, fastingScheduleGoal,
   } from '../stores/settings.js';
-  $: _hasWearable = $fitbitEnabled || $garminEnabled || $healthConnectEnabled;
+  // Use the shared derived store so adding a new wellness source (e.g.,
+  // Google Health, future Polar/Suunto/etc.) doesn't silently leave the
+  // Dynamic calorie button disabled for users of that source.
+  $: _hasWearable = $fitbitFamilyEnabled || $garminEnabled;
   import { mealIcon } from '../lib/mealIcon.js';
   import { DB } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';

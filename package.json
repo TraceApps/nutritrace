@@ -1,12 +1,18 @@
 {
   "name": "nutritrace",
-  "version": "1.0.0-rc.47",
+  "version": "1.0.0-rc.48",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "android": "npm run build && npx cap sync android && npx cap open android",
+    "android:build": "npm run build && npx cap sync android",
+    "android:run": "npx cap run android",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:add:android": "npx cap add android",
+    "i18n:check": "node scripts/i18n-check.cjs",
     "postinstall": "node scripts/postinstall.cjs"
   },
   "dependencies": {

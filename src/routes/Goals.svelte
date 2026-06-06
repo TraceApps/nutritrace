@@ -5,7 +5,7 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { portal } from '../lib/portal.js';
-  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, calorieGoalMode, calorieGoalFactor } from '../stores/settings.js';
+  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, calorieGoalMode, calorieGoalFactor } from '../stores/settings.js';
   import GoalsBanner from '../components/banners/GoalsBanner.svelte';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
@@ -136,7 +136,6 @@
   let _adaptive = null; // { ready, daysAvailable, daysRequired, tdee, trendKgPerWeek, confidence, weightSource }
   let _adaptiveLoaded = false;
   let _showAdaptiveHelp = false;
-  $: _hasDevice = $fitbitEnabled || $garminEnabled || $healthConnectEnabled;
   $: _fixedGoal = $goals.calories?.max ?? $goals.calories?.min ?? 2000;
   $: _effectiveCalGoal =
        ($calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null)
@@ -145,23 +144,21 @@
          ? Math.round(_adaptive.tdee * $calorieGoalFactor)
        : _fixedGoal;
 
-  // The Fitbit /data endpoint already merges Fitbit + Health Connect rows, and
-  // Google Health Web API writes its rows tagged source='fitbit'. So one call
-  // covers fitbit + google-health + health-connect; we just need any of those
-  // three flags to fire it.
-  $: _fitbitFamilyEnabled = $fitbitEnabled || $googleHealthEnabled || $healthConnectEnabled;
-
+  // The Fitbit /data endpoint already merges Fitbit + Health Connect rows,
+  // and Google Health Web API writes its rows tagged source='fitbit'. So
+  // one call covers fitbit + google-health + health-connect; the shared
+  // derived store ($fitbitFamilyEnabled) is the canonical gate.
   async function loadWellnessToday() {
     _wellnessLoaded = true;
     let fitbit = {}, garmin = {};
-    try { if (_fitbitFamilyEnabled) { const r = await NtApi.get(`/api/wellness/fitbit/data?date=${today}`); fitbit = r[today] || {}; } } catch {}
+    try { if ($fitbitFamilyEnabled) { const r = await NtApi.get(`/api/wellness/fitbit/data?date=${today}`); fitbit = r[today] || {}; } } catch {}
     try { if ($garminEnabled) { const r = await NtApi.get(`/api/wellness/garmin/data?date=${today}`); garmin = r[today] || {}; } } catch {}
     todayWellness = { ...fitbit, ...garmin };
   }
 
   // Fire as soon as settings stores resolve true — avoids the first-load race
   // where onMount ran before settings loaded from server (both start false).
-  $: if ((_fitbitFamilyEnabled || $garminEnabled) && !_wellnessLoaded) loadWellnessToday();
+  $: if (($fitbitFamilyEnabled || $garminEnabled) && !_wellnessLoaded) loadWellnessToday();
 
   onMount(async () => {
     // Load diary data first — don't block on server calls
