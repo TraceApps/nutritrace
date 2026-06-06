@@ -576,6 +576,16 @@ NutriTrace is free to self-host and always will be. It's built and maintained by
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy_me_a_coffee-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/traceapps)
 
+## Star History
+
+<a href="https://star-history.com/#TraceApps/nutritrace&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=TraceApps/nutritrace&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=TraceApps/nutritrace&type=Date" />
+    <img alt="NutriTrace Star History Chart" src="https://api.star-history.com/svg?repos=TraceApps/nutritrace&type=Date" />
+  </picture>
+</a>
+
 ## Credits
 
 NutriTrace was inspired by two excellent self-hosted nutrition trackers:
