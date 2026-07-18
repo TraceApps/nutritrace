@@ -1,6 +1,7 @@
 <script>
   import { tweened } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
+  import { slide } from 'svelte/transition';
   import { energyUnit, macroLegendMode } from '../../stores/settings.js';
   import { Nutrition } from '../../lib/nutrition.js';
 
@@ -153,7 +154,7 @@
      The mode toggle itself lives in Diary.svelte's sheet toolbar so
      it stays visible regardless of what's rendered here. #95. -->
 {#if $macroLegendMode !== 'grams'}
-  <div class="macro-legend">
+  <div class="macro-legend" transition:slide|local={{ duration: 220, easing: cubicOut }}>
     <div class="macro-item">
       <span class="dot protein"></span>
       <span class="macro-val">{macroPcts.protein}%</span>

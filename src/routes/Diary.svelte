@@ -2916,7 +2916,7 @@
     background: var(--accent);
     color: var(--on-accent, #fff);
   }
-  .ns-ring-wrap { padding: 8px 0 4px; }
+  .ns-ring-wrap { padding: 8px 0 16px; }
   .ns-macros { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
   .ns-macro-pill {
     border-radius: var(--radius-md); padding: 10px 4px;
