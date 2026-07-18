@@ -30,7 +30,7 @@
   import { mealNames, goals, energyUnit, weightUnit, lengthUnit, navStyle,
            diaryShowBrands, diaryShowThumbnails,
            diaryShowTimestamps, diaryShowMacroSummary, diaryPromptQuantity,
-           diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode,
+           diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode, macroLegendMode,
            diaryShowAllNutrients, diaryShowNutritionUnits, visibleNutriments, hiddenBodyStats,
            showQuickCalories, quickCaloriesDisplay,
            dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners, bannerStyle,
@@ -2146,6 +2146,23 @@
         </div>
       </div>
       <div class="ns-body">
+        <!-- Sheet toolbar: legend-mode toggle (percent / grams). Sits
+             just under the header, always visible so the toggle has a
+             stable home regardless of what the ring/legend/pills below
+             render. Grams mode swaps the macro pill values from plain
+             consumed to consumed-over-goal (e.g. 203g → 203/301g) and
+             hides the ring's percent legend since the pills carry the
+             same data with goal context. #95. -->
+        <div class="ns-toolbar">
+          <button
+            class="ns-legend-toggle"
+            on:click={() => macroLegendMode.set($macroLegendMode === 'grams' ? 'percent' : 'grams')}
+            aria-label="Toggle macro display between percent and grams"
+            title="Toggle percent / grams">
+            <span class="ns-lt-opt" class:ns-lt-active={$macroLegendMode === 'percent'}>%</span>
+            <span class="ns-lt-opt" class:ns-lt-active={$macroLegendMode === 'grams'}>g</span>
+          </button>
+        </div>
         <!-- Macro ring -->
         <div class="ns-ring-wrap">
           <MacroRing
@@ -2157,18 +2174,22 @@
             proteinGoal={protGoal} {carbGoal} {fatGoal}
           />
         </div>
-        <!-- Macros highlight -->
+        <!-- Macros highlight. In grams mode the values switch to
+             "consumed / goal" (e.g. 203/301g) when a goal exists, or
+             fall back to plain grams when it doesn't. KCAL pill is
+             mode-agnostic; the calorie goal is already visible in the
+             ring center. -->
         <div class="ns-macros">
           <div class="ns-macro-pill" style="background:var(--macro-protein-dim)">
-            <span class="ns-macro-val" style="color:var(--macro-protein)">{Math.round(totals.proteins || 0)}g</span>
+            <span class="ns-macro-val" style="color:var(--macro-protein)">{Math.round(totals.proteins || 0)}{#if $macroLegendMode === 'grams' && protGoal}/{protGoal}{/if}g</span>
             <span class="ns-macro-lbl">Protein</span>
           </div>
           <div class="ns-macro-pill" style="background:var(--macro-carbs-dim)">
-            <span class="ns-macro-val" style="color:var(--macro-carbs)">{Math.round(totals.carbohydrates || 0)}g</span>
+            <span class="ns-macro-val" style="color:var(--macro-carbs)">{Math.round(totals.carbohydrates || 0)}{#if $macroLegendMode === 'grams' && carbGoal}/{carbGoal}{/if}g</span>
             <span class="ns-macro-lbl">Carbs</span>
           </div>
           <div class="ns-macro-pill" style="background:var(--macro-fat-dim)">
-            <span class="ns-macro-val" style="color:var(--macro-fat)">{Math.round(totals.fat || 0)}g</span>
+            <span class="ns-macro-val" style="color:var(--macro-fat)">{Math.round(totals.fat || 0)}{#if $macroLegendMode === 'grams' && fatGoal}/{fatGoal}{/if}g</span>
             <span class="ns-macro-lbl">Fat</span>
           </div>
           <div class="ns-macro-pill" style="background:var(--macro-calories-dim)">
@@ -2865,6 +2886,36 @@
     padding-bottom: var(--safe-bottom);
   }
   .ns-body { flex: 1; overflow-y: auto; padding: 0 16px 16px; }
+  .ns-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 8px 0 0;
+  }
+  .ns-legend-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--surface-3);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .ns-lt-opt {
+    min-width: 22px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-3);
+    border-radius: 999px;
+    line-height: 1;
+    transition: color 120ms, background-color 120ms;
+  }
+  .ns-lt-active {
+    background: var(--accent);
+    color: var(--on-accent, #fff);
+  }
   .ns-ring-wrap { padding: 8px 0 4px; }
   .ns-macros { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
   .ns-macro-pill {
