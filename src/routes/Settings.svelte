@@ -30,7 +30,7 @@
     diaryShowNotes,
     diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
     showQuickCalories, quickCaloriesDisplay,
-    diaryShowNutritionBar, macroLegendMode,
+    diaryShowNutritionBar,
     foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsShowThumbnails, foodsShowYesterdayMeals, foodsSort, mealsSort, recipesSort,
     barcodeBeep, barcodeFlashlight, cropPhotos,
     foodCategories, customUnits, visibleNutriments, nutrimentsOrder, customNutriments,
@@ -2181,19 +2181,6 @@
           <div class="setting-row">
             <div><span class="setting-label">Show Daily Goals Progress Bar</span><div class="setting-desc">Progress strip at the bottom of the diary showing how much of your daily goals you've hit</div></div>
             <Toggle checked={$diaryShowNutritionBar} on:change={e => diaryShowNutritionBar.set(e.detail)} />
-          </div>
-          <div class="setting-divider"></div>
-          <div class="setting-row" style="align-items:flex-start;">
-            <div style="flex:1;">
-              <span class="setting-label">Macro Ring Legend</span>
-              <div class="setting-desc">Values under the ring on the Nutrition Summary sheet. Percent shows each macro's share of total calories; Grams shows consumed against your per-macro goal (e.g. 132/150 g Protein).</div>
-            </div>
-            <div class="seg-control" style="--seg-count:2;--seg-active:{$macroLegendMode === 'grams' ? 1 : 0}; min-width:180px;">
-              <button class="seg-opt" class:seg-active={$macroLegendMode === 'percent'}
-                on:click={() => macroLegendMode.set('percent')}>Percent</button>
-              <button class="seg-opt" class:seg-active={$macroLegendMode === 'grams'}
-                on:click={() => macroLegendMode.set('grams')}>Grams</button>
-            </div>
           </div>
         </div>
 

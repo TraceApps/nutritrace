@@ -4,6 +4,10 @@
   import { energyUnit, macroLegendMode } from '../../stores/settings.js';
   import { Nutrition } from '../../lib/nutrition.js';
 
+  function _toggleLegend() {
+    macroLegendMode.set($macroLegendMode === 'grams' ? 'percent' : 'grams');
+  }
+
   export let calories    = 0;
   export let caloriesGoal = 2000;
   export let fat     = 0;
@@ -144,6 +148,19 @@
       <span class="ring-goal">of {_displayGoal.value.toLocaleString()}</span>
     {/if}
   </div>
+
+  <!-- Legend mode toggle — floats at the ring's 3 o'clock, vertically
+       centered. Switches the macro legend below between percent (share
+       of macro calories) and grams (consumed against per-macro goal).
+       Persisted in `macroLegendMode` so the choice sticks. #95. -->
+  <button
+    class="legend-toggle"
+    on:click={_toggleLegend}
+    aria-label="Toggle macro legend between percent and grams"
+    title="Toggle percent / grams">
+    <span class="lt-opt" class:lt-active={$macroLegendMode === 'percent'}>%</span>
+    <span class="lt-opt" class:lt-active={$macroLegendMode === 'grams'}>g</span>
+  </button>
 </div>
 
 <!-- Macro legend. Percent mode shows share of total macro calories.
@@ -225,4 +242,34 @@
   .dot.protein { background: var(--macro-protein); }
   .macro-val   { font-size: 15px; font-weight: 600; }
   .macro-lbl   { font-size: 11px; color: var(--text-3); font-weight: 500; }
+
+  .legend-toggle {
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--surface-3);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .lt-opt {
+    min-width: 22px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-3);
+    border-radius: 999px;
+    line-height: 1;
+    transition: color 120ms, background-color 120ms;
+  }
+  .lt-active {
+    background: var(--accent);
+    color: var(--on-accent, #fff);
+  }
 </style>
