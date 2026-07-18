@@ -2154,6 +2154,7 @@
             fat={totals.fat || 0}
             carbs={totals.carbohydrates || 0}
             protein={totals.proteins || 0}
+            proteinGoal={protGoal} {carbGoal} {fatGoal}
           />
         </div>
         <!-- Macros highlight -->

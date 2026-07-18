@@ -1,7 +1,7 @@
 <script>
   import { tweened } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
-  import { energyUnit } from '../../stores/settings.js';
+  import { energyUnit, macroLegendMode } from '../../stores/settings.js';
   import { Nutrition } from '../../lib/nutrition.js';
 
   export let calories    = 0;
@@ -9,6 +9,11 @@
   export let fat     = 0;
   export let carbs   = 0;
   export let protein = 0;
+  // Per-macro absolute goals in grams. When null and macroLegendMode is
+  // 'grams', the legend shows plain grams without the "/goal" suffix.
+  export let proteinGoal = null;
+  export let carbGoal    = null;
+  export let fatGoal     = null;
 
   // Display values switch to user's chosen energy unit (kcal | kJ).
   // Internal arithmetic stays in kcal for the macro arc math.
@@ -141,22 +146,37 @@
   </div>
 </div>
 
-<!-- Macro legend — percentage of total macro calories, ordered to match
-     the macro-pill cards below the ring (Protein, Carbs, Fat). -->
+<!-- Macro legend. Percent mode shows share of total macro calories.
+     Grams mode (issue #95) shows consumed grams against per-macro goal
+     when a goal is set, or plain grams when no goal exists.
+     Ordered to match the macro-pill cards below the ring (Protein,
+     Carbs, Fat). -->
 <div class="macro-legend">
   <div class="macro-item">
     <span class="dot protein"></span>
-    <span class="macro-val">{macroPcts.protein}%</span>
+    {#if $macroLegendMode === 'grams'}
+      <span class="macro-val">{Math.round(protein)}{#if proteinGoal}/{proteinGoal}{/if} g</span>
+    {:else}
+      <span class="macro-val">{macroPcts.protein}%</span>
+    {/if}
     <span class="macro-lbl">Protein</span>
   </div>
   <div class="macro-item">
     <span class="dot carbs"></span>
-    <span class="macro-val">{macroPcts.carbs}%</span>
+    {#if $macroLegendMode === 'grams'}
+      <span class="macro-val">{Math.round(carbs)}{#if carbGoal}/{carbGoal}{/if} g</span>
+    {:else}
+      <span class="macro-val">{macroPcts.carbs}%</span>
+    {/if}
     <span class="macro-lbl">Carbs</span>
   </div>
   <div class="macro-item">
     <span class="dot fat"></span>
-    <span class="macro-val">{macroPcts.fat}%</span>
+    {#if $macroLegendMode === 'grams'}
+      <span class="macro-val">{Math.round(fat)}{#if fatGoal}/{fatGoal}{/if} g</span>
+    {:else}
+      <span class="macro-val">{macroPcts.fat}%</span>
+    {/if}
     <span class="macro-lbl">Fat</span>
   </div>
 </div>
