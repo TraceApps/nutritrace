@@ -2,7 +2,9 @@ name: Build & Push to GHCR
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
+    tags: [ 'v*.*.*' ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -15,11 +17,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # QEMU lets the x86 GHA runner emulate ARM64 instructions during the
-      # arm64 build leg. Required for cross-arch builds without a separate
-      # arm64 runner. Adds a few minutes to total build time but covers the
-      # Raspberry Pi 4 / Pi 5 audience that's been asking for an ARM image
-      # (issue #43 sonntam, #76 acaonweb).
+      # QEMU lets the x86 GHA runner emulate ARM64 instructions during
+      # the arm64 build leg. Needed for cross-arch builds without a
+      # separate arm64 runner. Covers Raspberry Pi 4 / Pi 5 (issue #43
+      # sonntam, #76 acaonweb).
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
@@ -28,6 +29,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # NutriTrace uses GHCR_TOKEN (a PAT) rather than the auto-provided
+      # GITHUB_TOKEN because the package was originally created by a
+      # different workflow config; PAT bypasses the inheritance quirk.
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -35,27 +39,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
+      # Derive tags from the ref:
+      #   semver tag v1.2.3 → :1.2.3, :1.2, :1
+      #   push to main      → :latest, :main, :sha-<shortsha>
+      #   push to dev       → :dev, :sha-<shortsha>
+      # Users pin :dev for the leading edge, :latest for stable
+      # releases, or :1.0 for auto-patch within a minor.
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/traceapps/nutritrace
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          # Multi-arch manifest. Skipping linux/arm/v7 (Pi 3 / 32-bit
-          # Pi Zero W) — audience too small to justify the test surface,
-          # and several deps (DuckDB) don't publish 32-bit ARM prebuilts.
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ghcr.io/traceapps/nutritrace:latest
-            ghcr.io/traceapps/nutritrace:${{ github.sha }}
-          # Buildx layer cache, backed by the GitHub Actions cache. Pulls
-          # any reusable layers from the previous run (npm install,
-          # Vite bundle, DuckDB native build, etc.) and pushes the
-          # completed layers back for the next run. mode=max exports all
-          # intermediate layers for the highest hit rate. Falls back to
-          # a clean build automatically if the cache is empty or stale,
-          # so this can't break anything.
-          # Drops typical source-only commits from ~7m down to ~2-3m,
-          # because the slow arm64-via-QEMU layers don't have to rebuild
-          # unless their inputs actually changed.
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
