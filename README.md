@@ -227,7 +227,9 @@ services:
     restart: unless-stopped
 ```
 
-No changes to this file are needed; everything is driven by `.env`. The `env_file: .env` directive forwards every variable in your `.env` (including optional ones like `INSECURE_COOKIES` and `RECOVERY_TOKEN`) into the container. The explicit `environment:` block stays as live documentation of the common options. If you want to pin to a specific version, change `latest` to a release tag.
+No changes to this file are needed; everything is driven by `.env`. The `env_file: .env` directive forwards every variable in your `.env` (including optional ones like `INSECURE_COOKIES` and `RECOVERY_TOKEN`) into the container. The explicit `environment:` block stays as live documentation of the common options.
+
+**Choosing a tag.** `:latest` follows every stable release. Pin `:1.0` to auto-receive patches without opting into future minors, `:1` for auto-minor within the major, or `:1.0.0` for an exact reproducible pin. `:dev` tracks the leading edge (not recommended for production). Legacy `:1.0.0-rc.N` tags stay published indefinitely. See [DEPLOY.md](DEPLOY.md) for the full tag table.
 
 2. Copy `.env.example` to `.env` and fill in your paths:
 

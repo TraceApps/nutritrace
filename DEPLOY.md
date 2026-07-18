@@ -14,6 +14,24 @@ The app will be available at `http://localhost:3000`.
 
 ---
 
+## Image tags
+
+Every release publishes a multi-arch (linux/amd64 + linux/arm64) image
+under several tags so you can pin to whatever risk level fits:
+
+| Tag | Updates when | Use case |
+|-----|--------------|----------|
+| `ghcr.io/traceapps/nutritrace:1.0.0` | Never (pinned exact) | Reproducible pin to a specific version |
+| `ghcr.io/traceapps/nutritrace:1.0` | Any 1.0.x patch release | Auto-receive bug fixes, no new features |
+| `ghcr.io/traceapps/nutritrace:1` | Any 1.x.y minor release | Auto-minor within a major, no breaking |
+| `ghcr.io/traceapps/nutritrace:latest` | Every stable release | Absolute latest stable |
+| `ghcr.io/traceapps/nutritrace:dev` | Every push to `dev` branch | Leading edge, not for production |
+
+Legacy `1.0.0-rc.N` tags from before the semver switch remain published
+indefinitely; anyone pinned to a specific rc release is unaffected.
+
+---
+
 ## docker-compose.yml
 
 A minimal working setup:
