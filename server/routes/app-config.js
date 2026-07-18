@@ -156,10 +156,36 @@ router.put('/', requireAuth, requireAdmin, wrap((req, res) => {
   res.json({ ok: true });
 }));
 
-// ── POST /api/app-config/test-email — verify SMTP connection ─────────────
+// ── POST /api/app-config/test-email — actually send a branded test email ─
 router.post('/test-email', requireAuth, requireAdmin, wrap(async (req, res) => {
-  await testSmtp();
-  res.json({ ok: true });
+  // Optional body: SMTP field overrides so the user can test unsaved
+  // form values without saving first. Blocked when the env-lock is on
+  // (config is baked into env vars, not the request).
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const envLocked = isSmtpEnvLocked();
+  const overrides = envLocked ? undefined : {
+    smtp_host:   body.smtp_host,
+    smtp_port:   body.smtp_port,
+    smtp_secure: body.smtp_secure,
+    smtp_user:   body.smtp_user,
+    // Never accept the redaction mask as a real password
+    smtp_pass:   body.smtp_pass === '••••••••' ? undefined : body.smtp_pass,
+    smtp_from:   body.smtp_from,
+  };
+  // Recipient priority: explicit body.to (from the Send Test dialog) →
+  // current user's account email → fall through to email.js defaults
+  // (smtp_from / smtp_user).
+  const to = (typeof body.to === 'string' && body.to.trim()) || req.user?.email || undefined;
+  // Origin lets the email template load the app logo. Recipient name
+  // personalizes the greeting.
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const recipientName = req.user?.full_name || req.user?.nickname || req.user?.username || null;
+  try {
+    const result = await testSmtp({ overrides, to, origin, recipientName });
+    res.json({ ok: true, to: result.to });
+  } catch (e) {
+    res.status(400).json({ error: e?.message || 'SMTP test failed' });
+  }
 }));
 
 export default router;

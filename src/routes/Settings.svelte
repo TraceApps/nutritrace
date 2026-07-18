@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { slide, fade } from 'svelte/transition';
   import { push } from 'svelte-spa-router';
@@ -1119,6 +1119,24 @@
   let smtpShowPass = false;
   let smtpFrom   = '';
   let smtpTestStatus = ''; // '', 'testing', 'ok', 'fail'
+  let smtpPassInputEl;
+
+  // Server redacts stored passwords on GET and returns bullets as a
+  // placeholder, the real value is never sent to the browser. Detect
+  // that state so the toggle can't pretend to "reveal" a value we don't
+  // have, and offer a clear Change action instead.
+  const _SMTP_PASS_MASK = '••••••••';
+  $: smtpPassIsStored = smtpPass === _SMTP_PASS_MASK;
+
+  function changeSmtpPass() {
+    smtpPass = '';
+    smtpShowPass = false;
+    // Next tick, after the input becomes editable, focus it.
+    setTimeout(() => smtpPassInputEl?.focus(), 0);
+  }
+
+  let smtpSaving = false;
+  let smtpSaved = false;
 
   async function loadSmtpConfig() {
     try {
@@ -1131,16 +1149,6 @@
       smtpUser   = cfg.smtp_user   || '';
       smtpPass   = cfg.smtp_pass   || '';
       smtpFrom   = cfg.smtp_from   || '';
-      // Seed the auto-save baseline so a blur right after load doesn't
-      // re-PUT the same values.
-      _lastSavedSmtp = {
-        host: smtpHost, port: String(smtpPort), secure: String(smtpSecure),
-        user: smtpUser, pass: smtpPass, from: smtpFrom,
-      };
-      // Arm auto-save ONLY after the baseline is seeded. Without this,
-      // any blur fired during the empty-initial-render window would
-      // PUT blank values and wipe the server config.
-      _smtpLoaded = true;
     } catch {}
   }
 
@@ -1152,44 +1160,89 @@
     }).catch(() => {});
   }
 
-  // Per-field auto-save guards. Two layers of protection:
-  //   1. `_smtpLoaded` is false until loadSmtpConfig has fully populated
-  //      the bound vars and seeded the baseline. NO auto-save may fire
-  //      before that, otherwise an empty initial blur could overwrite
-  //      the server's real config with blanks (which is exactly what
-  //      bit a user in the field — public-release regression risk).
-  //   2. Same-value short-circuit so a tab-through without an edit
-  //      doesn't burn a PUT either.
-  let _smtpLoaded = false;
-  let _lastSavedSmtp = { host:'', port:'', secure:'', user:'', pass:'', from:'' };
-  async function saveSmtpHost()   { if (!_smtpLoaded || smtpHost === _lastSavedSmtp.host) return; _lastSavedSmtp.host = smtpHost; await saveSmtpField('smtp_host', smtpHost); }
-  async function saveSmtpPort()   { if (!_smtpLoaded) return; const v = String(smtpPort); if (v === _lastSavedSmtp.port) return; _lastSavedSmtp.port = v; await saveSmtpField('smtp_port', smtpPort); }
-  async function saveSmtpSecure() { if (!_smtpLoaded) return; const v = String(smtpSecure); if (v === _lastSavedSmtp.secure) return; _lastSavedSmtp.secure = v; await saveSmtpField('smtp_secure', v); }
-  async function saveSmtpUser()   { if (!_smtpLoaded || smtpUser === _lastSavedSmtp.user) return; _lastSavedSmtp.user = smtpUser; await saveSmtpField('smtp_user', smtpUser); }
-  async function saveSmtpPass()   { if (!_smtpLoaded || smtpPass === _lastSavedSmtp.pass) return; _lastSavedSmtp.pass = smtpPass; await saveSmtpField('smtp_pass', smtpPass); }
-  async function saveSmtpFrom()   { if (!_smtpLoaded || smtpFrom === _lastSavedSmtp.from) return; _lastSavedSmtp.from = smtpFrom; await saveSmtpField('smtp_from', smtpFrom); }
+  // Batch save via Save button (matches LiftTrace + CookTrace). Nothing
+  // saves until the user explicitly clicks Save, which avoids the
+  // per-field-blur pitfalls: clicking Change and tabbing away with an
+  // empty field can't wipe the stored password, and no PUT fires while
+  // the user is mid-edit.
+  async function saveSmtp() {
+    smtpSaving = true;
+    smtpSaved = false;
+    try {
+      await saveSmtpField('smtp_host',   smtpHost);
+      await saveSmtpField('smtp_port',   String(smtpPort));
+      await saveSmtpField('smtp_secure', String(smtpSecure));
+      await saveSmtpField('smtp_user',   smtpUser);
+      // Only push the password when the user actually typed a new one.
+      // If the field is empty (Change clicked, nothing typed) or still
+      // the mask, leave the stored value alone.
+      if (smtpPass && smtpPass !== _SMTP_PASS_MASK) await saveSmtpField('smtp_pass', smtpPass);
+      await saveSmtpField('smtp_from',   smtpFrom);
+      smtpSaved = true;
+      setTimeout(() => smtpSaved = false, 2000);
+    } finally { smtpSaving = false; }
+  }
 
   // Banner-friendly reactive status. 'ok' just means "host + from are set
   // and the most recent test didn't fail". A real verification still
-  // requires the Test button (the test endpoint actually sends an email).
+  // requires the Test button (which sends an actual email now).
   $: smtpBannerStatus = smtpTestStatus === 'testing' || smtpTestStatus === 'fail'
     ? smtpTestStatus
     : (smtpHost && smtpFrom ? 'ok' : '');
-  // SMTP is fire-and-forget, not a persistent connection — be honest about
-  // what the banner actually means. Default label is "Configured" (creds
-  // entered, never verified). After a successful test it flips to
-  // "Last Test Sent" with the test acting as the recency proof.
   $: smtpBannerLabel    = smtpTestStatus === 'ok' ? 'Last Test Sent' : 'Configured';
-  $: smtpBannerSubtext  = smtpTestStatus === 'ok' ? 'Use Send Test again any time to re-verify' : 'No test has been sent yet';
+  $: smtpBannerSubtext  = smtpTestStatus === 'ok'
+    ? (smtpTestRecipient
+        ? `Sent to ${smtpTestRecipient}. Use Send Test again any time to re-verify.`
+        : 'Use Send Test again any time to re-verify')
+    : 'No test has been sent yet';
 
-  async function testSmtp() {
+  // Send-Test recipient dialog. Pre-fills with the current user's account
+  // email; user can override for a one-off test target so the test proves
+  // end-to-end delivery rather than just SMTP auth handshake.
+  let showSmtpTestDialog = false;
+  let smtpTestRecipient = '';
+  let smtpTestTypedTo = '';
+  let smtpTestDialogInputEl;
+
+  function openSmtpTestDialog() {
     if (!smtpHost) { smtpTestStatus = 'fail'; showError('SMTP test failed: host required'); return; }
+    smtpTestTypedTo = $currentUser?.email || '';
+    showSmtpTestDialog = true;
+    tick().then(() => smtpTestDialogInputEl?.focus());
+  }
+
+  function closeSmtpTestDialog() { showSmtpTestDialog = false; }
+
+  async function confirmSmtpTest() {
+    const to = (smtpTestTypedTo || '').trim();
+    if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      showError('Enter a valid email address');
+      return;
+    }
+    showSmtpTestDialog = false;
     smtpTestStatus = 'testing';
+    smtpTestRecipient = '';
     try {
-      const res = await fetch(apiUrl('/api/app-config/test-email'), { method: 'POST', ..._fetchOpts() });
+      const body = {
+        smtp_host: smtpHost,
+        smtp_port: String(smtpPort),
+        smtp_secure: String(smtpSecure),
+        smtp_user: smtpUser,
+        smtp_from: smtpFrom,
+        to,
+      };
+      if (smtpPass && smtpPass !== '••••••••') body.smtp_pass = smtpPass;
+      const res = await fetch(apiUrl('/api/app-config/test-email'), {
+        method: 'POST',
+        ..._fetchOpts(),
+        headers: { ...(_fetchOpts().headers || {}), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        smtpTestRecipient = data.to || to;
         smtpTestStatus = 'ok';
-        showSuccess('SMTP test email sent, check your inbox');
+        showSuccess(`SMTP test email sent to ${smtpTestRecipient}`);
       } else {
         smtpTestStatus = 'fail';
         let detail = `HTTP ${res.status}`;
@@ -1201,6 +1254,10 @@
       showError(`SMTP test failed: ${e?.message || 'network error'}`);
     }
   }
+
+  // Called by ConnectionStatus onRetest — opens the dialog rather than
+  // firing immediately, so the user picks the recipient at click time.
+  const testSmtp = openSmtpTestDialog;
 
   $: if (openSections.email && $currentUser?.role === 'admin') loadSmtpConfig();
 
@@ -3206,43 +3263,74 @@
             <div class="form-group">
               <label class="form-label">SMTP Host</label>
               <input class="input" type="text" placeholder="e.g. smtp.example.com"
-                bind:value={smtpHost} on:blur={saveSmtpHost} disabled={envLocks.smtp} />
+                bind:value={smtpHost} disabled={envLocks.smtp} />
             </div>
             <div style="display:flex;gap:10px">
               <div class="form-group" style="flex:1">
                 <label class="form-label">Port</label>
                 <input class="input" type="number" placeholder="587"
-                  bind:value={smtpPort} on:blur={saveSmtpPort} disabled={envLocks.smtp} />
+                  bind:value={smtpPort} disabled={envLocks.smtp} />
               </div>
               <div class="form-group" style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end;padding-bottom:2px">
                 <label class="form-label">TLS</label>
-                <Toggle checked={smtpSecure} on:change={e => { smtpSecure = e.detail; saveSmtpSecure(); }} disabled={envLocks.smtp} />
+                <Toggle checked={smtpSecure} on:change={e => smtpSecure = e.detail} disabled={envLocks.smtp} />
               </div>
             </div>
             <div class="form-group">
               <label class="form-label">Username</label>
               <input class="input" type="text" autocomplete="off" placeholder="SMTP username or email"
-                bind:value={smtpUser} on:blur={saveSmtpUser} disabled={envLocks.smtp} />
+                bind:value={smtpUser} disabled={envLocks.smtp} />
             </div>
             <div class="form-group">
               <label class="form-label">Password</label>
               <div style="display:flex;gap:8px;align-items:center">
-                {#if smtpShowPass}
-                  <input class="input" style="flex:1" type="text" autocomplete="new-password" placeholder="SMTP password or app password"
-                    bind:value={smtpPass} on:blur={saveSmtpPass} disabled={envLocks.smtp} />
+                <!-- Single input masked via CSS text-security instead of
+                     a type-swap: on some Android WebView builds the swap
+                     left stale password dots visible. When smtpPassIsStored
+                     is true the field is read-only + the toggle is
+                     replaced with a Change button, because the server
+                     redacts the real value and there's nothing meaningful
+                     to "reveal". -->
+                <input bind:this={smtpPassInputEl}
+                  class="input smtp-pass" class:masked={!smtpShowPass && !smtpPassIsStored}
+                  style="flex:1" type="text" autocomplete="new-password"
+                  placeholder="SMTP password or app password"
+                  bind:value={smtpPass}
+                  disabled={envLocks.smtp || smtpPassIsStored} />
+                {#if smtpPassIsStored}
+                  <button type="button" class="btn-icon change-btn"
+                    on:click={changeSmtpPass}
+                    title="Change password"
+                    aria-label="Change password">
+                    Change
+                  </button>
                 {:else}
-                  <input class="input" style="flex:1" type="password" autocomplete="new-password" placeholder="SMTP password or app password"
-                    bind:value={smtpPass} on:blur={saveSmtpPass} disabled={envLocks.smtp} />
+                  <button type="button" class="btn-icon"
+                    on:click={() => smtpShowPass = !smtpShowPass}
+                    title={smtpShowPass ? 'Hide' : 'Show'}
+                    aria-label={smtpShowPass ? 'Hide password' : 'Show password'}>
+                    <span class="material-symbols-rounded">{smtpShowPass ? 'visibility_off' : 'visibility'}</span>
+                  </button>
                 {/if}
-                <button class="btn-icon" on:click={() => smtpShowPass = !smtpShowPass} title={smtpShowPass ? 'Hide' : 'Show'}>
-                  <span class="material-symbols-rounded">{smtpShowPass ? 'visibility_off' : 'visibility'}</span>
-                </button>
               </div>
+              {#if smtpPassIsStored}
+                <p class="pass-hint">Password saved. Tap Change to replace it.</p>
+              {/if}
             </div>
             <div class="form-group">
               <label class="form-label">From Address</label>
               <input class="input" type="email" placeholder='NutriTrace <noreply@example.com>'
-                bind:value={smtpFrom} on:blur={saveSmtpFrom} disabled={envLocks.smtp} />
+                bind:value={smtpFrom} disabled={envLocks.smtp} />
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <button class="btn btn-primary" style="height:36px;font-size:13px"
+                on:click={saveSmtp} disabled={smtpSaving || envLocks.smtp}>
+                {#if smtpSaved}
+                  <span class="material-symbols-rounded" style="font-size:16px">check</span> Saved
+                {:else}
+                  {smtpSaving ? 'Saving…' : 'Save'}
+                {/if}
+              </button>
             </div>
           </div>
         </div>
@@ -3617,6 +3705,25 @@
     </div>
   </div>
 </Sheet>
+
+{#if showSmtpTestDialog}
+  <div class="test-dialog-overlay" on:click={closeSmtpTestDialog}
+    on:keydown={(e) => e.key === 'Escape' && closeSmtpTestDialog()}>
+    <div class="test-dialog" role="dialog" aria-labelledby="smtp-test-dialog-title"
+      on:click|stopPropagation>
+      <h3 id="smtp-test-dialog-title">Send Test Email</h3>
+      <p>Where should we send the test?</p>
+      <input bind:this={smtpTestDialogInputEl} class="input" type="email"
+        placeholder="you@example.com" bind:value={smtpTestTypedTo}
+        on:keydown={(e) => e.key === 'Enter' && confirmSmtpTest()} />
+      <div class="test-dialog-actions">
+        <button class="btn btn-ghost" on:click={closeSmtpTestDialog}>Cancel</button>
+        <button class="btn btn-primary" on:click={confirmSmtpTest}
+          disabled={!smtpTestTypedTo.trim()}>Send</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .settings-content { display: flex; flex-direction: column; gap: 0; }
@@ -4037,6 +4144,63 @@
     margin-bottom: 4px;
   }
   .env-lock-banner .material-symbols-rounded { font-size: 16px; color: var(--accent); flex-shrink: 0; }
+
+  /* ── Send Test recipient dialog ── */
+  .test-dialog-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .test-dialog {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    width: 100%; max-width: 380px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  }
+  .test-dialog h3 {
+    margin: 0 0 6px;
+    font-size: 16px; font-weight: 700; color: var(--text-1);
+  }
+  .test-dialog p {
+    margin: 0 0 14px;
+    font-size: 13px; color: var(--text-2);
+  }
+  .test-dialog-actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin-top: 16px;
+  }
+
+  /* ── SMTP password field ──
+     Single input masked via CSS text-security instead of type-swap
+     (WebView bug leaves stale dots visible). Change button replaces
+     the eye toggle when the server has a stored password since the
+     value is redacted before it reaches the browser. */
+  .smtp-pass.masked {
+    -webkit-text-security: disc;
+    text-security: disc;
+    font-family: text-security-disc, monospace;
+    letter-spacing: 0.1em;
+  }
+  .smtp-pass:disabled {
+    color: var(--text-3);
+    cursor: not-allowed;
+  }
+  .btn-icon.change-btn {
+    width: auto;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .pass-hint {
+    margin: 4px 0 0;
+    font-size: 11px;
+    color: var(--text-3);
+  }
 
   /* ── Merge dialog ── */
   .merge-overlay {

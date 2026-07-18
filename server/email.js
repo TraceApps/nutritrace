@@ -39,9 +39,22 @@ function getSmtpConfig() {
   return cfg;
 }
 
-/** Build a nodemailer transporter from stored config, or throw if not configured */
-function createTransport() {
-  const cfg = getSmtpConfig();
+// Merge stored config with any inline overrides. Empty-string overrides
+// still count as "user cleared this field"; only undefined falls back
+// to storage. Lets the Settings UI test unsaved form values.
+function _mergedCfg(overrides) {
+  const stored = getSmtpConfig();
+  if (!overrides) return stored;
+  const merged = { ...stored };
+  for (const k of ['smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_pass', 'smtp_from']) {
+    if (overrides[k] !== undefined) merged[k] = overrides[k];
+  }
+  return merged;
+}
+
+/** Build a nodemailer transporter from stored config (or inline overrides), or throw if not configured */
+function createTransport(overrides) {
+  const cfg = _mergedCfg(overrides);
   if (!cfg.smtp_host) throw new Error('Email not configured. Ask your admin to set up SMTP in Settings.');
   return nodemailer.createTransport({
     host:   cfg.smtp_host,
@@ -58,9 +71,48 @@ export async function sendMail({ to, subject, html, text }) {
   await transport.sendMail({ from, to, subject, html, text });
 }
 
-export async function testSmtp() {
-  const transport = createTransport();
-  await transport.verify();
+/** Send a real branded test email to prove end-to-end delivery, not just
+ *  auth. If `overrides` is provided, uses those values for the connection
+ *  (so unsaved form values can be tested). Recipient priority: explicit
+ *  `to` arg, then smtp_from, then smtp_user. Returns the address the
+ *  email was actually sent to so the UI can show it. */
+export async function testSmtp({ overrides, to, origin, recipientName } = {}) {
+  const cfg = _mergedCfg(overrides);
+  const from = cfg.smtp_from || cfg.smtp_user || 'NutriTrace <noreply@nutritrace.app>';
+  const recipient = to || cfg.smtp_from || cfg.smtp_user;
+  if (!recipient) throw new Error('No recipient. Fill in a From address (or make sure your account has an email set).');
+  const transport = createTransport(overrides);
+  const body = _testEmailBody(recipientName);
+  await transport.sendMail({
+    from,
+    to: recipient,
+    subject: 'NutriTrace SMTP Test',
+    html: emailWrapper(origin || '', body, null, 'SMTP test from your NutriTrace instance'),
+    text: `Hi${recipientName ? ' ' + recipientName : ''},\n\nThis is a test email from your NutriTrace instance. If you're reading this, your SMTP settings work end-to-end. Password resets, invites, and other transactional emails will be delivered through this config.\n\nSafe to delete this email.`,
+  });
+  return { to: recipient };
+}
+
+// Branded body for the SMTP test email. Same wrapper + helpers as
+// sendInvite / sendPasswordReset so the test proves the full email
+// pipeline (including images + styling) and not just plaintext.
+function _testEmailBody(name) {
+  return `
+    ${greeting(name)}
+    <p class="nt-heading" style="margin:0 0 10px;font-size:20px;font-weight:700;color:#FFFFFF;line-height:1.3;">
+      SMTP Test Successful
+    </p>
+    <p class="nt-body-txt" style="margin:0 0 16px;font-size:15px;color:#8A93A8;line-height:1.7;">
+      This is a test email from your <strong style="color:#FFFFFF;">NutriTrace</strong> instance. If you&rsquo;re reading this,
+      your SMTP settings work end-to-end.
+    </p>
+    <p class="nt-body-txt" style="margin:0 0 24px;font-size:15px;color:#8A93A8;line-height:1.7;">
+      Password resets, user invites, and other transactional emails will be
+      delivered through this SMTP config.
+    </p>
+    <p class="nt-expiry" style="margin:24px 0 0;font-size:13px;color:#5A6278;text-align:center;line-height:1.6;">
+      Safe to delete this email.
+    </p>`;
 }
 
 export function isEmailConfigured() {
