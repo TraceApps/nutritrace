@@ -52,6 +52,27 @@ const Mealie = {
     }
   },
 
+  /** Paginated search returning items + pagination metadata for
+      infinite-scroll callers. Same shape as API.searchByNameWithMeta and
+      USDA.searchByNameWithMeta so Foods.svelte can treat all three
+      external sources uniformly. Mealie returns `total` + `total_pages`
+      on the response envelope, so hasMore is exact. #96. */
+  async searchWithMeta(query, page = 1, perPage = 10) {
+    if (!query) return { items: [], totalHits: 0, page, hasMore: false };
+    try {
+      const filter = `name LIKE "%${query}%"`;
+      const data = await _proxy(`/api/recipes?queryFilter=${encodeURIComponent(filter)}&perPage=${perPage}&page=${page}`);
+      const items = data?.items || [];
+      const totalHits = typeof data?.total === 'number' ? data.total : items.length;
+      const totalPages = typeof data?.total_pages === 'number' ? data.total_pages : Math.ceil(totalHits / perPage);
+      const hasMore = page < totalPages;
+      return { items, totalHits, page, hasMore };
+    } catch(e) {
+      console.error('[Mealie] search failed:', e);
+      return { items: [], totalHits: 0, page, hasMore: false };
+    }
+  },
+
   /** Get full recipe details by slug, including nutrition. */
   async getRecipe(slug) {
     if (!slug) return null;
