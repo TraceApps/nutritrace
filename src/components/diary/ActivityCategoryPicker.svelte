@@ -6,6 +6,7 @@
   // sheet without a pick.
 
   import { createEventDispatcher } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import Sheet from '../ui/Sheet.svelte';
   import { groupedByCategory, search as searchCompendium } from '../../lib/activity-picker.js';
 
@@ -42,22 +43,22 @@
   $: open, onOpenChange();
 </script>
 
-<Sheet bind:open title={selected || 'Browse Activities'}>
+<Sheet bind:open title={selected || $_('diary.activity.browse.title')}>
   <div class="bp-body">
     {#if selected}
       <button type="button" class="bp-back" on:click={back}>
         <span class="material-symbols-rounded">arrow_back</span>
-        <span>All categories</span>
+        <span>{$_('diary.activity.browse.all_categories')}</span>
       </button>
     {:else}
       <input class="input bp-search" type="text" bind:value={searchQ}
-        placeholder="Search all activities" autocomplete="off" />
+        placeholder={$_('diary.activity.browse.search_placeholder')} autocomplete="off" />
     {/if}
 
     {#if searchQ.trim() && !selected}
       <!-- Global-search mode: flat list ignoring categories -->
       {#if searchResults.length === 0}
-        <div class="bp-empty">No matches for "{searchQ}"</div>
+        <div class="bp-empty">{$_('diary.activity.browse.no_matches', { values: { q: searchQ } })}</div>
       {:else}
         <ul class="bp-list">
           {#each searchResults as a (a.id)}

@@ -429,6 +429,24 @@
       "wellness_hint":        "Synced workouts from your device live in Wellness",
       "not_counted":          "not counted — using wearable",
       "policy_chip":          "Policy: wearable wins. Toggle in Settings → Diary.",
+      "save_as_template":     "Save as template",
+      "save_as_template_hint": "(pinned in the picker next time)",
+      "kcal_preview":         "MET {met} × {weight} kg × {duration} min → {kcal} kcal",
+      "no_weight_hint":       "Add weight in Profile for MET-based auto-estimate",
+      "suggest": {
+        "templates":          "Templates",
+        "past_entries":       "Past entries",
+        "compendium":         "Compendium",
+        "template_badge":     "Template"
+      },
+      "browse": {
+        "title":              "Browse Activities",
+        "search_placeholder": "Search all activities",
+        "all_categories":     "All categories",
+        "no_matches":         "No matches for \"{q}\"",
+        "aria":               "Browse activity compendium",
+        "tooltip":            "Browse activities"
+      },
       "actions": {
         "edit":   "Edit",
         "delete": "Delete"
@@ -467,7 +485,21 @@
     },
     "sources": {
       "local":       "Local",
-      "from_others": "From Others"
+      "from_others": "From Others",
+      "all":         "All",
+      "shared":      "Shared",
+      "mealie":      "Mealie"
+    },
+    "all_mode": {
+      "search_hint":            "Search across all your enabled sources",
+      "searching":              "Searching every source…",
+      "no_matches":             "No matches for \"{q}\" anywhere",
+      "loading_more":           "Loading more…",
+      "still_searching_others": "Still searching other sources…"
+    },
+    "pagination": {
+      "showing_x_of_y": "Showing {shown} of {total}",
+      "loading_more":   "Loading more…"
     },
     "toast": {
       "deleted": "Deleted",

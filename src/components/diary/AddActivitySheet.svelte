@@ -202,7 +202,7 @@
           placeholder={$_('diary.activity.field_name_placeholder')} maxlength="80"
           autocomplete="off" />
         <button type="button" class="btn-browse" on:click|preventDefault={browseOpen}
-          aria-label="Browse activity compendium" title="Browse activities">
+          aria-label={$_('diary.activity.browse.aria')} title={$_('diary.activity.browse.tooltip')}>
           <span class="material-symbols-rounded">apps</span>
         </button>
       </div>
@@ -212,17 +212,17 @@
       {#if hasSuggestions}
         <div class="suggest">
           {#if templates.length > 0 && !q}
-            <div class="suggest-section-label">Templates</div>
+            <div class="suggest-section-label">{$_('diary.activity.suggest.templates')}</div>
             {#each templates as t (t.id)}
               <button type="button" class="suggest-item" on:mousedown|preventDefault={() => pickTemplate(t)}>
                 <span class="suggest-name">{t.name}</span>
                 {#if t.met != null}<span class="suggest-met">MET {Number(t.met).toFixed(1)}</span>{/if}
-                <span class="suggest-badge suggest-badge-template">Template</span>
+                <span class="suggest-badge suggest-badge-template">{$_('diary.activity.suggest.template_badge')}</span>
               </button>
             {/each}
           {/if}
           {#if pastMatches.length > 0}
-            <div class="suggest-section-label">Past entries</div>
+            <div class="suggest-section-label">{$_('diary.activity.suggest.past_entries')}</div>
             {#each pastMatches as n}
               <button type="button" class="suggest-item" on:mousedown|preventDefault={() => pickPastName(n)}>
                 <span class="suggest-name">{n}</span>
@@ -230,7 +230,7 @@
             {/each}
           {/if}
           {#if compendiumMatches.length > 0}
-            <div class="suggest-section-label">Compendium</div>
+            <div class="suggest-section-label">{$_('diary.activity.suggest.compendium')}</div>
             {#each compendiumMatches as a (a.id)}
               <button type="button" class="suggest-item" on:mousedown|preventDefault={() => pickCompendium(a)}>
                 <span class="suggest-name">{a.name}</span>
@@ -260,18 +260,18 @@
         inputmode="numeric" min="0" placeholder={$energyUnit === 'kJ' ? '500' : '120'} />
       {#if previewKcal != null && met != null}
         <span class="kcal-hint">
-          MET {met.toFixed(1)} × {userWeightKg} kg × {durationMin} min → {previewKcal} kcal
+          {$_('diary.activity.kcal_preview', { values: { met: met.toFixed(1), weight: userWeightKg, duration: durationMin, kcal: previewKcal } })}
         </span>
       {:else if met != null && userWeightKg == null}
         <span class="kcal-hint kcal-hint-warn">
-          Add weight in Profile for MET-based auto-estimate
+          {$_('diary.activity.no_weight_hint')}
         </span>
       {/if}
     </label>
 
     <label class="checkbox-row">
       <input type="checkbox" bind:checked={isTemplate} />
-      <span>Save as template <span class="hint">(pinned in the picker next time)</span></span>
+      <span>{$_('diary.activity.save_as_template')} <span class="hint">{$_('diary.activity.save_as_template_hint')}</span></span>
     </label>
 
     {#if error}

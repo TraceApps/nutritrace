@@ -94,7 +94,7 @@
     ...(_tabHasShared  ? [{ value: 'shared', label: $_('foods.sources.from_others') }] : []),
   ];
   $: availableSources = _perSourceOptions.length >= 2
-    ? [{ value: 'all', label: 'All' }, ..._perSourceOptions]
+    ? [{ value: 'all', label: $_('foods.sources.all') }, ..._perSourceOptions]
     : _perSourceOptions;
   $: _sourceLabel = availableSources.find(s => s.value === searchSource)?.label || '';
 
@@ -1251,17 +1251,17 @@
       {#if !search.trim()}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search</span>
-          <p>Search across all your enabled sources</p>
+          <p>{$_('foods.all_mode.search_hint')}</p>
         </div>
       {:else if (loading || mealieLoading) && _allModeItems.length === 0}
         <div class="loading-row">
           <span class="material-symbols-rounded spin">refresh</span>
-          <span class="text-2 text-sm">Searching every source&hellip;</span>
+          <span class="text-2 text-sm">{$_('foods.all_mode.searching')}</span>
         </div>
       {:else if _allModeItems.length === 0}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search_off</span>
-          <p>No matches for "{search}" anywhere</p>
+          <p>{$_('foods.all_mode.no_matches', { values: { q: search } })}</p>
         </div>
       {:else}
         <ul class="food-list">
@@ -1303,9 +1303,9 @@
                   {/if}
                 </div>
                 <span class="source-badge source-badge-{source}">
-                  {#if source === 'local'}Local
-                  {:else if source === 'shared'}Shared
-                  {:else if source === 'mealie'}Mealie
+                  {#if source === 'local'}{$_('foods.sources.local')}
+                  {:else if source === 'shared'}{$_('foods.sources.shared')}
+                  {:else if source === 'mealie'}{$_('foods.sources.mealie')}
                   {:else if source === 'usda'}USDA
                   {:else}OFF{/if}
                 </span>
@@ -1339,12 +1339,12 @@
         {#if _allLoadingMore}
           <div class="loading-row" style="margin-top:8px">
             <span class="material-symbols-rounded spin">refresh</span>
-            <span class="text-2 text-sm">Loading more&hellip;</span>
+            <span class="text-2 text-sm">{$_('foods.all_mode.loading_more')}</span>
           </div>
         {:else if loading || mealieLoading}
           <div class="loading-row" style="margin-top:8px">
             <span class="material-symbols-rounded spin">refresh</span>
-            <span class="text-2 text-sm">Still searching other sources&hellip;</span>
+            <span class="text-2 text-sm">{$_('foods.all_mode.still_searching_others')}</span>
           </div>
         {/if}
         {#if _allHasMoreAny && !_allLoadingMore}
@@ -1498,12 +1498,12 @@
           {#if apiTotalHits > 0}
             <div class="pagination-footer">
               <span class="text-3 text-sm">
-                Showing {apiResults.length.toLocaleString()} of {apiTotalHits.toLocaleString()}
+                {$_('foods.pagination.showing_x_of_y', { values: { shown: apiResults.length.toLocaleString(), total: apiTotalHits.toLocaleString() } })}
               </span>
               {#if apiLoadingMore}
                 <span class="loading-more">
                   <span class="material-symbols-rounded spin">refresh</span>
-                  Loading more&hellip;
+                  {$_('foods.pagination.loading_more')}
                 </span>
               {/if}
             </div>
