@@ -502,7 +502,13 @@
           const name = String(args?.name || '').trim();
           if (!name) return { error: 'Activity name required.' };
           let kcal = args?.kcal != null ? Math.max(0, Math.round(Number(args.kcal))) : 0;
-          const source = args?.source === 'ai_estimated' ? 'ai_estimated' : (args?.source === 'user_stated' ? 'user_stated' : 'manual_form');
+          const ALLOWED_AI_SOURCES = new Set(['ai_estimated', 'user_stated', 'compendium', 'manual_form']);
+          const source = ALLOWED_AI_SOURCES.has(args?.source) ? args.source : 'manual_form';
+          // #77: AI can now attach MET when it maps the activity to a canonical
+          // compendium entry, and can save templates when the user asks.
+          const metVal = (args?.met != null && Number.isFinite(Number(args.met)))
+            ? Math.max(0, Math.min(25, Number(args.met))) : null;
+          const isTemplate = !!args?.is_template;
           // If AI is trying to estimate without a number, gate on autoEstimate + profile
           if (!kcal && source === 'ai_estimated') {
             if (!autoEstimate) {
@@ -528,8 +534,10 @@
               duration_min: args?.duration_min != null ? Math.max(0, Math.round(Number(args.duration_min))) : null,
               distance: typeof args?.distance === 'string' ? args.distance.trim().slice(0, 40) || null : null,
               source,
+              met: metVal,
+              is_template: isTemplate,
             });
-            return { ok: true, date, name, kcal, source };
+            return { ok: true, date, name, kcal, source, met: metVal, is_template: isTemplate };
           } catch (e) {
             return { error: 'Failed to save activity: ' + (e?.message || String(e)) };
           }

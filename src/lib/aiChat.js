@@ -112,7 +112,7 @@ export const TOOLS = [
   },
   {
     name: 'add_activity_entry',
-    description: 'Log an exercise/activity entry to the user\'s Diary Activity section. Use this when the user describes a workout or physical activity ("I hiked 10 miles", "did 45 min of yoga"). Each entry offsets the day\'s calorie goal per the user\'s policy. If the user provides a calorie number, pass it as kcal and use source="user_stated". If you estimated kcal from body profile + duration/MET, use source="ai_estimated" and tell the user the estimate so they can correct it. Do NOT call this tool if the activityAutoEstimate setting is off and the user did not supply a calorie number — ask them for one instead.',
+    description: 'Log an exercise/activity entry to the user\'s Diary Activity section. Use this when the user describes a workout or physical activity ("I hiked 10 miles", "did 45 min of yoga"). Each entry offsets the day\'s calorie goal per the user\'s policy. If the user provides a calorie number, pass it as kcal and use source="user_stated". If you estimated kcal from body profile + duration/MET, use source="ai_estimated" and tell the user the estimate so they can correct it. Do NOT call this tool if the activityAutoEstimate setting is off and the user did not supply a calorie number — ask them for one instead. When the activity clearly maps to a standard MET value (running at a known pace, cycling at a known speed, swimming laps, etc.), also pass the met value so the entry participates in the compendium-based auto-calc going forward. Set is_template=true only when the user explicitly asks to save a reusable template (e.g. "save this as my evening bike commute").',
     parameters: {
       type: 'object',
       properties: {
@@ -121,7 +121,9 @@ export const TOOLS = [
         kcal:         { type: 'number', description: 'Calories burned (positive integer).' },
         duration_min: { type: 'number', description: 'Optional duration in minutes.' },
         distance:     { type: 'string', description: 'Optional free-text distance, e.g. "10 mi" or "5 km".' },
-        source:       { type: 'string', description: 'Provenance: "user_stated" if the user gave a number, "ai_estimated" if you computed it.' },
+        source:       { type: 'string', description: 'Provenance: "user_stated" if the user gave a number, "ai_estimated" if you computed it, "compendium" if you matched a canonical MET-scored activity.' },
+        met:          { type: 'number', description: 'Optional 2024 Adult Compendium MET value for the activity. Pass it when the activity clearly maps to a canonical entry (e.g. running 8 km/h = 8.3, cycling 20 km/h = 8.0, yoga hatha = 2.5). Enables deterministic per-day recomputation on weight change. Omit for ambiguous or freeform activities.' },
+        is_template:  { type: 'boolean', description: 'Optional. Set true only when the user explicitly asks to save the activity as a reusable template (e.g. "add this as my evening bike commute template"). Default false.' },
       },
       required: ['name', 'kcal'],
     },

@@ -35,7 +35,7 @@ export async function loadActivity(dateStr) {
   }
 }
 
-export async function addActivity({ date, name, kcal, duration_min, distance, source }) {
+export async function addActivity({ date, name, kcal, duration_min, distance, source, met, is_template }) {
   const targetDate = date || _currentDate();
   await NtApi.createActivity({
     date: targetDate,
@@ -44,6 +44,8 @@ export async function addActivity({ date, name, kcal, duration_min, distance, so
     duration_min: duration_min != null ? Math.max(0, Math.round(Number(duration_min))) : null,
     distance: distance != null ? String(distance).trim() || null : null,
     source: source || 'manual_form',
+    met: (met != null && Number.isFinite(Number(met))) ? Number(met) : null,
+    is_template: is_template ? 1 : 0,
   });
   if (targetDate === _currentDate()) await loadActivity(targetDate);
 }

@@ -160,6 +160,8 @@ const SCHEMA = `
     duration_min INTEGER,
     distance     TEXT,
     source       TEXT NOT NULL DEFAULT 'manual_form',
+    met          REAL DEFAULT NULL,
+    is_template  INTEGER DEFAULT 0,
     created_at   TEXT DEFAULT (datetime('now')),
     updated_at   TEXT DEFAULT (datetime('now')),
     deleted_at   TEXT DEFAULT NULL,
@@ -267,6 +269,24 @@ async function _applySchema(db) {
     }
   } catch (e) {
     console.debug('[db-native] foods OFF-units migration skipped:', e?.message);
+  }
+
+  // activity_log.met + is_template — issue #77 (2024 Compendium picker).
+  // met stores MET when the entry came from the compendium; NULL otherwise
+  // (freeform / AI-estimated). is_template pins reusable entries at the
+  // top of the AddActivitySheet typeahead. Both nullable/default-0 so
+  // existing rows keep working as-is.
+  try {
+    const info = await db.query(`PRAGMA table_info(activity_log)`);
+    const cols = (info?.values || []).map(r => r.name);
+    if (!cols.includes('met')) {
+      await db.execute(`ALTER TABLE activity_log ADD COLUMN met REAL DEFAULT NULL`);
+    }
+    if (!cols.includes('is_template')) {
+      await db.execute(`ALTER TABLE activity_log ADD COLUMN is_template INTEGER DEFAULT 0`);
+    }
+  } catch (e) {
+    console.debug('[db-native] activity_log MET/template migration skipped:', e?.message);
   }
 
   // wellness_data.sync_status: tracks which Health Connect rows need to be
@@ -1320,16 +1340,18 @@ export async function dbUpsertActivityFromServer(record) {
   const row = _row(existing);
   if (row) {
     await db.run(
-      `UPDATE activity_log SET date=?, name=?, kcal=?, duration_min=?, distance=?, source=?, updated_at=?, sync_status='synced'
+      `UPDATE activity_log SET date=?, name=?, kcal=?, duration_min=?, distance=?, source=?, met=?, is_template=?, updated_at=?, sync_status='synced'
         WHERE id=?`,
-      [record.date, record.name, record.kcal, record.duration_min, record.distance, record.source, record.updated_at, row.id]
+      [record.date, record.name, record.kcal, record.duration_min, record.distance, record.source,
+       record.met ?? null, record.is_template ? 1 : 0, record.updated_at, row.id]
     );
   } else {
     await db.run(
-      `INSERT INTO activity_log (server_id, user_id, date, name, kcal, duration_min, distance, source, created_at, updated_at, sync_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+      `INSERT INTO activity_log (server_id, user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
       [serverId, LOCAL_USER_ID, record.date, record.name, record.kcal,
        record.duration_min, record.distance, record.source,
+       record.met ?? null, record.is_template ? 1 : 0,
        record.created_at || record.updated_at, record.updated_at]
     );
   }
@@ -1387,8 +1409,8 @@ export async function dbCreateActivity(data) {
   const db = await getDb();
   const now = new Date().toISOString();
   await db.run(
-    `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, created_at, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     [
       LOCAL_USER_ID,
       data.date,
@@ -1397,6 +1419,8 @@ export async function dbCreateActivity(data) {
       data.duration_min != null ? Math.max(0, Math.round(Number(data.duration_min))) : null,
       data.distance != null ? String(data.distance).slice(0, 40) : null,
       data.source || 'manual_form',
+      (data.met != null && Number.isFinite(Number(data.met))) ? Math.max(0, Math.min(25, Number(data.met))) : null,
+      data.is_template ? 1 : 0,
       now,
       now,
     ]
@@ -1414,7 +1438,7 @@ export async function dbUpdateActivity(id, data) {
   const now = new Date().toISOString();
   await db.run(
     `UPDATE activity_log
-        SET name = ?, kcal = ?, duration_min = ?, distance = ?, source = ?, updated_at = ?, sync_status = 'pending'
+        SET name = ?, kcal = ?, duration_min = ?, distance = ?, source = ?, met = ?, is_template = ?, updated_at = ?, sync_status = 'pending'
       WHERE id = ?`,
     [
       String(merged.name || '').slice(0, 80),
@@ -1422,6 +1446,8 @@ export async function dbUpdateActivity(id, data) {
       merged.duration_min != null ? Math.max(0, Math.round(Number(merged.duration_min))) : null,
       merged.distance != null ? String(merged.distance).slice(0, 40) : null,
       merged.source || 'manual_form',
+      (merged.met != null && Number.isFinite(Number(merged.met))) ? Math.max(0, Math.min(25, Number(merged.met))) : null,
+      merged.is_template ? 1 : 0,
       now,
       id,
     ]

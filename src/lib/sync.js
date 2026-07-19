@@ -191,6 +191,8 @@ async function pushChanges() {
       duration_min: a.duration_min,
       distance: a.distance,
       source: a.source || 'manual_form',
+      met: a.met ?? null,
+      is_template: a.is_template ? 1 : 0,
       updated_at: a.updated_at,
       deleted_at: a.deleted_at || null,
     })),

@@ -66,8 +66,8 @@ router.post('/import', wrap((req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   );
   const insActivity = db.prepare(
-    `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, met, is_template, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
   const insFast = db.prepare(
     `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes, updated_at)
@@ -127,7 +127,9 @@ router.post('/import', wrap((req, res) => {
         Math.max(0, Math.round(Number(a.kcal) || 0)),
         a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null,
         a.distance != null ? String(a.distance).slice(0, 40) : null,
-        a.source || 'manual_form'
+        a.source || 'manual_form',
+        (a.met != null && Number.isFinite(Number(a.met))) ? Math.max(0, Math.min(25, Number(a.met))) : null,
+        a.is_template ? 1 : 0
       );
     }
     for (const f of fasts) {

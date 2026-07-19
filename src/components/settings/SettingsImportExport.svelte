@@ -219,6 +219,36 @@
       showSuccess('CSV exported');
     } catch(e) { showError('Export failed: ' + e.message); }
   }
+
+  // ── Activity CSV Export (#77) ───────────────────────────────────────────────
+  // Separate from the diary export because rows have a different shape
+  // (no meal / no portion / MET column). Same all-history range as diary.
+  function _csvEscape(v) {
+    if (v == null) return '';
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+  async function exportActivityCSV() {
+    try {
+      const rows = await NtApi.getActivityRange('1900-01-01', '2999-12-31') || [];
+      let csv = 'Date,Name,Calories,DurationMin,Distance,Source,MET,IsTemplate\n';
+      rows.forEach(r => {
+        csv += [
+          _csvEscape(r.date),
+          _csvEscape(r.name),
+          Math.max(0, Math.round(Number(r.kcal) || 0)),
+          r.duration_min ?? '',
+          _csvEscape(r.distance),
+          _csvEscape(r.source || 'manual_form'),
+          r.met != null ? Number(r.met).toFixed(1) : '',
+          r.is_template ? 1 : 0,
+        ].join(',') + '\n';
+      });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      _downloadBlob(blob, `nutritrace-activity-${new Date().toISOString().slice(0,10)}.csv`);
+      showSuccess('Activity CSV exported');
+    } catch(e) { showError('Export failed: ' + e.message); }
+  }
 </script>
 
 <div class="section-body">
@@ -261,6 +291,15 @@
       <div>
         <span class="setting-label">Export Diary As CSV</span>
         <div class="setting-desc">Downloads your full diary history as a spreadsheet. Useful for analysis in Excel or Google Sheets.</div>
+      </div>
+      <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
+    </button>
+    <div class="setting-divider"></div>
+    <button class="setting-row setting-action" on:click={exportActivityCSV}>
+      <span class="material-symbols-rounded si" style="color:var(--info)">directions_run</span>
+      <div>
+        <span class="setting-label">Export Activity As CSV</span>
+        <div class="setting-desc">Downloads your full manual activity log (name, calories, duration, distance, MET) as a spreadsheet.</div>
       </div>
       <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
     </button>

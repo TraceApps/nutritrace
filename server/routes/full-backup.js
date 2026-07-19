@@ -278,10 +278,10 @@ function restoreFromZip(zip) {
 
     db.prepare('DELETE FROM activity_log').run();
     const insActivity = db.prepare(`
-      INSERT OR IGNORE INTO activity_log (id, user_id, date, name, kcal, duration_min, distance, source, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @date, @name, @kcal, @duration_min, @distance, @source, @created_at, @updated_at, @deleted_at)
+      INSERT OR IGNORE INTO activity_log (id, user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at, deleted_at)
+      VALUES (@id, @user_id, @date, @name, @kcal, @duration_min, @distance, @source, @met, @is_template, @created_at, @updated_at, @deleted_at)
     `);
-    for (const a of data.activity_log || []) insActivity.run({ deleted_at: null, ...a });
+    for (const a of data.activity_log || []) insActivity.run({ met: null, is_template: 0, deleted_at: null, ...a });
 
     // Intermittent fasting log
     db.prepare('DELETE FROM fasts').run();

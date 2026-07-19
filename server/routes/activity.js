@@ -9,7 +9,7 @@ router.use(requireAuth);
 
 const uid = req => userMgmtActive() ? req.user.id : null;
 
-const ALLOWED_SOURCES = new Set(['manual_form', 'ai_estimated', 'user_stated']);
+const ALLOWED_SOURCES = new Set(['manual_form', 'ai_estimated', 'user_stated', 'compendium']);
 
 function sanitize(body) {
   const name = String(body?.name || '').trim().slice(0, 80);
@@ -17,7 +17,14 @@ function sanitize(body) {
   const duration_min = body?.duration_min != null ? Math.max(0, Math.round(Number(body.duration_min))) : null;
   const distance = body?.distance != null ? String(body.distance).trim().slice(0, 40) || null : null;
   const source = ALLOWED_SOURCES.has(body?.source) ? body.source : 'manual_form';
-  return { name, kcal, duration_min, distance, source };
+  // met = compendium MET when picked from the 2024 Compendium; null otherwise.
+  // Bounded to plausible range (0-25) so bad inputs can't inflate stored auto-calcs.
+  const metRaw = body?.met;
+  const met = (metRaw != null && Number.isFinite(Number(metRaw)))
+    ? Math.max(0, Math.min(25, Number(metRaw)))
+    : null;
+  const is_template = body?.is_template ? 1 : 0;
+  return { name, kcal, duration_min, distance, source, met, is_template };
 }
 
 // List entries for a date
@@ -56,14 +63,14 @@ router.get('/', wrap((req, res) => {
 }));
 
 router.post('/', wrap((req, res) => {
-  const { name, kcal, duration_min, distance, source } = sanitize(req.body);
+  const { name, kcal, duration_min, distance, source, met, is_template } = sanitize(req.body);
   const date = String(req.body?.date || '').slice(0, 10);
   if (!name || !date) return res.status(400).json({ error: 'name and date required' });
   const u = uid(req);
   const r = db.prepare(`
-    INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-  `).run(u, date, name, kcal, duration_min, distance, source);
+    INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+  `).run(u, date, name, kcal, duration_min, distance, source, met, is_template);
   const row = db.prepare(`SELECT * FROM activity_log WHERE id = ?`).get(r.lastInsertRowid);
   res.status(201).json(row);
 }));
@@ -75,11 +82,11 @@ router.put('/:id', wrap((req, res) => {
     ? db.prepare(`SELECT * FROM activity_log WHERE id = ? AND user_id IS NULL AND deleted_at IS NULL`).get(id)
     : db.prepare(`SELECT * FROM activity_log WHERE id = ? AND user_id = ? AND deleted_at IS NULL`).get(id, u);
   if (!existing) return res.status(404).json({ error: 'Not found' });
-  const { name, kcal, duration_min, distance, source } = sanitize({ ...existing, ...req.body });
+  const { name, kcal, duration_min, distance, source, met, is_template } = sanitize({ ...existing, ...req.body });
   db.prepare(`
-    UPDATE activity_log SET name = ?, kcal = ?, duration_min = ?, distance = ?, source = ?, updated_at = datetime('now')
+    UPDATE activity_log SET name = ?, kcal = ?, duration_min = ?, distance = ?, source = ?, met = ?, is_template = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(name, kcal, duration_min, distance, source, id);
+  `).run(name, kcal, duration_min, distance, source, met, is_template, id);
   res.json(db.prepare(`SELECT * FROM activity_log WHERE id = ?`).get(id));
 }));
 

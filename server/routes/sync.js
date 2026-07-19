@@ -288,7 +288,12 @@ router.post('/push', wrap((req, res) => {
     }
 
     // ── Activity (keyed by id, mirrors foods/meals upsert pattern) ───────
+    // met + is_template threaded through so compendium picks and saved
+    // templates round-trip across devices without loss. #77.
     for (const a of activity) {
+      const metVal = (a.met != null && Number.isFinite(Number(a.met)))
+        ? Math.max(0, Math.min(25, Number(a.met))) : null;
+      const isTplVal = a.is_template ? 1 : 0;
       const existing = a.server_id
         ? db.prepare('SELECT updated_at FROM activity_log WHERE id = ?').get(a.server_id)
         : null;
@@ -298,23 +303,23 @@ router.post('/push', wrap((req, res) => {
             db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(a.server_id);
           } else {
             db.prepare(
-              `UPDATE activity_log SET name=?, kcal=?, duration_min=?, distance=?, source=?, date=?, updated_at=datetime('now') WHERE id=?`
+              `UPDATE activity_log SET name=?, kcal=?, duration_min=?, distance=?, source=?, met=?, is_template=?, date=?, updated_at=datetime('now') WHERE id=?`
             ).run(a.name, Math.max(0, Math.round(Number(a.kcal) || 0)),
               a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null,
               a.distance != null ? String(a.distance).slice(0, 40) : null,
-              a.source || 'manual_form', a.date, a.server_id);
+              a.source || 'manual_form', metVal, isTplVal, a.date, a.server_id);
           }
         }
         result.activity.push({ client_id: a.client_id, server_id: a.server_id });
       } else if (!a.deleted_at) {
         const r = db.prepare(
-          `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
         ).run(u, a.date, String(a.name || '').slice(0, 80),
           Math.max(0, Math.round(Number(a.kcal) || 0)),
           a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null,
           a.distance != null ? String(a.distance).slice(0, 40) : null,
-          a.source || 'manual_form');
+          a.source || 'manual_form', metVal, isTplVal);
         result.activity.push({ client_id: a.client_id, server_id: r.lastInsertRowid });
       }
     }

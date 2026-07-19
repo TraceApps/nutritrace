@@ -235,6 +235,8 @@ db.exec(`
     duration_min  INTEGER,
     distance      TEXT,
     source        TEXT NOT NULL DEFAULT 'manual_form',
+    met           REAL DEFAULT NULL,
+    is_template   INTEGER DEFAULT 0,
     created_at    TEXT DEFAULT (datetime('now')),
     updated_at    TEXT DEFAULT (datetime('now')),
     deleted_at    TEXT DEFAULT NULL
@@ -621,6 +623,18 @@ if (!columnExists('foods', 'alt_units')) {
 }
 if (!columnExists('foods', 'density_g_ml')) {
   db.exec(`ALTER TABLE foods ADD COLUMN density_g_ml REAL DEFAULT NULL`);
+}
+// activity_log: MET-based auto-kcal + reusable templates (#77).
+// met stores the compendium MET value when the entry was picked from the
+// 2024 Adult Compendium; NULL for freeform / AI-estimated entries. Enables
+// deterministic kcal recomputation on weight change. is_template pins the
+// entry as a saved template surfaced at the top of the AddActivitySheet
+// typeahead (like "Evening bike commute" the reporter cited).
+if (!columnExists('activity_log', 'met')) {
+  db.exec(`ALTER TABLE activity_log ADD COLUMN met REAL DEFAULT NULL`);
+}
+if (!columnExists('activity_log', 'is_template')) {
+  db.exec(`ALTER TABLE activity_log ADD COLUMN is_template INTEGER DEFAULT 0`);
 }
 
 // Indexes for sync queries
