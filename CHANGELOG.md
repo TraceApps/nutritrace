@@ -9,6 +9,99 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0] - 2026-07-19
+
+First stable release under the new semver scheme. Retires -rc.N.
+Delivers cross-source food search with per-row source badges and
+infinite-scroll pagination across USDA + Open Food Facts, a
+MET-based exercise compendium with reusable templates and live
+kcal preview, a grams-vs-percent toggle on the Macro Ring, a
+branded HTML email test flow, multi-tag Docker publishing so you
+can pin :1.0, :1, or :latest depending on how aggressively you
+want updates, and a high-severity adm-zip CVE patch in the backup
+restore path.
+
+Every future release uses strict semver: PATCH for bug fixes, MINOR
+for new features, MAJOR for breaking changes. Existing rc.N image
+tags and release assets stay live indefinitely; anyone pinned to a
+specific rc release is unaffected.
+
+### Added
+
+- **Search Across All Enabled Food Sources at Once.**
+  New "All" chip on the Foods tab fires every enabled external
+  source in parallel — Local, From Others (shared), Mealie, USDA,
+  and Open Food Facts — merging results into a single list with a
+  small colored source badge on each row. Skip the source-flip
+  dance when you're not sure which database has the food you're
+  after. Per-source counts strip at the bottom shows what each
+  source contributed ("Local · 3", "USDA · 20 of 20,968").
+  Infinite scroll loads more as you keep scrolling.
+  (#96, reported by @sunjam)
+
+- **Activity Log Now Has an Exercise Compendium.**
+  New MET-based picker in the Add Activity sheet, seeded with
+  ~130 activities from the 2024 Adult Compendium of Physical
+  Activities — running, cycling, swimming, weight lifting,
+  dancing, sports, home activities, and more. Type into the name
+  field and matches surface as a typeahead; tap one to attach
+  its MET value. Live kcal preview computes from `MET × body
+  weight × duration` and auto-fills the calorie field, with the
+  math shown for transparency. Save any entry as a template
+  ("Evening bike commute") and it pins to the top of your picker
+  next time. Custom / freeform activities still work exactly as
+  before. Also exports as a separate CSV under Settings →
+  Import & Export.
+  (#77, reported by @maxerbox)
+
+- **Grams vs Percent Toggle on the Macro Ring.**
+  New `%|g` pill above the ring on the Nutrition Summary sheet
+  flips the legend between the percent macro split
+  (`32% Protein · 45% Carbs · 23% Fat`) and consumed-against-goal
+  grams (`203/301 g · 372/453 g · 45/67 g`). Grams mode also
+  swaps the color-coded pill cards below the ring to show
+  `consumed/goal`. Ring center picks up the calorie color, the
+  goal below the big number is bigger and bolder for
+  scannability, and the ring interior gets a subtle calorie tint
+  so the ring center reads as part of the same visual family as
+  the macro cards.
+  (#95, requested by @traebertthomas-cpu)
+
+- **Infinite Scroll on External Food Searches.**
+  USDA and Open Food Facts searches show a "Showing X of Y"
+  indicator with the real total hit count from the API and load
+  the next page as you scroll. USDA page size bumped from 20 to
+  50 per fetch, matching what other self-hosted nutrition apps
+  use — a common query like "chicken" now surfaces 50 hits per
+  page instead of 20, and you can keep scrolling into the
+  20,000+ total available.
+
+- **Multi-Tag Docker Publishing.**
+  Each release now publishes four tags to GHCR: `:1.0.0` (exact),
+  `:1.0` (latest patch on the 1.0 line), `:1` (latest minor on
+  the 1.x line), and `:latest`. Pick your update aggressiveness:
+  pin `:1.0` for bugfix-only updates, `:1` to auto-receive new
+  minor features, or `:latest` for everything.
+
+### Fixed
+
+- **Email Test Renders Branded HTML + Batch-Save Bug.**
+  The Send Test button in Settings → Email now sends a branded
+  HTML preview instead of a raw plaintext dump, and the
+  batch-save path stopped losing the first field on save. Also
+  allows overriding the test recipient without changing the
+  persisted admin address.
+
+### Security
+
+- **adm-zip Bumped 0.5 → 0.6 (CVE-2026-39244, high).**
+  Prototype pollution vulnerability in the ZIP entry parser.
+  Used by the Full Backup import path. No known exploit in the
+  wild for that specific code path, patched in this release to
+  close it.
+
+---
+
 ## [1.0.0-rc.55] - 2026-07-13
 
 ### Fixed
