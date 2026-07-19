@@ -245,6 +245,7 @@ export const NtApiNative = {
       return await computeAdaptiveTdeeLocal();
     }
     if (path.startsWith('/api/wellness/calories-out')) return _caloriesOutLocal(path);
+    if (path.startsWith('/api/wellness/latest'))       return _latestWellnessLocal(path);
     if (path.startsWith('/api/wellness/fitbit/data'))   return _wellnessDataLocal(path, ['fitbit', 'health_connect']);
     if (path.startsWith('/api/wellness/garmin/data'))   return _wellnessDataLocal(path, ['garmin']);
     if (path.startsWith('/api/wellness/withings/data')) return _wellnessDataLocal(path, ['withings']);
@@ -344,6 +345,28 @@ async function _caloriesOutLocal(path) {
     if (row) return { calories_out: row.value, source: src, date: yesterday };
   }
   return { calories_out: null, source: null, date: yesterday };
+}
+
+// Local dispatcher for /api/wellness/latest?metric=<name>. Mirrors the
+// server endpoint: returns the most recent wellness_data row across all
+// sources for a metric_type. Used by AddActivitySheet's MET auto-estimate
+// weight lookup (#99). Native local mode typically only has Health Connect
+// rows (Withings/Fitbit/Garmin sync happens server-side), but the query
+// is source-agnostic so any local rows count.
+async function _latestWellnessLocal(path) {
+  const { getDb, LOCAL_USER_ID } = await import('./db-native.js');
+  const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+  const metric = q.get('metric');
+  if (!metric) return null;
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT date, value, source FROM wellness_data
+      WHERE user_id = ? AND metric_type = ? AND value > 0
+      ORDER BY date DESC LIMIT 1`,
+    [LOCAL_USER_ID, metric]
+  );
+  const rows = r?.values || [];
+  return rows[0] || null;
 }
 
 // Local dispatcher for per-source /api/wellness/<source>/data?date= or

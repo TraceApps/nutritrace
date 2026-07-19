@@ -196,6 +196,29 @@ router.use('/api/wellness/google-health', googleHealthRoutes);
 router.use('/api/wellness/withings',      withingsRoutes);
 router.use('/api/wellness/garmin',        garminRoutes);
 
+// Cross-source latest wellness metric lookup. Returns the most recent
+// row for a given metric_type across all sources (Fitbit / Withings /
+// Garmin / Health Connect / etc.), which is what the Activity sheet's
+// MET auto-estimate needs to grab the freshest weight_kg regardless of
+// which scale wrote it (#99). Returns { date, value, source } or null.
+router.get('/api/wellness/latest', (req, res) => {
+  const userId = req.user?.id;
+  const metric = String(req.query.metric || '').trim();
+  if (!metric) return res.status(400).json({ error: 'metric query param required' });
+  const row = userId
+    ? db.prepare(
+        `SELECT date, value, source FROM wellness_data
+         WHERE user_id = ? AND metric_type = ? AND value > 0
+         ORDER BY date DESC LIMIT 1`
+      ).get(userId, metric)
+    : db.prepare(
+        `SELECT date, value, source FROM wellness_data
+         WHERE user_id IS NULL AND metric_type = ? AND value > 0
+         ORDER BY date DESC LIMIT 1`
+      ).get(metric);
+  res.json(row || null);
+});
+
 // Cross-source calories_out lookup — for Dynamic Calorie Goal
 // Returns yesterday's merged TDEE from fitbit/garmin/health_connect/lifttrace
 router.get('/api/wellness/calories-out', (req, res) => {

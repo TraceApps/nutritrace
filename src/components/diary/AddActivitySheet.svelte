@@ -49,37 +49,55 @@
       userKcalOverridden = !!entry;      // editing an existing row = user's own number
       showSuggestions = false;
       // Weight source for the MET → kcal preview. Priority chain (#99):
-      //   1. most recent body_stats.weight from the diary — updated any time
-      //      the user opens Body Stats and logs a weigh-in
-      //   2. weight_kg setting from onboarding Wizard — static, set once
-      // The Wizard value was the only source pre-fix; a reporter (#99)
-      // pointed out it never updates and the hint told users to "add
-      // weight in Profile" even though Profile has no such field.
+      //   1. freshest of {body_stats.weight, wellness_data.weight_kg} — the
+      //      wellness_data path covers users with a smart scale (Withings,
+      //      Fitbit Aria, Garmin Index, HC BodyComp) whose weight never
+      //      lands in the diary's body_stats blob.
+      //   2. weight_kg setting from onboarding Wizard — static, set once.
+      // Original fix only checked body_stats and missed reporter (#99)'s
+      // Withings-scale case.
       //
       // Seed from the setting synchronously so the preview can render
-      // immediately; then override async with the fresher body_stats
-      // weight when it arrives. Any fetch failure silently keeps the
-      // synchronous seed — never worse than before.
+      // immediately; then override async with whichever real weight-log
+      // source has the most recent date. Any fetch failure silently keeps
+      // the synchronous seed — never worse than before.
       try {
         const raw = DB.getSetting('weight_kg', null);
         userWeightKg = raw != null && !isNaN(Number(raw)) ? Number(raw) : null;
       } catch { userWeightKg = null; }
-      NtApi.getAllDiary()
-        .then(rows => {
-          if (!Array.isArray(rows) || rows.length === 0) return;
-          // Walk backward from most-recent date, first non-empty
-          // body_stats.weight wins. readBodyStat handles kg/lb tag
-          // conversion so we always land in kg for the MET formula.
+      Promise.all([
+        NtApi.getAllDiary().catch(() => []),
+        NtApi.getLatestWellness('weight_kg').catch(() => null),
+      ]).then(([rows, wellnessLatest]) => {
+        // Walk diary backward to find the most recent body_stats.weight
+        // and its date; readBodyStat converts kg/lb tag to kg.
+        let bodyLatest = null;
+        if (Array.isArray(rows) && rows.length > 0) {
           const sorted = [...rows].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
           for (const r of sorted) {
             const bs = r.body_stats || r.bodyStats;
             if (bs && bs.weight != null && bs.weight !== '') {
               const wKg = readBodyStat(bs, 'weight', 'kg');
-              if (wKg != null && wKg > 0) { userWeightKg = wKg; break; }
+              if (wKg != null && wKg > 0) { bodyLatest = { date: r.date, wKg }; break; }
             }
           }
-        })
-        .catch(() => { /* keep the Wizard-setting fallback already assigned above */ });
+        }
+        // Wellness value is already in kg (metric_type='weight_kg' is
+        // canonical). Guard against 0/negative just in case.
+        const wellVal = wellnessLatest && wellnessLatest.value > 0
+          ? { date: wellnessLatest.date, wKg: Number(wellnessLatest.value) }
+          : null;
+        // Pick whichever source has the newer date. When both are on the
+        // same day, prefer body_stats (user's most-recent manual weigh-in
+        // wins over a passive scale sync).
+        let pick = null;
+        if (bodyLatest && wellVal) {
+          pick = (bodyLatest.date >= wellVal.date) ? bodyLatest : wellVal;
+        } else {
+          pick = bodyLatest || wellVal;
+        }
+        if (pick && pick.wKg > 0) userWeightKg = pick.wKg;
+      });
       // Past 90 days of names (existing behavior) + templates (new). Both
       // fire-and-forget so the sheet is usable even if the fetch fails.
       const today = new Date();

@@ -600,6 +600,11 @@ const _NtApiHttp = {
   saveDiaryDate(date, data) { return this.put(`/api/diary/${date}`, data); },
   getAllDiary()              { return this.get('/api/diary'); },
 
+  // Latest wellness_data row across all sources for a metric — used by
+  // AddActivitySheet for MET auto-estimate weight lookup (#99). Returns
+  // { date, value, source } or null.
+  getLatestWellness(metric) { return this.get(`/api/wellness/latest?metric=${encodeURIComponent(metric)}`); },
+
   // Activity (manual exercise/calorie-burn entries)
   getActivity(date)          { return this.get(`/api/activity/${date}`); },
   getActivitySum(date, policy = 'wearable_wins') { return this.get(`/api/activity/sum/${date}?policy=${encodeURIComponent(policy)}`); },
