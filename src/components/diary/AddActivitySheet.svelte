@@ -3,7 +3,7 @@
   import { _ } from 'svelte-i18n';
   import Sheet from '../ui/Sheet.svelte';
   import { addActivity, updateActivity } from '../../stores/activity.js';
-  import { energyUnit, distUnit } from '../../stores/settings.js';
+  import { energyUnit, distUnit, weightUnit } from '../../stores/settings.js';
   import { Nutrition } from '../../lib/nutrition.js';
   import { NtApi } from '../../lib/api.js';
   import { DB } from '../../lib/db.js';
@@ -303,8 +303,12 @@
       <input class="input" type="number" bind:value={kcal} on:input={onKcalInput}
         inputmode="numeric" min="0" placeholder={$energyUnit === 'kJ' ? '500' : '120'} />
       {#if previewKcal != null && met != null}
+        {@const _wKgRounded = userWeightKg.toFixed(1)}
+        {@const _weightDisp = $weightUnit === 'lb'
+          ? `${_wKgRounded} kg (${(userWeightKg * 2.20462).toFixed(1)} lb)`
+          : `${_wKgRounded} kg`}
         <span class="kcal-hint">
-          {$_('diary.activity.kcal_preview', { values: { met: met.toFixed(1), weight: userWeightKg, duration: durationMin, kcal: previewKcal } })}
+          {$_('diary.activity.kcal_preview', { values: { met: met.toFixed(1), weight_display: _weightDisp, duration: durationMin, kcal: previewKcal } })}
         </span>
       {:else if met != null && userWeightKg == null}
         <span class="kcal-hint kcal-hint-warn">
