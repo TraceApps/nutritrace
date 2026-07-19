@@ -83,13 +83,19 @@
   const _mealieEnabled = DB.getSetting('mealieEnabled',  false);
   // OFF / USDA / Mealie are food databases — only meaningful on the Foods tab.
   // Meals + Recipes tabs only get Local + From Others (when shared content exists).
-  $: availableSources = [
+  // 'all' (issue #96) is prepended once there are >= 2 sources so the option
+  // is only offered when it actually merges something. Fires everything in
+  // parallel and shows results grouped by source with per-row source badges.
+  $: _perSourceOptions = [
     { value: 'local',  label: $_('foods.sources.local')  },
     ...(activeTab === 0 && $offEnabled    ? [{ value: 'off',    label: 'OFF' }] : []),
     ...(activeTab === 0 && $usdaEnabled   ? [{ value: 'usda',   label: 'USDA' }] : []),
     ...(activeTab === 0 && _mealieEnabled ? [{ value: 'mealie', label: 'Mealie' }] : []),
     ...(_tabHasShared  ? [{ value: 'shared', label: $_('foods.sources.from_others') }] : []),
   ];
+  $: availableSources = _perSourceOptions.length >= 2
+    ? [{ value: 'all', label: 'All' }, ..._perSourceOptions]
+    : _perSourceOptions;
   $: _sourceLabel = availableSources.find(s => s.value === searchSource)?.label || '';
 
   // Sharing — "From Others" source filter (per-category)
@@ -133,12 +139,21 @@
   let localFoods = [];
   let localMeals = [];
   let localRecipes = [];
+  // apiResults still holds OFF or USDA results in single-source modes (only
+  // one of the two can be active at a time). In 'all' mode, OFF and USDA
+  // populate offResults / usdaResults separately so both can render together
+  // alongside mealieResults, local matches, and shared matches. #96.
   let apiResults = [];
+  let offResults = [];
+  let usdaResults = [];
   let mealieResults = [];
   let loading = false;
   let loadError = false;
   let mealieLoading = false;
   let searchTimeout = null;
+  // Cap per-source hits in 'all' mode so a chatty API can't dominate the
+  // merged list and push local/shared matches out of view.
+  const ALL_MODE_PER_SOURCE_CAP = 10;
 
   let showItemActions = false;
   let selectedItem = null;
@@ -219,6 +234,28 @@
   $: _groupList = activeTab === 0 ? groupFoods : activeTab === 1 ? groupMeals : groupRecipes;
   $: displayList = searchSource === 'shared' ? _groupList : _ownList;
   $: { if (searchSource === 'shared' && _tabHasShared && !groupFoods.length && !groupMeals.length && !groupRecipes.length) loadGroupCatalogue(); }
+  // 'all' mode (#96) needs the shared catalogue loaded too so shared items can
+  // participate in the merged results without the user having to first flip
+  // to the 'shared' chip.
+  $: { if (searchSource === 'all' && _tabHasShared && !groupFoods.length && !groupMeals.length && !groupRecipes.length) loadGroupCatalogue(); }
+
+  // Merged results for 'all' mode. Each entry is { source, item } so the row
+  // renderer can dispatch the right pick action and stamp the right badge.
+  // Ordering: Local first (user's own data), then Shared, then Mealie
+  // (self-hosted curated), then USDA (structured), then OFF (community
+  // catalogue). Local + shared are filtered by the current search term.
+  $: _allModeItems = searchSource !== 'all' ? [] : [
+    ...(_ownList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).map(item => ({ source: 'local',  item })),
+    ...(_tabHasShared ? (_groupList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).map(item => ({ source: 'shared', item })) : []),
+    ...(mealieResults || []).map(item => ({ source: 'mealie', item })),
+    ...(usdaResults   || []).map(item => ({ source: 'usda',   item })),
+    ...(offResults    || []).map(item => ({ source: 'off',    item })),
+  ];
+
+  function _pickBySource(source, item) {
+    if (source === 'mealie') return pickMealieRecipe(item);
+    return pickFood(item);  // local + shared + off + usda all go through pickFood
+  }
   function _editDist(a, b) {
     if (Math.abs(a.length - b.length) > 2) return 99;
     const m = a.length, n = b.length;
@@ -306,8 +343,12 @@
   async function onSearch() {
     clearTimeout(searchTimeout);
     apiResults = [];
+    offResults = [];
+    usdaResults = [];
     mealieResults = [];
-    if (!search.trim() || searchSource === 'local') return;
+    // Local + shared don't need remote calls; 'all' mode always needs the
+    // debounce because it fans out to external APIs alongside local filter.
+    if (!search.trim() || searchSource === 'local' || searchSource === 'shared') return;
     const src = searchSource;
     searchTimeout = setTimeout(async () => {
       if (activeTab !== 0) return;
@@ -330,6 +371,34 @@
           mealieResults = await Mealie.search(search) || [];
         } catch { mealieResults = []; }
         finally { mealieLoading = false; }
+      } else if (src === 'all') {
+        // Parallel fan-out to every enabled external source. Each promise
+        // catches its own error so one failing API doesn't nuke the others
+        // (Promise.all fail-fast would kill the whole merge). Local + shared
+        // results come from reactive state already loaded — no fetch here.
+        const cap = ALL_MODE_PER_SOURCE_CAP;
+        const jobs = [];
+        const usesOffOrUsda = $offEnabled || $usdaEnabled;
+        loading = usesOffOrUsda;
+        mealieLoading = _mealieEnabled;
+        if ($offEnabled) {
+          jobs.push(API.searchByName(search)
+            .then(r => { offResults = (r || []).slice(0, cap); })
+            .catch(() => { offResults = []; }));
+        }
+        if ($usdaEnabled) {
+          const key = usdaApiKey.get();
+          jobs.push(USDA.searchByName(search, 1, key)
+            .then(r => { usdaResults = (r || []).slice(0, cap); })
+            .catch(() => { usdaResults = []; }));
+        }
+        if (_mealieEnabled) {
+          jobs.push(Mealie.search(search)
+            .then(r => { mealieResults = (r || []).slice(0, cap); })
+            .catch(() => { mealieResults = []; }));
+        }
+        try { await Promise.all(jobs); }
+        finally { loading = false; mealieLoading = false; }
       }
     }, 400);
   }
@@ -1041,7 +1110,82 @@
   {/if}
 
   <div class="page-content">
-    {#if searchSource === 'local' || searchSource === 'shared' || activeTab !== 0}
+    {#if searchSource === 'all'}
+      <!-- ── All: merged results from every enabled source ─────────────────── -->
+      {#if !search.trim()}
+        <div class="empty-state">
+          <span class="material-symbols-rounded empty-icon">search</span>
+          <p>Search across all your enabled sources</p>
+        </div>
+      {:else if (loading || mealieLoading) && _allModeItems.length === 0}
+        <div class="loading-row">
+          <span class="material-symbols-rounded spin">refresh</span>
+          <span class="text-2 text-sm">Searching every source&hellip;</span>
+        </div>
+      {:else if _allModeItems.length === 0}
+        <div class="empty-state">
+          <span class="material-symbols-rounded empty-icon">search_off</span>
+          <p>No matches for "{search}" anywhere</p>
+        </div>
+      {:else}
+        <ul class="food-list">
+          {#each _allModeItems as { source, item } (source + ':' + (item.id || item.slug || item.barcode || item.name))}
+            {@const isMealie = source === 'mealie'}
+            {@const isExternal = source === 'off' || source === 'usda'}
+            {@const _foodEnergy = isMealie
+              ? null
+              : Nutrition.displayEnergy(item.nutrition?.calories || item.calories || 0, $energyUnit)}
+            <li class="food-item card" in:fade={{ duration: 140 }}>
+              <button class="food-item-btn"
+                on:click={() => _pickBySource(source, item)}
+                on:contextmenu|preventDefault={() => !isMealie && !isExternal && longPress(item)}>
+                {#if isMealie && item.id}
+                  <img class="food-thumb" src={Mealie.imageUrl(item.id)} alt=""
+                    loading="lazy" on:error={e => e.target.style.display='none'} />
+                {:else if item.imgUrl}
+                  <img class="food-thumb" src={item.imgUrl} alt="" loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
+                {:else}
+                  <div class="food-thumb-placeholder">
+                    <span class="material-symbols-rounded">
+                      {#if isMealie}menu_book{:else if source === 'usda'}science{:else if source === 'off'}public{:else}{_tabIcon}{/if}
+                    </span>
+                  </div>
+                {/if}
+                <div class="food-info">
+                  <span class="food-name">
+                    {#if source === 'local' && item.favorite}<span class="material-symbols-rounded fav-mark" title="Favorite">favorite</span>{/if}
+                    {item.name}
+                  </span>
+                  {#if isMealie}
+                    {#if item.recipeCategory?.length}
+                      <span class="food-brand text-3 text-sm">{item.recipeCategory.map(c => c.name).join(', ')}</span>
+                    {/if}
+                  {:else}
+                    {#if item.brand}<span class="food-brand text-3 text-sm">{item.brand}</span>{/if}
+                    {#if _foodEnergy}<span class="food-kcal text-sm">{_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}</span>{/if}
+                    {#if source === 'shared' && item._shared_by}<span class="food-kcal text-sm" style="color:var(--accent)">by {item._shared_by}</span>{/if}
+                  {/if}
+                </div>
+                <span class="source-badge source-badge-{source}">
+                  {#if source === 'local'}Local
+                  {:else if source === 'shared'}Shared
+                  {:else if source === 'mealie'}Mealie
+                  {:else if source === 'usda'}USDA
+                  {:else}OFF{/if}
+                </span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+        {#if loading || mealieLoading}
+          <div class="loading-row" style="margin-top:8px">
+            <span class="material-symbols-rounded spin">refresh</span>
+            <span class="text-2 text-sm">Still searching other sources&hellip;</span>
+          </div>
+        {/if}
+      {/if}
+
+    {:else if searchSource === 'local' || searchSource === 'shared' || activeTab !== 0}
       <!-- ── Local list ─────────────────────────────────────────────────────── -->
       {#if filteredList.length === 0 && !search && !loadError}
         <div class="empty-state">
@@ -1707,6 +1851,27 @@
   .fav-mark   { font-size: 14px; vertical-align: -2px; color: var(--macro-protein, #ec4899); margin-right: 4px; }
   .food-brand { }
   .food-kcal  { color: var(--text-2); }
+
+  /* Source badge — pill on each row in 'all' search mode indicating which
+     source the item came from (Local / Shared / Mealie / USDA / OFF).
+     Colors chosen for scannability: user's own = green, community = neutral
+     gray, curated/structured = accent, self-hosted Mealie = orange. #96. */
+  .source-badge {
+    flex-shrink: 0;
+    align-self: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    margin-left: 8px;
+  }
+  .source-badge-local  { background: rgba(74, 222, 128, 0.14); color: rgb(52, 179, 105); }
+  .source-badge-shared { background: rgba(168, 85, 247, 0.14); color: rgb(168, 85, 247); }
+  .source-badge-mealie { background: rgba(251, 146, 60, 0.14); color: rgb(234, 128, 42); }
+  .source-badge-usda   { background: rgba(59, 130, 246, 0.14); color: rgb(59, 130, 246); }
+  .source-badge-off    { background: rgba(148, 163, 184, 0.18); color: rgb(148, 163, 184); }
 
   .server-error-banner {
     display: flex; align-items: center; gap: 8px;
