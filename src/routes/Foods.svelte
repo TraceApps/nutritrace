@@ -168,6 +168,12 @@
   let _allUsdaPage = 1, _allUsdaHasMore = false, _allUsdaTotal = 0;
   let _allMealiePage = 1, _allMealieHasMore = false, _allMealieTotal = 0;
   let _allLoadingMore = false;
+  // Smaller pages in ALL mode than single-source: keeps the merged
+  // first-render snappy (3 sources at 20 = up to 60 external items) vs
+  // single-source at 50 where users are deliberately going deep. Held
+  // constant per query because APIs skip items when pageSize varies
+  // between sequential pageNumber requests.
+  const ALL_MODE_PAGE_SIZE = 20;
 
   let showItemActions = false;
   let selectedItem = null;
@@ -327,7 +333,7 @@
       return [...existing, ...incoming.filter(x => !seen.has(keyOf(x)))];
     };
     if (_allOffHasMore) {
-      jobs.push(API.searchByNameWithMeta(search, _allOffPage + 1)
+      jobs.push(API.searchByNameWithMeta(search, _allOffPage + 1, ALL_MODE_PAGE_SIZE)
         .then(r => {
           offResults = dedupAppend(offResults, r.items || [], x => x.id ?? x.barcode ?? x.name);
           _allOffPage = r.page; _allOffHasMore = r.hasMore; _allOffTotal = r.totalHits;
@@ -336,7 +342,7 @@
     }
     if (_allUsdaHasMore) {
       const key = usdaApiKey.get();
-      jobs.push(USDA.searchByNameWithMeta(search, _allUsdaPage + 1, key)
+      jobs.push(USDA.searchByNameWithMeta(search, _allUsdaPage + 1, key, ALL_MODE_PAGE_SIZE)
         .then(r => {
           usdaResults = dedupAppend(usdaResults, r.items || [], x => x.id ?? x.barcode ?? x.name);
           _allUsdaPage = r.page; _allUsdaHasMore = r.hasMore; _allUsdaTotal = r.totalHits;
@@ -344,7 +350,7 @@
         .catch(() => {}));
     }
     if (_allMealieHasMore) {
-      jobs.push(Mealie.searchWithMeta(search, _allMealiePage + 1)
+      jobs.push(Mealie.searchWithMeta(search, _allMealiePage + 1, ALL_MODE_PAGE_SIZE)
         .then(r => {
           mealieResults = dedupAppend(mealieResults, r.items || [], x => x.id ?? x.slug ?? x.name);
           _allMealiePage = r.page; _allMealieHasMore = r.hasMore; _allMealieTotal = r.totalHits;
@@ -503,7 +509,7 @@
         loading = usesOffOrUsda;
         mealieLoading = _mealieEnabled;
         if ($offEnabled) {
-          jobs.push(API.searchByNameWithMeta(search, 1)
+          jobs.push(API.searchByNameWithMeta(search, 1, ALL_MODE_PAGE_SIZE)
             .then(r => {
               offResults = r.items || [];
               _allOffTotal = r.totalHits; _allOffHasMore = r.hasMore; _allOffPage = r.page;
@@ -512,7 +518,7 @@
         }
         if ($usdaEnabled) {
           const key = usdaApiKey.get();
-          jobs.push(USDA.searchByNameWithMeta(search, 1, key)
+          jobs.push(USDA.searchByNameWithMeta(search, 1, key, ALL_MODE_PAGE_SIZE)
             .then(r => {
               usdaResults = r.items || [];
               _allUsdaTotal = r.totalHits; _allUsdaHasMore = r.hasMore; _allUsdaPage = r.page;
@@ -520,7 +526,7 @@
             .catch(() => { usdaResults = []; }));
         }
         if (_mealieEnabled) {
-          jobs.push(Mealie.searchWithMeta(search, 1)
+          jobs.push(Mealie.searchWithMeta(search, 1, ALL_MODE_PAGE_SIZE)
             .then(r => {
               mealieResults = r.items || [];
               _allMealieTotal = r.totalHits; _allMealieHasMore = r.hasMore; _allMealiePage = r.page;
