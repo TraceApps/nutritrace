@@ -9,6 +9,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.1] - 2026-07-19
+
+Patch release. Activity MET auto-estimate now uses your latest
+weight from Body Stats or a smart-scale sync (Withings, Fitbit,
+Garmin, Health Connect) instead of the static onboarding value,
+and the hint no longer points at a non-existent Profile field.
+Small polish on how the Activity row renders in the Diary.
+
+### Fixed
+
+- **Activity MET auto-estimate uses fresh weight.** Reads from
+  Body Stats or wellness data, not just the onboarding Wizard's
+  static field. (#99, reported by @tellis82)
+- **MET hint shows weight in your preferred unit.** Imperial gets
+  `kg (lb)`, metric stays `kg`.
+- **Activity diary rows format distance with units.** "20" now
+  renders as "20 mi" / "20 km" per your setting.
+
+---
+
 ## [1.0.0] - 2026-07-19
 
 First stable release under the new semver scheme. Retires -rc.N.
