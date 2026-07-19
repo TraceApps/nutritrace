@@ -83,6 +83,17 @@
 
 <div class="ring-wrap">
   <svg width={SIZE} height={SIZE} viewBox="0 0 {SIZE} {SIZE}" class="ring-svg">
+    <!-- Inner calorie tint — fills the ring's inner area with the
+         same dim background the removed KCAL pill card used, so the
+         ring keeps the calorie-color visual language elsewhere in
+         the app (pill cards for Protein/Carbs/Fat). Sits INSIDE the
+         macro-segment stroke inner boundary (R - STROKE - 4 = 75 for
+         macro segments, stroke-width 12, so inner edge at 69; fill
+         at r=65 leaves a small breathing gap). #95 -->
+    <circle
+      cx={SIZE/2} cy={SIZE/2} r={R - STROKE - 14}
+      fill="var(--macro-calories-dim)"
+    />
     <!-- Background track -->
     <circle
       cx={SIZE/2} cy={SIZE/2} r={R}
@@ -195,7 +206,7 @@
      a separate pill card below (removed to eliminate duplication). #95 */
   .ring-cals  { font-size: 36px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; color: var(--macro-calories); }
   .ring-unit  { font-size: 12px; font-weight: 500; color: var(--text-2); }
-  .ring-goal  { font-size: 11px; color: var(--text-3); }
+  .ring-goal  { font-size: 13px; color: var(--text-3); }
 
   .macro-legend {
     display: flex;
