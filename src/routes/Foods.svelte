@@ -151,9 +151,6 @@
   let loadError = false;
   let mealieLoading = false;
   let searchTimeout = null;
-  // Cap per-source hits in 'all' mode so a chatty API can't dominate the
-  // merged list and push local/shared matches out of view.
-  const ALL_MODE_PER_SOURCE_CAP = 10;
   // Pagination state for single-source OFF / USDA modes. Both use the
   // shared apiResults array (only one of the two can be active at a time)
   // so a single set of page/total/hasMore fields suffices. When the user
