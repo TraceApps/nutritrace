@@ -71,7 +71,7 @@ const API = {
   async searchByName(query, page) {
     page = page || 1;
     try {
-      const offUrl = `https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&json=1&page_size=20&page=${page}`;
+      const offUrl = `https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&json=1&page_size=50&page=${page}`;
       const res = await _extFetch(offUrl);
       if (!res.ok) return [];
       const data = await res.json();
@@ -90,13 +90,13 @@ const API = {
   async searchByNameWithMeta(query, page) {
     page = page || 1;
     try {
-      const offUrl = `https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&json=1&page_size=20&page=${page}`;
+      const offUrl = `https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&json=1&page_size=50&page=${page}`;
       const res = await _extFetch(offUrl);
       if (!res.ok) return { items: [], totalHits: 0, page, hasMore: false };
       const data = await res.json();
       const items = (data.hits || []).map(p => this._mapOFFProduct(p)).filter(Boolean);
       const totalHits = typeof data.count === 'number' ? data.count : items.length;
-      const pageSize = 20;
+      const pageSize = 50;
       const hasMore = page * pageSize < totalHits;
       return { items, totalHits, page, hasMore };
     } catch(e) {
