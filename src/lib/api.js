@@ -82,6 +82,29 @@ const API = {
     }
   },
 
+  // Same as searchByName but returns pagination metadata alongside the
+  // items so the caller can drive infinite-scroll ("Load more when
+  // hasMore" and "showing N of totalHits"). Kept separate from
+  // searchByName so the simpler array-returning API stays intact for
+  // quick-log, Trace, and MealEditor which don't need paging. #96.
+  async searchByNameWithMeta(query, page) {
+    page = page || 1;
+    try {
+      const offUrl = `https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&json=1&page_size=20&page=${page}`;
+      const res = await _extFetch(offUrl);
+      if (!res.ok) return { items: [], totalHits: 0, page, hasMore: false };
+      const data = await res.json();
+      const items = (data.hits || []).map(p => this._mapOFFProduct(p)).filter(Boolean);
+      const totalHits = typeof data.count === 'number' ? data.count : items.length;
+      const pageSize = 20;
+      const hasMore = page * pageSize < totalHits;
+      return { items, totalHits, page, hasMore };
+    } catch(e) {
+      console.error('Search failed:', e);
+      return { items: [], totalHits: 0, page, hasMore: false };
+    }
+  },
+
   async contributeToOFF(food, settings) {
     const { name, barcode, brand, portion, unit, nutrition, imgUrl } = food;
     if (!name || !barcode) throw new Error("Name and barcode required");
@@ -406,9 +429,11 @@ const USDA = {
     if (!apiKey) return [];
     try {
       // No dataType filter — search all (Branded, Foundation, SR Legacy, Survey)
-      // matches Android app behaviour
+      // matches Android app behaviour. pageSize=50 matches SparkyFitness'
+      // default (USDA's own max is 200); 20 was too sparse on common queries
+      // like "chicken" that have 20k+ hits. #96.
       const url = _USDA_BASE + '/foods/search?query=' + encodeURIComponent(query) +
-        '&pageSize=20&pageNumber=' + page +
+        '&pageSize=50&pageNumber=' + page +
         '&api_key=' + encodeURIComponent(apiKey);
       const res = await _extFetch(url);
       if (!res.ok) return [];
@@ -421,6 +446,33 @@ const USDA = {
     } catch(e) {
       console.error('[USDA] Search failed:', e);
       return [];
+    }
+  },
+
+  // Same as searchByName but returns pagination metadata for
+  // infinite-scroll callers. USDA's `foods/search` returns totalHits +
+  // totalPages so we can stop fetching cleanly at the tail. #96.
+  async searchByNameWithMeta(query, page, apiKey) {
+    page = page || 1;
+    if (!apiKey) return { items: [], totalHits: 0, page, hasMore: false };
+    try {
+      const url = _USDA_BASE + '/foods/search?query=' + encodeURIComponent(query) +
+        '&pageSize=50&pageNumber=' + page +
+        '&api_key=' + encodeURIComponent(apiKey);
+      const res = await _extFetch(url);
+      if (!res.ok) return { items: [], totalHits: 0, page, hasMore: false };
+      const data = await res.json();
+      const items = (data.foods || []).map(f => {
+        const ss = (f.servingSize && !isNaN(f.servingSize)) ? f.servingSize : 100;
+        return this._mapProduct(f, ss);
+      }).filter(f => f.name);
+      const totalHits = typeof data.totalHits === 'number' ? data.totalHits : items.length;
+      const totalPages = typeof data.totalPages === 'number' ? data.totalPages : Math.ceil(totalHits / 50);
+      const hasMore = page < totalPages;
+      return { items, totalHits, page, hasMore };
+    } catch(e) {
+      console.error('[USDA] Search failed:', e);
+      return { items: [], totalHits: 0, page, hasMore: false };
     }
   },
 

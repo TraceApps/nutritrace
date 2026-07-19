@@ -154,6 +154,15 @@
   // Cap per-source hits in 'all' mode so a chatty API can't dominate the
   // merged list and push local/shared matches out of view.
   const ALL_MODE_PER_SOURCE_CAP = 10;
+  // Pagination state for single-source OFF / USDA modes. Both use the
+  // shared apiResults array (only one of the two can be active at a time)
+  // so a single set of page/total/hasMore fields suffices. When the user
+  // scrolls to the bottom sentinel, loadMoreExternal() fetches the next
+  // page and appends to apiResults. #96.
+  let apiPage = 1;
+  let apiTotalHits = 0;
+  let apiHasMore = false;
+  let apiLoadingMore = false;
 
   let showItemActions = false;
   let selectedItem = null;
@@ -256,6 +265,46 @@
     if (source === 'mealie') return pickMealieRecipe(item);
     return pickFood(item);  // local + shared + off + usda all go through pickFood
   }
+
+  // Fetch the next page of the currently-active external source and append
+  // to apiResults. Triggered by the IntersectionObserver on the bottom
+  // sentinel; also guarded so a fast scroller can't fire multiple in-flight
+  // requests. #96. ALL mode doesn't call this — that view stays capped per
+  // source so the merged list stays scannable.
+  async function loadMoreExternal() {
+    if (apiLoadingMore || !apiHasMore || !search.trim()) return;
+    if (searchSource !== 'off' && searchSource !== 'usda') return;
+    apiLoadingMore = true;
+    const nextPage = apiPage + 1;
+    try {
+      const r = searchSource === 'off'
+        ? await API.searchByNameWithMeta(search, nextPage)
+        : await USDA.searchByNameWithMeta(search, nextPage, usdaApiKey.get());
+      // De-dup on stable id (avoids double-inserts if the API returns
+      // overlap between pages, which USDA occasionally does for common terms).
+      const seen = new Set(apiResults.map(x => x.id ?? x.barcode ?? x.name));
+      const fresh = (r.items || []).filter(x => !seen.has(x.id ?? x.barcode ?? x.name));
+      apiResults = [...apiResults, ...fresh];
+      apiPage = r.page;
+      apiHasMore = r.hasMore;
+      apiTotalHits = r.totalHits;
+    } catch (e) {
+      console.warn('[foods] loadMore failed:', e);
+    } finally {
+      apiLoadingMore = false;
+    }
+  }
+
+  // Svelte action: fires onIntersect once each time the observed node
+  // enters the viewport (with 240px rootMargin so we start loading before
+  // the user reaches the very bottom — smoother than "load exactly at end").
+  function _infiniteScroll(node, { onIntersect }) {
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) onIntersect();
+    }, { rootMargin: '240px' });
+    observer.observe(node);
+    return { destroy() { observer.disconnect(); } };
+  }
   function _editDist(a, b) {
     if (Math.abs(a.length - b.length) > 2) return 99;
     const m = a.length, n = b.length;
@@ -346,6 +395,11 @@
     offResults = [];
     usdaResults = [];
     mealieResults = [];
+    // Reset pagination on every fresh search — new query means starting
+    // over at page 1 with no accumulated results.
+    apiPage = 1;
+    apiTotalHits = 0;
+    apiHasMore = false;
     // Local + shared don't need remote calls; 'all' mode always needs the
     // debounce because it fans out to external APIs alongside local filter.
     if (!search.trim() || searchSource === 'local' || searchSource === 'shared') return;
@@ -355,15 +409,23 @@
       if (src === 'off') {
         try {
           loading = true;
-          apiResults = await API.searchByName(search) || [];
-        } catch { apiResults = []; }
+          const r = await API.searchByNameWithMeta(search, 1);
+          apiResults = r.items;
+          apiTotalHits = r.totalHits;
+          apiHasMore = r.hasMore;
+          apiPage = r.page;
+        } catch { apiResults = []; apiTotalHits = 0; apiHasMore = false; }
         finally { loading = false; }
       } else if (src === 'usda') {
         try {
           loading = true;
           const key = usdaApiKey.get();
-          apiResults = await USDA.searchByName(search, 1, key) || [];
-        } catch { apiResults = []; }
+          const r = await USDA.searchByNameWithMeta(search, 1, key);
+          apiResults = r.items;
+          apiTotalHits = r.totalHits;
+          apiHasMore = r.hasMore;
+          apiPage = r.page;
+        } catch { apiResults = []; apiTotalHits = 0; apiHasMore = false; }
         finally { loading = false; }
       } else if (src === 'mealie') {
         try {
@@ -1324,6 +1386,26 @@
               </li>
             {/each}
           </ul>
+          <!-- Pagination footer: "Showing X of Y", plus a sentinel that
+               triggers loadMoreExternal when it scrolls into view (240px
+               rootMargin so we prefetch a screen before the user reaches
+               the actual bottom). Hidden entirely on the last page. #96. -->
+          {#if apiTotalHits > 0}
+            <div class="pagination-footer">
+              <span class="text-3 text-sm">
+                Showing {apiResults.length.toLocaleString()} of {apiTotalHits.toLocaleString()}
+              </span>
+              {#if apiLoadingMore}
+                <span class="loading-more">
+                  <span class="material-symbols-rounded spin">refresh</span>
+                  Loading more&hellip;
+                </span>
+              {/if}
+            </div>
+            {#if apiHasMore && !apiLoadingMore}
+              <div class="scroll-sentinel" use:_infiniteScroll={{ onIntersect: loadMoreExternal }}></div>
+            {/if}
+          {/if}
         {/if}
 
         <!-- Mealie results -->
@@ -1872,6 +1954,37 @@
   .source-badge-mealie { background: rgba(251, 146, 60, 0.14); color: rgb(234, 128, 42); }
   .source-badge-usda   { background: rgba(59, 130, 246, 0.14); color: rgb(59, 130, 246); }
   .source-badge-off    { background: rgba(148, 163, 184, 0.18); color: rgb(148, 163, 184); }
+
+  /* Pagination footer under external results (single-source OFF/USDA
+     modes). "Showing X of Y" gives users the truth about how much data
+     is behind the query, and the scroll-sentinel silently drives
+     infinite scroll — no explicit "load more" button. #96. */
+  .pagination-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 4px 0;
+    gap: 8px;
+  }
+  .loading-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-2);
+    font-size: 13px;
+  }
+  .loading-more .material-symbols-rounded {
+    font-size: 16px;
+  }
+  .scroll-sentinel {
+    /* Zero-height / non-interactive sentinel. IntersectionObserver
+       watches it; when it enters the viewport (with rootMargin), we
+       fetch the next page. Height 1px avoids some browsers collapsing
+       0-height elements out of the layout tree. */
+    height: 1px;
+    width: 100%;
+    pointer-events: none;
+  }
 
   .server-error-banner {
     display: flex; align-items: center; gap: 8px;
