@@ -190,7 +190,10 @@
     justify-content: center;
     gap: 2px;
   }
-  .ring-cals  { font-size: 36px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+  /* Ring center's calorie number picks up the calorie-macro color so
+     the ring center carries the "kcal identity" that used to live in
+     a separate pill card below (removed to eliminate duplication). #95 */
+  .ring-cals  { font-size: 36px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; color: var(--macro-calories); }
   .ring-unit  { font-size: 12px; font-weight: 500; color: var(--text-2); }
   .ring-goal  { font-size: 11px; color: var(--text-3); }
 

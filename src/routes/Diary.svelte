@@ -2192,10 +2192,6 @@
             <span class="ns-macro-val" style="color:var(--macro-fat)">{Math.round(totals.fat || 0)}{#if $macroLegendMode === 'grams' && fatGoal}/{fatGoal}{/if}g</span>
             <span class="ns-macro-lbl">Fat</span>
           </div>
-          <div class="ns-macro-pill" style="background:var(--macro-calories-dim)">
-            <span class="ns-macro-val" style="color:var(--macro-calories)">{_nsTotEnergy.value.toLocaleString()}</span>
-            <span class="ns-macro-lbl">{_nsTotEnergy.unit}</span>
-          </div>
         </div>
         <!-- All nutrients — tap a row to drill into top contributors -->
         <div class="ns-rows">
@@ -2917,7 +2913,7 @@
     color: var(--on-accent, #fff);
   }
   .ns-ring-wrap { padding: 8px 0 16px; }
-  .ns-macros { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+  .ns-macros { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
   .ns-macro-pill {
     border-radius: var(--radius-md); padding: 10px 4px;
     display: flex; flex-direction: column; align-items: center; gap: 2px;
