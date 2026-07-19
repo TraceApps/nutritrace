@@ -432,7 +432,7 @@
       "save_as_template":     "Save as template",
       "save_as_template_hint": "(pinned in the picker next time)",
       "kcal_preview":         "MET {met} × {weight} kg × {duration} min → {kcal} kcal",
-      "no_weight_hint":       "Add weight in Profile for MET-based auto-estimate",
+      "no_weight_hint":       "Log a weight in Body Stats to enable MET-based auto-estimate",
       "suggest": {
         "templates":          "Templates",
         "past_entries":       "Past entries",
