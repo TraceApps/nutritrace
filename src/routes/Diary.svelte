@@ -30,7 +30,7 @@
   import { mealNames, goals, energyUnit, weightUnit, lengthUnit, navStyle,
            diaryShowBrands, diaryShowThumbnails,
            diaryShowTimestamps, diaryShowMacroSummary, diaryPromptQuantity,
-           diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode, macroLegendMode,
+           diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode, macroLegendMode, distUnit,
            diaryShowAllNutrients, diaryShowNutritionUnits, visibleNutriments, hiddenBodyStats,
            showQuickCalories, quickCaloriesDisplay,
            dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners, bannerStyle,
@@ -1469,7 +1469,7 @@
                   <div class="item-info">
                     <span class="item-name truncate">{a.name}</span>
                     <span class="item-meta text-3 text-sm">
-                      {#if a.duration_min}{a.duration_min} min{/if}{#if a.duration_min && a.distance} · {/if}{#if a.distance}{a.distance}{/if}{#if (a.duration_min || a.distance)} · {/if}<span style="color:#4FFFB0">−{_aEnergy.value.toLocaleString()} {_aEnergy.unit}</span>{#if a.source === 'ai_estimated'} · <span class="text-3" title="Estimated by Trace">{$_('diary.activity.estimated_short')}</span>{/if}
+                      {#if a.duration_min}{a.duration_min} min{/if}{#if a.duration_min && a.distance} · {/if}{#if a.distance}{@const _dStr = String(a.distance).trim()}{_dStr}{#if /^\d+(\.\d+)?$/.test(_dStr)} {$distUnit || 'mi'}{/if}{/if}{#if (a.duration_min || a.distance)} · {/if}<span style="color:#4FFFB0">−{_aEnergy.value.toLocaleString()} {_aEnergy.unit}</span>{#if a.source === 'ai_estimated'} · <span class="text-3" title="Estimated by Trace">{$_('diary.activity.estimated_short')}</span>{/if}
                     </span>
                   </div>
                 </button>
