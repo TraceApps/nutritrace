@@ -66,6 +66,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - Proportional nutrition scaling when editing serving size
 - Configurable nutrient order — drag to reorder in Settings → Nutrients; the food and meal editors honor your custom order
 - Import foods from Open Food Facts, USDA FoodData Central, or Mealie (recipe manager); Open Food Facts barcode imports let you pick per-serving or per-100g when both are published
+- **Source filter chips + quality signals** (v1.0.3) — the picker carries Local / OFF / USDA / Mealie / From Others chips; long-press to combine sources into a single ranked result set. OFF results carry an **origin-country flag** and a **completeness dot** (green / yellow / grey by data density). USDA results carry a **data-type badge** (Foundation / SR Legacy / Survey / Branded / Experimental). Client-side tier filters narrow further without hitting the API again
 - Optional **local Open Food Facts mirror** (`OFF_LOCAL_DB` env var) for air-gapped self-hosters or resilience when the OFF API is down. Point at the official OFF DuckDB; barcode and name lookups try local first. See `DEPLOY.md` → Local Open Food Facts mirror.
 - **Bulk import** custom foods from JSON or CSV (Settings → Import & Export → Bulk Import)
 - **Mass-aware unit conversion** when scaling nutrition: switching g ↔ oz ↔ lb, ml ↔ cup, tsp ↔ tbsp (or any custom unit you define) actually converts the macros, not just relabels the unit
