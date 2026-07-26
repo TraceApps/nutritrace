@@ -90,6 +90,33 @@ const GEMINI_RETIRED = new Set([
 const AI_MAX_MESSAGES   = 60;
 const AI_MAX_BYTES      = 8_000_000;
 
+// Normalise any image content part on an incoming message to the OpenAI
+// wire shape `{type:'image_url', image_url:{url:'data:...'}}`. The proxy
+// used to forward user content verbatim, so an oai-compat endpoint (e.g.
+// LiteLLM in front of Bedrock) that only speaks the OpenAI schema would
+// reject Anthropic-shaped image parts with `invalid content type=image`.
+// Idempotent: already-correct `image_url` parts pass through unchanged;
+// non-array/string content is returned as-is. Fixes #114.
+function _normaliseImagePartsToOpenAI(msg) {
+  if (!msg || !Array.isArray(msg.content)) return msg;
+  const normalised = msg.content.map(part => {
+    if (!part || typeof part !== 'object') return part;
+    // Anthropic-native shape from older/mis-branched clients.
+    if (part.type === 'image' && part.source?.type === 'base64' && part.source.media_type && part.source.data) {
+      return {
+        type: 'image_url',
+        image_url: { url: `data:${part.source.media_type};base64,${part.source.data}` },
+      };
+    }
+    // LiftTrace internal shape leaking through callAIProxy.
+    if (part.type === 'image' && typeof part.dataUrl === 'string') {
+      return { type: 'image_url', image_url: { url: part.dataUrl } };
+    }
+    return part;
+  });
+  return { ...msg, content: normalised };
+}
+
 /**
  * POST /api/ai/chat
  *
@@ -121,8 +148,16 @@ const AI_MAX_BYTES      = 8_000_000;
  * provider the admin chose.
  */
 router.post('/chat', requireAuth, aiChatLimit, wrap(async (req, res) => {
-  const { messages, systemPrompt, tools } = req.body;
-  if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages array required' });
+  const { messages: rawMessages, systemPrompt, tools } = req.body;
+  if (!Array.isArray(rawMessages)) return res.status(400).json({ error: 'messages array required' });
+  // Normalise every user-message image part to OpenAI wire shape
+  // (`{type:'image_url', image_url:{url:'data:...'}}`) BEFORE dispatching
+  // to any provider. Downstream _callClaude/_callGemini already speak
+  // OpenAI wire shape (see _openaiToClaudeMessages / _openaiToGeminiContents),
+  // and _callOpenAI forwards verbatim to the oai-compat endpoint, so
+  // upgrading here means every proxy path handles any client shape.
+  // Fixes #114 (oai-compat rejecting Anthropic-shape image parts).
+  const messages = rawMessages.map(_normaliseImagePartsToOpenAI);
   if (messages.length > AI_MAX_MESSAGES) {
     return res.status(413).json({ error: `Too many messages (max ${AI_MAX_MESSAGES})` });
   }

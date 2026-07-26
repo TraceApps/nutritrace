@@ -1729,7 +1729,11 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       // Claude / Gemini at the boundary.
       if (image) {
         const lastIdx = apiMessages.length - 1;
-        const imgProvider = aiEnvLocked ? 'openai' : provider;
+        // Env-locked deployments always speak OpenAI wire shape over the
+        // proxy (the server normalises for Claude/Gemini). `oai-compat`
+        // endpoints (e.g. LiteLLM in front of Bedrock) also want OpenAI
+        // shape natively, regardless of env-lock. #114.
+        const imgProvider = (aiEnvLocked || provider === 'oai-compat') ? 'openai' : provider;
         apiMessages[lastIdx] = _buildImageMessage(imgProvider, content || 'What is this?', image);
       }
       const onToolCall = (toolName) => { _toolStatus = `Fetching ${toolName.replace(/_/g, ' ')}…`; };
@@ -1775,7 +1779,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         { type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.base64 } },
         { type: 'text', text },
       ]};
-    } else if (provider === 'openai') {
+    } else if (provider === 'openai' || provider === 'oai-compat') {
       return { role: 'user', content: [
         { type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.base64}` } },
         { type: 'text', text },
