@@ -613,13 +613,24 @@
             <div class="setting-desc">Requires a server connection for OAuth authentication. In local mode, use <strong>Health Connect</strong> below to read Fitbit data directly from your Android device.</div>
           </div>
         </div>
-      {:else}
+      {:else if fitbitEnabledVal || legacyFitbitConnected}
+      <!-- User already has Fitbit turned on (or has legacy tokens mid-migration).
+           Keep the toggle so they can manage / disconnect. -->
       <div class="setting-row">
         <div>
           <span class="setting-label">Enable Fitbit</span>
-          <div class="setting-desc">Steps, activity, sleep stages, heart rate, HRV, SpO2</div>
+          <div class="setting-desc">Steps, activity, sleep stages, heart rate, HRV, SpO2. Legacy Fitbit Web API is being retired; new connections should use Google Health below.</div>
         </div>
         <Toggle checked={fitbitEnabledVal} on:change={e => { fitbitEnabledVal = e.detail; fitbitEnabled.set(e.detail); }} />
+      </div>
+      {:else}
+      <!-- No prior Fitbit relationship: hide the connect entry point.
+           Fitbit Web API is being retired; direct new users to Google Health. -->
+      <div class="setting-row">
+        <div>
+          <span class="setting-label" style="opacity:0.6">Fitbit Web API retired</span>
+          <div class="setting-desc">The legacy Fitbit Web API is being retired. To sync Fitbit data, connect via <strong>Google Health</strong> below, which uses the same underlying data via Google's Fitness API.</div>
+        </div>
       </div>
       {/if}
 
