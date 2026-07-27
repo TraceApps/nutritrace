@@ -5,6 +5,17 @@ Items marked ~~strikethrough~~ have been implemented.
 
 ---
 
+## From README (moved 2026-07-27)
+
+**Coming soon:**
+- **Cross-domain Dashboard.** Configurable widgets that correlate nutrition, activity, sleep, and body stats (e.g. sleep duration vs weight trend).
+- **PWA passkeys.** WebAuthn-based passwordless sign-in on the browser side, matching the biometric flow already live on Android.
+
+**Future:**
+- **iOS app.** Pending hardware and Apple Developer account access.
+
+---
+
 ## Wellness: Reporting & Insights
 
 ### ~~Phase 1: Trends tab~~ *(done, sparklines on each metric card)*
