@@ -66,7 +66,7 @@
         exported_at: new Date().toISOString(),
         source: isNative ? (getServerUrl() ? 'native-server' : 'native-local') : 'web',
         includes_images: false,
-        scope: 'foods, meals, recipes, diary (with notes), activity, fasts, settings — wellness-tab data and workouts excluded by design.',
+        scope: 'foods, meals, recipes, diary (with notes), activity, fasts, settings. Excluded by design: wellness metrics + Trace-computed scores, workouts, AI chat history, food/meal sharing grants, federation API tokens, and OAuth wearable tokens. Use Local Full Backup (.zip) for those.',
         note: 'For a comprehensive backup with embedded image files, use Local Full Backup (.zip).',
         counts: {
           foods:     foodList?.length || 0,

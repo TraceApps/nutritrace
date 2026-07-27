@@ -375,6 +375,31 @@ function restoreFromZip(zip) {
 }
 
 function dumpDatabase() {
+  // ── Coverage audit (2026-07) ─────────────────────────────────────────────
+  // Every user-content table in server/db.js is included below. Deliberate
+  // exclusions and their rationale:
+  //   fitbit_tokens, google_health_tokens, withings_tokens, garmin_tokens
+  //     — OAuth access/refresh tokens encrypted at rest with the deploy's
+  //       JWT_SECRET (see server/lib/token-crypto.js). A restore into a
+  //       different deploy cannot decrypt them, and re-linking the wearable
+  //       from Settings is a one-tap flow. TODO(review): if we ever want
+  //       cross-deploy wearable continuity, revisit this — the trade-off is
+  //       shipping the token-crypto key alongside the archive (or moving to
+  //       a passphrase-derived key at backup time).
+  //   password_reset_tokens
+  //     — 30-min-lived; capturing them adds security surface without value.
+  //       The restore path explicitly DELETEs any stale rows.
+  //   oauth_state
+  //     — Ephemeral PKCE state, expires within minutes; never worth carrying.
+  //
+  // DEVICE_PREFS handling: DEVICE_PREFS keys (see src/stores/settings.js)
+  // are client-only and NEVER written to server user_settings, so dumping
+  // user_settings correctly captures only sync-across-devices USER_PREFS.
+  // A restore therefore leaves the restoring device's local UI prefs
+  // (appearance, navStyle, biometricLoginEnabled, etc.) intact by design.
+  // TODO(review): if a future migration ever persists any DEVICE_PREFS key
+  // server-side, revisit this and add an opt-out on the restore path so
+  // per-device settings don't cross devices.
   return {
     users:            db.prepare('SELECT * FROM users').all(),
     foods:            db.prepare('SELECT * FROM foods').all(),
@@ -385,6 +410,9 @@ function dumpDatabase() {
     user_settings:    db.prepare('SELECT * FROM user_settings').all(),
     app_config:       db.prepare('SELECT * FROM app_config').all(),
     ai_chat_history:  db.prepare('SELECT * FROM ai_chat_history').all(),
+    // wellness_data holds BOTH raw wearable metrics AND Trace-computed
+    // readiness / resilience score rows (metric_type = 'readiness_score',
+    // 'resilience_score'), so past scores survive a full-backup restore.
     wellness_data:    db.prepare('SELECT * FROM wellness_data').all(),
     workouts:         db.prepare('SELECT * FROM workouts').all(),
     activity_log:     db.prepare('SELECT * FROM activity_log').all(),
@@ -393,9 +421,7 @@ function dumpDatabase() {
     user_oidc_links:  db.prepare('SELECT * FROM user_oidc_links').all(),
     // Federation API tokens — stored as SHA-256 hashes, so a user can't
     // regenerate the same token after a restore. Capturing them lets every
-    // configured federated peer keep working after a restore. OAuth tokens
-    // (fitbit / garmin / google_health / withings) intentionally excluded
-    // because they're deploy-scoped and re-linking the wearable is fine.
+    // configured federated peer keep working after a restore.
     api_tokens:       db.prepare('SELECT * FROM api_tokens').all(),
     // Outstanding invite tokens so pending invites survive a restore.
     invite_tokens:    db.prepare('SELECT * FROM invite_tokens').all(),
