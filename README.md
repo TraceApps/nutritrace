@@ -44,7 +44,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - **Activity + Intermittent Fasting.** Manual workouts + IF widget with presets and streaks. [Full guide](https://traceapps.github.io/docs/nutritrace/activity-if/).
 - **Open Food Facts.** Cloud + local Parquet mirror for air-gap. [Full guide](https://traceapps.github.io/docs/nutritrace/off/).
 - **USDA + Mealie.** Free API key USDA lookups + Mealie recipe import. [Full guide](https://traceapps.github.io/docs/nutritrace/usda-mealie/).
-- **Trace AI.** 8 nutrition tools, Smart Log voice/text, propose_food photo flow. [Full guide](https://traceapps.github.io/docs/nutritrace/trace/).
+- **Trace AI.** Reads your diary, meals, wellness, fasting streaks, and Adaptive TDEE state; can log a food, propose one from a photo (you confirm), or add an activity entry, all conversationally. 16 tools total. Smart Log voice/text, propose_food photo flow. [Full guide](https://traceapps.github.io/docs/nutritrace/trace/).
 - **Federation API.** `/api/v1/*` scoped Bearer tokens for CT + LT + external clients. [Full guide](https://traceapps.github.io/docs/nutritrace/federation-api/).
 - **Migrations.** MyFitnessPal (with nomad64 scraper), Lose It, Cronometer, Waistline. [Full guide](https://traceapps.github.io/docs/nutritrace/migrate-mfp/).
 - **Multi-user + OIDC SSO.** Authentik/Keycloak/Pocket ID/Authelia/Google/Auth0. [Full guide](https://traceapps.github.io/docs/auth/oidc/).
