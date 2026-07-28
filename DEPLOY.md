@@ -32,6 +32,24 @@ indefinitely; anyone pinned to a specific rc release is unaffected.
 
 ---
 
+## Testing pre-release builds
+
+Two mechanisms cover pre-release testing between stable releases.
+
+### `dev-latest` (rolling, primary)
+
+Every dev-worthy build refreshes the [`dev-latest`](https://github.com/traceapps/nutritrace/releases/tag/dev-latest) GitHub pre-release. The APK is signed with the same keystore as stable releases, so it upgrades in place. Same guarantees as the Docker `:dev` tag, which auto-publishes on every push to `dev`. This is the default channel for testers who want "always the newest thing."
+
+### Milestone `v<version>-dev.N` (occasional, pinnable)
+
+When a specific feature or fix is worth its own tester milestone (a new wearable integration, an Adaptive TDEE change, a big backup rework), a numbered pre-release gets cut: `v1.0.4-dev.1`, `v1.1.0-dev.1`, etc. These get their own permanent GH release, their own tester-facing notes, and their own Docker tag (`ghcr.io/traceapps/nutritrace:1.0.4-dev.1`) alongside `:dev`. `dev-latest` is refreshed to point at the same commit.
+
+Use numbered dev builds when reporting bugs ("I saw this on `v1.1.0-dev.2`") or if you want to install a specific milestone and stay on it. Everyone else, `dev-latest` covers you.
+
+Both channels use the shared TraceApps keystore, so upgrading between them (or from either back to stable) works in place.
+
+---
+
 ## docker-compose.yml
 
 A minimal working setup:

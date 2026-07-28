@@ -94,6 +94,8 @@ Open `http://localhost:3000` and the first-run wizard will walk you through user
 
 Full compose recipes with SMTP, Docker secrets (`*_FILE`), reverse-proxy examples, and multi-provider OIDC at [docs/getting-started/compose/](https://traceapps.github.io/docs/getting-started/compose/). Tag policy (`:latest`, `:1`, `:1.0`, `:1.0.0`, `:dev`, legacy `:1.0.0-rc.N`) in [DEPLOY.md](DEPLOY.md).
 
+Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone builds also get numbered `-dev.N` pre-releases. See [DEPLOY.md](DEPLOY.md) for details.
+
 ## Env vars
 
 | Variable | Required | Default | Description |
