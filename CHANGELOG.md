@@ -7,6 +7,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Fitbit connect card hidden for new users.** Fitbit's Web API is being
+  wound down (see [[project_nutritrace_google_health]]); Google Health
+  is the recommended path forward. Users who already have Fitbit
+  connected continue to see the card and their data keeps syncing until
+  the September 2026 cutoff. Nothing changes for existing connections.
+
+### Fixed
+
+- **OpenAI-compatible endpoints accept vision requests again** (#114).
+  Image content blocks are normalised on the AI proxy before
+  forwarding, so a request with an image attached goes through whether
+  the block is a string URL or an object with `image_url.url`.
+
+- **GPT-5.6-era chat parameters supported.** The AI proxy translates
+  the newer `max_completion_tokens` and `reasoning_effort` fields when
+  talking to models that require them, so calls to GPT-5.6 and
+  equivalents don't 400 on the older `max_tokens` field name.
+
 ---
 
 ## [1.0.3] - 2026-07-25
