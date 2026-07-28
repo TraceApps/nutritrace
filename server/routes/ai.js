@@ -3,6 +3,7 @@ import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { wrap } from '../logger.js';
 import { getAiConfig } from '../ai.js';
 import { makeRateLimiter } from '../middleware/rate-limit.js';
+import { getOpenAIChatParams } from '../lib/openai-chat-params.js';
 import db from '../db.js';
 
 const router = Router();
@@ -233,8 +234,12 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
 
   const body = {
     model,
-    max_tokens: 4096,
     messages: [{ role: 'system', content: systemPrompt }, ...messages],
+    ...getOpenAIChatParams({
+      baseUrl,
+      model,
+      hasTools: openaiTools.length > 0,
+    }),
   };
   if (openaiTools.length) body.tools = openaiTools;
 

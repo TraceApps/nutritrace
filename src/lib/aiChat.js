@@ -9,6 +9,7 @@
  * 3. Repeat until AI responds with text (max 5 tool rounds)
  */
 import { NUTRIMENTS } from './nutrition.js';
+import { getOpenAIChatParams } from './openai-chat-params.js';
 
 // Nutrition schema for the propose_* tools — generated from the canonical
 // NUTRIMENTS list so adding a new nutrient anywhere in the app automatically
@@ -439,10 +440,15 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
   const MAX_ROUNDS = 5;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
+    const selectedModel = model || AI_DEFAULT_MODELS.openai;
     const body = {
-      model: model || AI_DEFAULT_MODELS.openai,
-      max_tokens: 4096,
+      model: selectedModel,
       messages: currentMessages,
+      ...getOpenAIChatParams({
+        baseUrl,
+        model: selectedModel,
+        hasTools: openaiTools.length > 0,
+      }),
     };
     if (openaiTools.length) body.tools = openaiTools;
 
