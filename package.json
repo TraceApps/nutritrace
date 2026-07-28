@@ -13,6 +13,7 @@
     "cap:sync": "npm run build && npx cap sync",
     "cap:add:android": "npx cap add android",
     "i18n:check": "node scripts/i18n-check.cjs",
+    "test": "node --test scripts/*.test.js",
     "postinstall": "node scripts/postinstall.cjs"
   },
   "dependencies": {
