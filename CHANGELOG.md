@@ -7,25 +7,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.0.4] - 2026-07-28
+
 ### Changed
 
 - **Fitbit connect card hidden for new users.** Fitbit's Web API is being
-  wound down (see [[project_nutritrace_google_health]]); Google Health
-  is the recommended path forward. Users who already have Fitbit
-  connected continue to see the card and their data keeps syncing until
-  the September 2026 cutoff. Nothing changes for existing connections.
+  wound down; Google Health is the recommended path forward. Users who
+  already have Fitbit connected continue to see the card and their data
+  keeps syncing until the September 2026 cutoff. Nothing changes for
+  existing connections.
 
 ### Fixed
 
-- **OpenAI-compatible endpoints accept vision requests again** (#114).
-  Image content blocks are normalised on the AI proxy before
-  forwarding, so a request with an image attached goes through whether
-  the block is a string URL or an object with `image_url.url`.
+- **OpenAI-compatible endpoints accept vision (image) chat again** (#114,
+  reported by @javydekoning). Env-locked deployments running the AI
+  proxy against a strict OpenAI-schema endpoint (LiteLLM in front of
+  Bedrock, etc.) rejected image messages with `invalid content type=image`.
+  The client now emits OpenAI-shape image parts for `oai-compat` and the
+  proxy defensively normalises any Anthropic-shape image parts to
+  `image_url` at the boundary before forwarding. Also mirrored to
+  CookTrace and LiftTrace since they share the same proxy code.
 
-- **GPT-5.6-era chat parameters supported.** The AI proxy translates
-  the newer `max_completion_tokens` and `reasoning_effort` fields when
-  talking to models that require them, so calls to GPT-5.6 and
-  equivalents don't 400 on the older `max_tokens` field name.
+- **GPT-5.6-era chat parameters supported** (#115, contributed by
+  @librarian). OpenAI's newer chat models require
+  `max_completion_tokens` instead of the deprecated `max_tokens`, and
+  reject function-tool requests unless `reasoning_effort: 'none'` is
+  set. Both the client and server AI paths now branch on the model
+  and base URL to emit the correct parameters, and third-party
+  OpenAI-compatible endpoints (Ollama, LM Studio, LiteLLM proxies)
+  keep receiving `max_tokens` since most haven't adopted the new
+  field yet. Backward-compatible with older OpenAI models.
 
 ---
 
