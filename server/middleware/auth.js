@@ -71,8 +71,13 @@ export function requireAuth(req, res, next) {
   next();
 }
 
-/** Require admin role */
+/** Require admin role. When user management is off the whole admin/non-admin
+ *  distinction is meaningless (the single user IS the owner), so pass through
+ *  in that mode — mirrors requireAuth above. Without this, admin-gated routes
+ *  like POST /api/full-backup are unreachable from single-user installs even
+ *  though the frontend correctly identifies them as effectively-admin. */
 export function requireAdmin(req, res, next) {
+  if (!userMgmtActive()) return next();  // single-user mode = effectively admin
   if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   next();
 }
