@@ -153,6 +153,16 @@ export function explainConnectError(rawError, serverUrl) {
  */
 let _imageMap = {};
 
+// Files under these public/ directories are copied into the Capacitor bundle.
+// They must stay on the WebView's local origin in native server mode; otherwise
+// resolveAssetUrl() rewrites them to the configured server and they disappear
+// whenever that server is unreachable.
+const BUNDLED_ASSET_PREFIXES = ['/icons/', '/fonts/', '/templates/', '/vendor/'];
+
+function _isBundledAssetPath(path) {
+  return BUNDLED_ASSET_PREFIXES.some(prefix => path.startsWith(prefix));
+}
+
 /** Load the image map from local DB into memory (call once on sync init).
  *  Honors image_cache_version (#61): if the stored version differs from
  *  the current code, the cached map is treated as empty because old keys
@@ -190,6 +200,8 @@ export function resolveAssetUrl(path) {
   if (!path) return path;
   if (path.startsWith('data:') || path.startsWith('file:') || path.startsWith('https://localhost')) return path;
   if (isNative) {
+    // Vite copies public/ to the root of the local Capacitor web bundle.
+    if (_isBundledAssetPath(path)) return path;
     // Always check local image cache first (fastest, works offline + disconnected)
     if (_imageMap[path]) return _imageMap[path];
     const url = getServerUrl() || localStorage.getItem('nt:lastServerUrl') || '';
@@ -210,7 +222,7 @@ export function resolveAssetUrl(path) {
   }
   // PWA: prefix server-relative paths with base path so they resolve under
   // the configured subpath instead of the document root.
-  if (_basePath && (path.startsWith('/uploads/') || path.startsWith('/api/') || path.startsWith('/icons/') || path.startsWith('/fonts/'))) {
+  if (_basePath && (path.startsWith('/uploads/') || path.startsWith('/api/') || _isBundledAssetPath(path))) {
     return _basePath + path;
   }
   return path;
