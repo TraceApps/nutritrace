@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.5] - 2026-07-29
+
+### Fixed
+
+- **Backups, SMTP config, and other admin panels now work in single-user mode.** With User Management turned off, `POST /api/full-backup`, `PUT /api/app-config`, `POST /api/app-config/test-email`, `POST /api/off-local/refresh`, `GET /api/updates/server-status`, and related admin routes all returned 403 "Admin only" even though NutriTrace's own frontend correctly identifies the sole owner as effectively-admin. `requireAdmin` middleware now passes through when User Management is off, mirroring `requireAuth`. Fourteen previously-broken admin routes come back to life. LiftTrace already had this fix; parity restored. Reported in [#118](https://github.com/traceapps/nutritrace/issues/118).
+
+---
+
 ## [1.0.4] - 2026-07-28
 
 ### Changed
