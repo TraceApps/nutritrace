@@ -23,6 +23,7 @@ import {
   dbUpsertWorkoutFromServer, dbUpsertActivityFromServer,
   dbGetPendingWorkouts, dbSetWorkoutServerId,
 } from './db-native.js';
+import { stripInlineDiaryImages } from './diary-payload.js';
 import { writable } from 'svelte/store';
 
 /** Sync state — reactive store for UI */
@@ -176,7 +177,10 @@ async function pushChanges() {
       client_id: d.id,
       server_id: d.server_id || null,
       date: d.date,
-      items: d.items,
+      // Native diary rows can still contain the base64 image copied from a
+      // newly-created food. The food itself carries the canonical image; do
+      // not replicate it into the diary snapshot or the sync request.
+      items: stripInlineDiaryImages(d.items),
       body_stats: d.body_stats,
       water: d.water,
       updated_at: d.updated_at,

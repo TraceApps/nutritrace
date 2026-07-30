@@ -3,6 +3,7 @@ import { NtApi } from '../lib/api.js';
 import { Nutrition } from '../lib/nutrition.js';
 import { localDateStr, DB } from '../lib/db.js';
 import { resolveAssetUrl } from '../lib/platform.js';
+import { stripInlineDiaryImages } from '../lib/diary-payload.js';
 
 function todayStr() {
   return localDateStr();
@@ -36,7 +37,7 @@ function _fromApi(entry) {
 // Strip Capacitor file paths from imgUrl before sending to server
 function _stripCachedPaths(items) {
   if (!items || !Array.isArray(items)) return items;
-  return items.map(i => {
+  return stripInlineDiaryImages(items).map(i => {
     if (!i.imgUrl) return i;
     // Full server-host URL → strip back to relative /uploads/... path. See
     // _stripResolvedImgUrl in src/lib/api-cached.js for the same logic; both
