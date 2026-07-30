@@ -105,7 +105,8 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `UPLOADS_PATH` | Yes | `/data/uploads` | Upload directory inside the container. |
 | `PORT` | No | `3001` | Container-side port the server listens on. |
 | `BASE_URL` | No |  | Subpath prefix when mounted behind a reverse proxy (e.g. `/nt`). |
-| `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug`. |
+| `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug` \| `trace`. |
+| `TRACE_BODY_MAX_BYTES` | No | `32768` | Maximum serialized request-body bytes logged at `trace` level. |
 | `INSECURE_COOKIES` | If on plain HTTP | unset | `1` drops the `Secure` cookie flag; needed only on plain-HTTP LAN. See [docs/getting-started/lan-http/](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `MAX_SESSION_HOURS` | No | `720` | Auth cookie lifetime. |
 | `RECOVERY_TOKEN` | No |  | Passphrase to disable user management from the login page (lockout recovery). |
@@ -118,6 +119,12 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `SMTP_HOST` | No |  | SMTP server for password reset & invites; also `SMTP_PORT` (587), `SMTP_SECURE` (false), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. |
 
 Full list (Docker secrets `*_FILE` variants, air-gap `OFF_LOCAL_ONLY`, per-provider AI knobs, all `OIDC_*` options) at [docs/self-hosting/env-vars/](https://traceapps.github.io/docs/self-hosting/env-vars/). SMTP and AI can also be set in the Settings UI; env vars take priority and lock those fields.
+
+### Request logging
+
+Request logs include the method, path, response status, duration, and the observed body size for `POST`, `PUT`, and `PATCH` requests. Oversized JSON requests return HTTP 413 with `size_bytes` and `limit_bytes` fields to make the configured limit visible.
+
+Set `LOG_LEVEL=trace` to also log parsed JSON request bodies. Credential-like fields are redacted, inline `data:` URLs are replaced with their byte size, query strings are omitted, and bodies are truncated to `TRACE_BODY_MAX_BYTES`. Request bodies can still contain private application data such as diary notes, so use trace logging only while diagnosing a problem.
 
 ## Data persistence
 

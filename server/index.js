@@ -34,6 +34,7 @@ import { logger }   from './logger.js';
 import { authenticate, userMgmtActive } from './middleware/auth.js';
 import { csrfProtect } from './middleware/csrf.js';
 import { makeRateLimiter } from './middleware/rate-limit.js';
+import { formatBytes, requestLogging, requestLogPath } from './middleware/request-logging.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv } from './ai.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
@@ -64,6 +65,10 @@ if (BASE_URL && !BASE_URL.startsWith('/')) {
 // Using a sub-router keeps `req.path` in middleware (e.g. csrf.js skip lists)
 // relative to the mount point so existing path checks keep working.
 const router = express.Router();
+
+// Register before body parsing so even malformed/oversized requests have a
+// method, route, duration, status, and observed/declared body size in the log.
+router.use(requestLogging);
 
 // Per-route JSON limits for endpoints that legitimately handle large payloads
 // (full data export/import, full-history sync push). Registered BEFORE the
@@ -118,17 +123,6 @@ router.use('/api/proxy', proxyRoutes);
 
 router.use(authenticate);   // attach req.user on every request
 router.use(csrfProtect);   // CSRF protection for cookie-based sessions
-
-// ── Request logging ────────────────────────────────────────────────────────
-router.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const ms   = Date.now() - start;
-    const lvl  = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
-    logger[lvl](`${req.method} ${req.path} → ${res.statusCode} (${ms}ms)`);
-  });
-  next();
-});
 
 // Prevent browser/proxy caching of all API responses
 router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
@@ -324,6 +318,23 @@ app.use(BASE_URL || '/', router);
 // ── Global error handler ───────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 router.use((err, req, res, next) => {
+  if (err.type === 'entity.too.large') {
+    const declared = Number.parseInt(req.get('content-length') || '', 10);
+    const actual = Number.isFinite(err.length) ? err.length
+      : Number.isFinite(err.received) ? err.received
+        : declared;
+    logger.error(
+      `${req.method} ${requestLogPath(req)} — request body ${formatBytes(actual)} exceeds ${formatBytes(err.limit)} limit`
+    );
+    if (!res.headersSent) {
+      return res.status(413).json({
+        error: 'Request body too large',
+        size_bytes: Number.isFinite(actual) ? actual : null,
+        limit_bytes: err.limit,
+      });
+    }
+    return;
+  }
   logger.error(`${req.method} ${req.path} — ${err.stack || err.message}`);
   if (!res.headersSent) {
     res.status(err.status || 500).json({ error: err.message || 'Internal server error' });

@@ -1,8 +1,9 @@
 /**
  * Simple structured logger — outputs to stdout/stderr with timestamps.
- * Set LOG_LEVEL env var to 'error' | 'warn' | 'info' | 'debug' (default: info)
+ * Set LOG_LEVEL env var to 'error' | 'warn' | 'info' | 'debug' | 'trace'
+ * (default: info)
  */
-const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
+const LEVELS = { error: 0, warn: 1, info: 2, debug: 3, trace: 4 };
 const LOG_LEVEL = LEVELS[process.env.LOG_LEVEL] ?? LEVELS.info;
 
 function log(level, ...args) {
@@ -18,6 +19,7 @@ export const logger = {
   warn:  (...a) => log('warn',  ...a),
   info:  (...a) => log('info',  ...a),
   debug: (...a) => log('debug', ...a),
+  trace: (...a) => log('trace', ...a),
 };
 
 /** Wraps an async Express route handler so thrown errors reach the error middleware. */
