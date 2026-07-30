@@ -2,7 +2,7 @@ import { writable, derived } from 'svelte/store';
 import { NtApi } from '../lib/api.js';
 import { Nutrition } from '../lib/nutrition.js';
 import { localDateStr, DB } from '../lib/db.js';
-import { resolveAssetUrl } from '../lib/platform.js';
+import { resolveAssetUrl, restoreCachedAssetUrl } from '../lib/platform.js';
 import { stripInlineDiaryImages } from '../lib/diary-payload.js';
 
 function todayStr() {
@@ -50,20 +50,10 @@ function _stripCachedPaths(items) {
         return { ...i, imgUrl: i.imgUrl.slice(idx) };
       }
     } catch {}
-    // Capacitor cached path → only restore to /uploads/<filename> when the basename
-    // matches the server's localized image-naming pattern (timestamp-md5.ext, see
-    // server/lib/image-localizer.js). Externally-proxied images get cached under
-    // their source URL basename (e.g., 'front.en.6.400.jpg' from OFF), which does
-    // NOT correspond to any /uploads/ file — prepending /uploads/ would cross-
-    // pollinate images across diary items that share an OFF basename.
+    // Capacitor cache filenames are hashes and cannot be converted back by
+    // inspecting their basename. Recover the exact source from the cache map.
     if (i.imgUrl.includes('_capacitor_file_') || i.imgUrl.includes('/image_cache/')) {
-      const filename = i.imgUrl.split('/').pop();
-      if (filename && /^\d{10,}-[0-9a-f]{8,16}\.\w+$/i.test(filename)) {
-        return { ...i, imgUrl: '/uploads/' + filename };
-      }
-      // Cached basename doesn't match server's localized format — drop rather
-      // than guess. The diary item loses its image, but won't display the wrong one.
-      return { ...i, imgUrl: '' };
+      return { ...i, imgUrl: restoreCachedAssetUrl(i.imgUrl) || '' };
     }
     // Strip proxy URLs back to original (they get resolved at display time)
     if (i.imgUrl.includes('/api/proxy?url=')) {

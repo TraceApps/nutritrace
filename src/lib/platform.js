@@ -6,6 +6,7 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { originalUrlForCachedImage } from './image-cache-map.js';
 
 /**
  * True when running inside the Capacitor native shell (Android / iOS).
@@ -179,6 +180,14 @@ export async function loadImageMap() {
 /** Update the in-memory image map (called after image cache downloads) */
 export function setImageMap(map) {
   _imageMap = map || {};
+}
+
+/**
+ * Convert an Android offline-cache URI back to the exact image URL it was
+ * downloaded from. Returns null when the URI is not present in the cache map.
+ */
+export function restoreCachedAssetUrl(localUrl) {
+  return originalUrlForCachedImage(localUrl, _imageMap);
 }
 
 /**

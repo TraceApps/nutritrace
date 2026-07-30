@@ -202,7 +202,7 @@
     cropBoxX = 20; cropBoxY = 20; cropBoxSize = 200;
   }
 
-  function confirmCrop() {
+  async function confirmCrop() {
     if (!cropImgEl) return;
     const canvas = document.createElement('canvas');
     const scaleX = cropImgEl.naturalWidth / cropImgEl.offsetWidth;
@@ -214,7 +214,10 @@
       cropBoxSize * scaleX, cropBoxSize * scaleY,
       0, 0, 300, 300
     );
-    photoPreviewUrl = canvas.toDataURL('image/jpeg', 0.85);
+    // Keep all capture paths behind the same size invariant. This crop is
+    // currently 300x300, so fitImageDataUrl is normally a no-op, but future
+    // crop-size changes cannot accidentally bypass fitting.
+    photoPreviewUrl = await fitImageDataUrl(canvas.toDataURL('image/jpeg', 0.85));
     cropOpen = false; cropSrc = '';
   }
 

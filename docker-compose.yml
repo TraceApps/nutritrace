@@ -112,3 +112,22 @@ services:
       # - TOKEN_ENC_KEY_FILE=/run/secrets/nutritrace_token_enc_key
       # - RECOVERY_TOKEN_FILE=/run/secrets/nutritrace_recovery_token
     restart: unless-stopped
+
+  # Optional daily image localization + conditional SQLite compaction. The primary
+  # container always performs one foreground maintenance run before startup;
+  # enable this sidecar only when recurring maintenance is desired:
+  #   docker compose --profile image-maintenance up -d
+  nutritrace-image-maintenance:
+    image: ghcr.io/traceapps/nutritrace:latest
+    profiles: ["image-maintenance"]
+    command: ["node", "image-maintenance.js", "--loop"]
+    volumes:
+      - ${DATA_DB_PATH}:/data/db
+      - ${DATA_UPLOADS_PATH}:/data/uploads
+    env_file:
+      - .env
+    environment:
+      - DB_PATH=/data/db/nutritrace.db
+      - UPLOADS_PATH=/data/uploads
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    restart: unless-stopped

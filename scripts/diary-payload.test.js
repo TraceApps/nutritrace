@@ -23,3 +23,23 @@ test('stripInlineDiaryImages preserves the original array when unchanged', () =>
   assert.equal(stripInlineDiaryImages(items), items);
   assert.equal(stripInlineDiaryImages(null), null);
 });
+
+test('stripInlineDiaryImages removes nested recipe and snake-case images', () => {
+  const items = [{
+    id: 1,
+    imgUrl: '/uploads/recipe.jpg',
+    _splitItems: [
+      { id: 2, imgUrl: 'data:image/png;base64,abc' },
+      { id: 3, details: { img_url: 'data:image/jpeg;base64,def' } },
+    ],
+  }];
+
+  assert.deepEqual(stripInlineDiaryImages(items), [{
+    id: 1,
+    imgUrl: '/uploads/recipe.jpg',
+    _splitItems: [
+      { id: 2, imgUrl: '' },
+      { id: 3, details: { img_url: '' } },
+    ],
+  }]);
+});

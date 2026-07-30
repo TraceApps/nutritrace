@@ -3,7 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { sharingEnabled, canRead as _canRead } from '../lib/sharing.js';
-import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
+import { localizeImageForStorage } from '../lib/image-localizer.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -95,8 +95,9 @@ router.post('/', wrap(async (req, res) => {
     ).get(...args);
     if (existing) return res.status(200).json(parse(existing));
   }
-  // Download external images to /uploads/ for self-hosting
-  const localImg = isExternalUrl(img_url) ? await localizeImage(img_url) : (img_url || null);
+  // Inline data URLs must become /uploads/ paths or the request fails with
+  // 422; they must never be persisted directly in SQLite.
+  const localImg = img_url ? await localizeImageForStorage(img_url, 'food image') : null;
   const result = db.prepare(
     `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, nutrition_basis, alt_units, density_g_ml, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
@@ -126,7 +127,7 @@ router.put('/:id', wrap(async (req, res) => {
   // used below for nutrition_basis / alt_units / density_g_ml.
   const localImg = img_url === undefined
     ? existing.img_url
-    : ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url) : (img_url || null));
+    : (img_url ? await localizeImageForStorage(img_url, 'food image') : null);
   const fav = favorite != null ? (favorite ? 1 : 0) : existing.favorite;
   // For the OFF metadata: undefined → keep existing, null → explicit clear,
   // any other value → normalize-and-store. Lets the client patch one field
@@ -198,7 +199,7 @@ router.patch('/:id/share', wrap((req, res) => {
 }));
 
 // ── POST /:id/copy — clone a shared food into caller's catalogue ──────────
-router.post('/:id/copy', wrap((req, res) => {
+router.post('/:id/copy', wrap(async (req, res) => {
   const u = uid(req);
   if (!sharingEnabled()) return res.status(403).json({ error: 'Sharing is not enabled on this instance.' });
   const food = db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id);
@@ -212,11 +213,17 @@ router.post('/:id/copy', wrap((req, res) => {
     if (existing) return res.json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(existing.id)));
   }
 
+  // Normally the source is already localized. Keep the copy path strict as
+  // well so a legacy inline row cannot be duplicated if startup maintenance
+  // could not repair it.
+  const localImg = food.img_url
+    ? await localizeImageForStorage(food.img_url, 'copied food image')
+    : null;
   const result = db.prepare(
     `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, datetime('now'))`
   ).run(u, food.name, food.brand, food.nutrition, food.portion, food.unit,
-    food.img_url, food.notes, food.category, food.barcode, food.id);
+    localImg, food.notes, food.category, food.barcode, food.id);
   res.status(201).json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(result.lastInsertRowid)));
 }));
 

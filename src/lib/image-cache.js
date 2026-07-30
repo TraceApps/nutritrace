@@ -8,7 +8,7 @@
 
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
-import { getServerUrl, getAuthToken } from './platform.js';
+import { getServerUrl, getAuthToken, setImageMap } from './platform.js';
 
 const CACHE_DIR = 'image_cache';
 // Bump when the cache key derivation changes so existing users invalidate
@@ -222,6 +222,9 @@ export async function cacheAllImages(onProgress) {
 
   // Save updated map
   await _saveImageMap(imageMap);
+  // Keep the synchronous resolver and reverse lookup current immediately;
+  // otherwise newly cached images are only visible after the next app boot.
+  setImageMap(imageMap);
 
   console.log(`[image-cache] Done: ${downloaded} downloaded, ${failed} failed, ${Object.keys(imageMap).length} total cached`);
   return { total, downloaded, failed };
@@ -236,4 +239,3 @@ export async function resolveFromCache(serverUrl) {
   if (!_cachedMap) _cachedMap = await _loadImageMap();
   return _cachedMap[serverUrl] || null;
 }
-

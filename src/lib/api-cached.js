@@ -14,7 +14,13 @@ import {
   dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal, dbBumpMealUsage,
   dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary,
 } from './db-native.js';
-import { getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
+import {
+  getServerUrl,
+  getAuthToken,
+  resolveAssetUrl,
+  restoreCachedAssetUrl,
+  apiUrl,
+} from './platform.js';
 import { schedulePush } from './sync.js';
 
 function _headers() {
@@ -62,19 +68,10 @@ function _stripResolvedImgUrl(url) {
       return url.slice(idx);
     }
   } catch {}
-  // Capacitor cached path → only restore to /uploads/<filename> when the basename
-  // matches the server's localized image-naming pattern (timestamp-md5.ext, see
-  // server/lib/image-localizer.js). For anything else (e.g., a Capacitor cache
-  // of a proxied external URL, where the cached basename is the source URL's
-  // basename like 'front.en.6.400.jpg'), the basename does NOT correspond to
-  // any /uploads/ file and prepending /uploads/ would cross-pollinate images
-  // across foods that happen to share an OFF basename. Drop instead.
+  // Capacitor cache filenames are hashes and cannot be converted back by
+  // inspecting their basename. Recover the exact source from the cache map.
   if (url.includes('_capacitor_file_') || url.includes('/image_cache/')) {
-    const filename = url.split('/').pop();
-    if (filename && /^\d{10,}-[0-9a-f]{8,16}\.\w+$/i.test(filename)) {
-      return '/uploads/' + filename;
-    }
-    return ''; // can't recover original — clear rather than persist garbage
+    return restoreCachedAssetUrl(url) || '';
   }
   // Proxy URL (`/api/proxy?url=https://...`) → restore the inner URL.
   if (url.includes('/api/proxy?url=')) {

@@ -134,7 +134,7 @@
 
   function cropEndDrag() { cropDragging = false; }
 
-  function confirmCrop() {
+  async function confirmCrop() {
     if (!cropImg || !cropBox) return;
     const scaleX = cropImg.naturalWidth  / cropImg.offsetWidth;
     const scaleY = cropImg.naturalHeight / cropImg.offsetHeight;
@@ -145,7 +145,10 @@
     const canvas = document.createElement('canvas');
     canvas.width = cw; canvas.height = ch;
     canvas.getContext('2d').drawImage(cropImg, cx, cy, cw, ch, 0, 0, cw, ch);
-    food.imgUrl = canvas.toDataURL('image/jpeg', 0.9);
+    // Cropping can still leave a multi-megapixel image when the selected
+    // source region is large. Run every result through the common 1920px
+    // fitter, just like the non-crop camera/gallery path.
+    food.imgUrl = await fitImageDataUrl(canvas.toDataURL('image/jpeg', 0.9));
     showCrop = false; cropSrc = '';
   }
 

@@ -14,6 +14,8 @@ import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
+import { localizeImageForStorage } from '../lib/image-localizer.js';
+import { stripInlineSnapshotImages } from '../lib/inline-images.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -137,10 +139,41 @@ router.get('/pull', wrap((req, res) => {
 // Receives batch of changed records from the client.
 // Each record has: client_id, server_id (if previously synced), and the data fields.
 // Returns a mapping of client_id → server_id for newly created records.
-router.post('/push', wrap((req, res) => {
+router.post('/push', wrap(async (req, res) => {
   const u = uid(req);
-  const { foods = [], meals = [], diary = [], activity = [], fasts = [], wellness = [], settings = [], workouts = [] } = req.body;
+  const {
+    foods: incomingFoods = [],
+    meals: incomingMeals = [],
+    diary: incomingDiary = [],
+    activity = [], fasts = [], wellness = [], settings = [], workouts = [],
+  } = req.body;
   const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [], workouts: [] };
+
+  // The native client is local-first, so newly-created food/meal images reach
+  // the server through sync rather than POST /api/foods. Normalize them before
+  // entering the synchronous SQLite transaction; otherwise base64 image bytes
+  // are persisted directly in foods.img_url / meals.img_url.
+  async function normalizeImage(record, kind) {
+    // Preserve tombstone image references. A future restore/deleted-item
+    // browser and image reference counter need the association to remain on
+    // the soft-deleted record until an explicit purge policy removes it.
+    if (!record.img_url) return record;
+    const localized = await localizeImageForStorage(
+      record.img_url,
+      `${kind} image for client item ${record.client_id ?? '(unknown)'}`
+    );
+    return { ...record, img_url: localized || null };
+  }
+
+  const foods = await Promise.all(incomingFoods.map(f => normalizeImage(f, 'food')));
+  const meals = await Promise.all(incomingMeals.map(async m => ({
+    ...(await normalizeImage(m, 'meal')),
+    items: stripInlineSnapshotImages(m.items),
+  })));
+  const diary = incomingDiary.map(d => ({
+    ...d,
+    items: stripInlineSnapshotImages(d.items),
+  }));
 
   // Normalize timestamp for comparison (strip T, Z, milliseconds)
   const norm = ts => ts ? ts.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '') : '';
@@ -157,7 +190,13 @@ router.post('/push', wrap((req, res) => {
       if (f.server_id && existing) {
         if (norm(f.updated_at) >= norm(existing.updated_at)) {
           if (f.deleted_at) {
-            db.prepare(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(f.server_id);
+            db.prepare(
+              `UPDATE foods
+               SET img_url = COALESCE(?, img_url),
+                   deleted_at = datetime('now'),
+                   updated_at = datetime('now')
+               WHERE id = ?`
+            ).run(f.img_url || null, f.server_id);
           } else {
             db.prepare(
               `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=datetime('now') WHERE id=?`
@@ -200,7 +239,13 @@ router.post('/push', wrap((req, res) => {
       if (m.server_id && existing) {
         if (norm(m.updated_at) >= norm(existing.updated_at)) {
           if (m.deleted_at) {
-            db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(m.server_id);
+            db.prepare(
+              `UPDATE meals
+               SET img_url = COALESCE(?, img_url),
+                   deleted_at = datetime('now'),
+                   updated_at = datetime('now')
+               WHERE id = ?`
+            ).run(m.img_url || null, m.server_id);
           } else {
             db.prepare(
               `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), updated_at=datetime('now') WHERE id=?`

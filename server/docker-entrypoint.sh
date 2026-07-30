@@ -25,4 +25,11 @@ for file_var in $(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*_FILE\)=.*/\1/p'); do
   unset "$file_var"
 done
 
+# Repair legacy inline images and compact SQLite before accepting requests.
+# Other commands (notably the optional --loop sidecar) skip this foreground
+# run; the primary server container is the single startup owner.
+if [ "${1-}" = "node" ] && [ "${2-}" = "index.js" ]; then
+  node image-maintenance.js --once
+fi
+
 exec "$@"

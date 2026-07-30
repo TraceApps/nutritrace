@@ -3,7 +3,8 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { sharingEnabled, canRead as _canRead } from '../lib/sharing.js';
-import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
+import { localizeImageForStorage } from '../lib/image-localizer.js';
+import { stripInlineSnapshotImages } from '../lib/inline-images.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -58,11 +59,11 @@ router.post('/', wrap(async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
   const vis = visibility || 'private';
-  const localImg = isExternalUrl(img_url) ? await localizeImage(img_url) : (img_url || null);
+  const localImg = img_url ? await localizeImageForStorage(img_url, 'meal image') : null;
   const result = db.prepare(
     `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-  ).run(u, name, JSON.stringify(nutrition || {}), JSON.stringify(items || []),
+  ).run(u, name, JSON.stringify(nutrition || {}), JSON.stringify(stripInlineSnapshotImages(items || [])),
     localImg, notes || null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
     servings != null ? Math.max(1, parseInt(servings) || 1) : null,
     vis, source_id || null);
@@ -70,7 +71,7 @@ router.post('/', wrap(async (req, res) => {
 }));
 
 // ── PUT /:id ──────────────────────────────────────────────────────────────
-router.put('/:id', wrap((req, res) => {
+router.put('/:id', wrap(async (req, res) => {
   const u = uid(req);
   const existing = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
@@ -86,14 +87,15 @@ router.put('/:id', wrap((req, res) => {
   // The old inline `img_url ?? existing.img_url` treated null as nullish and
   // preserved the existing image, so the MealEditor X-remove-photo button
   // silently failed to clear the photo on save. Parallel to the foods.js
-  // PUT fix for kilkalabs's report on #74 follow-up. Note: external-URL /
-  // data-URL localization on this route is a separate parity gap with the
-  // POST handler (line ~61) — out of scope for this fix.
-  const img = 'img_url' in req.body ? (img_url || null) : existing.img_url;
+  // PUT fix for kilkalabs's report on #74 follow-up. Keep image localization
+  // in parity with POST so inline image bytes cannot enter SQLite here.
+  const img = 'img_url' in req.body
+    ? (img_url ? await localizeImageForStorage(img_url, 'meal image') : null)
+    : existing.img_url;
   db.prepare(
     `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?, favorite=?, updated_at=datetime('now') WHERE id=?`
   ).run(name ?? existing.name, JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
-    JSON.stringify(items ?? JSON.parse(existing.items || '[]')), img,
+    JSON.stringify(stripInlineSnapshotImages(items ?? JSON.parse(existing.items || '[]'))), img,
     notes ?? existing.notes, is_recipe != null ? (is_recipe ? 1 : 0) : existing.is_recipe,
     portion ?? existing.portion, unit ?? existing.unit, srv,
     visibility ?? existing.visibility, fav, req.params.id);
@@ -151,7 +153,7 @@ router.patch('/:id/share', wrap((req, res) => {
 // Food items within the meal are handled client-side (foods have their own /copy endpoint).
 // We store items as embedded nutrition snapshots so the copy always works regardless of
 // whether the original food items are accessible to the new owner.
-router.post('/:id/copy', wrap((req, res) => {
+router.post('/:id/copy', wrap(async (req, res) => {
   const u = uid(req);
   if (!sharingEnabled()) return res.status(403).json({ error: 'Sharing is not enabled on this instance.' });
   const meal = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
@@ -165,10 +167,16 @@ router.post('/:id/copy', wrap((req, res) => {
     if (existing) return res.json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(existing.id)));
   }
 
+  // Do not duplicate a legacy inline canonical image or embedded snapshot if
+  // startup maintenance could not repair the source row.
+  const localImg = meal.img_url
+    ? await localizeImageForStorage(meal.img_url, 'copied meal image')
+    : null;
+  const items = stripInlineSnapshotImages(JSON.parse(meal.items || '[]'));
   const result = db.prepare(
     `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, visibility, source_id, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, datetime('now'))`
-  ).run(u, meal.name, meal.nutrition, meal.items, meal.img_url, meal.notes,
+  ).run(u, meal.name, meal.nutrition, JSON.stringify(items), localImg, meal.notes,
     meal.is_recipe, meal.portion, meal.unit, meal.id);
   res.status(201).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(result.lastInsertRowid)));
 }));

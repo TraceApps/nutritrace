@@ -7,6 +7,10 @@ fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
+// A maintenance sidecar may briefly hold an exclusive lock while VACUUM
+// compacts the database. Wait for it instead of surfacing transient
+// SQLITE_BUSY errors to API requests.
+db.pragma('busy_timeout = 30000');
 db.pragma('foreign_keys = ON');
 
 // ── Core tables ────────────────────────────────────────────────────────────

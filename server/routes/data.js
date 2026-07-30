@@ -2,6 +2,8 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
+import { localizeImageForStorage } from '../lib/image-localizer.js';
+import { stripInlineSnapshotImages } from '../lib/inline-images.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -32,9 +34,22 @@ router.delete('/', wrap((req, res) => {
 }));
 
 // Bulk import — accepts NutriTrace backup format (foodList/meals/recipes/diary)
-router.post('/import', wrap((req, res) => {
+router.post('/import', wrap(async (req, res) => {
   const { foodList = [], meals = [], recipes = [], diary = [], activity = [], fasts = [] } = req.body;
   const u = uid(req);
+  const localizedFoods = await Promise.all(foodList.map(async f => ({
+    ...f,
+    _localizedImg: (f.imgUrl || f.img_url)
+      ? await localizeImageForStorage(f.imgUrl || f.img_url, 'imported food image')
+      : null,
+  })));
+  const localizedMeals = await Promise.all([...meals, ...recipes].map(async m => ({
+    ...m,
+    _localizedImg: (m.imgUrl || m.img_url)
+      ? await localizeImageForStorage(m.imgUrl || m.img_url, 'imported meal image')
+      : null,
+    _isRecipe: recipes.includes(m),
+  })));
 
   // updated_at must be set explicitly: the differential sync engine filters
   // foods/meals by `updated_at >= since`, and rows inserted without it would
@@ -75,12 +90,12 @@ router.post('/import', wrap((req, res) => {
   );
 
   const run = db.transaction(() => {
-    for (const f of foodList) {
+    for (const f of localizedFoods) {
       insFood.run(
         u, f.name || '', f.brand || null,
         JSON.stringify(f.nutrition || {}),
         f.portion ?? 100, f.unit || 'g',
-        f.imgUrl || f.img_url || null,
+        f._localizedImg,
         f.notes || null,
         (f.categories && f.categories[0]) || f.category || null,
         f.barcode || null,
@@ -94,13 +109,13 @@ router.post('/import', wrap((req, res) => {
         f.density_g_ml != null ? Number(f.density_g_ml) : null
       );
     }
-    for (const m of [...meals, ...recipes]) {
+    for (const m of localizedMeals) {
       insMeal.run(
         u, m.name || '', JSON.stringify(m.nutrition || {}),
-        JSON.stringify(m.items || []),
-        m.imgUrl || m.img_url || null,
+        JSON.stringify(stripInlineSnapshotImages(m.items || [])),
+        m._localizedImg,
         m.notes || null,
-        recipes.includes(m) ? 1 : 0,
+        m._isRecipe ? 1 : 0,
         m.portion ?? 100, m.unit || 'g',
         m.servings != null ? Math.max(1, parseInt(m.servings) || 1) : null,
         m.visibility || 'private',
@@ -114,7 +129,7 @@ router.post('/import', wrap((req, res) => {
       if (!e.date) continue;
       insDiary.run(
         u, e.date,
-        JSON.stringify(e.items || []),
+        JSON.stringify(stripInlineSnapshotImages(e.items || [])),
         JSON.stringify(e.bodyStats || e.body_stats || {}),
         JSON.stringify(e.water || []),
         (typeof e.notes === 'string' && e.notes.trim()) ? e.notes : null

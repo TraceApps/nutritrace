@@ -6,14 +6,24 @@
  * inline data URLs does not affect display or the canonical image upload.
  */
 export function stripInlineDiaryImages(items) {
-  if (!Array.isArray(items)) return items;
   let changed = false;
-  const result = items.map(item => {
-    if (item && typeof item.imgUrl === 'string' && item.imgUrl.startsWith('data:')) {
-      changed = true;
-      return { ...item, imgUrl: '' };
+
+  function visit(value) {
+    if (Array.isArray(value)) return value.map(visit);
+    if (!value || typeof value !== 'object') return value;
+    const result = {};
+    for (const [key, item] of Object.entries(value)) {
+      if ((key === 'imgUrl' || key === 'img_url') &&
+          typeof item === 'string' && item.startsWith('data:image/')) {
+        result[key] = '';
+        changed = true;
+      } else {
+        result[key] = visit(item);
+      }
     }
-    return item;
-  });
+    return result;
+  }
+
+  const result = visit(items);
   return changed ? result : items;
 }

@@ -77,11 +77,13 @@ async function _hostnameResolvesPrivate(hostname) {
  * arbitrary content into /uploads/ via a fake MIME-typed data URL.
  *
  * Returns the (possibly updated) img_url. On any failure, returns the
- * original — never throws.
+ * original — never throws. Database write paths must use
+ * localizeImageForStorage() below, which turns a failed inline-image
+ * localization into a 422 instead of allowing base64 bytes into SQLite.
  */
 export async function localizeImage(img_url) {
   if (!img_url) return img_url;
-  if (img_url.startsWith('data:')) return await _localizeDataUrl(img_url);
+  if (/^data:/i.test(img_url)) return await _localizeDataUrl(img_url);
   if (!img_url.startsWith('http')) return img_url; // Already local
 
   // Check if it's already on our server
@@ -134,8 +136,7 @@ export async function localizeImage(img_url) {
       return img_url;
     }
 
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    fs.writeFileSync(filePath, buffer);
+    writeImageFileAtomically(filePath, buffer);
 
     const localPath = `/uploads/${filename}`;
     logger.debug(`[image-localizer] Downloaded: ${img_url.substring(0, 60)} → ${localPath}`);
@@ -152,9 +153,9 @@ export async function localizeImage(img_url) {
  * the decoded bytes so the declared MIME type can't be lied about.
  *
  * On invalid format / bad base64 / unrecognised image / oversize / disk
- * write failure: returns the original data URL untouched so the caller's
- * UPDATE/INSERT still succeeds — the storage bloat is recoverable on the
- * next save once the user fixes the offending image. Never throws.
+ * write failure: returns the original data URL untouched. This lets the
+ * maintenance job report and retry legacy rows; database write routes use
+ * localizeImageForStorage() and reject the request instead. Never throws.
  */
 async function _localizeDataUrl(dataUrl) {
   // Expected shape: data:image/<subtype>;base64,<base64-payload>
@@ -187,12 +188,14 @@ async function _localizeDataUrl(dataUrl) {
   // Hash the bytes — same image saved twice ends up under the same
   // filename, which avoids stray /uploads/ duplicates when a user
   // re-saves a food whose image hasn't changed.
-  const hash = crypto.createHash('md5').update(buf).digest('hex').slice(0, 12);
-  const filename = `${Date.now()}-${hash}${ext}`;
+  const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 24);
+  // Content-addressed naming makes repeated sync pushes and maintenance runs
+  // idempotent. The former timestamp prefix created a new file for identical
+  // bytes every time despite the hash in its name.
+  const filename = `image-${hash}${ext}`;
   const filePath = path.join(UPLOADS_DIR, filename);
   try {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    fs.writeFileSync(filePath, buf);
+    writeImageFileAtomically(filePath, buf);
   } catch (e) {
     logger.warn(`[image-localizer] Disk write failed for data URL: ${e.message}`);
     return dataUrl;
@@ -200,6 +203,69 @@ async function _localizeDataUrl(dataUrl) {
   const localPath = `/uploads/${filename}`;
   logger.debug(`[image-localizer] Inlined data URL → ${localPath} (${detected}, ${buf.length}b)`);
   return localPath;
+}
+
+/**
+ * Persistable variant used by every food/meal database writer.
+ *
+ * External URLs deliberately remain usable when downloading them fails, but
+ * inline data URLs must either become /uploads/ paths or fail the request.
+ * Keeping localizeImage() non-throwing is useful to the boot-time repair job,
+ * which needs to continue past a damaged legacy row.
+ */
+export async function localizeImageForStorage(imgUrl, context = 'image') {
+  if (!imgUrl) return imgUrl;
+  const isDataUrl = /^data:/i.test(imgUrl);
+  const localized = isExternalUrl(imgUrl) || isDataUrl
+    ? await localizeImage(imgUrl)
+    : imgUrl;
+  if (typeof localized === 'string' && /^data:/i.test(localized)) {
+    const err = new Error(`Could not store ${context}: inline image localization failed`);
+    err.status = 422;
+    throw err;
+  }
+  return localized;
+}
+
+/**
+ * Write through a same-directory temporary file and atomically rename it.
+ * A crash can leave an unreferenced .tmp file, but never a truncated final
+ * image. Content-addressed destinations are byte-checked before reuse; a
+ * stale/truncated file from an older version is repaired atomically.
+ */
+export function writeImageFileAtomically(filePath, buffer) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+  if (fs.existsSync(filePath)) {
+    try {
+      const existing = fs.readFileSync(filePath);
+      if (existing.equals(buffer)) return false;
+      logger.warn(`[image-localizer] Existing image differs; replacing atomically: ${path.basename(filePath)}`);
+    } catch (e) {
+      logger.warn(`[image-localizer] Could not verify existing image; replacing atomically: ${e.message}`);
+    }
+  }
+
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`
+  );
+  let fd;
+  try {
+    fd = fs.openSync(tempPath, 'wx', 0o644);
+    fs.writeFileSync(fd, buffer);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(tempPath, filePath);
+    return true;
+  } catch (e) {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch {}
+    }
+    try { fs.unlinkSync(tempPath); } catch {}
+    throw e;
+  }
 }
 
 /**
@@ -223,7 +289,7 @@ function _guessExtension(url) {
  */
 export function isExternalUrl(url) {
   if (!url) return false;
-  if (url.startsWith('data:image/')) return true;
+  if (/^data:image\//i.test(url)) return true;
   if (!url.startsWith('http')) return false;
   // A URL is "external" only if it does NOT point at our own /uploads/
   // directory. Earlier versions returned true for ANY http URL, which made

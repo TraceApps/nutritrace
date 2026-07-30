@@ -367,13 +367,7 @@ app.listen(PORT, () => {
     logger.warn(`[off-local-scheduler] failed to start: ${e.message}`);
   });
 
-  // (Boot-time image migration removed deliberately. Earlier versions ran a
-  // localizeImage pass over every food/meal row with an http(s) img_url on
-  // every server start, but isExternalUrl() matched the server's OWN host
-  // too, so the loop kept re-downloading the same files from itself,
-  // assigning fresh filenames and orphaning every diary snapshot that still
-  // pointed at the previous name. The proper fix is upstream: strip full
-  // server URLs back to relative /uploads/ paths at write time in
-  // _stripResolvedImgUrl + _stripCachedPaths so they never enter the
-  // foods/meals table in the first place. Don't reintroduce this loop.)
+  // Inline data-URL migration is intentionally handled by docker-entrypoint.sh
+  // before this process starts. Do not add the old http(s) image migration
+  // loop here: it re-downloaded this server's own /uploads files on restart.
 });

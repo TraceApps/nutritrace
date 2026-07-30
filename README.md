@@ -126,6 +126,22 @@ Request logs include the method, path, response status, duration, and the observ
 
 Set `LOG_LEVEL=trace` to also log parsed JSON request bodies. Credential-like fields are redacted, inline `data:` URLs are replaced with their byte size, query strings are omitted, and bodies are truncated to `TRACE_BODY_MAX_BYTES`. Request bodies can still contain private application data such as diary notes, so use trace logging only while diagnosing a problem.
 
+### Image storage maintenance
+
+On normal container startup, NutriTrace moves legacy inline food, meal, recipe, and diary images from SQLite into `UPLOADS_PATH`. It runs `VACUUM` before accepting requests only when that maintenance run actually localized database rows; an already-clean database is not exclusively locked and rewritten on every restart. The run has info-level start/finish summaries; set `LOG_LEVEL=debug` to also log each affected row, item ID, image size, and resulting upload path.
+
+Food and meal saves, sync pushes, imports, copies, and full-backup restores all localize inline images before writing SQLite. If an inline image cannot be decoded, validated, or written, the operation fails instead of storing the data URL in the database.
+
+Soft-deleted foods and meals retain their image references, and maintenance localizes those images as well. Maintenance does not delete upload files; image garbage collection should only remove files after accounting for active records, tombstones, and diary/recipe snapshot references.
+
+The bundled Compose file also provides an optional daily maintenance sidecar. It waits 24 hours with up to one hour of random jitter between runs, uses a shared database lease so it cannot overlap the startup process, and only vacuums after localizing rows:
+
+```bash
+docker compose --profile image-maintenance up -d
+```
+
+The sidecar mounts the same database and uploads directories as the main service. Keep both mounts identical if adapting the example.
+
 ## Data persistence
 
 Two host directories bind-mount:

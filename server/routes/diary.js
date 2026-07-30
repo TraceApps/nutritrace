@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { freshenItemImages } from '../lib/diary-helpers.js';
+import { stripInlineSnapshotImages } from '../lib/inline-images.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -43,22 +44,9 @@ router.get('/:date', wrap((req, res) => {
 // at read time with the food/meal's current image, so the stored snapshot
 // is effectively unused for display. Dropping the data URL on store is
 // pure waste-reduction with no behavior change.
-function _stripDataUrlImages(items) {
-  if (!Array.isArray(items)) return items;
-  let changed = false;
-  const out = items.map(it => {
-    if (it && typeof it.imgUrl === 'string' && it.imgUrl.startsWith('data:')) {
-      changed = true;
-      return { ...it, imgUrl: '' };
-    }
-    return it;
-  });
-  return changed ? out : items;
-}
-
 router.put('/:date', wrap((req, res) => {
   const { body_stats, water, notes } = req.body;
-  const items = _stripDataUrlImages(req.body.items);
+  const items = stripInlineSnapshotImages(req.body.items);
   const notesVal = (typeof notes === 'string' && notes.trim()) ? notes : null;
   const u = uid(req);
   const itemsJson = JSON.stringify(items || []);
@@ -127,25 +115,17 @@ router.delete('/:date', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
-// Fix any Capacitor cached paths that leaked into diary items
-function fixCachedPaths(items) {
+// Cached device-local paths are not server image references. Older versions
+// guessed an /uploads/ path from the cache filename, coupling correctness to
+// a filename regex and occasionally inventing paths that did not exist.
+function scrubDeviceLocalImagePaths(items) {
   if (!Array.isArray(items)) return items;
   let changed = false;
   const fixed = items.map(i => {
     if (!i.imgUrl) return i;
-    // Fix Capacitor cached paths — only restore to /uploads/ when the basename
-    // matches the server's localized image-naming pattern (timestamp-md5.ext,
-    // see server/lib/image-localizer.js). Cached externally-proxied images use
-    // the source URL basename (e.g. 'front.en.6.400.jpg' from OFF), which does
-    // not correspond to any /uploads/ file. Prepending /uploads/ would point
-    // every OFF-imported item at the same (or missing) /uploads/<basename>.
     if (i.imgUrl.includes('_capacitor_file_') || i.imgUrl.includes('/image_cache/')) {
-      const filename = i.imgUrl.split('/').pop();
       changed = true;
-      if (filename && /^\d{10,}-[0-9a-f]{8,16}\.\w+$/i.test(filename)) {
-        return { ...i, imgUrl: '/uploads/' + filename };
-      }
-      return { ...i, imgUrl: '' }; // basename doesn't match server format
+      return { ...i, imgUrl: '' };
     }
     // Fix mangled proxy URLs (e.g., /uploads/proxy)
     if (i.imgUrl === '/uploads/proxy' || i.imgUrl === '/uploads/proxy?url=') {
@@ -169,7 +149,7 @@ function parse(row) {
   const items = JSON.parse(row.items || '[]');
   return {
     ...row,
-    items:      freshenItemImages(fixCachedPaths(items)),
+    items:      freshenItemImages(scrubDeviceLocalImagePaths(items)),
     body_stats: JSON.parse(row.body_stats || '{}'),
     water:      JSON.parse(row.water      || '[]'),
     notes:      row.notes || '',

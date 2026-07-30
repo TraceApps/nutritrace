@@ -10,6 +10,11 @@ import { logger } from '../logger.js';
 import { seedSmtpFromEnv } from '../email.js';
 import { seedAiFromEnv } from '../ai.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import {
+  localizeImageForStorage,
+  writeImageFileAtomically,
+} from '../lib/image-localizer.js';
+import { localizeInlineSnapshotImages } from '../lib/inline-images.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -188,8 +193,39 @@ const upload = multer({
   limits: { fileSize: _backupMaxMb * 1024 * 1024 },
 });
 
-function restoreFromZip(zip) {
+async function localizeRestoreSnapshot(raw, context) {
+  if (!raw || (typeof raw === 'string' && !raw.includes('data:image/'))) return raw;
+  const wasSerialized = typeof raw === 'string';
+  const value = wasSerialized ? JSON.parse(raw) : raw;
+  const localized = await localizeInlineSnapshotImages(
+    value,
+    source => localizeImageForStorage(source, context)
+  );
+  return wasSerialized ? JSON.stringify(localized.value) : localized.value;
+}
+
+async function restoreFromZip(zip) {
   const data = JSON.parse(zip.readAsText('database.json'));
+
+  // Normalize before the destructive restore transaction. A failed inline
+  // image therefore aborts the restore without replacing the current DB.
+  data.foods = await Promise.all((data.foods || []).map(async food => ({
+    ...food,
+    img_url: food.img_url
+      ? await localizeImageForStorage(food.img_url, `restored food image id=${food.id ?? 'unknown'}`)
+      : null,
+  })));
+  data.meals = await Promise.all((data.meals || []).map(async meal => ({
+    ...meal,
+    img_url: meal.img_url
+      ? await localizeImageForStorage(meal.img_url, `restored meal image id=${meal.id ?? 'unknown'}`)
+      : null,
+    items: await localizeRestoreSnapshot(meal.items, `restored meal snapshot id=${meal.id ?? 'unknown'}`),
+  })));
+  data.diary = await Promise.all((data.diary || []).map(async entry => ({
+    ...entry,
+    items: await localizeRestoreSnapshot(entry.items, `restored diary snapshot id=${entry.id ?? entry.date ?? 'unknown'}`),
+  })));
 
   db.transaction(() => {
     db.prepare('DELETE FROM password_reset_tokens').run();
@@ -364,8 +400,7 @@ function restoreFromZip(zip) {
     const data = entry.getData();
     totalBytes += data.length;
     if (totalBytes > MAX_BYTES) throw new Error(`Backup uncompressed size exceeds ${MAX_BYTES} bytes (zip-bomb defense)`);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.writeFileSync(dest, data);
+    writeImageFileAtomically(dest, data);
   }
 
   // Re-apply env-var config so lock flags always reflect the current environment,
@@ -501,12 +536,12 @@ router.delete('/:name', requireAdmin, (req, res) => {
 });
 
 // ── POST /api/full-backup/:name/restore — restore from a server-side backup ─
-router.post('/:name/restore', requireAdmin, (req, res) => {
+router.post('/:name/restore', requireAdmin, async (req, res) => {
   const filename = path.basename(req.params.name);
   const filePath = path.join(BACKUPS_DIR, filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   try {
-    restoreFromZip(new AdmZip(filePath));
+    await restoreFromZip(new AdmZip(filePath));
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -514,10 +549,10 @@ router.post('/:name/restore', requireAdmin, (req, res) => {
 });
 
 // ── POST /api/full-backup/upload-restore — upload a ZIP and restore from it ─
-router.post('/upload-restore', requireAdmin, upload.single('backup'), (req, res) => {
+router.post('/upload-restore', requireAdmin, upload.single('backup'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
-    restoreFromZip(new AdmZip(req.file.path));
+    await restoreFromZip(new AdmZip(req.file.path));
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
