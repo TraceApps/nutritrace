@@ -538,7 +538,7 @@
     ['zh','Chinese'],['ar','Arabic'],['ko','Korean']
   ];
   const OFF_COUNTRY_OPTS = ['World','United States','United Kingdom','Australia','Canada',
-    'France','Germany','Spain','Italy','Mexico','Brazil','Japan','China','India'];
+    'France','Germany','Spain','Italy','Mexico','Brazil','Japan','China','India','Norway'];
   let offSearchLanguage = DB.getSetting('offSearchLanguage', 'en');
   let offSearchCountry  = DB.getSetting('offSearchCountry',  'World');
   let offUploadCountry  = DB.getSetting('offUploadCountry',  'Auto');

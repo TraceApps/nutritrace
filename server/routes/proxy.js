@@ -121,9 +121,10 @@ async function _tryLocalOff(parsedUrl) {
     logger.debug(`[off-local] barcode ${code} → hit from local mirror${airGap && result.status === 0 ? ' (air-gap, returning empty)' : ''}`);
     return result;
   }
-  // Name search: /search?q=...&page=...&page_size=...
-  if (host === 'search.openfoodfacts.org' && path === '/search') {
-    const q = parsedUrl.searchParams.get('q') || '';
+  // Name search: legacy /search?q=... and v2 /api/v2/search?search_terms=...
+  if ((host === 'search.openfoodfacts.org' && path === '/search') ||
+      (host === 'world.openfoodfacts.org' && path === '/api/v2/search')) {
+    const q = parsedUrl.searchParams.get('q') || parsedUrl.searchParams.get('search_terms') || '';
     const page = parseInt(parsedUrl.searchParams.get('page') || '1', 10);
     const pageSize = parseInt(parsedUrl.searchParams.get('page_size') || '20', 10);
     const result = await searchByName(q, { page, pageSize });

@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Open Food Facts country filtering now works for country-specific searches.** OFF search now uses the v2 search API with `countries_tags=en:<country>` filtering, and Norway is available in the OFF country dropdown.
+
 ---
 
 ## [1.0.5] - 2026-07-29

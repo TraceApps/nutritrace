@@ -53,7 +53,7 @@ async function _extFetch(url) {
 }
 
 // Read the user's saved OFF country-filter preference from localStorage.
-// Returns the OFF tag form (lowercase, dashes for spaces) or null when
+// Returns the OFF countries_tags value (for example `en:norway`) or null when
 // the user picked 'World' or hasn't set anything. Reading direct from
 // localStorage instead of the store to keep this module store-free.
 function _getOffSearchCountry() {
@@ -64,8 +64,22 @@ function _getOffSearchCountry() {
     if (!raw) return null;
     const country = JSON.parse(raw);
     if (!country || country === 'World') return null;
-    return country.toLowerCase().replace(/\s+/g, '-');
+    const slug = country.toLowerCase().replace(/\s+/g, '-');
+    return slug.startsWith('en:') ? slug : `en:${slug}`;
   } catch { return null; }
+}
+
+function _offSearchUrl(query, page, pageSize) {
+  const params = new URLSearchParams({
+    search_terms: query,
+    json: '1',
+    page_size: String(pageSize),
+    page: String(page),
+    lc: _getOffSearchLanguage(),
+  });
+  const country = _getOffSearchCountry();
+  if (country) params.set('countries_tags', country);
+  return `https://world.openfoodfacts.org/api/v2/search?${params.toString()}`;
 }
 
 // Read the user's saved OFF language preference (short ISO 639-1 code
@@ -135,10 +149,7 @@ const API = {
   async searchByName(query, page) {
     page = page || 1;
     try {
-      const country = _getOffSearchCountry();
-      const cq = country ? `&countries_tags_en=${encodeURIComponent(country)}` : '';
-      const lc = `&lc=${encodeURIComponent(_getOffSearchLanguage())}`;
-      const offUrl = `https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&json=1&page_size=50&page=${page}${cq}${lc}`;
+      const offUrl = _offSearchUrl(query, page, 50);
       const res = await _extFetch(offUrl);
       if (!res.ok) return [];
       const data = await res.json();
@@ -158,10 +169,7 @@ const API = {
   async searchByNameWithMeta(query, page, pageSize = 50) {
     page = page || 1;
     try {
-      const country = _getOffSearchCountry();
-      const cq = country ? `&countries_tags_en=${encodeURIComponent(country)}` : '';
-      const lc = `&lc=${encodeURIComponent(_getOffSearchLanguage())}`;
-      const offUrl = `https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&json=1&page_size=${pageSize}&page=${page}${cq}${lc}`;
+      const offUrl = _offSearchUrl(query, page, pageSize);
       const res = await _extFetch(offUrl);
       if (!res.ok) return { items: [], totalHits: 0, page, hasMore: false };
       const data = await res.json();
