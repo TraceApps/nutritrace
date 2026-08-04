@@ -1,4 +1,4 @@
-name: Build & Push to GHCR
+name: Build & Push
 
 on:
   push:
@@ -39,24 +39,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      # Derive tags from the ref:
-      #   semver tag v1.2.3 → :1.2.3, :1.2, :1
-      #   push to main      → :latest, :main, :sha-<shortsha>
-      #   push to dev       → :dev, :sha-<shortsha>
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Derive tags from the ref, mirrored to both registries:
+      #   semver tag v1.2.3 → :1.2.3, :1.2, :1, :latest
+      #   push to main      → :latest
+      #   push to dev       → :dev
       # Users pin :dev for the leading edge, :latest for stable
-      # releases, or :1.0 for auto-patch within a minor.
+      # releases, or :1.0 for auto-patch within a minor. Same tag set
+      # exists at both ghcr.io/traceapps/nutritrace (primary) and
+      # traceapps/nutritrace on Docker Hub (discoverability mirror).
+      #
+      # `:main` and `:sha-*` intentionally not emitted:
+      #   - `:main` would be identical to `:latest` (both fire on every
+      #     main push) — redundant.
+      #   - `:sha-*` per-commit tags accumulate fast on a busy dev branch
+      #     and clutter the registry tag list — reproducibility for
+      #     stable is covered by `:1.2.3` semver pins, and dev-side
+      #     reproducibility can use manifest digests instead.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/traceapps/nutritrace
+          images: |
+            ghcr.io/traceapps/nutritrace
+            traceapps/nutritrace
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=sha
+            type=ref,event=branch,enable=${{ github.ref == 'refs/heads/dev' }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
