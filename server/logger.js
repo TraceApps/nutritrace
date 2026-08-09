@@ -1,9 +1,16 @@
 /**
  * Simple structured logger — outputs to stdout/stderr with timestamps.
- * Set LOG_LEVEL env var to 'error' | 'warn' | 'info' | 'debug' (default: info)
+ * Set LOG_LEVEL env var to 'error' | 'warn' | 'info' | 'debug' | 'trace'
+ * (default: info)
  */
-const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
-const LOG_LEVEL = LEVELS[process.env.LOG_LEVEL] ?? LEVELS.info;
+const LEVELS = { error: 0, warn: 1, info: 2, debug: 3, trace: 4 };
+const configuredLevel = String(process.env.LOG_LEVEL || 'info').toLowerCase();
+const LOG_LEVEL = LEVELS[configuredLevel] ?? LEVELS.info;
+
+export function isLevelEnabled(level, configured = configuredLevel) {
+  const threshold = LEVELS[String(configured).toLowerCase()] ?? LEVELS.info;
+  return LEVELS[level] !== undefined && LEVELS[level] <= threshold;
+}
 
 function log(level, ...args) {
   if (LEVELS[level] > LOG_LEVEL) return;
@@ -18,6 +25,8 @@ export const logger = {
   warn:  (...a) => log('warn',  ...a),
   info:  (...a) => log('info',  ...a),
   debug: (...a) => log('debug', ...a),
+  trace: (...a) => log('trace', ...a),
+  isEnabled: level => isLevelEnabled(level),
 };
 
 /** Wraps an async Express route handler so thrown errors reach the error middleware. */

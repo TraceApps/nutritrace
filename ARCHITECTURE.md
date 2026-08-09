@@ -184,7 +184,9 @@ See `.env.example` for the full list. Key ones:
 
 - `JWT_SECRET`, required for production (warns at startup if not set)
 - `RECOVERY_TOKEN`, required for lockout recovery
-- `LOG_LEVEL`, error / warn / info (default) / debug
+- `LOG_LEVEL`, error / warn / info (default) / debug / trace
+- `TRACE_REQUEST_BODIES`, separately opts sensitive request content into trace logs
+- `TRACE_REQUEST_PATHS` and `TRACE_BODY_MAX_BYTES`, limit traced routes and output size
 - `SMTP_*`, optional, locks Settings UI fields when set
 - `AI_*`, optional, locks AI Assistant settings when set
 

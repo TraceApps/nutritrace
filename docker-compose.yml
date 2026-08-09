@@ -55,8 +55,12 @@ services:
       # - INSECURE_COOKIES=${INSECURE_COOKIES:-}
       # Optional — mount at a subpath instead of root (for reverse-proxy setups)
       # - BASE_URL=/nutritrace
-      # Optional — log level: error | warn | info (default) | debug
+      # Optional — log level: error | warn | info (default) | debug | trace
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Request bodies require a second explicit opt-in at trace level.
+      - TRACE_REQUEST_BODIES=${TRACE_REQUEST_BODIES:-}
+      - TRACE_REQUEST_PATHS=${TRACE_REQUEST_PATHS:-/api/diary,/api/sync/push}
+      - TRACE_BODY_MAX_BYTES=${TRACE_BODY_MAX_BYTES:-32768}
       # Optional — SMTP email (for password reset & invites). Can also be set in Settings UI.
       - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-587}

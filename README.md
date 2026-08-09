@@ -109,7 +109,10 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `UPLOADS_PATH` | Yes | `/data/uploads` | Upload directory inside the container. |
 | `PORT` | No | `3001` | Container-side port the server listens on. |
 | `BASE_URL` | No |  | Subpath prefix when mounted behind a reverse proxy (e.g. `/nt`). |
-| `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug`. |
+| `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug` \| `trace`. |
+| `TRACE_REQUEST_BODIES` | No | unset | Set to `1` with trace logging to include redacted request bodies. |
+| `TRACE_REQUEST_PATHS` | No | `/api/diary,/api/sync/push` | Comma-separated body-trace path prefixes; `*` traces all paths. |
+| `TRACE_BODY_MAX_BYTES` | No | `32768` | Maximum serialized bytes emitted for one traced request body. |
 | `INSECURE_COOKIES` | If on plain HTTP | unset | `1` drops the `Secure` cookie flag; needed only on plain-HTTP LAN. See [docs/getting-started/lan-http/](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `MAX_SESSION_HOURS` | No | `720` | Auth cookie lifetime. |
 | `RECOVERY_TOKEN` | No |  | Passphrase to disable user management from the login page (lockout recovery). |
@@ -122,6 +125,12 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `SMTP_HOST` | No |  | SMTP server for password reset & invites; also `SMTP_PORT` (587), `SMTP_SECURE` (false), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. |
 
 Full list (Docker secrets `*_FILE` variants, air-gap `OFF_LOCAL_ONLY`, per-provider AI knobs, all `OIDC_*` options) at [docs/self-hosting/env-vars/](https://traceapps.github.io/docs/self-hosting/env-vars/). SMTP and AI can also be set in the Settings UI; env vars take priority and lock those fields.
+
+### Request logging
+
+Request logs include method, path, response status, duration, and the observed body size for `POST`, `PUT`, `PATCH`, and `DELETE`. Oversized JSON requests return HTTP 413 with `size_bytes` and `limit_bytes` fields.
+
+`LOG_LEVEL=trace` enables fine-grained trace calls, but request content remains off unless `TRACE_REQUEST_BODIES=1` is also set. Traced JSON is recursively redacted for credential-like fields, inline `data:` URLs are replaced with byte-size summaries, query strings are omitted, and output is capped by `TRACE_BODY_MAX_BYTES`. Bodies can still contain private diary and health data; enable body tracing only temporarily and do not publish the resulting logs without reviewing them.
 
 ## Data persistence
 

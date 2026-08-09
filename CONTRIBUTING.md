@@ -7,7 +7,7 @@ Thanks for your interest in NutriTrace.
 - Open an issue at [github.com/traceapps/nutritrace/issues](https://github.com/traceapps/nutritrace/issues).
 - Include your version (Settings → About), what you expected, and what you saw.
 - For sync issues, include whether you're on PWA or native Android, and your server version.
-- Don't paste server logs publicly without redacting — `LOG_LEVEL=debug` includes personal health data (HRV, RHR, sleep) and any tokens that happened to be in flight.
+- Don't paste server logs publicly without redacting — debug output can contain personal health data, and trace request bodies can contain diary entries, notes, or other private content despite credential redaction.
 
 ## Suggesting features
 
