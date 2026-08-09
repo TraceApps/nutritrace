@@ -111,7 +111,7 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `BASE_URL` | No |  | Subpath prefix when mounted behind a reverse proxy (e.g. `/nt`). |
 | `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug` \| `trace`. |
 | `TRACE_REQUEST_BODIES` | No | unset | Set to `1` with trace logging to include redacted request bodies. |
-| `TRACE_REQUEST_PATHS` | No | `/api/diary,/api/sync/push` | Comma-separated body-trace path prefixes; `*` traces all paths. |
+| `TRACE_REQUEST_PATHS` | No | `/api/diary,/api/sync/push` | Comma-separated body-trace path prefixes; `*` traces all and `none` traces no request bodies. |
 | `TRACE_BODY_MAX_BYTES` | No | `32768` | Maximum serialized bytes emitted for one traced request body. |
 | `INSECURE_COOKIES` | If on plain HTTP | unset | `1` drops the `Secure` cookie flag; needed only on plain-HTTP LAN. See [docs/getting-started/lan-http/](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `MAX_SESSION_HOURS` | No | `720` | Auth cookie lifetime. |
@@ -128,9 +128,11 @@ Full list (Docker secrets `*_FILE` variants, air-gap `OFF_LOCAL_ONLY`, per-provi
 
 ### Request logging
 
-Request logs include method, path, response status, duration, and the observed body size for `POST`, `PUT`, `PATCH`, and `DELETE`. Oversized JSON requests return HTTP 413 with `size_bytes` and `limit_bytes` fields.
+API request logs include a client/server correlation ID, method, path, response status, duration, outcome, and observed wire-body bytes. Uploaded images and frontend assets are not request-logged. `Content-Length` is reported separately as an untrusted `declared_bytes` value and is never substituted for bytes actually observed. Oversized JSON requests return HTTP 413 with `request_id`, observed `size_bytes` (or `null`), `declared_bytes`, and `limit_bytes` fields.
 
-`LOG_LEVEL=trace` enables fine-grained trace calls, but request content remains off unless `TRACE_REQUEST_BODIES=1` is also set. Traced JSON is recursively redacted for credential-like fields, inline `data:` URLs are replaced with byte-size summaries, query strings are omitted, and output is capped by `TRACE_BODY_MAX_BYTES`. Bodies can still contain private diary and health data; enable body tracing only temporarily and do not publish the resulting logs without reviewing them.
+`LOG_LEVEL=trace` enables fine-grained internal trace calls, but request content remains off unless `TRACE_REQUEST_BODIES=1` is also set. Minimal byte counting happens before body-size enforcement; body inspection happens only after parsing and access checks. Selected request bodies, including sync pushes, use bounded traversal with credential and setting-value redaction, URL sanitization, inline `data:` URL summaries, and the `TRACE_BODY_MAX_BYTES` output cap. Query strings are omitted. Bodies can still contain private diary and health data; enable body tracing only temporarily and do not publish the resulting logs without reviewing them.
+
+The app sends `X-Request-ID` to the server and records the same ID in verbose client diagnostics. The server returns the ID on responses, so a failing app request can be matched directly to its server log. Invalid logging configuration fails at startup instead of silently falling back.
 
 ## Data persistence
 

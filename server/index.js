@@ -36,10 +36,17 @@ import { logger }   from './logger.js';
 import { authenticate, userMgmtActive } from './middleware/auth.js';
 import { csrfProtect } from './middleware/csrf.js';
 import { makeRateLimiter } from './middleware/rate-limit.js';
-import { formatBytes, requestLogging, requestLogPath } from './middleware/request-logging.js';
+import {
+  captureRequestTraceBody,
+  recordParserBodyError,
+  requestBodySizeDetails,
+  requestLogging,
+  validateRequestLoggingConfig,
+} from './middleware/request-logging.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv } from './ai.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
+import { APP_VERSION } from './routes/version-source.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -52,6 +59,8 @@ seedOidcFromEnv();
 const app  = express();
 const PORT = process.env.PORT || 3001;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+validateRequestLoggingConfig();
 
 // ── Reverse-proxy / subpath support ───────────────────────────────────────
 // BASE_URL lets users mount NutriTrace at a path other than root, e.g. for
@@ -68,8 +77,8 @@ if (BASE_URL && !BASE_URL.startsWith('/')) {
 // relative to the mount point so existing path checks keep working.
 const router = express.Router();
 
-// Register before body parsing so malformed and oversized requests are still
-// measured and logged. Parsed request content remains separately opt-in.
+// Start API request diagnostics before consuming the body so rejected or
+// interrupted requests still have an ID, observed byte count, and outcome.
 router.use(requestLogging);
 
 // Per-route JSON limits for endpoints that legitimately handle large payloads
@@ -112,7 +121,8 @@ router.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token, X-Request-ID');
+      res.setHeader('Access-Control-Expose-Headers', 'X-Request-ID');
       if (req.method === 'OPTIONS') return res.sendStatus(204);
     }
   }
@@ -132,9 +142,9 @@ router.use('/api/proxy', proxyRoutes);
 
 router.use(authenticate);   // attach req.user on every request
 router.use(csrfProtect);   // CSRF protection for cookie-based sessions
+// Optional body summaries are captured only from parsed, access-checked requests.
+router.use(captureRequestTraceBody);
 
-// ── Request logging ────────────────────────────────────────────────────────
-// The middleware itself is registered before the JSON parsers above.
 // Prevent browser/proxy caching of all API responses
 router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
@@ -336,18 +346,17 @@ app.use(BASE_URL || '/', router);
 // eslint-disable-next-line no-unused-vars
 router.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') {
-    const declared = Number.parseInt(req.get('content-length') || '', 10);
-    const actual = Number.isFinite(err.length) ? err.length
-      : Number.isFinite(err.received) ? err.received
-        : declared;
-    logger.error(
-      `${req.method} ${requestLogPath(req)} — request body ${formatBytes(actual)} exceeds ${formatBytes(err.limit)} limit`
-    );
+    recordParserBodyError(req, err);
+    const sizes = requestBodySizeDetails(req);
+    const actual = sizes.parserBytesReceived
+      ?? (sizes.wireBytesReceived > 0 ? sizes.wireBytesReceived : null);
     if (!res.headersSent) {
       return res.status(413).json({
         error: 'Request body too large',
-        size_bytes: Number.isFinite(actual) ? actual : null,
-        limit_bytes: err.limit,
+        request_id: req.requestId || null,
+        size_bytes: actual,
+        declared_bytes: sizes.declaredBytes,
+        limit_bytes: sizes.limitBytes,
       });
     }
     return;
@@ -368,7 +377,7 @@ process.on('uncaughtException', (err) => {
 });
 
 app.listen(PORT, () => {
-  logger.info(`NutriTrace running on port ${PORT}`);
+  logger.info(`NutriTrace ${APP_VERSION} running on port ${PORT}`);
 
   // Start the notification + sync scheduler
   import('./lib/scheduler.js').then(({ startScheduler }) => startScheduler()).catch(e => {

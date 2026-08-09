@@ -5,10 +5,19 @@
  */
 const LEVELS = { error: 0, warn: 1, info: 2, debug: 3, trace: 4 };
 const configuredLevel = String(process.env.LOG_LEVEL || 'info').toLowerCase();
-const LOG_LEVEL = LEVELS[configuredLevel] ?? LEVELS.info;
+
+export function validateLogLevel(level = configuredLevel) {
+  const normalized = String(level).toLowerCase();
+  if (LEVELS[normalized] === undefined) {
+    throw new Error(`Invalid LOG_LEVEL "${level}"; expected error, warn, info, debug, or trace`);
+  }
+  return normalized;
+}
+
+const LOG_LEVEL = LEVELS[validateLogLevel()];
 
 export function isLevelEnabled(level, configured = configuredLevel) {
-  const threshold = LEVELS[String(configured).toLowerCase()] ?? LEVELS.info;
+  const threshold = LEVELS[validateLogLevel(configured)];
   return LEVELS[level] !== undefined && LEVELS[level] <= threshold;
 }
 

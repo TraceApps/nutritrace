@@ -59,7 +59,10 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       # Request bodies require a second explicit opt-in at trace level.
       - TRACE_REQUEST_BODIES=${TRACE_REQUEST_BODIES:-}
-      - TRACE_REQUEST_PATHS=${TRACE_REQUEST_PATHS:-/api/diary,/api/sync/push}
+      # A deliberately empty value or `none` disables body tracing while
+      # preserving internal LOG_LEVEL=trace activity. Single `-` means the
+      # default applies only when the host variable is truly unset.
+      - TRACE_REQUEST_PATHS=${TRACE_REQUEST_PATHS-/api/diary,/api/sync/push}
       - TRACE_BODY_MAX_BYTES=${TRACE_BODY_MAX_BYTES:-32768}
       # Optional — SMTP email (for password reset & invites). Can also be set in Settings UI.
       - SMTP_HOST=${SMTP_HOST:-}
