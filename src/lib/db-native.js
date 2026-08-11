@@ -8,6 +8,7 @@
  */
 
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
+import { hydrateWithoutFoods } from './diary-hydration.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -799,7 +800,7 @@ async function _hydrateItems(items) {
         if (typeof id === 'number') foodIds.add(id);
       }
     }
-    if (!foodIds.size) return items.map(_hydrateSplitChildren);
+    if (!foodIds.size) return hydrateWithoutFoods(items, _hydrateSplitChildren);
     const db = await getDb();
     const placeholders = Array.from(foodIds).map(() => '?').join(',');
     const r = await db.query(

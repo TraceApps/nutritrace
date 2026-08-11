@@ -288,11 +288,15 @@ export async function addDiaryItem(foodItem, meal, date) {
     items: [...(entry.items || []), item],
   }));
 
-  // Bump usage_count + last_used_at on the source food so it can rise in
-  // the "Most Used" / "Recently Used" sort modes. Fire-and-forget; a failed
-  // bump shouldn't block the diary save the user already saw succeed.
+  // Bump usage_count + last_used_at on the correct source table so foods,
+  // meals, and recipes can rise in their "Most Used" / "Recently Used"
+  // sort modes. Fire-and-forget; a failed bump shouldn't block the diary
+  // save the user already saw succeed.
   if (typeof item.id === 'number') {
-    NtApi.markFoodUsed(item.id, targetDate).catch(() => {});
+    const usageUpdate = item.is_recipe
+      ? NtApi.markMealUsed(item.id, targetDate)
+      : NtApi.markFoodUsed(item.id, targetDate);
+    usageUpdate.catch(() => {});
   }
 }
 
