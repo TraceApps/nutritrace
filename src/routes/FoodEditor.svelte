@@ -11,6 +11,7 @@
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import Toggle from '../components/settings/Toggle.svelte';
   import UnitPicker from '../components/ui/UnitPicker.svelte';
+  import ImageCropper from '../components/ui/ImageCropper.svelte';
   import { takePhoto } from '../lib/camera.js';
   import { isNative } from '../lib/platform.js';
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
@@ -33,9 +34,6 @@
   let cameraStream = null;
   let showCrop    = false;
   let cropSrc     = '';
-  let cropImg     = null;
-  let cropBox     = null;
-  let cropDragging = false, cropStartX, cropStartY, cropOrigL, cropOrigT;
 
   function openGallery() { fileInput && fileInput.click(); }
 
@@ -106,49 +104,6 @@
   }
 
   function removePhoto() { food.imgUrl = ''; }
-
-  // Crop UI helpers
-  function onCropImgLoad() {
-    if (!cropImg || !cropBox) return;
-    const w = cropImg.offsetWidth, h = cropImg.offsetHeight;
-    cropBox.style.left   = Math.round(w * 0.1) + 'px';
-    cropBox.style.top    = Math.round(h * 0.1) + 'px';
-    cropBox.style.width  = Math.round(w * 0.8) + 'px';
-    cropBox.style.height = Math.round(h * 0.8) + 'px';
-  }
-
-  function cropStartDrag(e) {
-    cropDragging = true;
-    const pt = e.touches ? e.touches[0] : e;
-    cropStartX = pt.clientX; cropStartY = pt.clientY;
-    cropOrigL = parseInt(cropBox.style.left); cropOrigT = parseInt(cropBox.style.top);
-    e.preventDefault();
-  }
-
-  function cropMoveDrag(e) {
-    if (!cropDragging || !cropImg || !cropBox) return;
-    const pt = e.touches ? e.touches[0] : e;
-    const w = cropImg.offsetWidth, h = cropImg.offsetHeight;
-    cropBox.style.left = Math.max(0, Math.min(w - parseInt(cropBox.style.width),  cropOrigL + pt.clientX - cropStartX)) + 'px';
-    cropBox.style.top  = Math.max(0, Math.min(h - parseInt(cropBox.style.height), cropOrigT + pt.clientY - cropStartY)) + 'px';
-  }
-
-  function cropEndDrag() { cropDragging = false; }
-
-  function confirmCrop() {
-    if (!cropImg || !cropBox) return;
-    const scaleX = cropImg.naturalWidth  / cropImg.offsetWidth;
-    const scaleY = cropImg.naturalHeight / cropImg.offsetHeight;
-    const cx = parseInt(cropBox.style.left) * scaleX;
-    const cy = parseInt(cropBox.style.top)  * scaleY;
-    const cw = parseInt(cropBox.style.width)  * scaleX;
-    const ch = parseInt(cropBox.style.height) * scaleY;
-    const canvas = document.createElement('canvas');
-    canvas.width = cw; canvas.height = ch;
-    canvas.getContext('2d').drawImage(cropImg, cx, cy, cw, ch, 0, 0, cw, ch);
-    food.imgUrl = canvas.toDataURL('image/jpeg', 0.9);
-    showCrop = false; cropSrc = '';
-  }
 
   export let params = {};
 
@@ -832,32 +787,18 @@
 
     <!-- Crop popup -->
     {#if showCrop}
-      <div class="cam-overlay" role="dialog" aria-modal="true" use:portal>
-        <div class="cam-popup">
-          <div class="cam-header">
-            <span class="cam-title">{$_('food_editor.crop_photo')}</span>
-            <button class="btn-icon" on:click={() => { showCrop = false; cropSrc = ''; }} aria-label={$_('food_editor.cancel')} title={$_('food_editor.cancel')}>
-              <span class="material-symbols-rounded">close</span>
-            </button>
-          </div>
-          <p class="crop-hint">{$_('food_editor.crop_hint')}</p>
-          <div class="crop-container"
-            on:mousemove={cropMoveDrag}
-            on:touchmove={cropMoveDrag}
-            on:mouseup={cropEndDrag}
-            on:touchend={cropEndDrag}
-          >
-            <img bind:this={cropImg} src={cropSrc} class="crop-img" alt="Crop" on:load={onCropImgLoad} />
-            <div bind:this={cropBox} class="crop-box"
-              on:mousedown={cropStartDrag}
-              on:touchstart={cropStartDrag}
-            ></div>
-          </div>
-          <div class="cam-footer">
-            <button class="btn btn-primary" on:click={confirmCrop}>Crop &amp; Use</button>
-          </div>
-        </div>
-      </div>
+      <ImageCropper
+        src={cropSrc}
+        title={$_('food_editor.crop_photo')}
+        hint={$_('food_editor.crop_hint')}
+        cancelLabel={$_('food_editor.cancel')}
+        on:confirm={(event) => {
+          food.imgUrl = event.detail.dataUrl;
+          showCrop = false;
+          cropSrc = '';
+        }}
+        on:cancel={() => { showCrop = false; cropSrc = ''; }}
+      />
     {/if}
 
     <!-- Basic info -->
@@ -1438,18 +1379,6 @@
     flex-shrink: 0;
   }
   :global(.cam-capture-btn) { gap: 6px; min-width: 140px; }
-  :global(.crop-hint) { padding: 8px 16px 0; font-size: 12px; color: var(--text-3); }
-  :global(.crop-container) { position: relative; overflow: hidden; user-select: none; touch-action: none; }
-  :global(.crop-img) { display: block; max-width: 100%; max-height: 55vh; user-select: none; }
-  :global(.crop-box) {
-    position: absolute;
-    border: 2px solid #fff;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
-    cursor: move;
-    box-sizing: border-box;
-    touch-action: none;
-  }
-
   /* Scan Label button — sits in the Nutrition card title row. Icon + text
      so the action is obvious (camera alone could be confused with food
      photo / profile picture). Compact enough to fit the title row on

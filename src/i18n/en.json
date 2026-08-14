@@ -1193,7 +1193,7 @@
     "card_nutrition":    "Nutrition",
     "take_photo":        "Take Photo",
     "crop_photo":        "Crop Photo",
-    "crop_hint":         "Drag the box to reposition",
+    "crop_hint":         "Drag the box to reposition; drag the corner to resize",
     "field_brand":       "Brand",
     "field_serving_size":"Serving Size",
     "field_unit":        "Unit",

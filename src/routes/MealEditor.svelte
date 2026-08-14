@@ -12,6 +12,7 @@
   import Sheet from '../components/ui/Sheet.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import UnitPicker from '../components/ui/UnitPicker.svelte';
+  import ImageCropper from '../components/ui/ImageCropper.svelte';
   import { scaleFactor as _unitScaleFactor, amountAndUnit } from '../lib/units.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearMealEditorState } from '../stores/editorState.js';
@@ -41,9 +42,6 @@
   let videoEl = null;
   let cropOpen = false;
   let cropSrc = '';
-  let cropImgEl = null;
-  let cropBoxX = 0, cropBoxY = 0, cropBoxSize = 200;
-  let cropDragging = false, cropDragStartX = 0, cropDragStartY = 0, cropBoxStartX = 0, cropBoxStartY = 0;
 
   // Recipe fields. recipeAmount is the TOTAL weight of the finished dish
   // (auto-filled from ingredients; user can override for boil-off). recipeYields
@@ -153,7 +151,7 @@
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async ev => {
-      if ($cropPhotos) { cropSrc = ev.target.result; cropOpen = true; initCropBox(); }
+      if ($cropPhotos) { cropSrc = ev.target.result; cropOpen = true; }
       else { photoPreviewUrl = await fitImageDataUrl(ev.target.result); }
     };
     reader.readAsDataURL(file);
@@ -167,7 +165,7 @@
         if (!file) return;
         const reader = new FileReader();
         reader.onload = async ev => {
-          if ($cropPhotos) { cropSrc = ev.target.result; cropOpen = true; initCropBox(); }
+          if ($cropPhotos) { cropSrc = ev.target.result; cropOpen = true; }
           else { photoPreviewUrl = await fitImageDataUrl(ev.target.result); }
         };
         reader.readAsDataURL(file);
@@ -189,7 +187,7 @@
     canvas.getContext('2d').drawImage(videoEl, 0, 0);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
     closeCamera();
-    if ($cropPhotos) { cropSrc = dataUrl; cropOpen = true; initCropBox(); }
+    if ($cropPhotos) { cropSrc = dataUrl; cropOpen = true; }
     else { photoPreviewUrl = await fitImageDataUrl(dataUrl); }
   }
 
@@ -197,41 +195,6 @@
     if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
     cameraOpen = false;
   }
-
-  function initCropBox() {
-    cropBoxX = 20; cropBoxY = 20; cropBoxSize = 200;
-  }
-
-  function confirmCrop() {
-    if (!cropImgEl) return;
-    const canvas = document.createElement('canvas');
-    const scaleX = cropImgEl.naturalWidth / cropImgEl.offsetWidth;
-    const scaleY = cropImgEl.naturalHeight / cropImgEl.offsetHeight;
-    canvas.width = 300; canvas.height = 300;
-    canvas.getContext('2d').drawImage(
-      cropImgEl,
-      cropBoxX * scaleX, cropBoxY * scaleY,
-      cropBoxSize * scaleX, cropBoxSize * scaleY,
-      0, 0, 300, 300
-    );
-    photoPreviewUrl = canvas.toDataURL('image/jpeg', 0.85);
-    cropOpen = false; cropSrc = '';
-  }
-
-  function onCropMouseDown(e) {
-    cropDragging = true;
-    cropDragStartX = e.clientX; cropDragStartY = e.clientY;
-    cropBoxStartX = cropBoxX; cropBoxStartY = cropBoxY;
-    e.preventDefault();
-  }
-  function onCropMouseMove(e) {
-    if (!cropDragging || !cropImgEl) return;
-    const maxX = cropImgEl.offsetWidth - cropBoxSize;
-    const maxY = cropImgEl.offsetHeight - cropBoxSize;
-    cropBoxX = Math.max(0, Math.min(maxX, cropBoxStartX + (e.clientX - cropDragStartX)));
-    cropBoxY = Math.max(0, Math.min(maxY, cropBoxStartY + (e.clientY - cropDragStartY)));
-  }
-  function onCropMouseUp() { cropDragging = false; }
 
   // ── Ingredient picker ──────────────────────────────────────────────────────
   async function openPicker() {
@@ -1137,32 +1100,20 @@
 
 <!-- ── Crop overlay ── -->
 {#if cropOpen}
-  <div class="cam-overlay" role="dialog" aria-modal="true" use:portal>
-    <div class="cam-popup">
-      <div class="cam-header">
-        <span class="cam-title">{$_('meal_editor_deep.crop_photo')}</span>
-        <button class="btn-icon" on:click={() => { cropOpen = false; cropSrc = ''; }} title="Cancel">
-          <span class="material-symbols-rounded">close</span>
-        </button>
-      </div>
-      <div class="crop-container"
-        on:mousemove={onCropMouseMove}
-        on:mouseup={onCropMouseUp}
-        on:mouseleave={onCropMouseUp}
-        role="img" aria-label="Crop area">
-        <img bind:this={cropImgEl} src={cropSrc} alt="crop" class="crop-img" draggable="false" />
-        <div class="crop-box"
-          style="left:{cropBoxX}px;top:{cropBoxY}px;width:{cropBoxSize}px;height:{cropBoxSize}px"
-          on:mousedown={onCropMouseDown}
-          role="button" tabindex="0"
-          aria-label="Drag to reposition crop"
-          on:keydown={() => {}}></div>
-      </div>
-      <div class="cam-footer">
-        <button class="btn btn-primary cam-capture-btn" on:click={confirmCrop}>{$_('meal_editor.use_this_crop')}</button>
-      </div>
-    </div>
-  </div>
+  <ImageCropper
+    src={cropSrc}
+    title={$_('meal_editor_deep.crop_photo')}
+    hint={$_('food_editor.crop_hint')}
+    confirmLabel={$_('meal_editor.use_this_crop')}
+    cancelLabel={$_('food_editor.cancel')}
+    outputSize={300}
+    on:confirm={(event) => {
+      photoPreviewUrl = event.detail.dataUrl;
+      cropOpen = false;
+      cropSrc = '';
+    }}
+    on:cancel={() => { cropOpen = false; cropSrc = ''; }}
+  />
 {/if}
 
 <style>
@@ -1399,11 +1350,4 @@
   .picker-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .picker-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  /* Camera / Crop overlays — shared styles live in FoodEditor's :global CSS */
-  :global(.crop-box) {
-    position: absolute;
-    border: 2px solid var(--accent);
-    cursor: grab;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
-  }
 </style>
