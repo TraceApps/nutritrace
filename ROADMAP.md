@@ -120,6 +120,9 @@ A dedicated **Dashboard** page that correlates data across all domains (nutritio
 
 ## Diary Enhancements
 
+### Exercises on a diary day
+- Strength logs already live as one row per exercise per date (weight + 1–5 difficulty) from the Exercises tab. Remaining work: add a lift to any diary day from the library, same picker shape as foods, so the day's view shows what you lifted without leaving the diary.
+
 ### ~~Calorie budget bar in diary header~~ *(done: bottom bar with progress strip)*
 
 ### ~~Meal-level macro summary~~ *(done: per-meal P/C/F bar + text)*
@@ -493,6 +496,8 @@ outages.
 ---
 
 ## Statistics
+
+### ~~Exercise weight trends~~ *(done: per-lift chips on Statistics + dual-axis chart on the exercise editor)*
 
 ### Body composition chart
 - Weight / body fat % / muscle mass plotted together (Withings data available)

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
+import { serializePeople, normalizePerson } from '../lib/exercise-people.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -16,6 +17,8 @@ router.delete('/', wrap((req, res) => {
     db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
+    db.prepare(`UPDATE exercises SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
+    db.prepare(`UPDATE exercise_logs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`DELETE FROM wellness_data`).run();
     db.prepare(`DELETE FROM workouts`).run();
     db.prepare(`DELETE FROM ai_chat_history`).run();
@@ -24,6 +27,8 @@ router.delete('/', wrap((req, res) => {
     db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
+    db.prepare(`UPDATE exercises SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
+    db.prepare(`UPDATE exercise_logs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`DELETE FROM wellness_data WHERE user_id = ?`).run(u);
     db.prepare(`DELETE FROM workouts WHERE user_id = ?`).run(u);
     db.prepare(`DELETE FROM ai_chat_history WHERE user_id = ?`).run(u);
@@ -33,7 +38,7 @@ router.delete('/', wrap((req, res) => {
 
 // Bulk import — accepts NutriTrace backup format (foodList/meals/recipes/diary)
 router.post('/import', wrap((req, res) => {
-  const { foodList = [], meals = [], recipes = [], diary = [], activity = [], fasts = [] } = req.body;
+  const { foodList = [], meals = [], recipes = [], diary = [], activity = [], fasts = [], exercises = [], exercise_logs = [] } = req.body;
   const u = uid(req);
 
   // updated_at must be set explicitly: the differential sync engine filters
@@ -72,6 +77,14 @@ router.post('/import', wrap((req, res) => {
   const insFast = db.prepare(
     `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes, updated_at)
      VALUES (?, ?, ?, ?, ?, datetime('now'))`
+  );
+  const insExercise = db.prepare(
+    `INSERT INTO exercises (user_id, name, img_url, notes, muscle, people, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+  );
+  const insExerciseLog = db.prepare(
+    `INSERT INTO exercise_logs (user_id, exercise_id, date, person, weight, weight_unit, difficulty, notes, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
 
   const run = db.transaction(() => {
@@ -138,6 +151,27 @@ router.post('/import', wrap((req, res) => {
         u, f.start_at, f.end_at || null,
         Number(f.goal_hours) || 16,
         f.notes != null ? String(f.notes).slice(0, 500) : null
+      );
+    }
+    const exerciseIdMap = {};
+    for (const e of exercises) {
+      if (!e.name) continue;
+      const r = insExercise.run(
+        u, e.name,
+        e.imgUrl || e.img_url || null,
+        e.notes || null,
+        e.muscle || null,
+        serializePeople(e.people)
+      );
+      if (e.id != null) exerciseIdMap[e.id] = r.lastInsertRowid;
+    }
+    for (const l of exercise_logs) {
+      const exId = exerciseIdMap[l.exercise_id] || l.exercise_id;
+      if (!exId || !l.date) continue;
+      insExerciseLog.run(
+        u, exId, l.date, normalizePerson(l.person),
+        l.weight ?? null, l.weight_unit || null,
+        l.difficulty ?? null, l.notes || null
       );
     }
   });

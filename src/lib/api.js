@@ -750,6 +750,7 @@ const USDA = {
 // or native with a server URL configured) this HTTP implementation is used.
 import { isNative, getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
 import { Nutrition } from './nutrition.js';
+import { parsePeople } from './exercise-people.js';
 
 const _NtApiHttp = {
   // Core fetch — apiUrl() handles the server URL prefix (native server mode)
@@ -832,6 +833,57 @@ const _NtApiHttp = {
   shareMeal(id, visibility, user_ids) { return this.patch(`/api/meals/${id}/share`, { visibility, user_ids }); },
   async copyMeal(id)              { const r = await this.post(`/api/meals/${id}/copy`, {}); return this._mealFromApi(r); },
   markMealUsed(id, date)          { return this.post(`/api/meals/${id}/used`, { date }); },
+
+  // Exercises
+  _exerciseFromApi(row) {
+    if (!row) return null;
+    const { img_url, people, ...rest } = row;
+    return { ...rest, people: parsePeople(people), imgUrl: resolveAssetUrl(img_url) || img_url || '' };
+  },
+  _exerciseToApi(ex) {
+    const { imgUrl, img_url, people, ...rest } = ex;
+    return { ...rest, people: parsePeople(people), img_url: imgUrl || img_url || null };
+  },
+  async getExercises() {
+    const r = await this.get('/api/exercises');
+    return r.map(e => this._exerciseFromApi(e));
+  },
+  async getExercise(id) {
+    const r = await this.get(`/api/exercises/${id}`);
+    return this._exerciseFromApi(r);
+  },
+  async createExercise(data) {
+    const r = await this.post('/api/exercises', this._exerciseToApi(data));
+    return this._exerciseFromApi(r);
+  },
+  async updateExercise(id, data) {
+    const r = await this.put(`/api/exercises/${id}`, this._exerciseToApi(data));
+    return this._exerciseFromApi(r);
+  },
+  deleteExercise(id) { return this.del(`/api/exercises/${id}`); },
+  getExerciseLogs(id, from, to) {
+    const q = new URLSearchParams();
+    if (from) q.set('from', from);
+    if (to) q.set('to', to);
+    const qs = q.toString();
+    return this.get(`/api/exercises/${id}/logs${qs ? '?' + qs : ''}`);
+  },
+  getAllExerciseLogs(from, to) {
+    const q = new URLSearchParams();
+    if (from) q.set('from', from);
+    if (to) q.set('to', to);
+    const qs = q.toString();
+    return this.get(`/api/exercises/logs${qs ? '?' + qs : ''}`);
+  },
+  upsertExerciseLog(id, date, data) {
+    return this.put(`/api/exercises/${id}/logs/${date}`, data);
+  },
+  deleteExerciseLog(id, date, person) {
+    const q = new URLSearchParams();
+    if (person) q.set('person', person);
+    const qs = q.toString();
+    return this.del(`/api/exercises/${id}/logs/${date}${qs ? '?' + qs : ''}`);
+  },
 
   // Users list for sharing picker (non-admin, returns peers only)
   getUsersList()                  { return this.get('/api/auth/users/list'); },

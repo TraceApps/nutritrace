@@ -14,6 +14,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
+import { serializePeople, normalizePerson } from '../lib/exercise-people.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -128,9 +129,17 @@ router.get('/pull', wrap((req, res) => {
     `SELECT * FROM fasts WHERE updated_at >= ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY updated_at`
   ).all(...activityParams);
 
-  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length}`);
+  const exercises = db.prepare(
+    `SELECT * FROM exercises WHERE updated_at >= ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY updated_at`
+  ).all(...activityParams);
 
-  res.json({ foods, meals, diary, activity, fasts, settings, wellness, workouts, chat_history, server_time: serverTime });
+  const exercise_logs = db.prepare(
+    `SELECT * FROM exercise_logs WHERE updated_at >= ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY updated_at`
+  ).all(...activityParams);
+
+  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} exercises=${exercises.length} exercise_logs=${exercise_logs.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length}`);
+
+  res.json({ foods, meals, diary, activity, fasts, exercises, exercise_logs, settings, wellness, workouts, chat_history, server_time: serverTime });
 }));
 
 // ── POST /push ───────────────────────────────────────────────────────────────
@@ -139,8 +148,8 @@ router.get('/pull', wrap((req, res) => {
 // Returns a mapping of client_id → server_id for newly created records.
 router.post('/push', wrap((req, res) => {
   const u = uid(req);
-  const { foods = [], meals = [], diary = [], activity = [], fasts = [], wellness = [], settings = [], workouts = [] } = req.body;
-  const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [], workouts: [] };
+  const { foods = [], meals = [], diary = [], activity = [], fasts = [], exercises = [], exercise_logs = [], wellness = [], settings = [], workouts = [] } = req.body;
+  const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], exercises: [], exercise_logs: [], wellness: [], settings: [], workouts: [] };
 
   // Normalize timestamp for comparison (strip T, Z, milliseconds)
   const norm = ts => ts ? ts.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '') : '';
@@ -421,6 +430,69 @@ router.post('/push', wrap((req, res) => {
       result.workouts.push({ client_id: w.client_id, server_id: existing?.id ?? r.lastInsertRowid });
     }
 
+    // ── Exercises ────────────────────────────────────────────────────────
+    const exerciseClientToServer = {};
+    for (const e of exercises) {
+      const existing = e.server_id
+        ? db.prepare('SELECT updated_at FROM exercises WHERE id = ?').get(e.server_id)
+        : null;
+      if (e.server_id && existing) {
+        if (norm(e.updated_at) >= norm(existing.updated_at)) {
+          if (e.deleted_at) {
+            db.prepare(`UPDATE exercises SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(e.server_id);
+            db.prepare(`UPDATE exercise_logs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE exercise_id = ? AND deleted_at IS NULL`).run(e.server_id);
+          } else {
+            db.prepare(
+              `UPDATE exercises SET name=?, img_url=?, notes=?, muscle=?, people=?, updated_at=datetime('now') WHERE id=?`
+            ).run(e.name, e.img_url || null, e.notes || null, e.muscle || null, serializePeople(e.people), e.server_id);
+          }
+        }
+        exerciseClientToServer[e.client_id] = e.server_id;
+        result.exercises.push({ client_id: e.client_id, server_id: e.server_id });
+      } else if (!e.deleted_at) {
+        const r = db.prepare(
+          `INSERT INTO exercises (user_id, name, img_url, notes, muscle, people, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(u, e.name, e.img_url || null, e.notes || null, e.muscle || null, serializePeople(e.people));
+        exerciseClientToServer[e.client_id] = r.lastInsertRowid;
+        result.exercises.push({ client_id: e.client_id, server_id: r.lastInsertRowid });
+      }
+    }
+
+    // ── Exercise logs ────────────────────────────────────────────────────
+    for (const l of exercise_logs) {
+      const exId = l.exercise_server_id || exerciseClientToServer[l.exercise_client_id];
+      if (!exId) continue;
+      const person = normalizePerson(l.person);
+      const existing = l.server_id
+        ? db.prepare('SELECT updated_at FROM exercise_logs WHERE id = ?').get(l.server_id)
+        : db.prepare('SELECT id, updated_at FROM exercise_logs WHERE exercise_id = ? AND date = ? AND person = ?').get(exId, l.date, person);
+      if (existing && (l.server_id || existing.id)) {
+        const sid = l.server_id || existing.id;
+        if (norm(l.updated_at) >= norm(existing.updated_at)) {
+          if (l.deleted_at) {
+            db.prepare(`UPDATE exercise_logs SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(sid);
+          } else {
+            db.prepare(
+              `UPDATE exercise_logs SET person=?, weight=?, weight_unit=?, difficulty=?, notes=?, deleted_at=NULL, updated_at=datetime('now') WHERE id=?`
+            ).run(person, l.weight ?? null, l.weight_unit || null, l.difficulty ?? null, l.notes || null, sid);
+          }
+        }
+        result.exercise_logs.push({ client_id: l.client_id, server_id: sid });
+      } else if (!l.deleted_at) {
+        const r = db.prepare(
+          `INSERT INTO exercise_logs (user_id, exercise_id, date, person, weight, weight_unit, difficulty, notes, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(exercise_id, date, person) DO UPDATE SET
+             weight=excluded.weight, weight_unit=excluded.weight_unit,
+             difficulty=excluded.difficulty, notes=excluded.notes,
+             deleted_at=NULL, updated_at=datetime('now')`
+        ).run(u, exId, l.date, person, l.weight ?? null, l.weight_unit || null, l.difficulty ?? null, l.notes || null);
+        const row = db.prepare('SELECT id FROM exercise_logs WHERE exercise_id = ? AND date = ? AND person = ?').get(exId, l.date, person);
+        result.exercise_logs.push({ client_id: l.client_id, server_id: row?.id || r.lastInsertRowid });
+      }
+    }
+
     // ── Settings (keyed by key, not ID) ──────────────────────────────────
     // SECURITY: server-only keys are rejected — clients can't overwrite admin config.
     if (u != null) {
@@ -442,7 +514,7 @@ router.post('/push', wrap((req, res) => {
 
   run();
 
-  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} wellness=${wellness.length} settings=${settings.length} workouts=${workouts.length}`);
+  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} exercises=${exercises.length} exercise_logs=${exercise_logs.length} wellness=${wellness.length} settings=${settings.length} workouts=${workouts.length}`);
   res.json({ ok: true, ...result });
 }));
 

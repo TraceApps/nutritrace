@@ -161,6 +161,8 @@
   import Foods      from './routes/Foods.svelte';
   import FoodEditor from './routes/FoodEditor.svelte';
   import MealEditor from './routes/MealEditor.svelte';
+  import Exercises from './routes/Exercises.svelte';
+  import ExerciseEditor from './routes/ExerciseEditor.svelte';
   import Statistics from './routes/Statistics.svelte';
   import Goals      from './routes/Goals.svelte';
   import Settings   from './routes/Settings.svelte';
@@ -179,6 +181,9 @@
     '/foods':           Foods,
     '/foods/edit':      FoodEditor,
     '/foods/edit/:id':  FoodEditor,
+    '/exercises':          Exercises,
+    '/exercises/edit':     ExerciseEditor,
+    '/exercises/edit/:id': ExerciseEditor,
     '/meal-editor':     MealEditor,
     '/meal-editor/:id': MealEditor,
     '/statistics':      Statistics,
@@ -194,9 +199,9 @@
     '*':                  Diary,
   };
 
-  const NAV_HIDDEN = ['/wizard', '/foods/edit', '/meal-editor', '/profile'];
+  const NAV_HIDDEN = ['/wizard', '/foods/edit', '/exercises/edit', '/meal-editor', '/profile'];
   $: showNav       = !NAV_HIDDEN.some(p => $location.startsWith(p));
-  const EDITOR_ROUTES = ['/foods/edit', '/meal-editor', '/profile', '/wizard'];
+  const EDITOR_ROUTES = ['/foods/edit', '/exercises/edit', '/meal-editor', '/profile', '/wizard'];
   $: _isEditorRoute = EDITOR_ROUTES.some(r => $location.startsWith(r));
   $: isEditor      = NAV_HIDDEN.some(p => $location.startsWith(p));
 

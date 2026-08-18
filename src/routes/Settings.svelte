@@ -30,6 +30,8 @@
   import Statistics        from './settings/Statistics.svelte';
   import Nutrients         from './settings/Nutrients.svelte';
   import Categories        from './settings/Categories.svelte';
+  import Muscles           from './settings/Muscles.svelte';
+  import People            from './settings/People.svelte';
   import CustomUnits       from './settings/CustomUnits.svelte';
   import ConnectedServices from './settings/ConnectedServices.svelte';
   import Ai                from './settings/Ai.svelte';
@@ -95,6 +97,8 @@
     statistics:        { titleKey: 'settings.statistics.section',        icon: 'bar_chart' },
     nutrients:         { titleKey: 'settings.nutrients.section',         icon: 'science' },
     categories:        { titleKey: 'settings.categories.section',        icon: 'category' },
+    muscles:           { titleKey: 'settings.muscles.section',           icon: 'fitness_center' },
+    people:            { titleKey: 'settings.people.section',            icon: 'group' },
     customUnits:       { titleKey: 'settings_stats.custom_units',        icon: 'straighten' },
     connectedServices: { titleKey: 'settings.connected_services.section',icon: 'link' },
     ai:                { titleKey: 'settings.ai.section',                icon: 'bolt' },
@@ -126,6 +130,8 @@
     statistics:        Statistics,
     nutrients:         Nutrients,
     categories:        Categories,
+    muscles:           Muscles,
+    people:            People,
     customUnits:       CustomUnits,
     connectedServices: ConnectedServices,
     ai:                Ai,
@@ -157,11 +163,13 @@
     foods:             ['foods','thumbnails','category','notes','yesterday meals','sort order','sort','barcode','scan','beep','flashlight','crop photos','search all','all sources','merged search','default source','default search','my foods','off','usda','mealie'],
     water:             ['water','display unit','daily goal','containers','bottle','cup','glass'],
     categories:        ['categories','food categories','tags','labels'],
+    muscles:           ['muscles','muscle groups','tags','exercises','lifts','gym','workout','chest','back','legs'],
+    people:            ['people','persons','lifters','partner','family','shared account','who','names'],
     customUnits:       ['units','custom units','unit dropdown','shot','scoop','stick','add unit'],
     nutrients:         ['nutrients','nutriments','custom nutrients','vitamins','minerals'],
     goals:             ['goals','calorie goal','dynamic calorie','adaptive','adaptive tdee','adaptive calorie','tdee','energy expenditure','burn','calories out','factor','lose','gain','maintain','activity','exercise','weight trend','macrofactor','learn','fixed'],
     bodyStats:         ['body stats','body','weight','measurements','stats','body fat','body water','hydration','muscle','bone'],
-    statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
+    statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats','exercises','lifts'],
     connectedServices: ['food sources','connected services','usda','open food facts','mealie','recipe','search language','country','api key','credentials','username','password'],
     ai:                ['ai','trace','assistant','provider','model','custom model','model id','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','openai compatible','oai-compat','base url'],
     notifications:     ['notifications','reminders','water reminder','meal reminder','weigh-in','weigh in','gotify','apprise','ntfy','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
@@ -429,6 +437,16 @@
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'categories')} on:click={() => toggleSection('categories')}>
         <span class="material-symbols-rounded si">category</span>
         <span>{$_('settings.categories.section')}</span>
+        <span class="material-symbols-rounded chevron">expand_more</span>
+      </button>
+      <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'muscles')} on:click={() => toggleSection('muscles')}>
+        <span class="material-symbols-rounded si">fitness_center</span>
+        <span>{$_('settings.muscles.section')}</span>
+        <span class="material-symbols-rounded chevron">expand_more</span>
+      </button>
+      <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'people')} on:click={() => toggleSection('people')}>
+        <span class="material-symbols-rounded si">group</span>
+        <span>{$_('settings.people.section')}</span>
         <span class="material-symbols-rounded chevron">expand_more</span>
       </button>
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'customUnits')} on:click={() => toggleSection('customUnits')}>

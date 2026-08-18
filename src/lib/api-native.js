@@ -14,6 +14,8 @@ import {
   dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary,
   dbGetActivity, dbGetActivityRange, dbSumActivity, dbWearableActiveCalories,
   dbCreateActivity, dbUpdateActivity, dbDeleteActivity,
+  dbGetExercises, dbGetExercise, dbCreateExercise, dbUpdateExercise, dbDeleteExercise,
+  dbGetExerciseLogs, dbGetAllExerciseLogs, dbUpsertExerciseLog, dbDeleteExerciseLog,
   LOCAL_USER_ID,
 } from './db-native.js';
 import { Filesystem, Directory } from '@capacitor/filesystem';
@@ -21,6 +23,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 // ── Field mapping helpers (mirror server-side NtApi in api.js) ─────────────
 
 import { resolveAssetUrl } from './platform.js';
+import { parsePeople } from './exercise-people.js';
 
 function _foodFromDb(row) {
   if (!row) return null;
@@ -45,6 +48,17 @@ function _mealFromDb(row) {
 
 function _mealToDb(meal) {
   const { imgUrl, img_url, ...rest } = meal;
+  return { ...rest, img_url: imgUrl || img_url || null };
+}
+
+function _exerciseFromDb(row) {
+  if (!row) return null;
+  const { img_url, sync_status, people, ...rest } = row;
+  return { ...rest, people: parsePeople(people ?? row.people), imgUrl: resolveAssetUrl(img_url || row.imgUrl) || img_url || row.imgUrl || '' };
+}
+
+function _exerciseToDb(ex) {
+  const { imgUrl, img_url, ...rest } = ex;
   return { ...rest, img_url: imgUrl || img_url || null };
 }
 
@@ -152,6 +166,39 @@ export const NtApiNative = {
 
   async markMealUsed(id, date) {
     await dbBumpMealUsage(id, date);
+    return { ok: true };
+  },
+
+  // ── Exercises ─────────────────────────────────────────────────────────
+
+  async getExercises() {
+    const rows = await dbGetExercises();
+    return rows.map(_exerciseFromDb);
+  },
+  async getExercise(id) {
+    return _exerciseFromDb(await dbGetExercise(id));
+  },
+  async createExercise(data) {
+    return _exerciseFromDb(await dbCreateExercise(_exerciseToDb(data)));
+  },
+  async updateExercise(id, data) {
+    return _exerciseFromDb(await dbUpdateExercise(id, _exerciseToDb(data)));
+  },
+  async deleteExercise(id) {
+    await dbDeleteExercise(id);
+    return { ok: true };
+  },
+  getExerciseLogs(id, from, to) {
+    return dbGetExerciseLogs(id, from || '0000-01-01', to || '9999-12-31');
+  },
+  getAllExerciseLogs(from, to) {
+    return dbGetAllExerciseLogs(from || '0000-01-01', to || '9999-12-31');
+  },
+  upsertExerciseLog(id, date, data) {
+    return dbUpsertExerciseLog(id, date, data);
+  },
+  async deleteExerciseLog(id, date, person) {
+    await dbDeleteExerciseLog(id, date, person);
     return { ok: true };
   },
 
@@ -276,6 +323,8 @@ export const NtApiNative = {
       await db.run('DELETE FROM workouts WHERE user_id = 1');
       await db.run('DELETE FROM user_settings WHERE user_id = 1');
       await db.run('DELETE FROM fasts WHERE user_id = 1');
+      await db.run('DELETE FROM exercises WHERE user_id = 1');
+      await db.run('DELETE FROM exercise_logs WHERE user_id = 1');
       await db.run('DELETE FROM sync_meta');
       return { ok: true };
     }

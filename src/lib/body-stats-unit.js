@@ -23,7 +23,7 @@ export const LENGTH_KEYS = ['neck','waist','hips','chest','thighs','biceps','cal
 const KG_PER_LB = 1 / 2.20462;
 const CM_PER_IN = 2.54;
 
-function _convertWeight(n, from, to) {
+export function convertWeight(n, from, to) {
   if (from === to) return n;
   if (from === 'lb' && to === 'kg') return Math.round(n * KG_PER_LB * 10) / 10;
   if (from === 'kg' && to === 'lb') return Math.round(n * 2.20462  * 10) / 10;
@@ -44,7 +44,7 @@ export function readBodyStat(bs, metric, weightUnit, lengthUnit) {
   if (!Number.isFinite(n)) return null;
   if (metric === 'weight') {
     const stored = bs.weight_unit || weightUnit || 'kg';
-    return _convertWeight(n, stored, weightUnit || 'kg');
+    return convertWeight(n, stored, weightUnit || 'kg');
   }
   if (LENGTH_KEYS.includes(metric)) {
     const stored = bs.lengths_unit || lengthUnit || 'in';

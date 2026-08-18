@@ -25,6 +25,7 @@ The important reads:
 - `src/stores/settings.js`, all settings as `createSettingStore` instances
 - `src/routes/Diary.svelte`, main diary
 - `src/routes/Foods.svelte`, food picker with source filters (Local / OFF / USDA / Mealie / From Others)
+- `src/routes/Exercises.svelte`, lift library + daily weight/difficulty logs
 - `src/routes/Statistics.svelte`, charts page
 - `src/routes/Wellness.svelte`, all wellness UI (metrics, sparklines, insights)
 - `src/routes/Settings.svelte`, thin orchestrator, sections split into `src/components/settings/*.svelte`

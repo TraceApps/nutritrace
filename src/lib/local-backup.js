@@ -103,7 +103,7 @@ export async function exportLocalBackup(opts = {}) {
   const { NtApi } = await import('./api.js');
   const { DB }     = await import('./db.js');
 
-  let foods = [], meals = [], recipes = [], diary = [], wellness = [], workouts = [], activity = [], fasts = [];
+  let foods = [], meals = [], recipes = [], diary = [], wellness = [], workouts = [], activity = [], fasts = [], exercises = [], exerciseLogs = [];
 
   try { foods    = await NtApi.getFoods()    || []; } catch {}
   try { meals    = await NtApi.getMeals()    || []; } catch {}
@@ -113,6 +113,8 @@ export async function exportLocalBackup(opts = {}) {
   try { activity = await NtApi.getActivityRange('1900-01-01', '2999-12-31') || []; } catch {}
   // Intermittent fasting log — completed + active fasts
   try { fasts    = await NtApi.get('/api/fasts?limit=10000') || []; } catch {}
+  try { exercises = await NtApi.getExercises() || []; } catch {}
+  try { exerciseLogs = await NtApi.getAllExerciseLogs('0000-01-01', '9999-12-31') || []; } catch {}
 
   // Wellness + workouts are native-only (PWA reads from server endpoints not unified API)
   if (isNative) {
@@ -171,6 +173,8 @@ export async function exportLocalBackup(opts = {}) {
       workouts: workouts.length,
       activity: activity.length,
       fasts: fasts.length,
+      exercises: exercises.length,
+      exercise_logs: exerciseLogs.length,
       settings: Object.keys(settings).length,
     },
     includesImages: true,
@@ -182,7 +186,7 @@ export async function exportLocalBackup(opts = {}) {
   // rewrite the JSON's imgUrl to a relative "images/..." path so the
   // restore process can find them.
   {
-    const totalItems = foods.length + meals.length + recipes.length;
+    const totalItems = foods.length + meals.length + recipes.length + exercises.length;
     let processed = 0;
 
     async function embedItem(item, prefix) {
@@ -202,6 +206,7 @@ export async function exportLocalBackup(opts = {}) {
     foods   = await Promise.all(foods.map(f   => embedItem(f, 'food')));
     meals   = await Promise.all(meals.map(m   => embedItem(m, 'meal')));
     recipes = await Promise.all(recipes.map(r => embedItem(r, 'recipe')));
+    exercises = await Promise.all(exercises.map(e => embedItem(e, 'exercise')));
   }
 
   onProgress(80, 'Writing JSON…');
@@ -214,6 +219,8 @@ export async function exportLocalBackup(opts = {}) {
   zip.file('workouts.json', JSON.stringify(workouts, null, 2));
   zip.file('activity.json', JSON.stringify(activity, null, 2));
   zip.file('fasts.json',    JSON.stringify(fasts,    null, 2));
+  zip.file('exercises.json', JSON.stringify(exercises, null, 2));
+  zip.file('exercise_logs.json', JSON.stringify(exerciseLogs, null, 2));
   zip.file('settings.json', JSON.stringify(settings, null, 2));
 
   onProgress(90, 'Compressing…');
@@ -262,6 +269,8 @@ export async function importLocalBackup(zipFile, opts = {}) {
   const workouts = await readJson('workouts.json', []);
   const activity = await readJson('activity.json', []);
   const fasts    = await readJson('fasts.json', []);
+  let exercises  = await readJson('exercises.json', []);
+  const exerciseLogs = await readJson('exercise_logs.json', []);
   const settings = await readJson('settings.json', {});
 
   onProgress(20, 'Extracting images…');
@@ -306,6 +315,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
   foods   = await Promise.all(foods.map(restoreItemImage));
   meals   = await Promise.all(meals.map(restoreItemImage));
   recipes = await Promise.all(recipes.map(restoreItemImage));
+  exercises = await Promise.all(exercises.map(restoreItemImage));
 
   onProgress(50, 'Importing data…');
 
@@ -313,7 +323,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
   const { NtApi } = await import('./api.js');
   const { DB }     = await import('./db.js');
 
-  const counts = { foods: 0, meals: 0, recipes: 0, diary: 0, wellness: 0, workouts: 0, activity: 0, fasts: 0, settings: 0 };
+  const counts = { foods: 0, meals: 0, recipes: 0, diary: 0, wellness: 0, workouts: 0, activity: 0, fasts: 0, exercises: 0, exercise_logs: 0, settings: 0 };
 
   if (isNative) {
     try {
@@ -321,6 +331,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
         dbCreateFood, dbCreateMeal, dbSaveDiaryDate, dbUpsertWellness,
         dbUpsertFromServer, dbUpsertWorkoutFromServer, dbUpsertActivityFromServer,
         dbStartFast, dbUpdateFast,
+        dbCreateExercise, dbUpsertExerciseLog, dbUpsertExerciseFromServer, dbUpsertExerciseLogFromServer,
       } = await import('./db-native.js');
       // Foods / meals / recipes — prefer the *FromServer upsert path when the
       // export carries an `id` (or `server_id`). Falling back to dbCreateFood
@@ -396,13 +407,33 @@ export async function importLocalBackup(zipFile, opts = {}) {
           counts.fasts++;
         } catch {}
       }
+      for (const e of exercises) {
+        try {
+          if (e.id != null || e.server_id != null) {
+            await dbUpsertExerciseFromServer({ ...e, id: e.id ?? e.server_id });
+          } else {
+            await dbCreateExercise(e);
+          }
+          counts.exercises++;
+        } catch {}
+      }
+      for (const l of exerciseLogs) {
+        try {
+          if (l.id != null || l.server_id != null) {
+            await dbUpsertExerciseLogFromServer({ ...l, id: l.id ?? l.server_id });
+          } else if (l.exercise_id && l.date) {
+            await dbUpsertExerciseLog(l.exercise_id, l.date, l);
+          }
+          counts.exercise_logs++;
+        } catch {}
+      }
     } catch (e) {
       console.warn('[backup] native import failed:', e.message);
     }
   } else {
     // PWA: server import endpoint
     try {
-      await NtApi.post('/api/data/import', { foodList: foods, meals, recipes, diary, wellness, workouts, activity, fasts });
+      await NtApi.post('/api/data/import', { foodList: foods, meals, recipes, diary, wellness, workouts, activity, fasts, exercises, exercise_logs: exerciseLogs });
       counts.foods    = foods.length;
       counts.meals    = meals.length;
       counts.recipes  = recipes.length;
@@ -411,6 +442,8 @@ export async function importLocalBackup(zipFile, opts = {}) {
       counts.workouts = workouts.length;
       counts.activity = activity.length;
       counts.fasts    = fasts.length;
+      counts.exercises = exercises.length;
+      counts.exercise_logs = exerciseLogs.length;
     } catch {}
   }
 

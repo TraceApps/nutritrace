@@ -7,6 +7,7 @@
   $: BASE_TABS = [
     { path: '/',            icon: 'book',          label: $_('nav.diary')      },
     { path: '/foods',       icon: 'restaurant',    label: $_('nav.foods')      },
+    { path: '/exercises',   icon: 'fitness_center', label: $_('nav.exercises') },
     { path: '/statistics',  icon: 'bar_chart',     label: $_('nav.statistics') },
     { path: '/goals',       icon: 'flag',          label: $_('nav.goals')      },
     { path: '/settings',    icon: 'settings',      label: $_('nav.settings')   },
@@ -14,10 +15,10 @@
 
   $: WELLNESS_TAB = { path: '/wellness', customIcon: WellnessIcon, label: $_('nav.wellness') };
 
-  // Wellness tab inserted after Foods (where Water used to be) when the feature is enabled
+  // Wellness tab inserted after Exercises when the feature is enabled.
   $: showWellness = $wellnessEnabled && ($fitbitEnabled || $withingsEnabled || $garminEnabled || $googleHealthEnabled || $healthConnectEnabled);
   $: tabs = showWellness
-    ? [...BASE_TABS.slice(0, 2), WELLNESS_TAB, ...BASE_TABS.slice(2)]
+    ? [...BASE_TABS.slice(0, 3), WELLNESS_TAB, ...BASE_TABS.slice(3)]
     : BASE_TABS;
 
   // Prefix-match so nested routes (/settings/appearance,

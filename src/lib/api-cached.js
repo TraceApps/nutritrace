@@ -13,9 +13,12 @@ import {
   dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood, dbBumpFoodUsage,
   dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal, dbBumpMealUsage,
   dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary,
+  dbGetExercises, dbGetExercise, dbCreateExercise, dbUpdateExercise, dbDeleteExercise,
+  dbGetExerciseLogs, dbGetAllExerciseLogs, dbUpsertExerciseLog, dbDeleteExerciseLog,
 } from './db-native.js';
 import { getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
 import { schedulePush } from './sync.js';
+import { parsePeople } from './exercise-people.js';
 
 function _headers() {
   const h = { 'Content-Type': 'application/json' };
@@ -109,6 +112,17 @@ function _mealFromApi(row) {
 
 function _mealToApi(meal) {
   const { imgUrl, img_url, ...rest } = meal;
+  return { ...rest, img_url: _stripResolvedImgUrl(imgUrl || img_url) || null };
+}
+
+function _exerciseFromApi(row) {
+  if (!row) return null;
+  const { img_url, people, ...rest } = row;
+  return { ...rest, people: parsePeople(people ?? row.people), imgUrl: resolveAssetUrl(img_url || row.imgUrl) || img_url || row.imgUrl || '' };
+}
+
+function _exerciseToApi(ex) {
+  const { imgUrl, img_url, ...rest } = ex;
   return { ...rest, img_url: _stripResolvedImgUrl(imgUrl || img_url) || null };
 }
 
@@ -250,6 +264,46 @@ export const NtApiCached = {
     await dbBumpMealUsage(id, date);
     const serverId = meal?.server_id || id;
     _serverFetch('POST', `/api/meals/${serverId}/used`, { date }).catch(() => schedulePush());
+    return { ok: true };
+  },
+
+  // ── Exercises — always local-first ────────────────────────────────────
+
+  async getExercises() {
+    return (await dbGetExercises().catch(() => [])).map(_exerciseFromApi);
+  },
+  async getExercise(id) {
+    return _exerciseFromApi(await dbGetExercise(id).catch(() => null));
+  },
+  async createExercise(data) {
+    const local = await dbCreateExercise(_exerciseToApi(data));
+    schedulePush();
+    return _exerciseFromApi(local);
+  },
+  async updateExercise(id, data) {
+    const local = await dbUpdateExercise(id, _exerciseToApi(data));
+    schedulePush();
+    return _exerciseFromApi(local);
+  },
+  async deleteExercise(id) {
+    await dbDeleteExercise(id);
+    schedulePush();
+    return { ok: true };
+  },
+  getExerciseLogs(id, from, to) {
+    return dbGetExerciseLogs(id, from || '0000-01-01', to || '9999-12-31');
+  },
+  getAllExerciseLogs(from, to) {
+    return dbGetAllExerciseLogs(from || '0000-01-01', to || '9999-12-31');
+  },
+  async upsertExerciseLog(id, date, data) {
+    const local = await dbUpsertExerciseLog(id, date, data);
+    schedulePush();
+    return local;
+  },
+  async deleteExerciseLog(id, date, person) {
+    await dbDeleteExerciseLog(id, date, person);
+    schedulePush();
     return { ok: true };
   },
 

@@ -1,7 +1,10 @@
 <script>
+  import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
   import Toggle from '../../components/settings/Toggle.svelte';
   import { DB } from '../../lib/db.js';
+  import { NtApi } from '../../lib/api.js';
+  import { parsePeople, exerciseMetricKey } from '../../lib/exercise-people.js';
   import { NUTRIMENTS } from '../../lib/nutrition.js';
   import { scheduleSave } from '../../stores/settings.js';
   import {
@@ -11,6 +14,11 @@
   } from '../../stores/settings.js';
 
   function set(key, value) { DB.setSetting(key, value); scheduleSave(key, value); }
+
+  let exerciseList = [];
+  onMount(async () => {
+    try { exerciseList = await NtApi.getExercises() || []; } catch { exerciseList = []; }
+  });
 
   let statsChartType = DB.getSetting('statsChartType', 'bar');
   let statsYZero     = DB.getSetting('statsYZero',     true);
@@ -59,7 +67,16 @@
       ...(($withingsEnabled || $fitbitFamilyEnabled) && _wlVisibleForStats('muscle_mass_kg')
         ? [{ key:'wl_muscle', label:'Muscle Mass' }] : []),
     ].map(w => ({ ...w, group: 'wellness' }));
-    return [...nut, ...bodyAll, ...water, ...wellness];
+    const exercises = exerciseList.flatMap(e => {
+      const people = parsePeople(e.people);
+      if (!people.length) return [{ key: exerciseMetricKey(e.id, ''), label: e.name, group: 'exercise' }];
+      return people.map(p => ({
+        key: exerciseMetricKey(e.id, p),
+        label: `${e.name} (${p})`,
+        group: 'exercise',
+      }));
+    });
+    return [...nut, ...bodyAll, ...water, ...wellness, ...exercises];
   })();
   $: orderedStatsMetrics = (() => {
     const order = $statsMetricOrder || [];

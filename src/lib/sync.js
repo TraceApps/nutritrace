@@ -210,14 +210,16 @@ async function pushChanges() {
   const activity = pending.activity || [];
   const fasts    = pending.fasts || [];
   const wellness = pending.wellness || [];
+  const exercises = pending.exercises || [];
+  const exerciseLogs = pending.exercise_logs || [];
   // Pending workouts: rows written locally (from Health Connect
   // ExerciseSession) that don't have a server_id yet. The rule is
   // `server_id IS NULL` — see dbGetPendingWorkouts. #91.
   const workouts = await dbGetPendingWorkouts();
-  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || fasts.length || wellness.length || workouts.length || pendingSettings.length;
+  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || fasts.length || exercises.length || exerciseLogs.length || wellness.length || workouts.length || pendingSettings.length;
   if (!hasPending) return false;
 
-  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${fasts.length} fasts, ${wellness.length} wellness, ${workouts.length} workouts, ${pendingSettings.length} settings`);
+  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${fasts.length} fasts, ${exercises.length} exercises, ${exerciseLogs.length} exercise_logs, ${wellness.length} wellness, ${workouts.length} workouts, ${pendingSettings.length} settings`);
 
   // Build push payload with client_id and server_id
   const payload = {
@@ -287,6 +289,31 @@ async function pushChanges() {
       notes: f.notes || null,
       updated_at: f.updated_at,
       deleted_at: f.deleted_at || null,
+    })),
+    exercises: exercises.map(e => ({
+      client_id: e.id,
+      server_id: e.server_id || null,
+      name: e.name,
+      img_url: e.img_url || e.imgUrl || null,
+      notes: e.notes || null,
+      muscle: e.muscle || null,
+      people: e.people || null,
+      updated_at: e.updated_at,
+      deleted_at: e.deleted_at || null,
+    })),
+    exercise_logs: exerciseLogs.map(l => ({
+      client_id: l.id,
+      server_id: l.server_id || null,
+      exercise_client_id: l.exercise_id,
+      exercise_server_id: l.exercise_server_id || null,
+      date: l.date,
+      person: l.person || '',
+      weight: l.weight ?? null,
+      weight_unit: l.weight_unit || null,
+      difficulty: l.difficulty ?? null,
+      notes: l.notes || null,
+      updated_at: l.updated_at,
+      deleted_at: l.deleted_at || null,
     })),
     // Wellness rows from Health Connect (and any future native-only source).
     // Keyed by (date, source, metric_type) on the server, so no client_id
@@ -368,6 +395,16 @@ async function pushChanges() {
       await dbSetServerId('fasts', f.client_id, f.server_id);
     }
   }
+  for (const e of (result.exercises || [])) {
+    if (e.client_id && e.server_id) {
+      await dbSetServerId('exercises', e.client_id, e.server_id);
+    }
+  }
+  for (const l of (result.exercise_logs || [])) {
+    if (l.client_id && l.server_id) {
+      await dbSetServerId('exercise_logs', l.client_id, l.server_id);
+    }
+  }
   // Workouts key on (source, source_id) not client_id: the server upserts
   // by that composite so the same row survives a re-push. We use client_id
   // only to lift the server_id back into the right local row.
@@ -390,6 +427,8 @@ async function pushChanges() {
   await dbMarkSynced('diary',        pending.diary.map(d => ({ id: d.id, updated_at: d.updated_at })));
   await dbMarkSynced('activity_log', activity.map(a => ({ id: a.id, updated_at: a.updated_at })));
   await dbMarkSynced('fasts',        fasts.map(f => ({ id: f.id, updated_at: f.updated_at })));
+  await dbMarkSynced('exercises',    exercises.map(e => ({ id: e.id, updated_at: e.updated_at })));
+  await dbMarkSynced('exercise_logs', exerciseLogs.map(l => ({ id: l.id, updated_at: l.updated_at })));
   // wellness_data has no updated_at column, so it can't go through
   // dbMarkSynced's id+updated_at gate — that path throws SQLITE_ERROR
   // and aborts the whole push loop before pullChanges runs. Use the
@@ -405,6 +444,8 @@ async function pushChanges() {
   await dbPurgeSoftDeleted('diary');
   await dbPurgeSoftDeleted('activity_log');
   await dbPurgeSoftDeleted('fasts');
+  await dbPurgeSoftDeleted('exercises');
+  await dbPurgeSoftDeleted('exercise_logs');
 
   _dlog('[sync] push complete');
   return true;
@@ -494,10 +535,18 @@ async function pullChanges() {
   }
 
   // Apply fasts (intermittent-fasting tracker) from server
-  const { dbUpsertFastFromServer } = await import('./db-native.js');
+  const { dbUpsertFastFromServer, dbUpsertExerciseFromServer, dbUpsertExerciseLogFromServer } = await import('./db-native.js');
   for (const f of (data.fasts || [])) {
     try { await dbUpsertFastFromServer(f); }
     catch (e) { _pullErr('fasts', f, e); }
+  }
+  for (const e of (data.exercises || [])) {
+    try { await dbUpsertExerciseFromServer(e); }
+    catch (err) { _pullErr('exercises', e, err); }
+  }
+  for (const l of (data.exercise_logs || [])) {
+    try { await dbUpsertExerciseLogFromServer(l); }
+    catch (err) { _pullErr('exercise_logs', l, err); }
   }
 
   // Chat history — pull only, notify the AI Assistant component via event
@@ -545,12 +594,14 @@ export async function pushAllFromDevice() {
     UPDATE meals         SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
     UPDATE diary         SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
     UPDATE activity_log  SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
+    UPDATE exercises     SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
+    UPDATE exercise_logs SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
     UPDATE user_settings SET sync_status='pending'                  WHERE deleted_at IS NULL;
   `);
 
   // Count what we just queued so the UI can confirm afterwards.
   const counts = {};
-  for (const t of ['foods', 'meals', 'diary', 'activity_log', 'user_settings']) {
+  for (const t of ['foods', 'meals', 'diary', 'activity_log', 'exercises', 'exercise_logs', 'user_settings']) {
     const r = await db.query(`SELECT COUNT(*) AS n FROM ${t} WHERE sync_status='pending' AND deleted_at IS NULL`);
     counts[t] = r?.values?.[0]?.n || 0;
   }

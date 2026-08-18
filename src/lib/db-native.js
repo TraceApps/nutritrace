@@ -8,6 +8,7 @@
  */
 
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
+import { parsePeople, serializePeople, normalizePerson } from './exercise-people.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -190,6 +191,46 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_fasts_active     ON fasts(user_id, end_at);
   CREATE INDEX IF NOT EXISTS idx_fasts_sync       ON fasts(sync_status);
   CREATE INDEX IF NOT EXISTS idx_fasts_server     ON fasts(server_id);
+
+  CREATE TABLE IF NOT EXISTS exercises (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id    INTEGER,
+    user_id      INTEGER DEFAULT 1,
+    name         TEXT NOT NULL,
+    img_url      TEXT,
+    notes        TEXT,
+    muscle       TEXT,
+    people       TEXT,
+    created_at   TEXT DEFAULT (datetime('now')),
+    updated_at   TEXT DEFAULT (datetime('now')),
+    deleted_at   TEXT DEFAULT NULL,
+    sync_status  TEXT DEFAULT 'synced'
+  );
+  CREATE INDEX IF NOT EXISTS idx_exercises_user   ON exercises(user_id);
+  CREATE INDEX IF NOT EXISTS idx_exercises_server ON exercises(server_id);
+  CREATE INDEX IF NOT EXISTS idx_exercises_sync   ON exercises(sync_status);
+
+  CREATE TABLE IF NOT EXISTS exercise_logs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id    INTEGER,
+    user_id      INTEGER DEFAULT 1,
+    exercise_id  INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    person       TEXT NOT NULL DEFAULT '',
+    weight       REAL,
+    weight_unit  TEXT,
+    difficulty   INTEGER,
+    notes        TEXT,
+    created_at   TEXT DEFAULT (datetime('now')),
+    updated_at   TEXT DEFAULT (datetime('now')),
+    deleted_at   TEXT DEFAULT NULL,
+    sync_status  TEXT DEFAULT 'synced',
+    UNIQUE(exercise_id, date, person)
+  );
+  CREATE INDEX IF NOT EXISTS idx_exercise_logs_user     ON exercise_logs(user_id, date);
+  CREATE INDEX IF NOT EXISTS idx_exercise_logs_exercise ON exercise_logs(exercise_id, date);
+  CREATE INDEX IF NOT EXISTS idx_exercise_logs_server   ON exercise_logs(server_id);
+  CREATE INDEX IF NOT EXISTS idx_exercise_logs_sync     ON exercise_logs(sync_status);
 
   CREATE INDEX IF NOT EXISTS idx_foods_user ON foods(user_id);
   CREATE INDEX IF NOT EXISTS idx_foods_server ON foods(server_id);
@@ -383,6 +424,77 @@ async function _applySchema(db) {
     }
   } catch (e) {
     console.debug('[db-native] diary items shrink skipped:', e?.message);
+  }
+
+  // Exercises: people JSON on the library row + person on each log so two
+  // people can share one account. Rebuilds UNIQUE(exercise_id, date) into
+  // UNIQUE(exercise_id, date, person) on existing installs.
+  try {
+    const exInfo = await db.query(`PRAGMA table_info(exercises)`);
+    const exCols = (exInfo?.values || []).map(r => r.name || r[1]);
+    if (!exCols.includes('people')) {
+      await db.execute(`ALTER TABLE exercises ADD COLUMN people TEXT DEFAULT NULL`);
+    }
+  } catch (e) {
+    console.debug('[db-native] exercises.people migration skipped:', e?.message);
+  }
+  try {
+    const info = await db.query(`PRAGMA table_info(exercise_logs)`);
+    const cols = (info?.values || []).map(r => r.name || r[1]);
+    if (!cols.includes('person')) {
+      await db.execute(`ALTER TABLE exercise_logs ADD COLUMN person TEXT NOT NULL DEFAULT ''`);
+    }
+  } catch (e) {
+    console.debug('[db-native] exercise_logs.person migration skipped:', e?.message);
+  }
+  try {
+    const idx = await db.query(`PRAGMA index_list(exercise_logs)`);
+    const indexes = idx?.values || [];
+    let needsRebuild = false;
+    for (const row of indexes) {
+      const unique = row.unique ?? row[2];
+      const name = row.name ?? row[1];
+      if (!unique || !name) continue;
+      const info = await db.query(`PRAGMA index_info(${JSON.stringify(name)})`);
+      const icols = (info?.values || []).map(r => r.name || r[2]);
+      if (icols.includes('exercise_id') && icols.includes('date') && !icols.includes('person')) {
+        needsRebuild = true;
+        break;
+      }
+    }
+    if (needsRebuild) {
+      await db.execute(`
+        CREATE TABLE exercise_logs_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          server_id    INTEGER,
+          user_id      INTEGER DEFAULT 1,
+          exercise_id  INTEGER NOT NULL,
+          date         TEXT NOT NULL,
+          person       TEXT NOT NULL DEFAULT '',
+          weight       REAL,
+          weight_unit  TEXT,
+          difficulty   INTEGER,
+          notes        TEXT,
+          created_at   TEXT DEFAULT (datetime('now')),
+          updated_at   TEXT DEFAULT (datetime('now')),
+          deleted_at   TEXT DEFAULT NULL,
+          sync_status  TEXT DEFAULT 'synced',
+          UNIQUE(exercise_id, date, person)
+        );
+        INSERT INTO exercise_logs_new
+          (id, server_id, user_id, exercise_id, date, person, weight, weight_unit, difficulty, notes, created_at, updated_at, deleted_at, sync_status)
+          SELECT id, server_id, user_id, exercise_id, date, COALESCE(person, ''), weight, weight_unit, difficulty, notes, created_at, updated_at, deleted_at, sync_status
+          FROM exercise_logs;
+        DROP TABLE exercise_logs;
+        ALTER TABLE exercise_logs_new RENAME TO exercise_logs;
+        CREATE INDEX IF NOT EXISTS idx_exercise_logs_user     ON exercise_logs(user_id, date);
+        CREATE INDEX IF NOT EXISTS idx_exercise_logs_exercise ON exercise_logs(exercise_id, date);
+        CREATE INDEX IF NOT EXISTS idx_exercise_logs_server   ON exercise_logs(server_id);
+        CREATE INDEX IF NOT EXISTS idx_exercise_logs_sync     ON exercise_logs(sync_status);
+      `);
+    }
+  } catch (e) {
+    console.debug('[db-native] exercise_logs unique rebuild skipped:', e?.message);
   }
 }
 
@@ -954,7 +1066,7 @@ export async function dbUpsertWellness(date, source, metric_type, value, metadat
 
 export async function dbGetPendingChanges() {
   const db = await getDb();
-  const [foods, meals, diary, activity, fasts, wellness] = await Promise.all([
+  const [foods, meals, diary, activity, fasts, wellness, exercises, exerciseLogs] = await Promise.all([
     db.query(`SELECT * FROM foods WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM meals WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
     db.query(`SELECT * FROM diary WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
@@ -965,6 +1077,14 @@ export async function dbGetPendingChanges() {
     // Server-sourced rows (Fitbit/Garmin/Withings) come back from pull with
     // sync_status='synced' and are excluded here.
     db.query(`SELECT * FROM wellness_data WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
+    db.query(`SELECT * FROM exercises WHERE sync_status = 'pending' AND user_id = ?`, [LOCAL_USER_ID]),
+    db.query(
+      `SELECT l.*, e.server_id AS exercise_server_id
+       FROM exercise_logs l
+       LEFT JOIN exercises e ON e.id = l.exercise_id
+       WHERE l.sync_status = 'pending' AND l.user_id = ?`,
+      [LOCAL_USER_ID]
+    ),
   ]);
   return {
     foods: _rows(foods).map(_parseFoodRow),
@@ -982,6 +1102,8 @@ export async function dbGetPendingChanges() {
       ...row,
       metadata: _parseJson(row.metadata, {}),
     })),
+    exercises: _rows(exercises).map(_parseExerciseRow),
+    exercise_logs: _rows(exerciseLogs),
   };
 }
 
@@ -1680,6 +1802,228 @@ export async function dbDeleteFast(id) {
     `UPDATE fasts SET deleted_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ?`,
     [now, now, id, LOCAL_USER_ID]
   );
+}
+
+// ── Exercises ────────────────────────────────────────────────────────────
+
+function _parseExerciseRow(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    imgUrl: row.img_url || '',
+    people: parsePeople(row.people),
+  };
+}
+
+export async function dbGetExercises() {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT e.*,
+       l.date AS last_date, l.weight AS last_weight,
+       l.weight_unit AS last_weight_unit, l.difficulty AS last_difficulty,
+       l.person AS last_person
+     FROM exercises e
+     LEFT JOIN exercise_logs l ON l.id = (
+       SELECT id FROM exercise_logs
+       WHERE exercise_id = e.id AND deleted_at IS NULL
+       ORDER BY date DESC LIMIT 1
+     )
+     WHERE e.user_id = ? AND e.deleted_at IS NULL
+     ORDER BY e.name COLLATE NOCASE ASC`,
+    [LOCAL_USER_ID]
+  );
+  return _rows(r).map(_parseExerciseRow);
+}
+
+export async function dbGetExercise(id) {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT * FROM exercises WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+    [id, LOCAL_USER_ID]
+  );
+  return _parseExerciseRow(_row(r));
+}
+
+export async function dbCreateExercise(data) {
+  const db = await getDb();
+  const r = await db.run(
+    `INSERT INTO exercises (user_id, name, img_url, notes, muscle, people, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    [
+      LOCAL_USER_ID,
+      data.name,
+      data.img_url || data.imgUrl || null,
+      data.notes || null,
+      data.muscle || null,
+      serializePeople(data.people),
+      _now(),
+    ]
+  );
+  return dbGetExercise(r.changes?.lastId);
+}
+
+export async function dbUpdateExercise(id, data) {
+  const db = await getDb();
+  const existing = await dbGetExercise(id);
+  if (!existing) return null;
+  await db.run(
+    `UPDATE exercises SET name=?, img_url=?, notes=?, muscle=?, people=?, updated_at=?, sync_status='pending'
+     WHERE id=? AND user_id=?`,
+    [
+      data.name ?? existing.name,
+      data.img_url !== undefined ? data.img_url : (data.imgUrl !== undefined ? data.imgUrl : existing.img_url),
+      data.notes !== undefined ? data.notes : existing.notes,
+      data.muscle !== undefined ? data.muscle : existing.muscle,
+      data.people !== undefined ? serializePeople(data.people) : serializePeople(existing.people),
+      _now(),
+      id,
+      LOCAL_USER_ID,
+    ]
+  );
+  return dbGetExercise(id);
+}
+
+export async function dbDeleteExercise(id) {
+  const db = await getDb();
+  const now = _now();
+  await db.run(
+    `UPDATE exercises SET deleted_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ?`,
+    [now, now, id, LOCAL_USER_ID]
+  );
+  await db.run(
+    `UPDATE exercise_logs SET deleted_at = ?, updated_at = ?, sync_status = 'pending' WHERE exercise_id = ? AND deleted_at IS NULL`,
+    [now, now, id]
+  );
+}
+
+export async function dbGetExerciseLogs(exerciseId, from = '0000-01-01', to = '9999-12-31') {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT * FROM exercise_logs
+     WHERE exercise_id = ? AND user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
+     ORDER BY date ASC`,
+    [exerciseId, LOCAL_USER_ID, from, to]
+  );
+  return _rows(r);
+}
+
+export async function dbGetAllExerciseLogs(from = '0000-01-01', to = '9999-12-31') {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT * FROM exercise_logs
+     WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
+     ORDER BY date ASC`,
+    [LOCAL_USER_ID, from, to]
+  );
+  return _rows(r);
+}
+
+export async function dbUpsertExerciseLog(exerciseId, date, data) {
+  const db = await getDb();
+  const person = normalizePerson(data?.person);
+  await db.run(
+    `INSERT INTO exercise_logs (user_id, exercise_id, date, person, weight, weight_unit, difficulty, notes, updated_at, deleted_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending')
+     ON CONFLICT(exercise_id, date, person) DO UPDATE SET
+       weight = excluded.weight,
+       weight_unit = excluded.weight_unit,
+       difficulty = excluded.difficulty,
+       notes = excluded.notes,
+       deleted_at = NULL,
+       updated_at = excluded.updated_at,
+       sync_status = 'pending'`,
+    [
+      LOCAL_USER_ID,
+      exerciseId,
+      date,
+      person,
+      data.weight ?? null,
+      data.weight_unit || null,
+      data.difficulty ?? null,
+      data.notes || null,
+      _now(),
+    ]
+  );
+  const r = await db.query(
+    `SELECT * FROM exercise_logs WHERE exercise_id = ? AND date = ? AND person = ?`,
+    [exerciseId, date, person]
+  );
+  return _row(r);
+}
+
+export async function dbDeleteExerciseLog(exerciseId, date, person) {
+  const db = await getDb();
+  const now = _now();
+  await db.run(
+    `UPDATE exercise_logs SET deleted_at = ?, updated_at = ?, sync_status = 'pending'
+     WHERE exercise_id = ? AND date = ? AND person = ? AND user_id = ?`,
+    [now, now, exerciseId, date, normalizePerson(person), LOCAL_USER_ID]
+  );
+}
+
+export async function dbUpsertExerciseFromServer(record) {
+  const db = await getDb();
+  const { id: serverId, deleted_at } = record;
+  if (deleted_at) {
+    await db.run(`DELETE FROM exercise_logs WHERE exercise_id IN (SELECT id FROM exercises WHERE server_id = ?)`, [serverId]);
+    await db.run(`DELETE FROM exercises WHERE server_id = ?`, [serverId]);
+    return;
+  }
+  const existing = await db.query(`SELECT id, sync_status FROM exercises WHERE server_id = ? AND user_id = ?`, [serverId, LOCAL_USER_ID]);
+  const local = _row(existing);
+  if (local) {
+    if (local.sync_status === 'pending') return;
+    await db.run(
+      `UPDATE exercises SET name=?, img_url=?, notes=?, muscle=?, people=?, updated_at=?, sync_status='synced' WHERE id=?`,
+      [record.name, record.img_url || null, record.notes || null, record.muscle || null,
+       serializePeople(record.people), record.updated_at, local.id]
+    );
+  } else {
+    await db.run(
+      `INSERT INTO exercises (server_id, user_id, name, img_url, notes, muscle, people, created_at, updated_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+      [serverId, LOCAL_USER_ID, record.name, record.img_url || null, record.notes || null, record.muscle || null,
+       serializePeople(record.people),
+       record.created_at || record.updated_at, record.updated_at]
+    );
+  }
+}
+
+export async function dbUpsertExerciseLogFromServer(record) {
+  const db = await getDb();
+  const { id: serverId, deleted_at, exercise_id: serverExerciseId } = record;
+  const ex = await db.query(`SELECT id FROM exercises WHERE server_id = ? AND user_id = ?`, [serverExerciseId, LOCAL_USER_ID]);
+  const localEx = _row(ex);
+  if (!localEx) return;
+
+  if (deleted_at) {
+    await db.run(`DELETE FROM exercise_logs WHERE server_id = ? OR (exercise_id = ? AND date = ? AND person = ?)`,
+      [serverId, localEx.id, record.date, normalizePerson(record.person)]);
+    return;
+  }
+
+  const person = normalizePerson(record.person);
+  const existing = await db.query(
+    `SELECT id, sync_status FROM exercise_logs WHERE (server_id = ? OR (exercise_id = ? AND date = ? AND person = ?)) AND user_id = ?`,
+    [serverId, localEx.id, record.date, person, LOCAL_USER_ID]
+  );
+  const local = _row(existing);
+  if (local) {
+    if (local.sync_status === 'pending') return;
+    await db.run(
+      `UPDATE exercise_logs SET exercise_id=?, date=?, person=?, weight=?, weight_unit=?, difficulty=?, notes=?, server_id=?, updated_at=?, sync_status='synced' WHERE id=?`,
+      [localEx.id, record.date, person, record.weight ?? null, record.weight_unit || null,
+       record.difficulty ?? null, record.notes || null, serverId, record.updated_at, local.id]
+    );
+  } else {
+    await db.run(
+      `INSERT INTO exercise_logs (server_id, user_id, exercise_id, date, person, weight, weight_unit, difficulty, notes, created_at, updated_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+      [serverId, LOCAL_USER_ID, localEx.id, record.date, person, record.weight ?? null, record.weight_unit || null,
+       record.difficulty ?? null, record.notes || null,
+       record.created_at || record.updated_at, record.updated_at]
+    );
+  }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────

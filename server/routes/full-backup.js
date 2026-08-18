@@ -291,6 +291,20 @@ function restoreFromZip(zip) {
     `);
     for (const f of data.fasts || []) insFast.run({ end_at: null, notes: null, deleted_at: null, ...f });
 
+    db.prepare('DELETE FROM exercises').run();
+    const insExercise = db.prepare(`
+      INSERT OR IGNORE INTO exercises (id, user_id, name, img_url, notes, muscle, people, created_at, updated_at, deleted_at)
+      VALUES (@id, @user_id, @name, @img_url, @notes, @muscle, @people, @created_at, @updated_at, @deleted_at)
+    `);
+    for (const e of data.exercises || []) insExercise.run({ img_url: null, notes: null, muscle: null, people: null, deleted_at: null, ...e });
+
+    db.prepare('DELETE FROM exercise_logs').run();
+    const insExerciseLog = db.prepare(`
+      INSERT OR IGNORE INTO exercise_logs (id, user_id, exercise_id, date, person, weight, weight_unit, difficulty, notes, created_at, updated_at, deleted_at)
+      VALUES (@id, @user_id, @exercise_id, @date, @person, @weight, @weight_unit, @difficulty, @notes, @created_at, @updated_at, @deleted_at)
+    `);
+    for (const l of data.exercise_logs || []) insExerciseLog.run({ person: '', weight: null, weight_unit: null, difficulty: null, notes: null, deleted_at: null, ...l });
+
     // OIDC providers — admin config; client_secret is encrypted with the
     // deploy's JWT_SECRET, so cross-deploy restores will need the secret
     // re-entered from the admin UI.
@@ -417,6 +431,8 @@ function dumpDatabase() {
     workouts:         db.prepare('SELECT * FROM workouts').all(),
     activity_log:     db.prepare('SELECT * FROM activity_log').all(),
     fasts:            db.prepare('SELECT * FROM fasts').all(),
+    exercises:        db.prepare('SELECT * FROM exercises').all(),
+    exercise_logs:    db.prepare('SELECT * FROM exercise_logs').all(),
     oidc_providers:   db.prepare('SELECT * FROM oidc_providers').all(),
     user_oidc_links:  db.prepare('SELECT * FROM user_oidc_links').all(),
     // Federation API tokens — stored as SHA-256 hashes, so a user can't

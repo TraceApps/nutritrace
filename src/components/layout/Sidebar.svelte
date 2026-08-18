@@ -33,6 +33,7 @@
   $: BASE_NAV = [
     { path: '/',           icon: 'book',           label: $_('nav.diary')      },
     { path: '/foods',      icon: 'restaurant',     label: $_('nav.foods')      },
+    { path: '/exercises',  icon: 'fitness_center', label: $_('nav.exercises')  },
     { path: '/statistics', icon: 'bar_chart',      label: $_('nav.statistics') },
     { path: '/goals',      icon: 'flag',           label: $_('nav.goals')      },
     { path: '/settings',   icon: 'settings',       label: $_('nav.settings')   },
@@ -46,7 +47,7 @@
   // hid Wellness for HC-only users while bottom nav showed it).
   $: showWellness = $wellnessEnabled && ($fitbitEnabled || $withingsEnabled || $garminEnabled || $googleHealthEnabled || $healthConnectEnabled);
   $: navItems = showWellness
-    ? [...BASE_NAV.slice(0, 2), WELLNESS_NAV, ...BASE_NAV.slice(2)]
+    ? [...BASE_NAV.slice(0, 3), WELLNESS_NAV, ...BASE_NAV.slice(3)]
     : BASE_NAV;
 
   function go(path) {

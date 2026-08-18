@@ -5,6 +5,7 @@
     "wellness": "Bien-être",
     "statistics": "Statistiques",
     "goals": "Objectifs",
+    "exercises": "Exercices",
     "settings": "Paramètres"
   },
   "routes": {
@@ -13,6 +14,7 @@
     "wellness":   { "title": "Bien-être" },
     "statistics": { "title": "Statistiques" },
     "goals":      { "title": "Objectifs" },
+    "exercises":   { "title": "Exercices" },
     "settings":   { "title": "Paramètres" }
   },
   "common": {
@@ -106,6 +108,22 @@
     "water":              { "section": "Eau" },
     "foods":              { "section": "Aliments" },
     "categories":         { "section": "Catégories" },
+    "muscles": {
+      "section":          "Muscles",
+      "help":             "Étiquettes à associer aux exercices. Ajoutez-les, retirez-les ou nommez-les comme vous soulevez.",
+      "empty":            "Aucun muscle pour le moment. Ajoutez le premier ci-dessous.",
+      "pick_label":       "Choisir un emoji",
+      "name_label":       "Nom du muscle *",
+      "name_placeholder": "ex. Pectoraux, Quadriceps…"
+    },
+    "people": {
+      "section":          "Personnes",
+      "help":             "Noms de toutes les personnes qui s'entraînent sur ce compte. Associez-les à un exercice, puis notez le poids de chacun séparément.",
+      "empty":            "Aucune personne pour le moment. Ajoutez un nom ci-dessous, puis sélectionnez-le sur un exercice.",
+      "pick_label":       "Choisir un emoji",
+      "name_label":       "Nom *",
+      "name_placeholder": "ex. Joe, Sam…"
+    },
     "nutrients":          { "section": "Nutriments" },
     "goals":              { "section": "Objectifs caloriques" },
     "body_stats":         { "section": "Mensurations" },
@@ -544,6 +562,62 @@
     "errors": {
       "no_ingredients": "Veuillez ajouter au moins un ingrédient"
     }
+  },
+  "statistics_page": {
+    "empty": {
+      "hint_exercise": "Enregistrez un poids sur la page Exercices pour voir cet exercice dans le temps"
+    }
+  },
+  "exercises": {
+    "add":                   "Ajouter",
+    "add_new":               "Ajouter un exercice",
+    "search_placeholder":    "Rechercher un exercice…",
+    "all_muscles":           "Tous",
+    "empty":                 "Aucun exercice pour le moment",
+    "empty_filtered":        "Aucun exercice ne correspond",
+    "empty_hint":            "Ajoutez un mouvement, associez un muscle, puis notez le poids utilisé. Les graphiques apparaissent ici et dans Statistiques.",
+    "cant_reach":            "Impossible de joindre le serveur.",
+    "log_today":             "Noter le poids",
+    "log_title":             "Noter {name}",
+    "log_required":          "Entrez un poids ou choisissez une difficulté.",
+    "log_saved":             "Séance enregistrée",
+    "date":                  "Date",
+    "weight":                "Poids",
+    "weight_placeholder":    "ex. 60",
+    "difficulty":            "Difficulté",
+    "difficulty_hint":       "À quel point c'était dur aujourd'hui, de 1 (facile) à 5 (effort max). Optionnel.",
+    "saved":                 "Exercice enregistré",
+    "deleted":               "Exercice supprimé",
+    "delete_title":          "Supprimer l'exercice ?",
+    "delete_msg":            "« {name} » et toutes les séances seront supprimés.",
+    "delete_log_title":      "Supprimer cette séance ?",
+    "delete_log_msg":        "Le poids et la difficulté de ce jour seront supprimés.",
+    "edit_title":            "Modifier l'exercice",
+    "add_title":             "Nouvel exercice",
+    "camera":                "Appareil photo",
+    "upload":                "Importer",
+    "get_url":               "OK",
+    "capture":               "Prendre",
+    "crop_use":              "Recadrer et utiliser",
+    "details":               "Détails",
+    "name":                  "Nom",
+    "name_placeholder":      "ex. Développé couché",
+    "muscle":                "Muscle",
+    "new_muscle_placeholder":"Nouveau muscle…",
+    "people":                "Personnes",
+    "people_hint":           "Qui fait cet exercice ? Choisissez une ou plusieurs personnes pour noter le poids de chacune le même jour.",
+    "person":                "Personne",
+    "person_required":       "Choisissez pour qui est cette séance.",
+    "new_person_placeholder":"Nouvelle personne…",
+    "solo":                  "Seul",
+    "notes":                 "Notes",
+    "notes_placeholder":     "Repères, machine, prise…",
+    "log_session":           "Noter une séance",
+    "save_log":              "Enregistrer la séance",
+    "trend":                 "Tendance",
+    "history":               "Historique",
+    "delete":                "Supprimer l'exercice",
+    "not_found":             "Exercice introuvable"
   },
   "accept_invite": {
     "title":                "Créer un compte",

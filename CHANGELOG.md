@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Exercises library with daily weight + difficulty tracking.** New Exercises tab (library + photo, like custom foods) lets you attach a user-defined muscle tag, then log the weight you used and a 1–5 difficulty for any day. Each lift gets a trend chart on its editor and a metric chip on Statistics, using the same unit conversion as bodyweight. Muscles are edited in Settings → Muscles (same tag shape as food categories). Logs are date-keyed so they can attach to the diary later; diary UI is not in this pass. Android sync, full backup, and import/export include both tables.
+- **Multiple people per exercise.** Attach one or more people to a lift (Settings → People, or inline on the editor) and log each person's weight + difficulty on the same day. Charts and Statistics chips split by person so two people can share one account.
+
 ---
 
 ## [1.1.2] - 2026-08-08

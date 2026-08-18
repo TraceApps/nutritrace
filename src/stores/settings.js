@@ -26,7 +26,7 @@ export const USER_PREFS = new Set([
   'fastingScheduleEnabled','fastingScheduleTime','fastingScheduleDays','fastingScheduleGoal',
   'fastingScheduleLastFired',
   'visibleNutriments','nutrimentsOrder','customNutriments',
-  'bodyStatsOrder','hiddenBodyStats','foodCategories','customUnits',
+  'bodyStatsOrder','hiddenBodyStats','foodCategories','exerciseMuscles','exercisePeople','customUnits',
   'diaryShowNutritionBar','diaryTotalsMode','macroLegendMode',
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
@@ -470,6 +470,20 @@ export const customNutriments  = createSettingStore('customNutriments', []);
 export const bodyStatsOrder    = createSettingStore('bodyStatsOrder',   []);
 export const hiddenBodyStats   = createSettingStore('hiddenBodyStats',  []);
 export const foodCategories    = createSettingStore('foodCategories',   []);
+// Muscle tags for the Exercises library. Same { name, label? } shape as
+// foodCategories. Seeded with common groups so a new user can assign a
+// muscle on first create; fully editable in Settings → Muscles.
+export const DEFAULT_EXERCISE_MUSCLES = [
+  { name: 'Chest' }, { name: 'Back' }, { name: 'Shoulders' },
+  { name: 'Biceps' }, { name: 'Triceps' }, { name: 'Legs' },
+  { name: 'Glutes' }, { name: 'Core' }, { name: 'Cardio' },
+  { name: 'Full Body' },
+];
+export const exerciseMuscles   = createSettingStore('exerciseMuscles',  DEFAULT_EXERCISE_MUSCLES);
+// People sharing one account's exercise logs. Same { name, label? } shape as
+// foodCategories / exerciseMuscles. Editable in Settings → People.
+export const DEFAULT_EXERCISE_PEOPLE = [];
+export const exercisePeople    = createSettingStore('exercisePeople',   DEFAULT_EXERCISE_PEOPLE);
 // Custom units the user has added on top of the built-in catalog. Each
 // entry is { abbr, full }. They show in the UnitPicker's "Custom" group
 // at the top of the popover. They are NOT mass-convertible — picking a

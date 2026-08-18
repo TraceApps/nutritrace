@@ -11,6 +11,8 @@
   import { currentDate } from '../stores/diary.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
+  import { displayExerciseWeight } from '../lib/exercise-weight.js';
+  import { parsePeople, parseExerciseMetric, exerciseMetricKey } from '../lib/exercise-people.js';
   import { goals, energyUnit, weightUnit, lengthUnit, statsChartType, statsYZero,
            statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday, statsShowEmptyDays,
            statsMetricOrder, statsHiddenMetrics,
@@ -45,6 +47,7 @@
   let loading = false;
   let summary = null; // { avg, min, max, total, daysWithData }
   let _loadVer = 0;   // cancel stale concurrent loadData calls
+  let exerciseList = [];
 
   // Cumulative metrics accumulate throughout the day (calories, steps, water, etc.).
   // Excluded from charts by default until the day is complete to avoid trend distortion.
@@ -101,6 +104,20 @@
     ...BODY_STATS.filter(s => !($hiddenBodyStats||[]).includes(s.value)),
     ...(_waterShowInStats ? [{ value: 'water', label: 'Water', unit: _waterUnit }] : []),
     ...WELLNESS_METRICS,
+    ...exerciseList.flatMap(e => {
+      const people = parsePeople(e.people);
+      const unit = $weightUnit === 'lb' ? 'lbs' : ($weightUnit || 'kg');
+      if (!people.length) {
+        return [{ value: exerciseMetricKey(e.id, ''), label: e.name, unit, exerciseId: e.id, person: '' }];
+      }
+      return people.map(p => ({
+        value: exerciseMetricKey(e.id, p),
+        label: `${e.name} (${p})`,
+        unit,
+        exerciseId: e.id,
+        person: p,
+      }));
+    }),
   ];
   // Apply the user's Statistics-specific hide list, then reorder by the
   // user's saved order. Metrics not in the order array append at the end
@@ -135,7 +152,7 @@
     'wl_sleep', 'wl_rhr', 'wl_hrv', 'wl_spo2', 'wl_muscle',
   ]);
   function isPhysiologicalMetric(id) {
-    return PHYSIOLOGICAL_METRICS.has(id);
+    return PHYSIOLOGICAL_METRICS.has(id) || (id && id.startsWith('ex_'));
   }
 
   const RANGES = [
@@ -195,10 +212,24 @@
 
     const isBodyStat    = BODY_STATS.some(s => s.value === metric);
     const isWater       = metric === 'water';
+    const isExercise    = typeof metric === 'string' && metric.startsWith('ex_');
+    const exMetric      = isExercise ? parseExerciseMetric(metric) : null;
+    const exerciseId    = exMetric?.exerciseId || null;
 
     let rows = [];
 
-    if (isWellness) {
+    if (isExercise) {
+      let logs = [];
+      try { logs = await NtApi.getExerciseLogs(exerciseId, fromStr, toStr) || []; } catch {}
+      if (ver !== _loadVer) { loading = false; return; }
+      const person = exMetric?.person || '';
+      logs = logs.filter(l => (l.person || '') === person);
+      const byDate = Object.fromEntries(logs.map(l => [l.date, l]));
+      rows = dates.map(d => ({
+        date: d,
+        val: displayExerciseWeight(byDate[d], $weightUnit),
+      }));
+    } else if (isWellness) {
       // Load from wellness API
       const wlMeta = WELLNESS_METRICS.find(m => m.value === metric);
       if (!wlMeta || ver !== _loadVer) { loading = false; return; }
@@ -562,7 +593,9 @@
       return wl.unit;
     }
     const m = [...NUTRIMENTS, ...BODY_STATS].find(x => x.value === metric || x.id === metric);
-    return m ? (m.unit || '') : '';
+    if (m) return m.unit || '';
+    if (typeof metric === 'string' && metric.startsWith('ex_')) return $weightUnit === 'lb' ? 'lbs' : ($weightUnit || 'kg');
+    return '';
   }
 
   // Compute metric unit reactively (not via function call — avoids stale reads)
@@ -576,11 +609,17 @@
       return wl.unit;
     }
     const m = [...NUTRIMENTS, ...BODY_STATS].find(x => x.value === metric || x.id === metric);
-    return m ? (m.unit || '') : '';
+    if (m) return m.unit || '';
+    if (typeof metric === 'string' && metric.startsWith('ex_')) return $weightUnit === 'lb' ? 'lbs' : ($weightUnit || 'kg');
+    return '';
   })();
 
-  $: { metric; range; customStart; customEnd; $statsIncludeToday; $statsShowEmptyDays; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine;
+  $: { metric; range; customStart; customEnd; $statsIncludeToday; $statsShowEmptyDays; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine; exerciseList;
        if (canvasEl) loadData(); }
+
+  onMount(async () => {
+    try { exerciseList = await NtApi.getExercises() || []; } catch { exerciseList = []; }
+  });
 
   onDestroy(() => { if (chart) chart.destroy(); });
 
@@ -619,6 +658,9 @@
     if (metric.startsWith('wl_')) {
       sessionStorage.setItem('nt:wellnessTargetDate', date);
       push('/wellness');
+    } else if (metric.startsWith('ex_')) {
+      const parsed = parseExerciseMetric(metric);
+      if (parsed?.exerciseId) push('/exercises/edit/' + parsed.exerciseId);
     } else {
       currentDate.set(date);
       push('/');
@@ -768,6 +810,8 @@
                 {$_('statistics_page.empty.hint_food_metric')}
               {:else if metric.startsWith('wl_')}
                 {$_('statistics_page.empty.hint_wellness')}
+              {:else if metric.startsWith('ex_')}
+                {$_('statistics_page.empty.hint_exercise')}
               {:else}
                 {$_('statistics_page.empty.hint_other')}
               {/if}

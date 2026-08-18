@@ -36,13 +36,14 @@
     { value: 'sidebar',  label: 'Side panel'     },
     { value: 'both',     label: 'Both'           },
   ];
-  const START_PAGE_OPTS = [
-    { value: '/',           label: 'Diary'      },
-    { value: '/foods',      label: 'Foods'      },
-    { value: '/statistics', label: 'Statistics' },
-    { value: '/wellness',   label: 'Wellness'   },
-    { value: '/goals',      label: 'Goals'      },
-    { value: '/settings',   label: 'Settings'   },
+  $: START_PAGE_OPTS = [
+    { value: '/',           label: $_('nav.diary')      },
+    { value: '/foods',      label: $_('nav.foods')      },
+    { value: '/exercises',  label: $_('nav.exercises')  },
+    { value: '/statistics', label: $_('nav.statistics') },
+    { value: '/wellness',   label: $_('nav.wellness')   },
+    { value: '/goals',      label: $_('nav.goals')      },
+    { value: '/settings',   label: $_('nav.settings')   },
   ];
 
   $: isDark = $appearance === 'dark' || ($appearance === 'system' && (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches));

@@ -789,4 +789,98 @@ try {
   console.warn('[db] diary items shrink migration failed:', e.message || e);
 }
 
+// ── Exercises (strength tracking) ─────────────────────────────────────────
+// Library of user-defined lifts (name, photo, muscle tag, people) plus one
+// log row per exercise per person per day (weight + 1–5 difficulty).
+// Muscles and people live in user_settings (exerciseMuscles / exercisePeople).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS exercises (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    img_url     TEXT,
+    notes       TEXT,
+    muscle      TEXT,
+    people      TEXT,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    deleted_at  TEXT DEFAULT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_exercises_user    ON exercises(user_id);
+  CREATE INDEX IF NOT EXISTS idx_exercises_updated ON exercises(updated_at);
+
+  CREATE TABLE IF NOT EXISTS exercise_logs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    exercise_id  INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+    date         TEXT NOT NULL,
+    person       TEXT NOT NULL DEFAULT '',
+    weight       REAL,
+    weight_unit  TEXT,
+    difficulty   INTEGER,
+    notes        TEXT,
+    created_at   TEXT DEFAULT (datetime('now')),
+    updated_at   TEXT DEFAULT (datetime('now')),
+    deleted_at   TEXT DEFAULT NULL,
+    UNIQUE(exercise_id, date, person)
+  );
+  CREATE INDEX IF NOT EXISTS idx_exercise_logs_user     ON exercise_logs(user_id, date);
+  CREATE INDEX IF NOT EXISTS idx_exercise_logs_exercise ON exercise_logs(exercise_id, date);
+  CREATE INDEX IF NOT EXISTS idx_exercise_logs_updated  ON exercise_logs(updated_at);
+`);
+
+if (!columnExists('exercises', 'people')) {
+  db.exec(`ALTER TABLE exercises ADD COLUMN people TEXT`);
+}
+if (!columnExists('exercise_logs', 'person')) {
+  db.exec(`ALTER TABLE exercise_logs ADD COLUMN person TEXT NOT NULL DEFAULT ''`);
+}
+{
+  const indexes = db.prepare(`PRAGMA index_list(exercise_logs)`).all();
+  let needsRebuild = false;
+  for (const idx of indexes) {
+    if (!idx.unique) continue;
+    const cols = db.prepare(`PRAGMA index_info(${JSON.stringify(idx.name)})`).all().map(c => c.name);
+    if (cols.includes('exercise_id') && cols.includes('date') && !cols.includes('person')) {
+      needsRebuild = true;
+      break;
+    }
+  }
+  if (needsRebuild) {
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.transaction(() => {
+        db.exec(`
+          CREATE TABLE exercise_logs_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            exercise_id  INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+            date         TEXT NOT NULL,
+            person       TEXT NOT NULL DEFAULT '',
+            weight       REAL,
+            weight_unit  TEXT,
+            difficulty   INTEGER,
+            notes        TEXT,
+            created_at   TEXT DEFAULT (datetime('now')),
+            updated_at   TEXT DEFAULT (datetime('now')),
+            deleted_at   TEXT DEFAULT NULL,
+            UNIQUE(exercise_id, date, person)
+          );
+          INSERT INTO exercise_logs_new
+            (id, user_id, exercise_id, date, person, weight, weight_unit, difficulty, notes, created_at, updated_at, deleted_at)
+            SELECT id, user_id, exercise_id, date, COALESCE(person, ''), weight, weight_unit, difficulty, notes, created_at, updated_at, deleted_at
+            FROM exercise_logs;
+          DROP TABLE exercise_logs;
+          ALTER TABLE exercise_logs_new RENAME TO exercise_logs;
+          CREATE INDEX IF NOT EXISTS idx_exercise_logs_user     ON exercise_logs(user_id, date);
+          CREATE INDEX IF NOT EXISTS idx_exercise_logs_exercise ON exercise_logs(exercise_id, date);
+          CREATE INDEX IF NOT EXISTS idx_exercise_logs_updated  ON exercise_logs(updated_at);
+        `);
+      })();
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  }
+}
+
 export default db;
