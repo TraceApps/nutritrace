@@ -19,6 +19,13 @@ import './styles/forms.css';
 import App from './App.svelte';
 import { DB } from './lib/db.js';
 import { initI18n } from './i18n/index.js';
+import { isNative, loadImageMap } from './lib/platform.js';
+
+function _bootMsg(text) {
+  if (window.__NT_BOOTED__) return;
+  const el = document.getElementById('nt-boot');
+  if (el) el.textContent = text;
+}
 
 // Pick browser-detected locale for first paint; the App-level subscription to
 // the `language` store flips it to the user's saved preference once that loads.
@@ -34,17 +41,30 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e =
   }
 });
 
-// Boot
-DB.init()
+// Boot. Time out IndexedDB so a hung open (common in embedded browsers)
+// cannot leave #app blank forever.
+_bootMsg('Opening local database…');
+const _dbInit = Promise.race([
+  DB.init(),
+  new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('IndexedDB open timed out')), 8000)
+  ),
+]);
+
+_dbInit
   .then(async () => {
     // Load cached image map before app renders — ensures resolveAssetUrl() has the map
     // ready on first paint (local SQLite read, no server dependency, ~5ms)
-    const { isNative } = await import('./lib/platform.js');
     if (isNative) {
-      const { loadImageMap } = await import('./lib/platform.js');
       await loadImageMap();
     }
-    new App({ target: document.getElementById('app') });
+    _bootMsg('Loading app…');
+    window.__NT_BOOTED__ = true;
+    const bootEl = document.getElementById('nt-boot');
+    if (bootEl) bootEl.remove();
+    const root = document.getElementById('app');
+    root.innerHTML = '';
+    new App({ target: root });
   })
   .catch(err => {
     console.error('DB init failed:', err);

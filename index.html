@@ -58,7 +58,30 @@
        by src/components/foods/BarcodeScanner.svelte → _loadBarcodeLibs(). -->
 </head>
 <body>
+  <p id="nt-boot" style="margin:40vh auto;max-width:28rem;text-align:center;color:#8b90a0;font:15px/1.4 Inter,system-ui,sans-serif">
+    Loading NutriTrace…
+  </p>
   <div id="app"></div>
+  <script>
+    (function () {
+      function msg(t) {
+        if (window.__NT_BOOTED__) return;
+        var el = document.getElementById('nt-boot');
+        if (el) el.textContent = t;
+      }
+      fetch('/api/health', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { msg(j && j.ok ? 'API connected. Loading UI…' : 'API responded, not ok. Loading UI…'); })
+        .catch(function () { msg('API unreachable. Loading UI anyway…'); });
+      window.addEventListener('error', function (e) {
+        msg('Load error: ' + (e.message || e.filename || 'unknown'));
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason;
+        msg('Load error: ' + ((r && r.message) || r || 'unhandled rejection'));
+      });
+    })();
+  </script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
