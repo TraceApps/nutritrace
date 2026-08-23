@@ -296,6 +296,8 @@
     "no_apk_asset":          "This release has no APK asset attached.",
     "banner_cta":            "Tap to view what's new and install.",
     "banner_view":           "View",
+    "available_generic":     "A New Version Is Available",
+    "banner_reload":         "Reload",
     "storage": {
       "heading":     "Cached Update APKs",
       "empty":       "No cached APKs. Cleanup passes ran successfully.",
