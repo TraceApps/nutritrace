@@ -12,13 +12,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [1.2.0] - 2026-08-23
 
 Minor release with substantial new territory: Model Context Protocol
-support for AI agents, OpenID Connect authentication, Google Health
-integration (replacing the deprecated Fitbit-only path), a proper
-Activity tracking surface with MET-based estimation, and a first-pass
-wide-screen redesign across every section of the app. The AI Assistant
-also learned to be terse and use plain text, comma decimal separator
-is now supported everywhere numbers get typed, and in-app updates
-finally tell you when a new version is out.
+support for AI agents, Google Health integration (replacing the
+deprecated Fitbit-only path), a proper Activity tracking surface with
+MET-based estimation, and a first-pass wide-screen redesign across
+every section of the app. The AI Assistant also learned to be terse
+and use plain text, comma decimal separator is now supported
+everywhere numbers get typed, and in-app updates finally tell you
+when a new version is out.
 
 Community translations are open on Weblate.
 
@@ -35,7 +35,6 @@ Community translations are open on Weblate.
   backlog for future releases. `Force Mobile Layout` remains the
   opt-out for anyone who prefers the compact stack on wide screens.
 - **Model Context Protocol (MCP) server** ([#103](https://github.com/TraceApps/nutritrace/issues/103)). NutriTrace now exposes a read + write MCP endpoint so Claude, Continue, and other MCP-aware agents can search your food catalog, log entries, propose meals, and read diary history without a separate API dance. Read tools cover foods (search / list / detail), meals (search / recent / detail), diary (by date / range / averages), and body stats. Write tools cover diary logging, quick calories, food catalog creation, and meal creation. All gated behind the `mcp:read` / `mcp:write` API-key scopes. Tolerates common nutriment aliases (`protein`, `carbs`, `vitamin-b12`) automatically. See [/reference/mcp-tools/](https://traceapps.github.io/docs/reference/mcp-tools/) for the full tool list. Thanks to @javydekoning for the meal-side tool feedback.
-- **OpenID Connect authentication (Phase 1 + 2)**. Self-hosters can now front NutriTrace with Authelia, Authentik, Keycloak, or any OIDC-compliant provider. Configure via `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`; the login page shows a "Sign in with SSO" button alongside the existing password flow. Local accounts continue to work in parallel; no forced migration.
 - **Google Health integration** replaces the Fitbit-only path. Steps, distance, calories out, active calories, weight, sleep, and heart rate now sync from Google Health on Android via the Health Connect bridge. The legacy Fitbit web-API path stays supported through September 2026 as Google winds down that surface.
 - **Activity tracking** (Diary → Activity section). Log workouts by name + duration and NutriTrace estimates the kcal burn from your body weight × MET × duration using the Compendium of Physical Activities. Auto-estimate is opt-in (Settings → Diary → Auto-estimate); user-stated kcal always wins if you provide a number. Wellness-reported calories (from Fitbit / Garmin / Google Health) can either replace or add to manual entries via the Manual Activity Policy setting.
 - **`POST /api/v1/activity`** ([#154](https://github.com/TraceApps/nutritrace/issues/154)). External services can log a manual activity entry via API using the new `write:activity` scope. Supports `external_id` for idempotent posts.
@@ -71,7 +70,7 @@ Community translations are open on Weblate.
 ### Security
 
 - No new vulnerabilities. `npm audit` reports 0.
-- Three new dependencies for the features above: `@modelcontextprotocol/sdk` (MCP), `openid-client` (OIDC), `zod` (MCP schema validation). All actively maintained.
+- Two new dependencies for the features above: `@modelcontextprotocol/sdk` (MCP) and `zod` (MCP schema validation). Both actively maintained.
 
 ---
 
