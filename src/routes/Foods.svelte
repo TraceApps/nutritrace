@@ -12,8 +12,9 @@
   import FoodDetailSheet from '../components/ui/FoodDetailSheet.svelte';
   import UnitPicker  from '../components/ui/UnitPicker.svelte';
   import { portal } from '../lib/portal.js';
+  import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { scaleFactor as _unitScaleFactor, unitSystem as _unitSystem, amountAndUnit } from '../lib/units.js';
-  import { diaryPromptQuantity, warnUnitMismatch, showUnitMetadata } from '../stores/settings.js';
+  import { diaryPromptQuantity, warnUnitMismatch, showUnitMetadata, forceMobileLayout } from '../stores/settings.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import { DB, localDateStr } from '../lib/db.js';
@@ -410,6 +411,17 @@
   // changes the user wants to make.
   let detailSheetOpen = false;
   let detailSheetFood = null;
+  // Desktop detail-pane state (Phase B). When the viewport is wide
+  // enough (≥1440px) AND force-mobile-layout is off, tapping a food
+  // populates this pane instead of opening the modal FoodDetailSheet.
+  // The pane is sticky-positioned in the third column of .foods-body.
+  let _paneFood = null;
+  let _foodsViewportPane = false;
+  $: _foodsPaneMode = _foodsViewportPane && !$forceMobileLayout;
+  // Phase D — keyboard shortcut plumbing. bind:this from the search
+  // input above; focused via ⌘K / Ctrl-K / '/' when the user isn't
+  // already typing in another field.
+  let _searchInputEl = null;
   let promptUnit = 'g';
 
   // Reactive nutrition preview for the qty prompt — recomputes whenever
@@ -420,14 +432,14 @@
     if (!promptFood) return {};
     const origPortion = parseFloat(promptFood.portion) || 100;
     const origUnit    = promptFood.unit || 'g';
-    const newPortion  = parseFloat(promptPortion) || origPortion;
+    const newPortion  = parseDecimal(promptPortion) || origPortion;
     // Pass promptFood as the food so the scaler uses per-food alt_units and
     // density when set. Issues #69 + #70.
     const factor      = _unitScaleFactor(origPortion, origUnit, newPortion, promptUnit || origUnit, promptFood);
     const scaledNutrition = promptFood.nutrition
       ? Object.fromEntries(Object.entries(promptFood.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * factor]))
       : promptFood.nutrition;
-    return Nutrition.calculate({ ...promptFood, nutrition: scaledNutrition, quantity: parseFloat(promptServings) || 1 });
+    return Nutrition.calculate({ ...promptFood, nutrition: scaledNutrition, quantity: parseDecimal(promptServings) || 1 });
   })();
   $: _qtyEnergy = Nutrition.displayEnergy(qtyCalc.calories || 0, $energyUnit);
   let activeCategoryFilter = ''; // '' = all
@@ -449,6 +461,10 @@
   let showMultiPortionSheet = false;
   let multiPortionItems = [];         // [{ food, portion, unit, servings }]
   let multiAdding = false;
+  // Guards every add-to-diary path (single, direct-click, meal expand, copy).
+  // Without it, a mash-click during a slow write fires the add N times and
+  // the diary ends up with N duplicate rows. Issue #156.
+  let _addingToDiary = false;
 
   // Manage mode: multi-select for bulk delete of the current tab's local
   // items. Entered from the item action sheet on a local item. Mutually
@@ -461,6 +477,11 @@
   // Clear selection when tab changes (different list context); search does NOT clear selection.
   // Also exit manage mode on tab change so the count reflects the new list.
   $: { activeTab; selectedFoods = new Set(); manageMode = false; manageSelected = new Set(); }
+  // Clear the desktop detail pane on tab or filter change so users
+  // don't see a "ghost" preview of a food that isn't in the newly-
+  // filtered list. Applies to the pane; the modal sheet is user-
+  // dismissed so it doesn't need this treatment.
+  $: { activeTab; searchSource; activeCategoryFilter; _paneFood = null; }
 
   // Convert item portions to grams for total serving display
   const _toG = { g:1, ml:1, oz:28.35, lb:453.59, cup:240, tbsp:15, tsp:5 };
@@ -813,7 +834,14 @@
   // fast (~200ms) so it reads as a single motion: sheet drops, editor or
   // qty prompt comes up underneath in the same beat.
   function onDetailEdit(e) {
-    openEditor(e.detail.food, 'foodList');
+    const food = e.detail.food;
+    // Route by the current tab — meals/recipes need MealEditor, not
+    // FoodEditor. Preserves existing edit destinations while letting
+    // the desktop pane's Edit button do the right thing for the
+    // currently-viewed catalog.
+    if (activeTab === 1) return openMealEditor(food, false);
+    if (activeTab === 2) return openMealEditor(food, true);
+    openEditor(food, 'foodList');
   }
 
   async function onDetailAddToDiary(e) {
@@ -897,10 +925,26 @@
       // Previous behavior was openEditor(food, 'foodList') — full-page
       // navigation to /foods/edit; preserved as the Edit-button destination
       // on the new sheet so no FoodEditor functionality is lost.
-      if (activeTab === 1) { openMealEditor(food, false); return; }
-      if (activeTab === 2) { openMealEditor(food, true);  return; }
+      // Meals / Recipes: on desktop pane mode, populate the pane
+      // (preview reuses the food-shaped nutrition + name + brand);
+      // on mobile, drop straight into the MealEditor since there's
+      // no pane to preview into.
+      if (activeTab === 1) {
+        if (_foodsPaneMode) { _paneFood = food; return; }
+        return openMealEditor(food, false);
+      }
+      if (activeTab === 2) {
+        if (_foodsPaneMode) { _paneFood = food; return; }
+        return openMealEditor(food, true);
+      }
       detailSheetFood = food;
-      detailSheetOpen = true;
+      if (_foodsPaneMode) {
+        // Desktop wide: populate the right-pane preview instead of
+        // opening the modal sheet.
+        _paneFood = food;
+      } else {
+        detailSheetOpen = true;
+      }
       return;
     }
 
@@ -931,25 +975,31 @@
   }
 
   async function _expandMealToDiary(meal) {
-    const { addDiaryItem } = await import('../stores/diary.js');
-    // Bump usage on the meal itself before expanding into individual food
-    // items. addDiaryItem only sees the foods it logs (and bumps those),
-    // so without this the saved meal's own counter would never move and
-    // "Most Used" on the Meals tab would stay at zero. Fire-and-forget;
-    // counter inaccuracy isn't worth blocking the user's add.
-    if (typeof meal.id === 'number') {
-      NtApi.markMealUsed(meal.id, pickDate || undefined).catch(() => {});
+    if (_addingToDiary) return;
+    _addingToDiary = true;
+    try {
+      const { addDiaryItem } = await import('../stores/diary.js');
+      // Bump usage on the meal itself before expanding into individual food
+      // items. addDiaryItem only sees the foods it logs (and bumps those),
+      // so without this the saved meal's own counter would never move and
+      // "Most Used" on the Meals tab would stay at zero. Fire-and-forget;
+      // counter inaccuracy isn't worth blocking the user's add.
+      if (typeof meal.id === 'number') {
+        NtApi.markMealUsed(meal.id, pickDate || undefined).catch(() => {});
+      }
+      for (const item of meal.items) {
+        await addDiaryItem(
+          { ...item, quantity: item.quantity || 1 },
+          Number(pickMeal) || 0,
+          pickDate || undefined
+        );
+      }
+      import('../stores/toast.js').then(m => m.showSuccess('Added to diary'));
+      editorState.lastMealAdded = Number(pickMeal) || 0;
+      history.back();
+    } finally {
+      _addingToDiary = false;
     }
-    for (const item of meal.items) {
-      await addDiaryItem(
-        { ...item, quantity: item.quantity || 1 },
-        Number(pickMeal) || 0,
-        pickDate || undefined
-      );
-    }
-    import('../stores/toast.js').then(m => m.showSuccess('Added to diary'));
-    editorState.lastMealAdded = Number(pickMeal) || 0;
-    history.back();
   }
 
   async function _addFoodToDiaryNoNav(food, qty) {
@@ -970,10 +1020,16 @@
   }
 
   async function _addFoodToDiary(food, qty) {
-    await _addFoodToDiaryNoNav(food, qty);
-    import('../stores/toast.js').then(m => m.showSuccess('Added to diary'));
-    editorState.lastMealAdded = Number(pickMeal) || 0;
-    history.back();
+    if (_addingToDiary) return;
+    _addingToDiary = true;
+    try {
+      await _addFoodToDiaryNoNav(food, qty);
+      import('../stores/toast.js').then(m => m.showSuccess('Added to diary'));
+      editorState.lastMealAdded = Number(pickMeal) || 0;
+      history.back();
+    } finally {
+      _addingToDiary = false;
+    }
   }
 
   function toggleSelect(food) {
@@ -1029,13 +1085,13 @@
     for (const item of multiPortionItems) {
       const origPortion = parseFloat(item.food.portion) || 100;
       const origUnit    = item.food.unit || 'g';
-      const newPortion  = parseFloat(item.portion) || origPortion;
+      const newPortion  = parseDecimal(item.portion) || origPortion;
       const portionFactor = _unitScaleFactor(origPortion, origUnit, newPortion, item.unit || origUnit, item.food);
       const scaledNutrition = item.food.nutrition
         ? Object.fromEntries(Object.entries(item.food.nutrition).map(([k,v]) => [k, (parseFloat(v)||0) * portionFactor]))
         : item.food.nutrition;
       const food = { ...item.food, portion: newPortion, unit: item.unit, nutrition: scaledNutrition };
-      await _addFoodToDiaryNoNav(food, parseFloat(item.servings) || 1);
+      await _addFoodToDiaryNoNav(food, parseDecimal(item.servings) || 1);
     }
     showSuccess(`Added ${multiPortionItems.length} item${multiPortionItems.length > 1 ? 's' : ''} to diary`);
     editorState.lastMealAdded = Number(pickMeal) || 0;
@@ -1044,10 +1100,10 @@
   }
 
   async function confirmQtyPrompt() {
-    if (!promptFood) return;
+    if (!promptFood || _addingToDiary) return;
     const origPortion = parseFloat(promptFood.portion) || 100;
     const origUnit    = promptFood.unit || 'g';
-    const newPortion  = parseFloat(promptPortion) || origPortion;
+    const newPortion  = parseDecimal(promptPortion) || origPortion;
     const newUnit     = promptUnit || origUnit;
 
     // Scale by mass when both units are mass-convertible (g/oz/lb/ml/etc.),
@@ -1065,7 +1121,7 @@
       unit: newUnit,
       nutrition: scaledNutrition
     };
-    await _addFoodToDiary(food, parseFloat(promptServings) || 1);
+    await _addFoodToDiary(food, parseDecimal(promptServings) || 1);
   }
 
   async function deleteItem(item) {
@@ -1378,11 +1434,121 @@
   // inside an async onMount (after any await) throws "Function called
   // outside component initialization" in Svelte 4.
   let _onVis = null;
+  let _paneMq = null;
+  let _paneMqHandler = null;
+  let _railMq = null;
+  let _railMqHandler = null;
+  let _foodsViewportRail = false; // ≥1280px, gates the Sources/Categories rail portal
+  $: _foodsRailMode = _foodsViewportRail && !$forceMobileLayout;
+  let _onKeyGlobal = null;
+  let _foodsBodyEl = null;
+  // Same pattern as NT Diary's rail (see feedback_traceapps_fixed_positioning_in_scroll_wrapper):
+  // .page-transition scopes position:fixed via will-change:transform, so
+  // both asides are portaled to document.body and their geometry is fed
+  // via inline CSS custom properties (which don't cross a portal).
+  let _railTopPx  = 130, _railLeftPx  = 0,   _railWidthPx = 240;
+  let _paneTopPx  = 130, _paneLeftPx  = 0,   _paneWidthPx = 420;
+  let _foodsRailResizeObs = null;
+  function _measureFoodsRails() {
+    if (!_foodsBodyEl) return;
+    const rect = _foodsBodyEl.getBoundingClientRect();
+    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    const cs = getComputedStyle(_foodsBodyEl);
+    const padTop  = parseFloat(cs.paddingTop  || '0') || 0;
+    const padLeft = parseFloat(cs.paddingLeft || '0') || 0;
+    // Grid + padding gives the actual position of the rail cell inside
+    // .foods-body. Including the top padding is what puts the small
+    // breathing gap between the sticky search bar and the rail (same
+    // "diary rail sits below week-strip with .diary-content padding"
+    // pattern from Diary.svelte).
+    const rootCS = getComputedStyle(document.documentElement);
+    const pageTop = parseFloat(rootCS.getPropertyValue('--page-top') || rootCS.getPropertyValue('--safe-top') || '0') || 0;
+    const hamRow  = parseFloat(rootCS.getPropertyValue('--hamburger-row') || '0') || 0;
+    const anchorDocTop = rect.top + scrollY + padTop;
+    const topPx = Math.max(0, Math.round(anchorDocTop - pageTop - hamRow));
+    if (topPx !== _railTopPx) _railTopPx = topPx;
+    if (topPx !== _paneTopPx) _paneTopPx = topPx;
+    // Left offsets track the grid cell edges, honoring horizontal padding.
+    const leftRail = Math.max(0, Math.round(rect.left + padLeft));
+    const paneRightPad = parseFloat(cs.paddingRight || '0') || 0;
+    const leftPane = Math.max(0, Math.round(rect.right - paneRightPad - _paneWidthPx));
+    if (leftRail !== _railLeftPx) _railLeftPx = leftRail;
+    if (leftPane !== _paneLeftPx) _paneLeftPx = leftPane;
+  }
   onDestroy(() => {
     if (_onVis) document.removeEventListener('visibilitychange', _onVis);
+    if (_paneMq && _paneMqHandler) {
+      _paneMq.removeEventListener
+        ? _paneMq.removeEventListener('change', _paneMqHandler)
+        : _paneMq.removeListener(_paneMqHandler);
+    }
+    if (_railMq && _railMqHandler) {
+      _railMq.removeEventListener
+        ? _railMq.removeEventListener('change', _railMqHandler)
+        : _railMq.removeListener(_railMqHandler);
+    }
+    if (_onKeyGlobal) document.removeEventListener('keydown', _onKeyGlobal);
+    try { _foodsRailResizeObs?.disconnect(); } catch {}
+    if (typeof window !== 'undefined') window.removeEventListener('resize', _measureFoodsRails);
   });
 
   onMount(async () => {
+    // Desktop detail-pane viewport tracker. Threshold 1440px matches
+    // Foods Phase B — below that, the third column would squeeze the
+    // main list too tight to be useful, so we keep opening the modal
+    // sheet on tap. Combined with $forceMobileLayout reactively above.
+    if (typeof window !== 'undefined') {
+      _paneMq = window.matchMedia('(min-width: 1440px)');
+      _paneMqHandler = () => { _foodsViewportPane = _paneMq.matches; };
+      _foodsViewportPane = _paneMq.matches;
+      _paneMq.addEventListener
+        ? _paneMq.addEventListener('change', _paneMqHandler)
+        : _paneMq.addListener(_paneMqHandler);
+      // Second breakpoint gate: the Sources/Categories rail activates
+      // at ≥1280 (one step below the detail pane). Portal + measurement
+      // only run inside this window.
+      _railMq = window.matchMedia('(min-width: 1280px)');
+      _railMqHandler = () => { _foodsViewportRail = _railMq.matches; requestAnimationFrame(_measureFoodsRails); };
+      _foodsViewportRail = _railMq.matches;
+      _railMq.addEventListener
+        ? _railMq.addEventListener('change', _railMqHandler)
+        : _railMq.addListener(_railMqHandler);
+    }
+    requestAnimationFrame(() => requestAnimationFrame(_measureFoodsRails));
+    try {
+      _foodsRailResizeObs = new ResizeObserver(_measureFoodsRails);
+      if (_foodsBodyEl) _foodsRailResizeObs.observe(_foodsBodyEl);
+    } catch { /* ResizeObserver unavailable — one-shot stands */ }
+    if (typeof window !== 'undefined') window.addEventListener('resize', _measureFoodsRails);
+    // Global keyboard shortcut: '/' or ⌘K / Ctrl-K focuses the
+    // search input from anywhere on the page, matching the muscle
+    // memory of most desktop search UIs. Skipped when the user is
+    // already typing in a field, and when a sheet/dialog is open
+    // (a search focus underneath a modal reads as broken UX).
+    if (typeof document !== 'undefined') {
+      _onKeyGlobal = (e) => {
+        if (!_searchInputEl) return;
+        const target = e.target;
+        const inField = target && (
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable
+        );
+        const isSlash = e.key === '/';
+        const isCmdK = (e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K');
+        if (isCmdK) {
+          e.preventDefault();
+          _searchInputEl.focus();
+          _searchInputEl.select?.();
+          return;
+        }
+        if (isSlash && !inField) {
+          e.preventDefault();
+          _searchInputEl.focus();
+        }
+      };
+      document.addEventListener('keydown', _onKeyGlobal);
+    }
     // Restore tab before load so the right list is fetched
     if (editorState.foodsActiveTab != null) {
       activeTab = editorState.foodsActiveTab;
@@ -1417,6 +1583,87 @@
   on:scroll={_closeTierDropdowns}
   on:resize={_closeTierDropdowns}
 />
+
+<!-- Source + category chip snippets. Rendered inline in the mobile
+     sticky bar (horizontal scroll) AND inside the desktop
+     .foods-filter-rail (vertical list). Same event handlers +
+     state either way — snippet-driven so behavior stays in one
+     place while the layout adapts. -->
+{#snippet sourceChips()}
+  {#if availableSources.length > 1}
+    {#each availableSources as src}
+      {#if src.value === 'off'}
+        <div class="source-chip-wrap">
+          <button class="source-chip source-chip-split"
+                  class:active={activeChips.off}
+                  on:click={() => _onChipTap('off')}
+                  on:contextmenu|preventDefault={() => _toggleChipInMulti('off')}
+                  on:touchstart|passive={(e) => _startChipLongPress('off', e)}
+                  on:touchmove|passive={_maybeCancelChipLongPress}
+                  on:touchend={_cancelChipLongPress}
+                  on:touchcancel={_cancelChipLongPress}>
+            {src.label}
+            {#if offTiersFiltered}<span class="tier-active-dot" title="OFF tier filter active"></span>{/if}
+          </button>
+          <button class="source-chip-caret"
+                  class:active={activeChips.off}
+                  class:open={offDropdownOpen}
+                  bind:this={offCaretEl}
+                  on:click={openOffDropdown}
+                  aria-label="Filter OFF results by quality tier"
+                  aria-expanded={offDropdownOpen}>
+            <span class="material-symbols-rounded">expand_more</span>
+          </button>
+        </div>
+      {:else if src.value === 'usda'}
+        <div class="source-chip-wrap">
+          <button class="source-chip source-chip-split"
+                  class:active={activeChips.usda}
+                  on:click={() => _onChipTap('usda')}
+                  on:contextmenu|preventDefault={() => _toggleChipInMulti('usda')}
+                  on:touchstart|passive={(e) => _startChipLongPress('usda', e)}
+                  on:touchmove|passive={_maybeCancelChipLongPress}
+                  on:touchend={_cancelChipLongPress}
+                  on:touchcancel={_cancelChipLongPress}>
+            {src.label}
+            {#if usdaTiersFiltered}<span class="tier-active-dot" title="USDA tier filter active"></span>{/if}
+          </button>
+          <button class="source-chip-caret"
+                  class:active={activeChips.usda}
+                  class:open={usdaDropdownOpen}
+                  bind:this={usdaCaretEl}
+                  on:click={openUsdaDropdown}
+                  aria-label="Filter USDA results by data type"
+                  aria-expanded={usdaDropdownOpen}>
+            <span class="material-symbols-rounded">expand_more</span>
+          </button>
+        </div>
+      {:else}
+        <button class="source-chip"
+                class:active={activeChips[src.value]}
+                on:click={() => _onChipTap(src.value)}
+                on:contextmenu|preventDefault={() => _toggleChipInMulti(src.value)}
+                on:touchstart|passive={(e) => _startChipLongPress(src.value, e)}
+                on:touchmove|passive={_maybeCancelChipLongPress}
+                on:touchend={_cancelChipLongPress}
+                on:touchcancel={_cancelChipLongPress}>
+          {src.label}
+        </button>
+      {/if}
+    {/each}
+  {/if}
+{/snippet}
+
+{#snippet catChips()}
+  {#if activeTab === 0 && searchSource === 'local' && $foodsShowCategories && $foodCategories && $foodCategories.length > 0}
+    <button class="cat-chip" class:active={!activeCategoryFilter}
+      on:click={() => activeCategoryFilter = ''}>{$_('foods.category_all')}</button>
+    {#each $foodCategories as cat}
+      <button class="cat-chip" class:active={activeCategoryFilter === _catName(cat)}
+        on:click={() => activeCategoryFilter = activeCategoryFilter === _catName(cat) ? '' : _catName(cat)}>{$foodsShowLabels ? _catDisplay(cat) : _catName(cat)}</button>
+    {/each}
+  {/if}
+{/snippet}
 
 <div class="page-shell">
   <!-- Manage-mode action icons — fixed at top-right, matches Diary UX -->
@@ -1475,6 +1722,7 @@
         class="foods-search-input"
         type="search"
         placeholder={$_('foods.search_placeholder')}
+        bind:this={_searchInputEl}
         bind:value={search}
       />
       <button class="btn-scan-inline" on:click={() => scannerOpen = true} aria-label={$_('foods.scan_barcode')} title={$_('foods.scan_barcode')}>
@@ -1483,86 +1731,60 @@
     </div>
   </div>
 
-  <!-- Source chips: Foods tab gets the full list (Local + OFF/USDA/Mealie/Shared
-       depending on which are enabled). Meals + Recipes tabs only show the row
-       when there's actually something to filter (Local + From Others). -->
-  {#if availableSources.length > 1}
+  <!-- Mobile chip rows — horizontal scroll inside the sticky bar
+       (sources) + below the sticky bar (categories). Both are
+       CSS-hidden on desktop (≥1280px) since the .foods-filter-rail
+       shows the same chips vertically. -->
+  <div class="foods-mobile-chips">
     <div class="source-chip-row">
-      {#each availableSources as src}
-        {#if src.value === 'off'}
-          <div class="source-chip-wrap">
-            <button class="source-chip source-chip-split"
-                    class:active={activeChips.off}
-                    on:click={() => _onChipTap('off')}
-                    on:contextmenu|preventDefault={() => _toggleChipInMulti('off')}
-                    on:touchstart|passive={(e) => _startChipLongPress('off', e)}
-                    on:touchmove|passive={_maybeCancelChipLongPress}
-                    on:touchend={_cancelChipLongPress}
-                    on:touchcancel={_cancelChipLongPress}>
-              {src.label}
-              {#if offTiersFiltered}<span class="tier-active-dot" title="OFF tier filter active"></span>{/if}
-            </button>
-            <button class="source-chip-caret"
-                    class:active={activeChips.off}
-                    class:open={offDropdownOpen}
-                    bind:this={offCaretEl}
-                    on:click={openOffDropdown}
-                    aria-label="Filter OFF results by quality tier"
-                    aria-expanded={offDropdownOpen}>
-              <span class="material-symbols-rounded">expand_more</span>
-            </button>
-          </div>
-        {:else if src.value === 'usda'}
-          <div class="source-chip-wrap">
-            <button class="source-chip source-chip-split"
-                    class:active={activeChips.usda}
-                    on:click={() => _onChipTap('usda')}
-                    on:contextmenu|preventDefault={() => _toggleChipInMulti('usda')}
-                    on:touchstart|passive={(e) => _startChipLongPress('usda', e)}
-                    on:touchmove|passive={_maybeCancelChipLongPress}
-                    on:touchend={_cancelChipLongPress}
-                    on:touchcancel={_cancelChipLongPress}>
-              {src.label}
-              {#if usdaTiersFiltered}<span class="tier-active-dot" title="USDA tier filter active"></span>{/if}
-            </button>
-            <button class="source-chip-caret"
-                    class:active={activeChips.usda}
-                    class:open={usdaDropdownOpen}
-                    bind:this={usdaCaretEl}
-                    on:click={openUsdaDropdown}
-                    aria-label="Filter USDA results by data type"
-                    aria-expanded={usdaDropdownOpen}>
-              <span class="material-symbols-rounded">expand_more</span>
-            </button>
-          </div>
-        {:else}
-          <button class="source-chip"
-                  class:active={activeChips[src.value]}
-                  on:click={() => _onChipTap(src.value)}
-                  on:contextmenu|preventDefault={() => _toggleChipInMulti(src.value)}
-                  on:touchstart|passive={(e) => _startChipLongPress(src.value, e)}
-                  on:touchmove|passive={_maybeCancelChipLongPress}
-                  on:touchend={_cancelChipLongPress}
-                  on:touchcancel={_cancelChipLongPress}>
-            {src.label}
-          </button>
-        {/if}
-      {/each}
+      {@render sourceChips()}
     </div>
-  {/if}
+  </div>
   </div>
 
-  <!-- Category filter chips (Local + Foods tab only) -->
-  {#if activeTab === 0 && searchSource === 'local' && $foodsShowCategories && $foodCategories && $foodCategories.length > 0}
+  <div class="foods-mobile-chips">
     <div class="cat-filter-row">
-      <button class="cat-chip" class:active={!activeCategoryFilter}
-        on:click={() => activeCategoryFilter = ''}>{$_('foods.category_all')}</button>
-      {#each $foodCategories as cat}
-        <button class="cat-chip" class:active={activeCategoryFilter === _catName(cat)}
-          on:click={() => activeCategoryFilter = activeCategoryFilter === _catName(cat) ? '' : _catName(cat)}>{$foodsShowLabels ? _catDisplay(cat) : _catName(cat)}</button>
-      {/each}
+      {@render catChips()}
     </div>
-  {/if}
+  </div>
+
+  <!-- Foods body: two-pane split at ≥1280px. Left rail holds the
+       filter chips vertically; main pane holds the food list. Below
+       1280px (or when force-mobile-layout is on) this collapses to
+       a single main column and the .foods-mobile-chips above take
+       over the filter surface. -->
+  <div class="foods-body" bind:this={_foodsBodyEl}>
+    {#if _foodsRailMode}
+    <aside
+      use:portal
+      class="foods-filter-rail"
+      style="--foods-rail-top:{_railTopPx}px; --foods-rail-left:{_railLeftPx}px; --foods-rail-width:{_railWidthPx}px"
+    >
+      {#if availableSources.length > 1}
+        <!-- Sources heading + chips only make sense when there's
+             more than one source to pick from. Meals/Recipes with
+             just Local (no shared users) hide the section entirely
+             — no dead heading with a single chip beneath. -->
+        <p class="foods-filter-heading">Sources</p>
+        <div class="foods-rail-chips foods-rail-sources">
+          {@render sourceChips()}
+        </div>
+      {/if}
+      {#if activeTab === 0 && searchSource === 'local' && $foodsShowCategories && $foodCategories && $foodCategories.length > 0}
+        <p class="foods-filter-heading">Categories</p>
+        <div class="foods-rail-chips foods-rail-cats">
+          {@render catChips()}
+        </div>
+      {/if}
+      {#if availableSources.length <= 1 && !(activeTab === 0 && searchSource === 'local' && $foodsShowCategories && $foodCategories && $foodCategories.length > 0)}
+        <!-- Rail would be empty otherwise — leave a low-key hint so
+             the column doesn't render as a mysteriously-empty box. -->
+        <p class="foods-filter-empty">No filters available for this tab.</p>
+      {/if}
+    </aside>
+    {/if}
+
+    <div class="foods-main">
 
   <!-- Yesterday's meals (pick mode only) -->
   {#if pickMode && yesterdayMeals.length > 0 && !search && activeTab === 1}
@@ -1794,7 +2016,10 @@
           {#each _renderList as food (food.id)}
             {@const _sel = selectedFoods.has(food)}
             {@const _mSel = manageMode && food.id != null && manageSelected.has(food.id)}
-            <li class="food-item card" class:food-selected={_sel || _mSel} in:fade={{ duration: 160 }}>
+            <li class="food-item card"
+                class:food-selected={_sel || _mSel}
+                class:food-pane-active={food.id != null && _paneFood?.id === food.id}
+                in:fade={{ duration: 160 }}>
               {#if pickMode}
                 <button class="food-select-btn" on:click={() => toggleSelect(food)} aria-label="Select">
                   <span class="food-check material-symbols-rounded" class:food-check-on={_sel}>
@@ -2014,7 +2239,31 @@
         {/if}
       {/if}
     {/if}
-  </div>
+  </div><!-- /.page-content -->
+    </div><!-- /.foods-main -->
+
+    <!-- Desktop detail pane (Phase B) — reuses the FoodDetailSheet
+         component in embedded mode so the exact same identity /
+         nutrition / actions markup renders in both places. Empty
+         state prompts when nothing is selected. Only visible at
+         ≥1440px via CSS; mobile continues to use the modal sheet. -->
+    {#if _foodsPaneMode}
+    <aside
+      use:portal
+      class="foods-detail-pane"
+      style="--foods-pane-top:{_paneTopPx}px; --foods-pane-left:{_paneLeftPx}px; --foods-pane-width:{_paneWidthPx}px"
+    >
+      <FoodDetailSheet
+        embedded={true}
+        food={_paneFood}
+        onDismiss={() => _paneFood = null}
+        on:edit={onDetailEdit}
+        on:addToDiary={onDetailAddToDiary}
+        on:deleted={() => { _paneFood = null; detailSheetFood = null; load(); }}
+      />
+    </aside>
+    {/if}
+  </div><!-- /.foods-body -->
 </div>
 
 <!-- Multi-item portion sheet -->
@@ -2033,7 +2282,7 @@
         <div style="display:flex;gap:10px">
           <div style="flex:1">
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">{$_('foods_deep.serving_size')}</label>
-            <input class="input" type="number" min="0.1" step="0.1" bind:value={item.portion} style="font-size:16px;width:100%" />
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={item.portion} style="font-size:16px;width:100%" />
           </div>
           <div style="width:100px">
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Unit</label>
@@ -2041,7 +2290,7 @@
           </div>
           <div style="width:72px">
             <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">{$_('foods_deep.servings')}</label>
-            <input class="input" type="number" min="0.1" step="0.1" bind:value={item.servings} style="font-size:16px;width:100%" />
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={item.servings} style="font-size:16px;width:100%" />
           </div>
         </div>
       </div>
@@ -2096,7 +2345,7 @@
       <div class="qty-quickpicks">
         {#each promptFood.alt_units as au}
           <button type="button" class="qty-quickpick"
-            class:active={promptUnit === au.abbr && parseFloat(promptPortion) === 1}
+            class:active={promptUnit === au.abbr && parseDecimal(promptPortion) === 1}
             on:click={() => { promptPortion = 1; promptUnit = au.abbr; }}>
             1 {au.abbr} <span class="qty-quickpick-g">({au.grams} g)</span>
           </button>
@@ -2106,7 +2355,7 @@
     <div style="display:flex;gap:12px">
       <div style="flex:1">
         <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:6px">{$_('foods_deep.serving_size')}</label>
-        <input class="input" type="number" min="0.1" step="0.1" bind:value={promptPortion}
+        <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={promptPortion}
           style="font-size:16px;width:100%" />
       </div>
       <div style="width:100px">
@@ -2130,12 +2379,12 @@
     {/if}
     <div>
       <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:6px">{$_('foods_deep.num_servings')}</label>
-      <input class="input" type="number" min="0.1" step="0.1" bind:value={promptServings}
+      <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={promptServings}
         style="font-size:16px;width:100%" />
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface-2);border-radius:var(--radius-md)">
       <span style="font-size:13px;color:var(--text-3)">{$_('foods_deep.total_amount')}</span>
-      <span style="font-size:14px;font-weight:500">{Math.round((parseFloat(promptPortion) || 100) * (parseFloat(promptServings) || 1) * 10) / 10}{promptUnit || 'g'}</span>
+      <span style="font-size:14px;font-weight:500">{Math.round((parseDecimal(promptPortion) || 100) * (parseDecimal(promptServings) || 1) * 10) / 10}{promptUnit || 'g'}</span>
     </div>
     <!-- Live nutrition preview (#30) — recomputes with portion/unit/servings changes.
          Color scheme mirrors the Nutrition Summary sheet + diary totals so the
@@ -2158,7 +2407,7 @@
         <span class="qty-macro-label">fat</span>
       </div>
     </div>
-    <button class="btn btn-primary w-full" on:click={confirmQtyPrompt}>{$_('foods.add_to_diary')}</button>
+    <button class="btn btn-primary w-full" on:click={confirmQtyPrompt} disabled={_addingToDiary}>{$_('foods.add_to_diary')}</button>
   </div>
 </Sheet>
 
@@ -3079,4 +3328,239 @@
     pointer-events: all;
   }
   .select-mode-title { color: var(--accent); }
+
+  /* ───────────────────────────────────────────────────────────────
+     Foods desktop Phase A — left filter rail (≥1280px).
+
+     Mobile / narrow (default): chip rows sit inline in the sticky
+     bar (sources) and just below it (categories), scrolling
+     horizontally. That behavior is unchanged.
+
+     Desktop (≥1280px, unless force-mobile-layout is on): the same
+     chip-render snippets flow vertically into a 240px sticky rail
+     on the left of the foods body; the mobile inline chip rows
+     are hidden. Same handlers, same state — one code path, two
+     layouts, mirroring the Diary right-rail + Settings two-pane
+     pattern. */
+  .foods-body {
+    display: block;
+  }
+  .foods-filter-rail,
+  .foods-detail-pane {
+    display: none;
+  }
+
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .foods-body {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+      /* Match page-content's 12px top padding so the rail top border
+         aligns with the first card's top edge in the middle column
+         (page-content has padding: 12px var(--page-px) 0). */
+      padding: 12px var(--page-px) 0;
+    }
+    /* Middle column has its own .page-content padding — zero out
+       here to avoid doubling with the new .foods-body padding. */
+    :global(html:not(.force-mobile-layout)) .foods-main :global(.page-content) {
+      padding-top: 0;
+    }
+    /* Explicit column placement so .foods-main stays in the middle
+       track even when the rail + pane are portaled out (their asides
+       leave the grid, and without this, .foods-main falls into column
+       1 and the list gets squished into the 240px rail column). */
+    :global(html:not(.force-mobile-layout)) .foods-main {
+      grid-column: 2 / 3;
+    }
+    /* Rail — position:fixed + portaled to document.body, same
+       pattern as NT Diary's right rail (see
+       feedback_traceapps_fixed_positioning_in_scroll_wrapper).
+       .page-transition's will-change:transform breaks the naive
+       position:fixed containing block, so JS drives left/top from
+       the .foods-body grid via inline CSS custom properties. */
+    :global(html:not(.force-mobile-layout)) .foods-filter-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      position: fixed;
+      top: calc(var(--page-top, var(--safe-top)) + var(--foods-rail-top, 130px) + var(--hamburger-row, 0px));
+      left: var(--foods-rail-left, auto);
+      width: var(--foods-rail-width, 240px);
+      z-index: 5;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - var(--foods-rail-top, 130px)
+        - 20px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      padding: 12px 10px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    :global(html:not(.force-mobile-layout)) .foods-filter-heading {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin: 8px 4px 6px;
+    }
+    :global(html:not(.force-mobile-layout)) .foods-filter-heading:first-child {
+      margin-top: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .foods-filter-empty {
+      margin: 4px;
+      padding: 12px 8px;
+      color: var(--text-3);
+      font-size: 12px;
+      line-height: 1.4;
+      text-align: center;
+    }
+    /* Rail chip containers — flip from horizontal scroll to
+       vertical flow. Every chip inside becomes a full-width row. */
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      overflow: visible;
+      padding: 0;
+    }
+    /* Chip restyle inside the rail: full-width, left-aligned pills
+       instead of round mobile chips. Uses :global() because the
+       chip markup lives inside the snippet (rendered inside the
+       rail via {@render sourceChips()}), so Diary's scoping hash
+       won't be on them without opting out. */
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.source-chip),
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.source-chip-split),
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.cat-chip) {
+      width: 100%;
+      justify-content: flex-start;
+      text-align: left;
+      padding: 8px 12px;
+      border-radius: var(--radius-md);
+      border-width: 1px;
+      font-weight: 500;
+    }
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.source-chip.active),
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.cat-chip.active) {
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    }
+    /* Focus-visible ring for keyboard nav — matches the Settings
+       rail so tab-through has a consistent look across surfaces. */
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.source-chip:focus-visible),
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.source-chip-caret:focus-visible),
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.cat-chip:focus-visible) {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    /* Selected food card gets an accent border + subtle tint so the
+       list-vs-pane relationship is obvious. Only fires when the
+       detail pane is showing a food from the current list. */
+    :global(html:not(.force-mobile-layout)) :global(.food-item.food-pane-active) {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    /* Split source chips (OFF, USDA) — keep the caret snug on the
+       right of the pill. */
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.source-chip-wrap) {
+      display: flex;
+      width: 100%;
+    }
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.source-chip-wrap .source-chip) {
+      flex: 1 1 auto;
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .foods-rail-chips :global(.source-chip-caret) {
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+    }
+    /* Hide mobile chip scrollers on desktop — same chips now live
+       in the rail. */
+    :global(html:not(.force-mobile-layout)) .foods-mobile-chips {
+      display: none;
+    }
+  }
+
+  /* Foods Phase B — right detail-preview pane at ≥1440px. Below
+     1440 the pane would squeeze the main list too tight; the
+     modal FoodDetailSheet keeps working on tap there. At ≥1440 the
+     pane replaces the sheet: tap a food and its identity /
+     nutrition / actions render inline in the third column instead
+     of sliding up as a modal. */
+  @media (min-width: 1440px) {
+    :global(html:not(.force-mobile-layout)) .foods-body {
+      grid-template-columns: 240px minmax(0, 1fr) 420px;
+    }
+    :global(html:not(.force-mobile-layout)) .foods-detail-pane {
+      display: block;
+      /* Same portaled + position:fixed pattern as the filter rail
+         above. --foods-pane-* vars come from Foods.svelte's
+         _measureFoodsRails, updated on mount + resize. */
+      position: fixed;
+      top: calc(var(--page-top, var(--safe-top)) + var(--foods-pane-top, 130px) + var(--hamburger-row, 0px));
+      left: var(--foods-pane-left, auto);
+      width: var(--foods-pane-width, 420px);
+      z-index: 5;
+      /* Subtract EVERYTHING between the pane's top and the viewport
+         bottom: safe-top, sticky bar (130), hamburger row, bottom
+         nav (var(--nav-h) + safe-bottom), and a small slack. Without
+         the bottom-nav terms the pane's action buttons (Add to
+         Diary, Edit, Delete) got clipped by the bottom nav bar. */
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - var(--foods-pane-top, 130px)
+        - 20px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      padding: 16px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    /* Phase C — main list becomes a 2-column card grid at ≥1440px
+       so the wide center column doesn't render 350-360px cards on
+       a 800px-wide surface. All food-list variants (Local, OFF,
+       USDA, Mealie, All-mode) inherit via :global. min-width:0 on
+       each card so long names don't blow the grid layout. */
+    :global(html:not(.force-mobile-layout)) :global(.food-list) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 10px;
+    }
+    :global(html:not(.force-mobile-layout)) :global(.food-item) {
+      min-width: 0;
+    }
+  }
+  /* Phase C — three columns on ultrawide. Detail pane still takes
+     380px on the right, leaving a wide center; three cards read
+     more naturally than two very-wide ones at 1920+. */
+  @media (min-width: 1920px) {
+    :global(html:not(.force-mobile-layout)) :global(.food-list) {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+    }
+  }
+
+  /* Phase D — manage-mode top-right portaled action bar shifts
+     left on desktop to clear the detail pane (420 pane + 20 gap
+     + 12 right inset + a little slack). Below 1440 the pane isn't
+     rendered so the original right:12 anchor still works. */
+  @media (min-width: 1440px) {
+    :global(html:not(.force-mobile-layout)) :global(.foods-topbar-actions) {
+      right: 452px;
+    }
+  }
 </style>

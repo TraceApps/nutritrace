@@ -12,16 +12,31 @@
 import { Router } from 'express';
 import { wrap } from '../logger.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { createToken, listTokens, revokeToken, KNOWN_SCOPES } from '../lib/api-tokens.js';
+import { createToken, listTokens, revokeToken, KNOWN_SCOPES, SCOPE_DESCRIPTIONS } from '../lib/api-tokens.js';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
+
+function _envFlag(v) {
+  if (v === undefined || v === null) return false;
+  const s = String(v).trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
 
 router.get('/', wrap((req, res) => {
   const tokens = listTokens(req.user.id);
   res.json({
     tokens,
     known_scopes: Array.from(KNOWN_SCOPES),
+    scope_descriptions: SCOPE_DESCRIPTIONS,
+    // Surface MCP flag state so the UI can show admins whether a token
+    // holding mcp:write / mcp:destroy will actually work on this server.
+    // Flags are captured at boot (env vars); change needs a restart.
+    mcp_state: {
+      enabled: _envFlag(process.env.MCP_ENABLED),
+      write:   _envFlag(process.env.MCP_WRITE_ENABLED),
+      destroy: _envFlag(process.env.MCP_DESTROY_ENABLED),
+    },
   });
 }));
 

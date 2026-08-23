@@ -27,6 +27,7 @@
   import { energyUnit } from '../../stores/settings.js';
   import { showError } from '../../stores/toast.js';
   import { _ } from 'svelte-i18n';
+  import { decimalInput, parseDecimal } from '../../lib/decimal-input.js';
 
   export let open = false;
   export let meal = 0;          // meal index this entry will be filed under
@@ -58,12 +59,12 @@
 
   function _parseOpt(v) {
     if (v == null || v === '') return undefined;
-    const n = Number(v);
+    const n = parseDecimal(v);
     return Number.isFinite(n) && n > 0 ? n : undefined;
   }
 
   async function _save() {
-    const raw = Number(_value);
+    const raw = parseDecimal(_value);
     if (!Number.isFinite(raw) || raw <= 0) {
       showError(`Enter a positive ${_unitLabel} value.`);
       return;
@@ -107,8 +108,8 @@
            bind:value={_name} on:keydown={_onKey} />
 
     <div class="qc-kcal-pill" style="background:var(--macro-calories-dim)">
-      <input id="qc-value" class="qc-kcal-input" type="number" inputmode="numeric"
-             min="1" step="1" placeholder={_isKj ? '1000' : '240'}
+      <input id="qc-value" class="qc-kcal-input" type="text" inputmode="numeric" use:decimalInput
+             placeholder={_isKj ? '1000' : '240'}
              style="color:var(--macro-calories)"
              bind:value={_value} bind:this={_inputEl} on:keydown={_onKey} />
       <span class="qc-kcal-unit" style="color:var(--macro-calories)">{_unitLabel.toUpperCase()}</span>
@@ -118,7 +119,7 @@
     <div class="qc-macros">
       <div class="qc-macro-pill" style="background:var(--macro-protein-dim)">
         <div class="qc-macro-val-row">
-          <input class="qc-macro-input" type="number" inputmode="decimal"
+          <input class="qc-macro-input" type="text" inputmode="decimal" use:decimalInput
                  min="0" step="0.1" placeholder="0"
                  style="color:var(--macro-protein); --qc-w:{Math.max(1, String(_protein || '').length)}ch"
                  bind:value={_protein} on:keydown={_onKey} />
@@ -128,7 +129,7 @@
       </div>
       <div class="qc-macro-pill" style="background:var(--macro-carbs-dim)">
         <div class="qc-macro-val-row">
-          <input class="qc-macro-input" type="number" inputmode="decimal"
+          <input class="qc-macro-input" type="text" inputmode="decimal" use:decimalInput
                  min="0" step="0.1" placeholder="0"
                  style="color:var(--macro-carbs); --qc-w:{Math.max(1, String(_carbs || '').length)}ch"
                  bind:value={_carbs} on:keydown={_onKey} />
@@ -138,7 +139,7 @@
       </div>
       <div class="qc-macro-pill" style="background:var(--macro-fat-dim)">
         <div class="qc-macro-val-row">
-          <input class="qc-macro-input" type="number" inputmode="decimal"
+          <input class="qc-macro-input" type="text" inputmode="decimal" use:decimalInput
                  min="0" step="0.1" placeholder="0"
                  style="color:var(--macro-fat); --qc-w:{Math.max(1, String(_fat || '').length)}ch"
                  bind:value={_fat} on:keydown={_onKey} />

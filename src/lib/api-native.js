@@ -237,6 +237,16 @@ export const NtApiNative = {
     }
   },
 
+  // ── Wellness convenience wrappers ────────────────────────────────────
+  //
+  // Mirror the shape on _NtApiHttp so callers using NtApi.getLatestWellness
+  // work on native standalone too. Without this the proxy returns
+  // undefined and the sync call inside Promise.all([...]) aborts the
+  // Svelte reactive block that opens the Add Activity sheet. Issue #162.
+  async getLatestWellness(metric) {
+    return this.get(`/api/wellness/latest?metric=${encodeURIComponent(metric)}`);
+  },
+
   // ── Pass-through stubs for server-only routes ────────────────────────
   async get(path) {
     if (path.startsWith('/api/fasts')) return _fastsLocalGet(path);

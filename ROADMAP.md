@@ -632,8 +632,9 @@ Likely v1.1 or v1.2 feature. Doing this *before* v1.0 risks delaying launch and 
 - Lightweight CouchDB-style sync (or manual export/import trigger)
 
 ### API key scoping
-- **Phase 1 RELEASED**: federation API at `/api/v1/*`, `nt_pat_*` token format, SHA-256 hashed at rest, single scope `read:foods` so far. `SettingsApiTokens.svelte` for management, `server/lib/api-tokens.js` + `server/middleware/bearer-auth.js` for issuance + validation. See `docs/federation.md`.
-- **Still deferred:** broader scope set (`read:meals`, `read:diary`, `write:*`, `admin:*`) gated on the endpoints they'd unlock. Add scopes alongside the routes that consume them rather than pre-creating empty scopes.
+- **Phase 1 RELEASED**: federation API at `/api/v1/*`, `nt_pat_*` token format, SHA-256 hashed at rest. `SettingsApiTokens.svelte` for management, `server/lib/api-tokens.js` + `server/middleware/bearer-auth.js` for issuance + validation. See `docs/federation.md`.
+- **Registered scopes today:** `read:foods` (CT federation), `write:workouts` (LT federation), `write:body-measurements`, `mcp:read` / `mcp:write` / `mcp:destroy` (MCP server, v1.2.0-dev01). Each scope was added alongside the routes that consume it, matching the "add scopes when the endpoint lands" policy.
+- **Still deferred:** `read:meals`, `read:diary`, `admin:*`. Gated on the endpoints they'd unlock; add when a real consumer needs them.
 - Useful for third-party dashboards or Home Assistant integrations.
 
 ### Metrics / observability

@@ -270,6 +270,24 @@ export const NtApiCached = {
     return await dbGetAllDiary().catch(() => []);
   },
 
+  // ── Wellness ──────────────────────────────────────────────────────────
+  //
+  // Mirror the shape on _NtApiHttp + NtApiNative. Server-first with a
+  // local fallback so the MET → kcal preview inside AddActivitySheet
+  // works whether or not the server is reachable. Issue #162.
+  async getLatestWellness(metric) {
+    try {
+      return await _serverFetch('GET', `/api/wellness/latest?metric=${encodeURIComponent(metric)}`);
+    } catch {
+      try {
+        const { NtApiNative } = await import('./api-native.js');
+        return await NtApiNative.getLatestWellness(metric);
+      } catch {
+        return null;
+      }
+    }
+  },
+
   // ── Activity (server-only for now; no native cache yet) ───────────────
 
   async getActivity(date) {

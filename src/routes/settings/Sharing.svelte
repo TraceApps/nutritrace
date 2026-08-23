@@ -142,7 +142,9 @@
 {#if $userMgmtActive && !isNativeLocal}
   <div class="section-body">
     {#if $currentUser?.role === 'admin'}
-      <p class="sub-label">{$_('settings_integrations.admin_section')}</p>
+      <!-- Group: Admin -->
+      <p class="settings-group-heading">{$_('settings_integrations.admin_section')}</p>
+      <p class="settings-group-sub">Server-wide sharing switch. When off, group members can't share items with each other.</p>
       <div class="card settings-card">
         <div class="setting-row">
           <div>
@@ -154,10 +156,9 @@
       </div>
     {/if}
     {#if adminSharingEnabled}
-    <p class="sub-label">{$_('settings_integrations.bulk_share')}</p>
-    <p class="setting-desc" style="padding:0 var(--page-px) 6px;line-height:1.5">
-      Set who can see your existing items. Each category has its own visibility, so changing one doesn't affect the others.
-    </p>
+    <!-- Group: Bulk Share -->
+    <p class="settings-group-heading">{$_('settings_integrations.bulk_share')}</p>
+    <p class="settings-group-sub">Set who can see your existing items. Each category has its own visibility, so changing one doesn't affect the others.</p>
     <div class="card settings-card" style="gap:0">
       {#each [
         { key: 'foods',   label: 'Foods'   },

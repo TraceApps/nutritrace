@@ -237,13 +237,15 @@ export function resolveAssetUrl(path) {
       const fullUrl = path.startsWith('http') ? path : url + path;
       if (_imageMap[fullUrl]) return _imageMap[fullUrl];
     }
-    // External URLs (not on our server): proxy through server to avoid WebView blocking
-    if (path.startsWith('http') && url) {
-      const serverHost = new URL(url).host;
-      if (!path.includes(serverHost)) {
-        return url + '/api/proxy?url=' + encodeURIComponent(path);
-      }
-    }
+    // External https URLs (arbitrary recipe / product photos, NT-federation
+    // images, etc.): let the WebView fetch direct. CORS doesn't apply to
+    // <img> rendering, and image-cache.js downloads them via CapacitorHttp
+    // for offline use. Routing every external image through /api/proxy was
+    // the previous approach and it broke on every host outside the small
+    // IMG_ALLOWED list on the server (403 "Domain not allowed") — which is
+    // what makes a pasted URL from an arbitrary site render broken after
+    // save. See feedback_proxy_images.md for the full write-up.
+    if (path.startsWith('https://')) return path;
     // Server-hosted images
     if (url && !path.startsWith('http')) return url + path;
     if (path.startsWith('http')) return path;

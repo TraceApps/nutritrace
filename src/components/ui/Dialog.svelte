@@ -70,7 +70,7 @@
     background: var(--overlay);
     backdrop-filter: var(--backdrop-blur);
     -webkit-backdrop-filter: var(--backdrop-blur);
-    z-index: 150;
+    z-index: 600; /* above floating overlays that can trigger confirms: Trace panel (450) */
     display: flex;
     align-items: center;
     justify-content: center;

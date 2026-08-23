@@ -1,10 +1,10 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
   import { _ } from 'svelte-i18n';
+  import { push } from 'svelte-spa-router';
   import DatePicker from '../components/ui/DatePicker.svelte';
   import { wellnessMetrics, wellnessSyncRange, distUnit, tempUnit, pageBanners, bannerStyle, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, googleHealthEnabled, fitbitFamilyEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations,
     fitbitSyncMode, withingsSyncMode, garminSyncMode, healthConnectSyncMode, timeFormat } from '../stores/settings.js';
-  import Chart from 'chart.js/auto';
   import { showSuccess, showError } from '../stores/toast.js';
   import { localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
@@ -83,6 +83,28 @@
     return vis == null || vis.includes(metricId);
   }
 
+  /**
+   * Wellness metric id → Statistics `wl_*` metric id. Statistics
+   * receives `?metric=X&range=Y` via onMount, so a matching id opens
+   * the chart for that exact wellness series. Only the metrics
+   * Statistics currently plots are mapped — anything else (Cardio
+   * Fitness, sleep stages, body composition, etc.) returns null so
+   * the trend button is suppressed on that card.
+   */
+  const _STATS_METRIC_MAP = {
+    steps:              'wl_steps',
+    active_minutes:     'wl_active',
+    sleep_duration_min: 'wl_sleep',
+    resting_hr:         'wl_rhr',
+    hrv_daily_rmssd:    'wl_hrv',
+    spo2_avg:           'wl_spo2',
+  };
+  function _statsMetricFor(id) { return _STATS_METRIC_MAP[id] || null; }
+  function _openStatsFor(id) {
+    const key = _statsMetricFor(id);
+    if (key) push('#/statistics?metric=' + key + '&range=1M');
+  }
+
   function toggleMetric(id) {
     const all = [
       ...ALL_METRICS.map(m => m.id),
@@ -141,6 +163,51 @@
   let garminSyncing    = false;
   let hcSyncing        = false;
   let garminConnecting = false;
+
+  // Last-synced timestamp for the desktop left-rail footer.
+  // Written by _markSynced() at the end of every successful sync
+  // handler (Fitbit / Withings / Garmin / Health Connect / server-
+  // side Google Health polling). Persisted to localStorage so it
+  // survives reload; picked up on mount so users see the last sync
+  // from a previous session too.
+  let _lastSyncedAt = 0;         // ms since epoch (0 = never in this session)
+  let _lastSyncedProvider = '';  // human label, e.g. 'Fitbit'
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('nt:wellnessLastSync') || '';
+      if (raw) {
+        const [ts, prov] = raw.split('|');
+        _lastSyncedAt = Number(ts) || 0;
+        _lastSyncedProvider = prov || '';
+      }
+    }
+  } catch { /* ignore */ }
+  function _markSynced(provider) {
+    _lastSyncedAt = Date.now();
+    _lastSyncedProvider = provider;
+    try {
+      localStorage.setItem('nt:wellnessLastSync', `${_lastSyncedAt}|${provider}`);
+    } catch { /* ignore */ }
+  }
+  // Reactive tick — bumps every 30s so the "Xm ago" label updates
+  // without user interaction. Wired in onMount below.
+  let _lastSyncedTick = 0;
+  // Format helper: rounds to the nicest unit ("just now", "3m ago",
+  // "2h ago", "yesterday", or a full date for anything older).
+  function _fmtRelative(ms, _tick) {
+    if (!ms) return '';
+    const s = Math.floor((Date.now() - ms) / 1000);
+    if (s < 30) return 'just now';
+    if (s < 60) return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    if (d === 1) return 'yesterday';
+    if (d < 7) return `${d}d ago`;
+    return new Date(ms).toLocaleDateString();
+  }
   // ── Unit helpers ───────────────────────────────────────────────────────────
   $: du = $distUnit || 'km';
 
@@ -286,6 +353,7 @@
       }
       _checkWellnessGoals(data, withingsData);
       withingsLastSync = new Date();
+      _markSynced('Withings');
       if (!silent) showSuccess(`Synced ${result.dates} day${result.dates === 1 ? '' : 's'} from Withings`);
     } catch(e) {
       if (!silent) {
@@ -366,6 +434,7 @@
       } else {
         await loadGarminData();
       }
+      _markSynced('Garmin');
       if (!silent) showSuccess(`Synced ${result.synced ?? 0} day${result.synced === 1 ? '' : 's'} from Garmin`);
     } catch(e) {
       if (!silent) {
@@ -446,6 +515,13 @@
     // reflect a real sync — confusing for users who hit Wellness on web with
     // HC enabled in settings. Bail out before the toast for #68.
     if (!isNative) return;
+    // #161 (A3): syncHealthConnect(dateStr) writes today's HC reads into
+    // dateStr because readTodayData is hard-coded to today. Viewing a past
+    // day and tapping sync would overwrite that day's history with today's
+    // numbers. Refuse the sync on any non-today view — the button itself
+    // is also hidden below, but this is a defense-in-depth guard for the
+    // auto-on-nav callers at line 1136/1167 and the sync-all button.
+    if (!isToday) return;
     hcSyncing = true;
     try {
       const { syncHealthConnect } = await import('../lib/health-connect.js');
@@ -453,6 +529,7 @@
       if (isNative) await loadLocalWellnessData();
       console.log('[wellness] HC sync done, data keys:', Object.keys(data), '_hasLocalData:', _hasLocalData, 'displayData keys:', Object.keys(displayData));
       showSuccess('Health Connect synced');
+      _markSynced('Health Connect');
       // Check step + wellness goals after HC sync (works in local mode too)
       if (dateStr === localDateStr()) {
         try {
@@ -797,7 +874,11 @@
   }
 
   $: { activeTab; if (activeTab === 'heart') _readinessLoaded = false; }
-  $: if (activeTab === 'heart' && !_readinessLoaded) loadReadiness();
+  // Load readiness whenever it's stale so the always-on right-rail
+  // strip (visible across ALL tabs on desktop) has data — not just
+  // when the Heart tab is active. Cheap to fetch; already cached by
+  // _readinessLoaded so we don't spam the endpoint.
+  $: if (!_readinessLoaded && (fitbitAvailable || garminAvailable)) loadReadiness();
 
   // ── Readiness insight text ─────────────────────────────────────────────────
   // Generate a band-driven lead + sub-score-driven driver line. Sub-scores
@@ -912,6 +993,11 @@
   // isNative); the web just reflects whatever the user enabled there.
   $: healthConnectAvailable = $healthConnectEnabled;
   $: anyAvailable      = fitbitAvailable || withingsAvailable || garminAvailable || healthConnectAvailable;
+  // Count the number of enabled providers so the left-rail can
+  // hide its 'Providers' heading when there's only one — no need
+  // for a section caption above a single lonely row.
+  $: _providerCount = [fitbitAvailable, withingsAvailable, garminAvailable, healthConnectAvailable]
+    .filter(Boolean).length;
 
   // Sliding pill: ordered list of visible tabs + active index
   // Garmin contributes to activity/sleep/heart tabs alongside Fitbit
@@ -1187,6 +1273,7 @@
         localStorage.setItem(`wl_wellness_lastSync_${dateStr}`, String(Date.now()));
         if (!silent) showSuccess('Synced');
       }
+      _markSynced('Fitbit');
     } catch (e) {
       if (!silent) {
         if (e.message?.includes('revoked') || e.message?.includes('Not connected') || e.status === 401) {
@@ -1282,8 +1369,16 @@
   });
 
   let _syncCompleteHandler = null;
+  let _lastSyncTickTimer = null;
+  onMount(() => {
+    // 30s tick to keep the 'Xm ago' label in the left rail fresh
+    // without user interaction. Uses setInterval; cleared in
+    // onDestroy below.
+    _lastSyncTickTimer = setInterval(() => { _lastSyncedTick++; }, 30_000);
+  });
   onDestroy(() => {
     if (_syncCompleteHandler) window.removeEventListener('nt:sync-complete', _syncCompleteHandler);
+    if (_lastSyncTickTimer) clearInterval(_lastSyncTickTimer);
   });
 
   // ── Goal celebrations ─────────────────────────────────────────────────────
@@ -1359,7 +1454,7 @@
 
   <!-- Fixed sync buttons — portalled to body so position:fixed is viewport-relative -->
   <div class="wl-topbar-actions" use:portal>
-    {#if $healthConnectEnabled && isNative}
+    {#if $healthConnectEnabled && isNative && isToday}
       <button class="wl-sync-icon-btn" class:wl-syncing={hcSyncing}
         on:click={syncHealthConnectManual} disabled={hcSyncing}
         title={$_('wellness_page.sync.health_connect')}>
@@ -1446,6 +1541,111 @@
     {:else}
       <!-- ── At least one integration configured — main UI ── -->
 
+      <!-- ── Desktop three-pane wrapper (≥1280px). On mobile .wl-body is a plain block and the rails are display:none. ── -->
+      <div class="wl-body">
+
+        <!-- ── Left rail: providers list + Sync All (desktop only; replaces .wl-topbar-actions) ── -->
+        <aside class="wl-left-rail">
+          {#if _providerCount > 1}
+            <div class="wl-rail-heading">Providers</div>
+          {/if}
+
+          {#if $healthConnectEnabled && isNative}
+            <div class="wl-provider-row">
+              <span class="wl-brand-icon wl-provider-icon"><HealthConnectIcon /></span>
+              <span class="wl-provider-name">Health Connect</span>
+              <span class="wl-status-pill" class:pill-syncing={hcSyncing} class:pill-connected={!hcSyncing}>
+                {hcSyncing ? 'Syncing…' : 'Connected'}
+              </span>
+              <button class="wl-rail-sync-btn" on:click={syncHealthConnectManual} disabled={hcSyncing}
+                title={$_('wellness_page.sync.health_connect')} aria-label={$_('wellness_page.sync.health_connect')}>
+                <span class="material-symbols-rounded" class:wl-spin-icon={hcSyncing}>autorenew</span>
+              </button>
+            </div>
+          {/if}
+          {#if status?.connected}
+            <div class="wl-provider-row">
+              <span class="wl-brand-icon wl-provider-icon"><FitbitIcon /></span>
+              <span class="wl-provider-name">Fitbit</span>
+              <span class="wl-status-pill" class:pill-syncing={syncing} class:pill-connected={!syncing}>
+                {syncing ? 'Syncing…' : 'Connected'}
+              </span>
+              <button class="wl-rail-sync-btn" on:click={() => sync()} disabled={syncing}
+                title={status.fitbitUserId ? $_('wellness_page.sync.fitbit_with_user', { values: { user: status.fitbitUserId } }) : $_('wellness_page.sync.fitbit')}
+                aria-label={$_('wellness_page.sync.fitbit')}>
+                <span class="material-symbols-rounded" class:wl-spin-icon={syncing}>autorenew</span>
+              </button>
+            </div>
+          {/if}
+          {#if garminStatus?.connected}
+            <div class="wl-provider-row">
+              <span class="wl-brand-icon wl-provider-icon"><GarminIcon /></span>
+              <span class="wl-provider-name">Garmin</span>
+              <span class="wl-status-pill" class:pill-syncing={garminSyncing} class:pill-connected={!garminSyncing}>
+                {garminSyncing ? 'Syncing…' : 'Connected'}
+              </span>
+              <button class="wl-rail-sync-btn" on:click={() => syncGarmin()} disabled={garminSyncing}
+                title={garminStatus.garminUserId ? $_('wellness_page.sync.garmin_with_user', { values: { user: garminStatus.garminUserId } }) : $_('wellness_page.sync.garmin')}
+                aria-label={$_('wellness_page.sync.garmin')}>
+                <span class="material-symbols-rounded" class:wl-spin-icon={garminSyncing}>autorenew</span>
+              </button>
+            </div>
+          {/if}
+          {#if withingsStatus?.connected}
+            <div class="wl-provider-row">
+              <span class="wl-brand-icon wl-provider-icon"><WithingsIcon /></span>
+              <span class="wl-provider-name">Withings</span>
+              <span class="wl-status-pill" class:pill-syncing={withingsSyncing} class:pill-connected={!withingsSyncing}>
+                {withingsSyncing ? 'Syncing…' : 'Connected'}
+              </span>
+              <button class="wl-rail-sync-btn" on:click={() => syncWithings()} disabled={withingsSyncing}
+                title={withingsStatus.withingsUserId ? $_('wellness_page.sync.withings_with_user', { values: { user: withingsStatus.withingsUserId } }) : $_('wellness_page.sync.withings')}
+                aria-label={$_('wellness_page.sync.withings')}>
+                <span class="material-symbols-rounded" class:wl-spin-icon={withingsSyncing}>autorenew</span>
+              </button>
+            </div>
+          {/if}
+
+          <!-- Sync All: fire every connected provider's sync in sequence. -->
+          {#if ($healthConnectEnabled && isNative) || status?.connected || garminStatus?.connected || withingsStatus?.connected}
+            <button class="btn btn-primary wl-sync-all-btn"
+              on:click={async () => {
+                if ($healthConnectEnabled && isNative && !hcSyncing) await syncHealthConnectManual();
+                if (status?.connected && !syncing) await sync();
+                if (garminStatus?.connected && !garminSyncing) await syncGarmin();
+                if (withingsStatus?.connected && !withingsSyncing) await syncWithings();
+              }}
+              disabled={syncing || garminSyncing || withingsSyncing || hcSyncing}>
+              <span class="material-symbols-rounded" class:wl-spin-icon={syncing || garminSyncing || withingsSyncing || hcSyncing}>autorenew</span>
+              Sync All
+            </button>
+          {/if}
+          <!-- Last-synced footer. _lastSyncedAt is bumped by
+               _markSynced() at the end of every successful sync
+               (Fitbit / Withings / Garmin / Health Connect).
+               _lastSyncedTick is a 30s reactive nudge so the
+               'Xm ago' relative label updates without user
+               interaction. Reference _lastSyncedTick in the call
+               to keep Svelte's reactive graph alive. -->
+          {#if _lastSyncedAt > 0}
+            <div class="wl-last-synced">
+              <span class="material-symbols-rounded">history</span>
+              <span>
+                {_lastSyncedProvider || 'Synced'}
+                <span class="wl-last-synced-time">{_fmtRelative(_lastSyncedAt, _lastSyncedTick)}</span>
+              </span>
+            </div>
+          {/if}
+          <!-- Quality-of-life link to advanced provider config —
+               previously users had to leave Wellness via the
+               sidebar to reach Settings → Wellness. -->
+          <a class="wl-manage-link" href="#/settings/wellness">
+            <span class="material-symbols-rounded">tune</span>
+            Manage Providers
+          </a>
+        </aside>
+
+        <div class="wl-main">
       <!-- Tab bar — only tabs for configured integrations -->
       <div class="tab-bar-wrap">
       <div class="tab-bar" bind:this={_tabBarEl}>
@@ -1521,7 +1721,14 @@
               {#each ALL_METRICS.filter(m => m.group === 'activity' && isVisible(m.id) && isSourceEnabled(m)) as m}
                 {@const fmt = fmtMetric(m, displayData[m.id])}
                 {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
+                {@const _statsKey = _statsMetricFor(m.id)}
                 <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
+                  {#if _statsKey && fmt}
+                    <button class="metric-trend" title="View trend" aria-label="View trend in Statistics"
+                      on:click|stopPropagation={() => _openStatsFor(m.id)}>
+                      <span class="material-symbols-rounded">trending_up</span>
+                    </button>
+                  {/if}
                   <div class="metric-icon-wrap">
                     <span class="material-symbols-rounded metric-icon">{m.icon}</span>
                   </div>
@@ -1544,8 +1751,15 @@
               {/each}
             </div>
 
-            <!-- ── Workouts section (within Activity tab) ── -->
+            <!-- ── Workouts section (within Activity tab) ──
+                 .wl-center-only so the full-detail card list only
+                 renders in the center on mobile. On desktop the
+                 same workouts are shown compactly in the right
+                 rail below the This Week card (see Insights rail
+                 activity branch). NO inline display: — CSS class
+                 handles show/hide by viewport. -->
             {#if $workoutsEnabled && _workouts.length > 0}
+              <div class="wl-center-only wl-center-workouts">
               <div class="section-title" style="margin-top:20px">
                 <span class="material-symbols-rounded" style="font-size:18px;vertical-align:middle;margin-right:4px">fitness_center</span>
                 Today's Workouts
@@ -1582,6 +1796,7 @@
                   </button>
                 {/each}
               </div>
+              </div><!-- /.wl-center-only workouts wrapper -->
             {:else if $workoutsEnabled && !loadingData && _workoutsLoaded}
               <!-- No workouts today — show subtle hint -->
             {/if}
@@ -1643,7 +1858,14 @@
               {#each ALL_METRICS.filter(m => m.group === 'sleep' && isVisible(m.id) && isSourceEnabled(m)) as m}
                 {@const fmt = fmtMetric(m, displayData[m.id])}
                 {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
+                {@const _statsKey = _statsMetricFor(m.id)}
                 <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
+                  {#if _statsKey && fmt}
+                    <button class="metric-trend" title="View trend" aria-label="View trend in Statistics"
+                      on:click|stopPropagation={() => _openStatsFor(m.id)}>
+                      <span class="material-symbols-rounded">trending_up</span>
+                    </button>
+                  {/if}
                   <div class="metric-icon-wrap">
                     <span class="material-symbols-rounded metric-icon">{m.icon}</span>
                   </div>
@@ -1709,7 +1931,7 @@
 
             <!-- Sleep Debt card -->
             {#if sleepDebt != null}
-              <div class="card sleep-insight-card" style="margin-bottom:10px" title="Sleep Debt — the total sleep you've missed relative to your goal over the selected window. Calculated as a rolling total from today backwards — always reflects the most recent nights, not the date you're viewing."  >
+              <div class="card sleep-insight-card wl-center-only" style="margin-bottom:10px" title="Sleep Debt — the total sleep you've missed relative to your goal over the selected window. Calculated as a rolling total from today backwards — always reflects the most recent nights, not the date you're viewing."  >
                 <div class="si-header">
                   <span class="material-symbols-rounded si-icon">battery_low</span>
                   <div class="si-title-wrap">
@@ -1738,7 +1960,7 @@
 
             <!-- Chronotype card -->
             {#if chronotype != null}
-              <div class="card sleep-insight-card" title="Chronotype — your natural sleep timing preference, derived from your average sleep midpoint over all available nights. This is a long-term trait that updates as more nights are synced — it always reflects your full history, not the specific date you're viewing."  >
+              <div class="card sleep-insight-card wl-center-only" title="Chronotype — your natural sleep timing preference, derived from your average sleep midpoint over all available nights. This is a long-term trait that updates as more nights are synced — it always reflects your full history, not the specific date you're viewing."  >
                 <div class="si-header">
                   <span class="si-emoji">{chronotype.emoji ?? '⏳'}</span>
                   <div class="si-title-wrap">
@@ -1763,7 +1985,14 @@
               {#each ALL_METRICS.filter(m => m.group === 'heart' && isVisible(m.id) && isSourceEnabled(m)) as m}
                 {@const fmt = fmtMetric(m, displayData[m.id])}
                 {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
+                {@const _statsKey = _statsMetricFor(m.id)}
                 <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
+                  {#if _statsKey && fmt}
+                    <button class="metric-trend" title="View trend" aria-label="View trend in Statistics"
+                      on:click|stopPropagation={() => _openStatsFor(m.id)}>
+                      <span class="material-symbols-rounded">trending_up</span>
+                    </button>
+                  {/if}
                   <div class="metric-icon-wrap">
                     <span class="material-symbols-rounded metric-icon" style="color:#ef4444">{m.icon}</span>
                   </div>
@@ -1813,7 +2042,7 @@
 
             <!-- Daily Readiness card -->
             {#if readiness != null}
-              <div class="card sleep-insight-card readiness-card" style="margin-top:10px" title="Daily Readiness — how recovered and prepared your body is for today, scored 1–100. Calculated from today's HRV and RHR compared to your 30-day personal baseline, plus last night's sleep score. Always reflects today's data — not the date you're viewing."  >
+              <div class="card sleep-insight-card readiness-card wl-center-only" style="margin-top:10px" title="Daily Readiness — how recovered and prepared your body is for today, scored 1–100. Calculated from today's HRV and RHR compared to your 30-day personal baseline, plus last night's sleep score. Always reflects today's data — not the date you're viewing."  >
                 {#if readiness.calibrating}
                   <div class="si-header">
                     <span class="material-symbols-rounded si-icon">battery_charging_full</span>
@@ -1885,7 +2114,7 @@
                                   : _resCatLabel === 'Low' ? "Your body is asking for a bit more rest today. Taking it easier is a kind way to help yourself recharge."
                                   : null}
             {#if _resCatLabel}
-              <div class="card sleep-insight-card readiness-card" style="margin-top:10px" title="Resilience — how your body is handling daily stress, classified as Optimal, Balanced, or Low. Combines physical calmness (HRV + resting heart rate), activity balance (step + active-minute target adherence), and sleep patterns (last night plus 7-day reservoir).">
+              <div class="card sleep-insight-card readiness-card wl-center-only" style="margin-top:10px" title="Resilience — how your body is handling daily stress, classified as Optimal, Balanced, or Low. Combines physical calmness (HRV + resting heart rate), activity balance (step + active-minute target adherence), and sleep patterns (last night plus 7-day reservoir).">
                 <div class="readiness-header">
                   <div class="readiness-header-left">
                     <span class="material-symbols-rounded si-icon">self_improvement</span>
@@ -1953,7 +2182,7 @@
           </div>
 
           {#if BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id]) != null)}
-            <div class="card" style="margin-top:12px;padding:16px">
+            <div class="card wl-center-only" style="margin-top:12px;padding:16px">
               <div class="sleep-stages-header" style="margin-bottom:12px">
                 <span class="material-symbols-rounded" style="color:var(--accent)">biotech</span>
                 <span class="sleep-stages-title">{$_('wellness_deep.body_scan_scores')}</span>
@@ -2050,6 +2279,314 @@
         {/if}
 
       {/if}
+
+        </div><!-- /.wl-main -->
+
+        <!-- ── Right rail: tab-contextual insight cards (desktop only) ── -->
+        <aside class="wl-right-rail">
+          <!-- Always-on Readiness strip — the single universal
+               daily indicator, visible across every tab so users
+               get "how am I today?" at a glance regardless of
+               which tab they're browsing. Compact form of the
+               full Readiness card; tap-through opens the Heart
+               tab where the full card lives. -->
+          {#if readiness != null && !readiness.calibrating && readiness.score != null}
+            <button type="button" class="wl-readiness-strip"
+              on:click={() => activeTab = 'heart'}
+              title="Daily Readiness — how recovered and prepared your body is for today. Tap for details.">
+              <div class="wl-rs-icon" style="background:{readiness.color || 'var(--accent)'}22;color:{readiness.color || 'var(--accent)'}">
+                <span class="material-symbols-rounded">bolt</span>
+              </div>
+              <div class="wl-rs-copy">
+                <span class="wl-rs-label">Today's Readiness</span>
+                <span class="wl-rs-band">{readiness.band || ''}</span>
+              </div>
+              <span class="wl-rs-score" style="color:{readiness.color || 'var(--accent)'}">{Math.round(readiness.score)}</span>
+            </button>
+          {/if}
+
+          <div class="wl-rail-heading">Insights</div>
+
+          {#if activeTab === 'activity'}
+            <!-- Activity rail: derived weekly aggregates from the
+                 7-day sparkline series. Non-invasive — uses the
+                 same _sparklineData that already drives the metric-
+                 card sparklines, so nothing new is fetched. -->
+            {@const _stepSeries = _sparklineData['steps'] || []}
+            {@const _amSeries   = _sparklineData['active_minutes'] || []}
+            {@const _calSeries  = _sparklineData['calories_out'] || []}
+            {@const _stepsTotal = _stepSeries.reduce((a,v) => a + (Number(v) || 0), 0)}
+            {@const _stepsAvg   = _stepSeries.filter(v => v != null).length ? Math.round(_stepsTotal / _stepSeries.filter(v => v != null).length) : 0}
+            {@const _amTotal    = _amSeries.reduce((a,v) => a + (Number(v) || 0), 0)}
+            {@const _calTotal   = _calSeries.reduce((a,v) => a + (Number(v) || 0), 0)}
+            {@const _goalHits   = _stepSeries.filter(v => (Number(v) || 0) >= 10000).length}
+            {#if _stepSeries.some(v => v != null) || _amSeries.some(v => v != null)}
+              <div class="wl-rail-only">
+                <div class="card sleep-insight-card" style="margin-bottom:10px" title="7-day activity totals from your synced data.">
+                  <div class="si-header">
+                    <span class="material-symbols-rounded si-icon">calendar_view_week</span>
+                    <div class="si-title-wrap">
+                      <span class="si-title">This Week</span>
+                      <span class="si-sub">Last 7 days</span>
+                    </div>
+                  </div>
+                  <div class="wl-rail-stat-grid">
+                    <div class="wl-rail-stat">
+                      <span class="wl-rail-stat-val">{_stepsTotal.toLocaleString()}</span>
+                      <span class="wl-rail-stat-lbl">Total steps</span>
+                    </div>
+                    <div class="wl-rail-stat">
+                      <span class="wl-rail-stat-val">{_stepsAvg.toLocaleString()}</span>
+                      <span class="wl-rail-stat-lbl">Daily avg</span>
+                    </div>
+                    <div class="wl-rail-stat">
+                      <span class="wl-rail-stat-val">{_goalHits}/7</span>
+                      <span class="wl-rail-stat-lbl">≥ 10k days</span>
+                    </div>
+                    <div class="wl-rail-stat">
+                      <span class="wl-rail-stat-val">{Math.round(_amTotal).toLocaleString()}</span>
+                      <span class="wl-rail-stat-lbl">Active min</span>
+                    </div>
+                  </div>
+                  {#if _calTotal > 0}
+                    <p class="si-desc" style="margin-top:8px">
+                      Burned <strong>{Math.round(_calTotal).toLocaleString()} kcal</strong> total this week.
+                    </p>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+            <!-- Compact workouts list in the rail — one-line rows
+                 instead of the full detail cards. Same click handler
+                 opens the workout detail overlay so users don't
+                 lose any info, just presented denser. -->
+            {#if $workoutsEnabled && _workouts.length > 0}
+              <div class="wl-rail-only">
+                <div class="card sleep-insight-card">
+                  <div class="si-header">
+                    <span class="material-symbols-rounded si-icon">fitness_center</span>
+                    <div class="si-title-wrap">
+                      <span class="si-title">Today's Workouts</span>
+                      <span class="si-sub">{_workouts.length} {_workouts.length === 1 ? 'session' : 'sessions'}</span>
+                    </div>
+                  </div>
+                  <div class="wl-rail-workouts">
+                    {#each _workouts as w}
+                      <button type="button" class="wl-rail-workout-row" on:click={() => _openWorkout(w)}>
+                        <span class="material-symbols-rounded">{_workoutIcon(w.activity_name)}</span>
+                        <div class="wl-rail-workout-copy">
+                          <span class="wl-rail-workout-name">{w.activity_name}</span>
+                          <span class="wl-rail-workout-meta">
+                            {_fmtDuration(w.duration_ms)}
+                            {#if w.distance_km != null} · {_fmtWorkoutDist(w.distance_km)}{/if}
+                            {#if w.calories}
+                              {@const _rwE = Nutrition.displayEnergy(w.calories, $energyUnit)}
+                              · {_rwE.value.toLocaleString()} {_rwE.unit}
+                            {/if}
+                          </span>
+                        </div>
+                        {#if w.has_gps}
+                          <span class="material-symbols-rounded wl-rail-workout-gps" title="GPS route available">map</span>
+                        {/if}
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              </div>
+            {/if}
+          {:else if activeTab === 'sleep'}
+            <!-- Sleep Debt (rail duplicate) -->
+            {#if sleepDebt != null}
+              <div class="wl-rail-only">
+                <div class="card sleep-insight-card" style="margin-bottom:10px" title="Sleep Debt — the total sleep you've missed relative to your goal over the selected window. Calculated as a rolling total from today backwards — always reflects the most recent nights, not the date you're viewing.">
+                  <div class="si-header">
+                    <span class="material-symbols-rounded si-icon">battery_low</span>
+                    <div class="si-title-wrap">
+                      <span class="si-title">{$_('wellness_page.metric_group.sleep_debt')}</span>
+                      <span class="si-sub">Last {sleepDebt.nights} nights</span>
+                    </div>
+                    <span class="si-value {sleepDebt.debtMin === 0 ? 'si-good' : sleepDebt.debtMin < 120 ? 'si-warn' : 'si-bad'}">
+                      {sleepDebt.debtMin === 0 ? 'On track' : fmtSleepStr(sleepDebt.debtMin)}
+                    </span>
+                  </div>
+                  {#if sleepDebt.debtMin > 0}
+                    <p class="si-desc">
+                      You're {fmtSleepStr(sleepDebt.debtMin)} short of your {fmtSleepStr(sleepDebt.goalMin)} sleep goal across the last {sleepDebt.nights} nights.
+                      {#if sleepDebt.debtMin >= 120}Prioritize early bedtimes this week to recover.{:else}A consistent schedule should close the gap quickly.{/if}
+                    </p>
+                  {:else}
+                    <p class="si-desc">You're meeting your sleep goal. Keep it up!</p>
+                  {/if}
+                  <div class="si-range-chips">
+                    {#each [7, 14, 30] as n}
+                      <button class="chip" class:chip-active={sleepInsightsRange === n} on:click={() => sleepInsightsRange = n}>{n}d</button>
+                    {/each}
+                  </div>
+                </div>
+              </div>
+            {/if}
+            <!-- Chronotype (rail duplicate) -->
+            {#if chronotype != null}
+              <div class="wl-rail-only">
+                <div class="card sleep-insight-card" title="Chronotype — your natural sleep timing preference, derived from your average sleep midpoint over all available nights. This is a long-term trait that updates as more nights are synced — it always reflects your full history, not the specific date you're viewing.">
+                  <div class="si-header">
+                    <span class="si-emoji">{chronotype.emoji ?? '⏳'}</span>
+                    <div class="si-title-wrap">
+                      <span class="si-title">{chronotype.label ?? 'Building Profile…'}</span>
+                      <span class="si-sub">
+                        {#if chronotype.label}Avg sleep midpoint: {fmtTimeMin(chronotype.midpointMin)} · {chronotype.nights} nights
+                        {:else}{chronotype.nights}/{chronotype.needed} nights collected{/if}
+                      </span>
+                    </div>
+                  </div>
+                  {#if chronotype.label}
+                    <p class="si-desc">{chronotype.desc}</p>
+                  {:else}
+                    <p class="si-desc">Syncing more nights will unlock your chronotype. Once {chronotype.needed} nights of sleep timing are available your profile will appear here.</p>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          {:else if activeTab === 'heart'}
+            <!-- Daily Readiness (rail duplicate) -->
+            {#if readiness != null}
+              <div class="wl-rail-only">
+                <div class="card sleep-insight-card readiness-card" style="margin-top:0" title="Daily Readiness — how recovered and prepared your body is for today, scored 1–100. Calculated from today's HRV and RHR compared to your 30-day personal baseline, plus last night's sleep score. Always reflects today's data — not the date you're viewing.">
+                  {#if readiness.calibrating}
+                    <div class="si-header">
+                      <span class="material-symbols-rounded si-icon">battery_charging_full</span>
+                      <div class="si-title-wrap">
+                        <span class="si-title">{$_('wellness_deep.daily_readiness')}</span>
+                        <span class="si-sub">Calibrating… {readiness.data_days}/{readiness.needed} nights with HRV data</span>
+                      </div>
+                    </div>
+                    <p class="si-desc">Needs {readiness.needed} nights where your device recorded HRV during sleep. Fitbit only captures HRV on nights with a clean optical reading — wearing the device snugly helps.</p>
+                  {:else}
+                    <div class="readiness-header">
+                      <div class="readiness-header-left">
+                        <span class="material-symbols-rounded si-icon">battery_charging_full</span>
+                        <div class="si-title-wrap">
+                          <span class="si-title">{$_('wellness_deep.daily_readiness')}</span>
+                          <span class="si-sub">
+                            HRV baseline {readiness.hrv_baseline} ms{readiness.rhr_baseline != null ? ` · RHR baseline ${readiness.rhr_baseline} bpm` : ''} · {readiness.data_days} days
+                          </span>
+                        </div>
+                      </div>
+                      <div class="readiness-score-wrap">
+                        <span class="readiness-score" style="color:{readiness.color}">{readiness.score}</span>
+                        <span class="readiness-label" style="color:{readiness.color}">{readiness.label}</span>
+                      </div>
+                    </div>
+                    <div class="readiness-drivers">
+                      <div class="readiness-driver">
+                        <span class="rd-label">HRV</span>
+                        <span class="rd-val" style="color:{readiness.hrv_score >= 65 ? 'var(--accent)' : readiness.hrv_score >= 50 ? '#f59e0b' : '#ef4444'}">{readiness.hrv_score}</span>
+                      </div>
+                      <div class="readiness-driver">
+                        <span class="rd-label">{$_('wellness_deep.resting_hr')}</span>
+                        <span class="rd-val" style="color:{readiness.rhr_score >= 65 ? 'var(--accent)' : readiness.rhr_score >= 50 ? '#f59e0b' : '#ef4444'}">{readiness.rhr_score}</span>
+                      </div>
+                      <div class="readiness-driver">
+                        <span class="rd-label">{$_('wellness_deep.sleep')}</span>
+                        <span class="rd-val" style="color:{readiness.sleep_score_used >= 65 ? 'var(--accent)' : readiness.sleep_score_used >= 50 ? '#f59e0b' : '#ef4444'}">{readiness.sleep_score_used}</span>
+                      </div>
+                      <div class="readiness-driver">
+                        <span class="rd-label">{$_('wellness_deep.penalties')}</span>
+                        <span class="rd-val" class:rd-penalty={(readiness.activity_penalty + readiness.interaction_penalty) > 0}>
+                          {(readiness.activity_penalty + readiness.interaction_penalty) > 0 ? `−${readiness.activity_penalty + readiness.interaction_penalty}` : '—'}
+                        </span>
+                      </div>
+                    </div>
+                    {@const _rIns = _readinessInsight(readiness)}
+                    {#if _rIns}
+                      <div class="readiness-insight">
+                        <p class="ri-lead">{_rIns.lead}</p>
+                        <p class="ri-driver">{_rIns.driver}</p>
+                      </div>
+                    {/if}
+                    {#if readiness.data_days < 30}
+                      <div class="si-calibration-note">
+                        <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
+                        Based on {readiness.data_days} days — accuracy improves as more data is collected.
+                      </div>
+                    {/if}
+                  {/if}
+                </div>
+              </div>
+            {/if}
+            <!-- Resilience (rail duplicate) -->
+            {@const _resCatR      = displayData.resilience_category}
+            {@const _resCatLabelR = _resCatR === 3 ? 'Optimal' : _resCatR === 2 ? 'Balanced' : _resCatR === 1 ? 'Low' : null}
+            {@const _resColorR    = _resCatLabelR === 'Optimal' ? 'var(--accent)' : _resCatLabelR === 'Balanced' ? '#f59e0b' : _resCatLabelR === 'Low' ? '#ef4444' : 'var(--text-3)'}
+            {@const _resTextR     = _resCatLabelR === 'Optimal' ? "Your body is showing strong signs of recovery and balance. A great day to take on what matters to you."
+                                  : _resCatLabelR === 'Balanced' ? "Your body is in a steady state today. A good day to maintain your routine and stay consistent."
+                                  : _resCatLabelR === 'Low' ? "Your body is asking for a bit more rest today. Taking it easier is a kind way to help yourself recharge."
+                                  : null}
+            {#if _resCatLabelR}
+              <div class="wl-rail-only">
+                <div class="card sleep-insight-card readiness-card" style="margin-top:10px" title="Resilience — how your body is handling daily stress, classified as Optimal, Balanced, or Low. Combines physical calmness (HRV + resting heart rate), activity balance (step + active-minute target adherence), and sleep patterns (last night plus 7-day reservoir).">
+                  <div class="readiness-header">
+                    <div class="readiness-header-left">
+                      <span class="material-symbols-rounded si-icon">self_improvement</span>
+                      <div class="si-title-wrap">
+                        <span class="si-title">{$_('wellness_deep.resilience')}</span>
+                        <span class="si-sub">Score: {Math.round(displayData.resilience_score ?? 0)} / 100</span>
+                      </div>
+                    </div>
+                    <div class="readiness-score-wrap">
+                      <span class="readiness-label" style="color:{_resColorR};font-size:22px;font-weight:700">{_resCatLabelR}</span>
+                    </div>
+                  </div>
+                  <p class="resilience-text">{_resTextR}</p>
+                  <div class="readiness-drivers">
+                    <div class="readiness-driver">
+                      <span class="rd-label">{$_('wellness_deep.physical_calmness')}</span>
+                      <span class="rd-val">{Math.round(displayData.resilience_calmness ?? 0)}<span style="font-size:11px;font-weight:500;color:var(--text-3)"> / 30</span></span>
+                    </div>
+                    <div class="readiness-driver">
+                      <span class="rd-label">{$_('wellness_deep.activity_balance')}</span>
+                      <span class="rd-val">{Math.round(displayData.resilience_activity ?? 0)}<span style="font-size:11px;font-weight:500;color:var(--text-3)"> / 40</span></span>
+                    </div>
+                    <div class="readiness-driver">
+                      <span class="rd-label">{$_('wellness_deep.sleep_patterns')}</span>
+                      <span class="rd-val">{Math.round(displayData.resilience_sleep ?? 0)}<span style="font-size:11px;font-weight:500;color:var(--text-3)"> / 30</span></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {/if}
+          {:else if activeTab === 'body'}
+            <!-- Body Scan Scores (rail duplicate) -->
+            {#if (withingsStatus.connected || $fitbitFamilyEnabled || (isNative && _hasLocalData)) && BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id]) != null)}
+              <div class="wl-rail-only">
+                <div class="card" style="padding:16px">
+                  <div class="sleep-stages-header" style="margin-bottom:12px">
+                    <span class="material-symbols-rounded" style="color:var(--accent)">biotech</span>
+                    <span class="sleep-stages-title">{$_('wellness_deep.body_scan_scores')}</span>
+                  </div>
+                  <div class="metric-grid">
+                    {#each BODY_SCORE_METRICS.filter(m => isVisible(m.id)) as m}
+                      {@const raw = withingsData[m.id] ?? data[m.id] ?? null}
+                      {#if raw != null}
+                        <div class="metric-card" title={m.desc}>
+                          <div class="metric-icon-wrap">
+                            <span class="material-symbols-rounded metric-icon">{m.icon}</span>
+                          </div>
+                          <div class="metric-body">
+                            <span class="metric-label">{m.label}</span>
+                            <span class="metric-value">{m.fmt(raw)}<span class="metric-unit">{m.unit}</span></span>
+                          </div>
+                        </div>
+                      {/if}
+                    {/each}
+                  </div>
+                </div>
+              </div>
+            {/if}
+          {/if}
+        </aside>
+
+      </div><!-- /.wl-body -->
 
     {/if}
 
@@ -2437,8 +2974,30 @@
     flex-direction: column;
     gap: 10px;
     transition: opacity var(--dur-fast);
+    position: relative;
   }
   .metric-card.no-data { opacity: 0.5; }
+  /* Trend affordance — subtle top-right chevron that routes to the
+     Statistics chart for this metric. Half-opacity by default so it
+     doesn't compete with the metric value; brightens on hover. */
+  .metric-trend {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-3);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: var(--radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+    transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  }
+  .metric-trend:hover { opacity: 1; color: var(--text-1); background: var(--surface-2); }
+  .metric-trend .material-symbols-rounded { font-size: 16px; }
   .metric-card.celebrating { animation: goal-pulse 1.2s ease-out; }
   @keyframes goal-pulse {
     0%   { filter: brightness(1); }
@@ -2915,5 +3474,336 @@
     .workout-stats-grid { grid-template-columns: repeat(3, 1fr); }
     .workout-map { height: 220px; }
     .workout-detail { padding: 14px; }
+  }
+
+  /* ────────────────────────────────────────────────────────────────────
+     Desktop three-pane layout (Wellness redesign)
+     Default (mobile / force-mobile-layout): .wl-body is a plain block,
+     rails hidden, center-original cards visible. At ≥1280px on non-mobile
+     builds the layout becomes a grid with sticky rails, and cards duplicated
+     into the right rail replace the center originals.
+     ──────────────────────────────────────────────────────────────────── */
+  .wl-body { display: block; }
+  .wl-left-rail, .wl-right-rail { display: none; }
+  .wl-rail-only { display: none; }
+  .wl-center-only { display: block; }
+
+  /* Left rail row styling — shared with mobile in case we ever expose it,
+     but visually only used at ≥1280px. */
+  .wl-rail-heading {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+    text-transform: uppercase; color: var(--text-3);
+    padding: 2px 4px 10px;
+  }
+
+  /* Always-on Readiness strip — compact daily indicator at the
+     very top of the right rail, visible across every tab. Tapping
+     jumps to the Heart tab for the full card + drivers. */
+  .wl-readiness-strip {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    margin-bottom: 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .wl-readiness-strip:hover {
+    background: var(--surface-3);
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  }
+  .wl-rs-icon {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .wl-rs-icon .material-symbols-rounded { font-size: 20px; }
+  .wl-rs-copy { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+  .wl-rs-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+  .wl-rs-band { font-size: 13px; font-weight: 600; color: var(--text-1); }
+  .wl-rs-score { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+  /* Activity rail — 2x2 stat grid inside the "This Week" card. */
+  .wl-rail-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .wl-rail-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+  }
+  .wl-rail-stat-val {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-1);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .wl-rail-stat-lbl {
+    font-size: 10px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+
+  /* Compact workout rows in the Activity rail — replaces the tall
+     detail cards on desktop so the center pane isn't dominated by
+     Today's Workouts. One-line row: icon + name + meta + optional
+     GPS marker. Click routes to the same _openWorkout handler as
+     the full card. */
+  .wl-rail-workouts {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .wl-rail-workout-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-align: left;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .wl-rail-workout-row:hover {
+    background: var(--surface-3);
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .wl-rail-workout-row > .material-symbols-rounded {
+    font-size: 20px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .wl-rail-workout-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+  }
+  .wl-rail-workout-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wl-rail-workout-meta {
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wl-rail-workout-gps {
+    font-size: 16px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .wl-provider-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 6px; border-radius: 10px;
+    margin-bottom: 4px;
+  }
+  .wl-provider-row:hover { background: var(--surface-2); }
+  .wl-provider-icon { font-size: 18px; flex: 0 0 auto; color: var(--accent); }
+  .wl-provider-name { flex: 1 1 auto; font-size: 13px; font-weight: 500; color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wl-status-pill {
+    font-size: 10px; font-weight: 600; padding: 2px 6px;
+    border-radius: 999px; letter-spacing: 0.3px;
+    background: var(--surface-2); color: var(--text-3);
+    white-space: nowrap;
+  }
+  .wl-status-pill.pill-connected { background: rgba(34,197,94,0.14); color: rgb(21,128,61); }
+  .wl-status-pill.pill-syncing   { background: rgba(245,158,11,0.16); color: rgb(180,83,9); }
+  .wl-status-pill.pill-error     { background: rgba(239,68,68,0.14); color: rgb(185,28,28); }
+  :global(html[data-theme="dark"]) .wl-status-pill.pill-connected,
+  :global(:root[data-theme="dark"]) .wl-status-pill.pill-connected { color: rgb(134,239,172); }
+  :global(html[data-theme="dark"]) .wl-status-pill.pill-syncing,
+  :global(:root[data-theme="dark"]) .wl-status-pill.pill-syncing { color: rgb(251,191,36); }
+  :global(html[data-theme="dark"]) .wl-status-pill.pill-error,
+  :global(:root[data-theme="dark"]) .wl-status-pill.pill-error { color: rgb(248,113,113); }
+  .wl-rail-sync-btn {
+    flex: 0 0 auto; width: 28px; height: 28px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-2); cursor: pointer;
+  }
+  .wl-rail-sync-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text-1); }
+  .wl-rail-sync-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .wl-rail-sync-btn .material-symbols-rounded { font-size: 18px; }
+  .wl-sync-all-btn {
+    margin-top: 10px; width: 100%;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .wl-sync-all-btn .material-symbols-rounded { font-size: 18px; }
+  /* Last-synced footer — sits below Sync All in the left rail. */
+  .wl-last-synced {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 2px 6px;
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .wl-last-synced .material-symbols-rounded {
+    font-size: 14px;
+    opacity: 0.7;
+  }
+  .wl-last-synced-time {
+    color: var(--text-2);
+    font-weight: 600;
+    margin-left: 4px;
+  }
+
+  /* Desktop-only activation (≥1280px, non-force-mobile) */
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .wl-body {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr) 340px;
+      column-gap: 20px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .wl-left-rail,
+    :global(html:not(.force-mobile-layout)) .wl-right-rail {
+      display: block;
+      position: sticky;
+      /* Sticky top is set further below (#6 fix) after tab-bar
+         height, so this initial block just declares layout +
+         chrome. No max-height / overflow: same fix as the
+         FoodEditor left col — sticky un-sticks against .wl-body's
+         bottom if the rail is taller than viewport, so users see
+         everything via normal page scroll rather than a hidden
+         internal scrollbar. */
+      align-self: start;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+    }
+    :global(html:not(.force-mobile-layout)) .wl-rail-only { display: block; }
+    :global(html:not(.force-mobile-layout)) .wl-center-only { display: none; }
+    /* The mobile portalled sync cluster is redundant on desktop — the rail replaces it. */
+    :global(html:not(.force-mobile-layout)) :global(.wl-topbar-actions) { display: none; }
+    /* Bigger metric cards on desktop so a wide viewport doesn't fan them into 10 skinny columns. */
+    :global(html:not(.force-mobile-layout)) .wl-body :global(.metric-grid) {
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    }
+    /* 1. First-run connect card capped + centered on desktop so
+       it doesn't stretch full-width and read as lost in the void
+       when nothing is connected yet. Same instinct as the
+       Settings welcome-hero cap. */
+    :global(html:not(.force-mobile-layout)) .wl-content > :global(.connect-card) {
+      max-width: 640px;
+      margin: 24px auto 0;
+    }
+    /* 3. Manage Providers link — small text link at the bottom of
+       the left rail so users don't have to navigate out via the
+       sidebar to open Settings → Wellness. */
+    :global(html:not(.force-mobile-layout)) .wl-manage-link {
+      display: none;
+    }
+    /* Above rule is the mobile default (rail hidden). Desktop
+       override below inside the same @media makes it visible. */
+
+    /* Rail scrollbar rules dropped — no more max-height / overflow
+       on the rails, so there's nothing to style a scrollbar for. */
+
+    /* Zero the tab-bar's negative L/R margins on desktop. They
+       give it the mobile full-bleed look (extending past the
+       page-content padding to hit viewport edges), but inside the
+       narrower .wl-main grid column they pull it PAST the column
+       into the rails — so the tab pill row visually reads wider
+       than the metric grid below, breaking column alignment.
+       Also drop the pill-container 'box' look (background +
+       padding + border-radius on .tab-bar) so tabs read as inline
+       navigation instead of a card sitting above another card. */
+    :global(html:not(.force-mobile-layout)) .wl-main :global(.tab-bar-wrap) {
+      margin-left: 0;
+      margin-right: 0;
+      /* Also drop the wrap's glass background + backdrop blur +
+         bottom border on desktop. Those give the mobile sticky
+         header its full-bleed card look; on desktop inside the
+         .wl-main column they add a visible box behind the pills
+         even though I already stripped .tab-bar's own bg. */
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border-bottom: none;
+      padding-top: 0;
+      padding-bottom: 8px;
+      /* Push tab bar down so there's clear breathing room between
+         the date bar (sticky at 60+52=112) and the pills. Also
+         becomes the alignment reference for the rails below. */
+      margin-top: 20px;
+    }
+    :global(html:not(.force-mobile-layout)) .wl-main :global(.tab-bar) {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+      gap: 4px;
+    }
+    /* Sliding pill indicator was inset 4px inside the container's
+       padding — with no padding now, inset it to 0 top/bottom so
+       it aligns with the button rows. */
+    :global(html:not(.force-mobile-layout)) .wl-main :global(.tab-pill) {
+      top: 0;
+      bottom: 0;
+      background: var(--accent-dim);
+      box-shadow: none;
+    }
+    /* 6. Rail sticky top offset — was 130, but the sticky tab-
+       bar's bottom edge lives at ~172px (safe-top + 60 date-bar
+       top + 52 date-bar height + ~60 tab-bar height). Rails were
+       tucking under the tab bar on scroll. Bump to 190 so the
+       rail top clears the tab bar with a small visual gap. */
+    :global(html:not(.force-mobile-layout)) .wl-left-rail,
+    :global(html:not(.force-mobile-layout)) .wl-right-rail {
+      /* Sticky top aligns with the tab-bar-wrap's own top so on
+         first paint the rail cards start at the SAME y as the
+         Activity/Sleep/Heart/Body pills. Rails don't sit below
+         the tabs — they sit next to them in the same top band. */
+      top: calc(var(--page-top, var(--safe-top)) + 132px + var(--hamburger-row, 0px));
+      margin-top: 20px;
+    }
+    /* 3 (cont.): show the Manage Providers link on desktop. */
+    :global(html:not(.force-mobile-layout)) .wl-manage-link {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      justify-content: center;
+      margin-top: 10px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text-3);
+      text-decoration: none;
+      border-radius: var(--radius-sm);
+      transition: background 120ms ease, color 120ms ease;
+    }
+    :global(html:not(.force-mobile-layout)) .wl-manage-link:hover {
+      background: var(--surface-2);
+      color: var(--text-1);
+    }
+    :global(html:not(.force-mobile-layout)) .wl-manage-link .material-symbols-rounded {
+      font-size: 14px;
+    }
   }
 </style>

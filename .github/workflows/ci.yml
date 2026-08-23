@@ -1,0 +1,32 @@
+name: Checks
+
+# The repo's other workflow (docker.yml) builds and publishes images; keeping
+# checks separate means a red check never blocks an image push and a slow
+# multi-arch build never delays PR feedback.
+on:
+  pull_request:
+  push:
+    branches: [ main, dev ]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Node 20 to match node:20-alpine in the Dockerfile.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: i18n check
+        run: npm run i18n:check
+
+      - name: Tests
+        run: npm test

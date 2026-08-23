@@ -28,8 +28,10 @@
  *            Instead we list /releases, filter to prerelease=true with
  *            a numbered -dev.N tag, and pick the newest.
  */
+import { writable } from 'svelte/store';
 import { APP_VERSION } from './version.js';
 import { isNative } from './platform.js';
+import { DB } from './db.js';
 
 const GH_OWNER = 'TraceApps';
 const GH_REPO  = 'nutritrace';
@@ -40,7 +42,23 @@ const CACHE_KEY_SKIP_VERSION = 'wl_updates_skip_version'; // version string user
 const CACHE_KEY_CHANNEL      = 'wl_updates_channel';      // 'stable' | 'dev'
 const CACHE_KEY_AUTO_CHECK   = 'wl_updates_auto_check';   // '1' | '0'
 
-const THROTTLE_MS = 24 * 60 * 60 * 1000;
+// Cadence in HOURS the user can pick in Settings → Updates. 0 = manual
+// only (turns off every auto-check path — mount, visibility change, and
+// the once-per-24h refresh below). Anything else is the throttle
+// between real GitHub API calls; a check attempted inside the window
+// resolves from the cached blob instead of hitting the network.
+function _throttleMs() {
+  const hours = Number(DB.getSetting('updateCheckInterval', 4)) || 0;
+  if (!hours || hours < 0) return Infinity;         // manual only
+  return Math.max(1, hours) * 60 * 60 * 1000;
+}
+
+// Shared reactive store for "there is an update available that the
+// user hasn't already dismissed". Drives the top banner AND the dot
+// on the Settings nav icon so both surfaces stay in sync with a single
+// source of truth. Also holds the latest release blob so callers can
+// render the version number without re-checking.
+export const updateAvailable = writable({ available: false, latest: null });
 
 const UA = `TraceApps-${APP_NAME}/${APP_VERSION}`;
 
@@ -150,10 +168,31 @@ function _getCachedLatest() {
   try {
     const last = localStorage.getItem(CACHE_KEY_LAST_CHECK);
     if (!last) return null;
-    if (Date.now() - new Date(last).getTime() > THROTTLE_MS) return null;
+    if (Date.now() - new Date(last).getTime() > _throttleMs()) return null;
     const raw = localStorage.getItem(CACHE_KEY_LATEST);
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
+}
+
+/** Refresh the shared reactive store from the latest cached blob +
+ *  current skip-version. Idempotent, safe to call any time. */
+export function refreshUpdateAvailableStore() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY_LATEST);
+    const latest = raw ? JSON.parse(raw) : null;
+    const skipped = getSkippedVersion();
+    const available = !!(latest && isUpdateAvailable(latest) && skipped !== latest.version);
+    updateAvailable.set({ available, latest: available ? latest : null });
+  } catch {
+    updateAvailable.set({ available: false, latest: null });
+  }
+}
+
+/** Mark a version as skipped/dismissed. Clears both the banner and
+ *  the Settings-nav dot in one call by refreshing the shared store. */
+export function dismissForVersion(version) {
+  if (version) skipVersion(version);
+  refreshUpdateAvailableStore();
 }
 
 /**
@@ -232,6 +271,10 @@ export async function checkForUpdate({ force = false } = {}) {
       localStorage.setItem(CACHE_KEY_LAST_CHECK, new Date().toISOString());
       localStorage.setItem(CACHE_KEY_LATEST, JSON.stringify(result));
     } catch {}
+    // Keep the shared store in sync so the banner + Settings-nav dot
+    // update automatically whenever a check runs (mount, visibility
+    // change, "Check now" button, or the throttled 4h auto-check).
+    refreshUpdateAvailableStore();
     return result;
   } catch (e) {
     console.warn('[updates] check failed:', e?.message || e);

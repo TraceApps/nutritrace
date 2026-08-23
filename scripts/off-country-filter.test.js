@@ -9,12 +9,15 @@ const apiJs = readFileSync(new URL('../src/lib/api.js', import.meta.url), 'utf8'
 const connectedSvelte = readFileSync(new URL('../src/routes/settings/ConnectedServices.svelte', import.meta.url), 'utf8');
 const proxyJs = readFileSync(new URL('../server/routes/proxy.js', import.meta.url), 'utf8');
 
-test('Open Food Facts country search uses v2 countries_tags filtering', () => {
-  assert.match(apiJs, /world\.openfoodfacts\.org\/api\/v2\/search/);
-  assert.match(apiJs, /params\.set\('countries_tags', country\)/);
+test('Open Food Facts country search uses search-a-licious with Lucene countries_tags filter', () => {
+  // v1.1.2 migrated OFF text search from v2 API to search-a-licious.
+  // Country filter is now folded into the Lucene `q` string as
+  // `+countries_tags:"..."`, not a separate query param.
+  assert.match(apiJs, /search\.openfoodfacts\.org\/search/);
+  assert.match(apiJs, /\+countries_tags:"\$\{country\}"/);
   assert.match(apiJs, /`en:\$\{slug\}`/);
   assert.doesNotMatch(apiJs, /countries_tags_en/);
-  assert.doesNotMatch(apiJs, /search\.openfoodfacts\.org\/search\?q=/);
+  assert.doesNotMatch(apiJs, /world\.openfoodfacts\.org\/api\/v2\/search/);
 });
 
 test('Open Food Facts country options include Norway and the expanded set', () => {

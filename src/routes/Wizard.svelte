@@ -9,6 +9,7 @@
   import { currentUser, userMgmtActive, setupRequired, loadAuthState } from '../stores/auth.js';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { showError } from '../stores/toast.js';
+  import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { isNative, getServerUrl, apiUrl } from '../lib/platform.js';
   import Toggle from '../components/settings/Toggle.svelte';
   import DateInput from '../components/ui/DateInput.svelte';
@@ -178,14 +179,20 @@
   $: hUnit = $heightUnit || 'cm';
 
   function toKg(v) {
-    if (wUnit === 'lb') return v * 0.453592;
-    if (wUnit === 'st') return v * 6.35029;
-    return v;
+    // parseDecimal so a comma-locale user typing "70,5" doesn't turn into NaN
+    // downstream. #160 follow-up: inputs are now type=text.
+    const n = parseDecimal(v);
+    if (!Number.isFinite(n)) return NaN;
+    if (wUnit === 'lb') return n * 0.453592;
+    if (wUnit === 'st') return n * 6.35029;
+    return n;
   }
 
   function getHeightCm() {
-    if (hUnit === 'cm') return heightCm;
-    return Math.round(heightFt * 30.48 + heightIn * 2.54);
+    if (hUnit === 'cm') return parseDecimal(heightCm);
+    const ft = parseDecimal(heightFt) || 0;
+    const inches = parseDecimal(heightIn) || 0;
+    return Math.round(ft * 30.48 + inches * 2.54);
   }
 
   function calcSummary() {
@@ -617,17 +624,17 @@
         <div style="margin-top:24px;display:flex;flex-direction:column;gap:12px">
           {#if hUnit === 'cm'}
             <label class="form-label">{$_('wizard.height.label_cm')}</label>
-            <input class="input" type="number" min="100" max="250" bind:value={heightCm} style="font-size:16px" />
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={heightCm} style="font-size:16px" />
           {:else}
             <label class="form-label">{$_('wizard.height.label')}</label>
             <div style="display:flex;gap:10px">
               <div style="flex:1">
                 <label class="form-label" style="font-size:11px">{$_('wizard.height.feet')}</label>
-                <input class="input" type="number" min="3" max="8" bind:value={heightFt} style="font-size:16px" />
+                <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={heightFt} style="font-size:16px" />
               </div>
               <div style="flex:1">
                 <label class="form-label" style="font-size:11px">{$_('wizard.height.inches')}</label>
-                <input class="input" type="number" min="0" max="11" bind:value={heightIn} style="font-size:16px" />
+                <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={heightIn} style="font-size:16px" />
               </div>
             </div>
           {/if}
@@ -637,14 +644,14 @@
       {:else if currentStepName === 'weight'}
         <h2 class="step-title">{$_('wizard.weight.title')}</h2>
         <p class="step-desc">Your current body weight ({wUnit}).</p>
-        <input class="input" type="number" min="20" max="500" step="0.1"
+        <input class="input" type="text" inputmode="decimal" use:decimalInput
           bind:value={weight} style="margin-top:24px;font-size:16px" />
 
       <!-- ── Target Weight ── -->
       {:else if currentStepName === 'target'}
         <h2 class="step-title">{$_('wizard.target.title')}</h2>
         <p class="step-desc">Your goal weight ({wUnit}). Defaults to your current weight — change it if you're trying to lose or gain.</p>
-        <input class="input" type="number" min="20" max="500" step="0.1"
+        <input class="input" type="text" inputmode="decimal" use:decimalInput
           bind:value={targetW} on:input={() => _targetTouched = true}
           style="margin-top:24px;font-size:16px" />
 

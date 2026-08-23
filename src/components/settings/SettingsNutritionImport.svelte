@@ -274,8 +274,6 @@
   }
   .setting-label { font-size: 14px; font-weight: 500; }
   .setting-divider { height: 1px; background: var(--border); margin: 0 16px; }
-
-  .setting-desc { font-size: 12px; color: var(--text-3); line-height: 1.5; font-weight: 400; }
   .text-link {
     color: var(--accent); font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;
   }

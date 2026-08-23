@@ -211,7 +211,7 @@ export const TOOLS = [
   },
   {
     name: 'propose_food',
-    description: 'Propose a reusable FOOD entry for the user to REVIEW before anything is created. This tool DOES NOT WRITE to the Foods library, DOES NOT WRITE to the diary — it ONLY displays a review card so the user can decide to (a) Save to Foods only, (b) Save & Add to Diary, or (c) Discard. Treat the tool returning `ok: true` as "the card was shown", NOT as "the food was saved" or "added to diary". After calling this tool you MUST NOT say things like "I\'ve added X to your Foods" or "Added X to your diary" — the user has not yet confirmed. Say something like "Here\'s my estimate — pick Save to Foods if you just want to keep it for later, or Save & Add to Diary to also add it to today." Use this when the user wants a REUSABLE food (not a one-off kcal entry): "add this to my foods", "save this as a food", "remember this for later", "create a food entry for this". Nutrition values are per the portion you specify (default 100 g if you cannot tell).',
+    description: 'Propose a reusable FOOD entry for the user to REVIEW before anything is created. This tool DOES NOT WRITE to the Foods library, DOES NOT WRITE to the diary — it ONLY displays a review card so the user can decide to (a) Save to Foods only, (b) Save & Add to Diary, or (c) Discard. Treat the tool returning `ok: true` as "the card was shown", NOT as "the food was saved" or "added to diary". After calling this tool you MUST NOT say things like "I\'ve added X to your Foods" or "Added X to your diary" — the user has not yet confirmed. Say something like "Here\'s my estimate — pick Save to Foods if you just want to keep it for later, or Save & Add to Diary to also add it to today." Use this when the user wants a REUSABLE food (not a one-off kcal entry): "add this to my foods", "save this as a food", "remember this for later", "create a food entry for this". ALSO USE THIS as the manual-estimate bypass for log_food: when the user explicitly asks you to estimate a named food without searching the database ("don\'t search, just estimate a currywurst", "you estimate it and log it"), pass your best-guess nutrition here so the user reviews the numbers on the card and picks Save & Add to Diary. Nutrition values are per the portion you specify (default 100 g if you cannot tell).',
     parameters: {
       type: 'object',
       properties: {
@@ -346,28 +346,34 @@ export const AI_MODELS = {
   claude: [
     { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast, cheap)' },
     { value: 'claude-sonnet-5',           label: 'Claude Sonnet 5 (balanced)' },
-    { value: 'claude-opus-4-8',           label: 'Claude Opus 4.8'            },
     { value: 'claude-opus-5',             label: 'Claude Opus 5'              },
     { value: 'claude-fable-5',            label: 'Claude Fable 5 (most capable)' },
+    { value: 'claude-opus-4-8',           label: 'Claude Opus 4.8 (previous)' },
     { value: '__custom__',                label: 'Custom…'                    },
   ],
   openai: [
-    { value: 'gpt-4o-mini',  label: 'GPT-4o mini (fast, cheap)' },
-    { value: 'gpt-4o',       label: 'GPT-4o (smarter)'          },
-    { value: '__custom__',   label: 'Custom…'                   },
+    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (fast, cheap)' },
+    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'   },
+    { value: 'gpt-5.6',       label: 'GPT-5.6 (smarter)'          },
+    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'     },
+    { value: 'gpt-4o',        label: 'GPT-4o (previous)'          },
+    { value: '__custom__',    label: 'Custom…'                    },
   ],
   gemini: [
-    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (cheapest)' },
-    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (fast, cheap)'   },
-    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (smarter)'         },
+    { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (cheapest)' },
+    { value: 'gemini-3.6-flash',      label: 'Gemini 3.6 Flash (fast, cheap)'   },
+    { value: 'gemini-3.1-pro',        label: 'Gemini 3.1 Pro (smarter)'         },
+    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (previous)' },
+    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (previous)'      },
+    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (previous)'        },
     { value: '__custom__',            label: 'Custom…'                          },
   ],
 };
 
 export const AI_DEFAULT_MODELS = {
   claude: 'claude-haiku-4-5-20251001',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.5-flash',
+  openai: 'gpt-5.6-luna',
+  gemini: 'gemini-3.6-flash',
 };
 
 // ── Anthropic Claude (with tool use) ─────────────────────────────────────────

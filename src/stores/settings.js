@@ -36,6 +36,7 @@ export const USER_PREFS = new Set([
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
   'foodsShowYesterdayMeals','foodsYesterdayCollapsed','foodsSavedCollapsed','foodsSort','mealsSort','recipesSort',
   'foodsDefaultSource',
+  'updateCheckInterval', // hours between checks: 1, 4, 12, 24, or 0 for manual only
   'barcodeBeep','cropPhotos',
   'offEnabled','offSearchLanguage','offSearchCountry','offUploadCountry','offImportPortion',
   'weightUnit','heightUnit','lengthUnit','distUnit','tempUnit',
@@ -517,6 +518,23 @@ export const diaryShowPortionSize   = createSettingStore('diaryShowPortionSize',
 export const showQuickCalories      = createSettingStore('showQuickCalories',       true);
 export const quickCaloriesDisplay   = createSettingStore('quickCaloriesDisplay',    'summed');
 export const diaryShowNotes         = createSettingStore('diaryShowNotes',          true);
+
+// Desktop diary redesign — right-rail widget visibility. Each widget
+// can be independently hidden by the user. Defaults show everything so
+// a fresh install feels complete; power users trim to their taste in
+// Settings → Diary → Desktop rail widgets.
+// Force-mobile layout: when true, the desktop breakpoints (two-pane
+// Settings, Diary right rail, week strip, etc.) are all gated off
+// even at wide viewport widths so users who prefer the mobile
+// pattern on their desktop get exactly that.
+export const forceMobileLayout         = createSettingStore('forceMobileLayout',         false);
+
+export const diaryRailShowSummary      = createSettingStore('diaryRailShowSummary',       true);
+export const diaryRailShowWater        = createSettingStore('diaryRailShowWater',         true);
+export const diaryRailShowBodyStats    = createSettingStore('diaryRailShowBodyStats',     true);
+export const diaryRailShowActivity     = createSettingStore('diaryRailShowActivity',      true);
+export const diaryRailShowNotes        = createSettingStore('diaryRailShowNotes',         true);
+
 // Activity logging (issue #3 — opt-in calorie-burn entry that offsets daily goal)
 export const diaryShowActivity      = createSettingStore('diaryShowActivity',        false);
 export const manualActivityPolicy   = createSettingStore('manualActivityPolicy',     'wearable_wins'); // 'wearable_wins' | 'manual_wins' | 'additive'
@@ -545,6 +563,11 @@ export const recipesSort            = createSettingStore('recipesSort',         
 // (requested via #128). Foods.svelte reads this on mount and initialises
 // searchSource from it.
 export const foodsDefaultSource     = createSettingStore('foodsDefaultSource',     'local');
+
+// Hours between automatic update checks. 0 = manual only (Settings →
+// Updates → Check now is the only way). Also gates the visibility-change
+// re-check trigger in App.svelte. #updates-cadence-settable.
+export const updateCheckInterval    = createSettingStore('updateCheckInterval',    4);
 
 export const barcodeBeep            = createSettingStore('barcodeBeep',            false);
 export const barcodeFlashlight      = createSettingStore('barcodeFlashlight',      false);

@@ -29,6 +29,18 @@
     getLastChecked, formatAgo, checkServerUpdate,
     skipVersion, getUpdateCacheInfo, clearUpdateCache, formatBytes,
   } from '../../lib/updates.js';
+  import { updateCheckInterval } from '../../stores/settings.js';
+
+  // Options for the "how often to check" picker. Values match what
+  // _throttleMs() in updates.js reads directly from the setting (hours,
+  // 0 = manual only). Keep in sync with the same choices in LT/CT.
+  const CHECK_INTERVAL_OPTIONS = [
+    { value: 1,  key: 'updates.interval.hourly'    },
+    { value: 4,  key: 'updates.interval.every_4h'  },
+    { value: 12, key: 'updates.interval.every_12h' },
+    { value: 24, key: 'updates.interval.daily'     },
+    { value: 0,  key: 'updates.interval.manual'    },
+  ];
 
   let channel     = _normalizeChannel(getChannel());
   let cacheInfo   = null;         // { files, totalBytes } — populated onMount on native only
@@ -250,6 +262,27 @@
         <Toggle checked={autoCheck} on:change={onAutoCheckToggle} />
       </div>
     </div>
+
+    {#if autoCheck}
+      <div class="divider"></div>
+      <div class="row">
+        <div class="row-label label-stack">
+          <div class="label-main">{$_('updates.interval.label')}</div>
+          <div class="label-desc">{$_('updates.interval.desc')}</div>
+        </div>
+        <div class="row-value">
+          <select
+            class="select sel-sm"
+            value={$updateCheckInterval}
+            on:change={(e) => updateCheckInterval.set(Number(e.target.value))}
+          >
+            {#each CHECK_INTERVAL_OPTIONS as opt}
+              <option value={opt.value}>{$_(opt.key)}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+    {/if}
 
     <!-- Server status — PWA admin only. Inlined into the same card so
          there's a single "Updates" surface instead of two competing cards.

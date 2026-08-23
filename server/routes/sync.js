@@ -20,7 +20,24 @@ router.use(requireAuth);
 
 const uid = req => userMgmtActive() ? req.user?.id : null;
 
+// Load prior tombstone uuids for a user+date+kind (item or water). Used by
+// the diary merge in both /push (below) and /pull (to inline tombstones on
+// the response). Duplicated intentionally from routes/diary.js — moving to
+// a shared helper is a follow-up cleanup, not worth the churn today.
+function _loadTombstoneUuids(u, date, kind) {
+  const where = u == null ? 'user_id IS NULL' : 'user_id = ?';
+  const stmt = db.prepare(`SELECT uuid FROM diary_tombstones WHERE ${where} AND date = ? AND kind = ?`);
+  const rows = u == null ? stmt.all(date, kind) : stmt.all(u, date, kind);
+  return rows.map(r => r.uuid);
+}
+function _loadTombstonesSince(u, sinceSql) {
+  const where = u == null ? 'user_id IS NULL' : 'user_id = ?';
+  const stmt = db.prepare(`SELECT date, kind, uuid, deleted_at FROM diary_tombstones WHERE ${where} AND deleted_at >= ? ORDER BY deleted_at`);
+  return u == null ? stmt.all(sinceSql) : stmt.all(u, sinceSql);
+}
+
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
+import { mergeEntries, ensureUuids } from '../lib/diary-merge.js';
 
 // Issues #69 + #70: normalize alt_units before storing. Accepts null /
 // already-serialized string / array of {abbr, grams}. Filters malformed
@@ -93,6 +110,12 @@ router.get('/pull', wrap((req, res) => {
     `SELECT * FROM diary WHERE updated_at >= ? ${userFilter} ORDER BY updated_at`
   ).all(...params).map(parseDiary);
 
+  // Per-item deletion tombstones since the same `since` boundary. Clients
+  // apply these to their local mirror so an item deleted on device A stops
+  // showing on device B on the next pull. See lib/diary-merge.js for the
+  // shape (kind='item'|'water', uuid, date, deleted_at).
+  const diary_tombstones = _loadTombstonesSince(u, sinceSql);
+
   const settings = u != null
     ? db.prepare('SELECT * FROM user_settings WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at').all(sinceSql, u)
         .filter(s => !isServerOnlyKey(s.key)) // SECURITY: never push admin keys to clients
@@ -128,9 +151,9 @@ router.get('/pull', wrap((req, res) => {
     `SELECT * FROM fasts WHERE updated_at >= ? ${u != null ? 'AND user_id = ?' : 'AND user_id IS NULL'} ORDER BY updated_at`
   ).all(...activityParams);
 
-  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length}`);
+  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length} diary_tombstones=${diary_tombstones.length}`);
 
-  res.json({ foods, meals, diary, activity, fasts, settings, wellness, workouts, chat_history, server_time: serverTime });
+  res.json({ foods, meals, diary, diary_tombstones, activity, fasts, settings, wellness, workouts, chat_history, server_time: serverTime });
 }));
 
 // ── POST /push ───────────────────────────────────────────────────────────────
@@ -223,43 +246,58 @@ router.post('/push', wrap((req, res) => {
       }
     }
 
-    // ── Diary (keyed by date, not ID) — only update if client is newer ──
+    // ── Diary (keyed by date, not ID) ────────────────────────────────────
+    //
+    // Merge semantics (Option C, 2026-08-11): items and water use per-uuid
+    // merge via lib/diary-merge. Prior implementation replaced items/water
+    // wholesale, letting a stale mobile client wipe the day on push. See
+    // project_nutritrace_diary_persist_gap for the 2026-07-23 and 2026-08-11
+    // incidents. body_stats keeps its ad-hoc empty-guard (issue #81);
+    // day-level soft delete still uses whole-row deleted_at.
     for (const d of diary) {
       if (!d.date) continue;
-      // Check if server has a newer version
-      const existingDiary = db.prepare(`SELECT updated_at FROM diary WHERE date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
-        .get(d.date, ...(u != null ? [u] : []));
-      if (existingDiary && norm(d.updated_at) < norm(existingDiary.updated_at)) {
-        // Server is newer — skip this push (server wins)
-        const row = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
-          .get(d.date, ...(u != null ? [u] : []));
-        result.diary.push({ client_id: d.client_id, server_id: row?.id, date: d.date });
-        continue;
-      }
       if (d.deleted_at) {
         db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
           .run(d.date, ...(u != null ? [u] : []));
       } else {
         const dNotes = (typeof d.notes === 'string' && d.notes.trim()) ? d.notes : null;
-        const itemsJson = JSON.stringify(d.items || []);
-        const waterJson = JSON.stringify(d.water || []);
-        // Issue #81 body_stats preservation: same logic as PUT /:date.
-        // If client pushes empty body_stats and server already has values,
-        // keep what's on the server. Prevents stale-cache writes from one
-        // device wiping data another device has already persisted. Sync
-        // push runs the same diff-and-replace pattern as the diary route
-        // PUT, so it's vulnerable to the same race in the same way.
-        const existingRowForBs = u == null
-          ? db.prepare(`SELECT body_stats FROM diary WHERE date = ? AND user_id IS NULL`).get(d.date)
-          : db.prepare(`SELECT body_stats FROM diary WHERE date = ? AND user_id = ?`).get(d.date, u);
+        const existingRow = u == null
+          ? db.prepare(`SELECT * FROM diary WHERE date = ? AND user_id IS NULL`).get(d.date)
+          : db.prepare(`SELECT * FROM diary WHERE date = ? AND user_id = ?`).get(d.date, u);
+
+        // Parse client-sent deletions in either shape (per-kind object or
+        // legacy flat array = items).
+        const deletedRaw = d.deleted_uuids;
+        const deletedItemUuids = Array.isArray(deletedRaw?.items) ? deletedRaw.items
+          : Array.isArray(deletedRaw) ? deletedRaw
+          : [];
+        const deletedWaterUuids = Array.isArray(deletedRaw?.water) ? deletedRaw.water : [];
+
+        // Prior tombstones for this date/user.
+        const priorItemTombstones = _loadTombstoneUuids(u, d.date, 'item');
+        const priorWaterTombstones = _loadTombstoneUuids(u, d.date, 'water');
+
+        // Server state → merge with client state.
+        const serverItems = existingRow ? JSON.parse(existingRow.items || '[]') : [];
+        const serverWater = existingRow ? JSON.parse(existingRow.water || '[]') : [];
+        const { merged: mergedItems, newTombstoneUuids: newItemTombstones } =
+          mergeEntries(serverItems, ensureUuids(d.items || []), deletedItemUuids, priorItemTombstones);
+        const { merged: mergedWater, newTombstoneUuids: newWaterTombstones } =
+          mergeEntries(serverWater, ensureUuids(d.water || []), deletedWaterUuids, priorWaterTombstones);
+
+        // body_stats: last-writer-wins with the issue-#81 empty guard.
         const incomingBsEmpty = !d.body_stats || (typeof d.body_stats === 'object' && Object.keys(d.body_stats).length === 0);
         let existingBsHasKeys = false;
-        if (existingRowForBs && existingRowForBs.body_stats) {
-          try { existingBsHasKeys = Object.keys(JSON.parse(existingRowForBs.body_stats) || {}).length > 0; } catch {}
+        if (existingRow && existingRow.body_stats) {
+          try { existingBsHasKeys = Object.keys(JSON.parse(existingRow.body_stats) || {}).length > 0; } catch {}
         }
         const bsJson = (incomingBsEmpty && existingBsHasKeys)
-          ? existingRowForBs.body_stats
+          ? existingRow.body_stats
           : JSON.stringify(d.body_stats || {});
+
+        const itemsJson = JSON.stringify(mergedItems);
+        const waterJson = JSON.stringify(mergedWater);
+
         if (u == null) {
           // Single-user mode: NULL user_id never collides under SQLite UNIQUE
           // (see diary.js PUT for the same workaround, issue #37).
@@ -281,6 +319,14 @@ router.post('/push', wrap((req, res) => {
                updated_at = datetime('now'), deleted_at = NULL`
           ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes);
         }
+
+        // Persist new tombstones idempotently.
+        const insertTombstone = db.prepare(
+          `INSERT OR IGNORE INTO diary_tombstones (user_id, date, kind, uuid, deleted_at)
+           VALUES (?, ?, ?, ?, datetime('now'))`
+        );
+        for (const uuid of newItemTombstones) insertTombstone.run(u, d.date, 'item', uuid);
+        for (const uuid of newWaterTombstones) insertTombstone.run(u, d.date, 'water', uuid);
       }
       const row = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
         .get(d.date, ...(u != null ? [u] : []));

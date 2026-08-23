@@ -37,19 +37,27 @@
    *   close        — user dismissed the sheet without action.
    */
   import { createEventDispatcher, tick } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Sheet from './Sheet.svelte';
   import ActionSheet from './ActionSheet.svelte';
   import NutritionFactsBox from './NutritionFactsBox.svelte';
   import { resolveAssetUrl } from '../../lib/platform.js';
   import { Nutrition, energyUnitSuffix } from '../../lib/nutrition.js';
-  import { energyUnit, mealNames } from '../../stores/settings.js';
+  import { energyUnit, mealNames, disableAnimations } from '../../stores/settings.js';
   import { NtApi } from '../../lib/api.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { showSuccess, showError } from '../../stores/toast.js';
 
   export let open = false;
   export let food = null;
+  // Embedded mode: render the detail content inline (no Sheet
+  // wrapper), used by the Foods desktop right pane. Skips the
+  // slide-up modal chrome and lets the parent decide layout.
+  export let embedded = false;
+  // Callback fired by the embedded × button to clear the pane.
+  // Only rendered in embedded mode; ignored otherwise.
+  export let onDismiss = null;
 
   const dispatch = createEventDispatcher();
 
@@ -57,7 +65,8 @@
   // Without this, the sheet's content flickers blank during the slide-down
   // animation. Refresh whenever the parent opens with a new food.
   let _displayFood = null;
-  $: if (open && food) { _displayFood = food; }
+  $: if ((open || embedded) && food) { _displayFood = food; }
+  $: if (embedded && !food) { _displayFood = null; }
 
   // Meal picker ActionSheet — opened when Add to Diary is tapped. The user
   // explicitly picks the destination meal as part of the log action, which
@@ -165,9 +174,27 @@
   }
 </script>
 
-<Sheet bind:open title={_displayFood?.name || ''} height="auto" on:close={onClose}>
-  {#if _displayFood}
-    <div class="grid">
+{#if embedded}
+  <div class="detail-embedded" aria-live="polite" aria-atomic="true">
+    {#if _displayFood}
+      {#key _displayFood?.id || _displayFood?.name}
+      <div class="detail-embedded-inner"
+        in:fade={{ duration: $disableAnimations ? 0 : 100 }}>
+      <!-- Inline header replaces the Sheet title when embedded.
+           × dismiss button (only when onDismiss is wired) lets the
+           user clear the pane back to the empty state. -->
+      <header class="detail-embedded-header">
+        <h3 class="detail-embedded-title">{_displayFood.name}</h3>
+        {#if onDismiss}
+          <button type="button" class="detail-embedded-close"
+            on:click={onDismiss}
+            aria-label="Clear detail preview"
+            title="Clear preview">
+            <span class="material-symbols-rounded">close</span>
+          </button>
+        {/if}
+      </header>
+      <div class="grid">
       <!-- LEFT — identity column (photo + brand + barcode pill). Matches
            CookTrace's PantryItemSheet identity card 1:1, minus the
            in-stock toggle and category pill since NT doesn't track those. -->
@@ -231,8 +258,79 @@
         {$_('foods.detail.edit')}
       </button>
     </div>
+      </div><!-- /.detail-embedded-inner -->
+      {/key}
+    {:else}
+      <!-- Embedded empty state — parent pane keeps its background,
+           we just prompt the user to select something. -->
+      <div class="detail-embedded-empty">
+        <span class="material-symbols-rounded">restaurant_menu</span>
+        <p>Pick a food from the list to preview.</p>
+      </div>
+    {/if}
+  </div>
+{:else}
+<Sheet bind:open title={_displayFood?.name || ''} height="auto" on:close={onClose}>
+  {#if _displayFood}
+    <div class="grid">
+      <!-- LEFT — identity column (same as embedded above). -->
+      <div class="col-identity">
+        {#if _ofImg}
+          <img class="hero-photo" src={resolveAssetUrl(_ofImg)} alt="" />
+        {:else}
+          <div class="hero-stub">
+            <span class="material-symbols-rounded">restaurant</span>
+          </div>
+        {/if}
+        <div class="identity-info">
+          {#if _displayFood.brand}
+            <div class="brand">{_displayFood.brand}</div>
+          {/if}
+          <div class="meta-pills">
+            {#if energyChip}
+              <span class="pill">{energyChip}</span>
+            {/if}
+            {#if _displayFood.barcode}
+              <span class="pill subtle" title={$_('foods.detail.barcode')}>
+                <span class="material-symbols-rounded">barcode_scanner</span>
+                {_displayFood.barcode}
+              </span>
+            {/if}
+          </div>
+        </div>
+      </div>
+      <div class="col-data">
+        <div class="nutrition-wrap">
+          <NutritionFactsBox
+            nutrition={_displayFood.nutrition || {}}
+            servingDescription={servingDescription} />
+        </div>
+        <button class="btn btn-primary add-btn"
+                on:click={onAddToDiaryTap}
+                aria-label={$_('foods.detail.add_to_diary_aria')}>
+          <span class="material-symbols-rounded">add</span>
+          {$_('foods.detail.add_to_diary')}
+        </button>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary danger-btn"
+              on:click={onDeleteTap}
+              aria-label={$_('foods.detail.delete_aria')}
+              disabled={!_displayFood?.id || _transitioning}>
+        <span class="material-symbols-rounded">delete</span>
+        {$_('common.delete')}
+      </button>
+      <button class="btn btn-secondary"
+              on:click={onEditTap}
+              aria-label={$_('foods.detail.edit_aria')}>
+        <span class="material-symbols-rounded">edit</span>
+        {$_('foods.detail.edit')}
+      </button>
+    </div>
   {/if}
 </Sheet>
+{/if}
 
 <!-- Meal picker: shown after Add to Diary tap. ActionSheet layers above
      the detail sheet so the user can still see the food while choosing
@@ -352,5 +450,82 @@
       gap: 16px;
       align-items: start;
     }
+  }
+
+  /* Embedded mode — no sheet chrome, just the content inline for
+     the Foods desktop right-pane. Own header replaces the Sheet
+     title; empty state prompts when no food is selected. */
+  .detail-embedded {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  /* Force single-column stack in the pane no matter the viewport
+     width. The sheet's .grid rule flips to two columns at ≥768px
+     viewport, but the pane is only ~380-420px wide — media queries
+     look at viewport, not container, so without this override the
+     content gets squeezed into two ~180px columns and spills off
+     the right edge. */
+  .detail-embedded :global(.grid) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Pane hero photo — cap so it doesn't dominate the pane on tall
+     images. */
+  .detail-embedded :global(.hero-photo),
+  .detail-embedded :global(.hero-stub) {
+    max-height: 220px;
+    aspect-ratio: auto;
+  }
+  .detail-embedded-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 0 4px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-embedded-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-1);
+    letter-spacing: -0.01em;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .detail-embedded-close {
+    background: transparent;
+    border: none;
+    color: var(--text-3);
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-full);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .detail-embedded-close:hover { background: var(--surface-2); color: var(--text-1); }
+  .detail-embedded-close :global(.material-symbols-rounded) { font-size: 18px; }
+  .detail-embedded-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 40px 20px;
+    color: var(--text-3);
+    text-align: center;
+  }
+  .detail-embedded-empty :global(.material-symbols-rounded) {
+    font-size: 40px;
+    opacity: 0.6;
+  }
+  .detail-embedded-empty p {
+    margin: 0;
+    font-size: 13px;
   }
 </style>

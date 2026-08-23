@@ -47,6 +47,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - **USDA + Mealie.** Free API key USDA lookups + Mealie recipe import. [Full guide](https://traceapps.github.io/docs/nutritrace/usda-mealie/).
 - **Trace AI.** Reads your diary, meals, wellness, fasting streaks, and Adaptive TDEE state; can log a food, propose one from a photo (you confirm), or add an activity entry, all conversationally. 16 tools total. Smart Log voice/text, propose_food photo flow. [Full guide](https://traceapps.github.io/docs/nutritrace/trace/).
 - **Federation API.** `/api/v1/*` scoped Bearer tokens for CT + LT + external clients. [Full guide](https://traceapps.github.io/docs/nutritrace/federation-api/).
+- **Model Context Protocol (MCP).** Expose your diary, goals, and foods to external AI agents (Claude Desktop, Cursor, Codex) via the standard MCP Streamable HTTP transport. Off by default; opt in with `MCP_ENABLED=1`. Read-only in Phase 1. [Full guide](https://traceapps.github.io/docs/nutritrace/mcp/).
 - **Migrations.** MyFitnessPal (with nomad64 scraper), Lose It, Cronometer, Waistline. [Full guide](https://traceapps.github.io/docs/nutritrace/migrate-mfp/).
 - **Multi-user + OIDC SSO.** Authentik/Keycloak/Pocket ID/Authelia/Google/Auth0. [Full guide](https://traceapps.github.io/docs/auth/oidc/).
 - **Native Android app.** Offline mode or server-sync, WorkManager native reminders. [Full guide](https://traceapps.github.io/docs/mobile/install/).
@@ -108,7 +109,10 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `UPLOADS_PATH` | Yes | `/data/uploads` | Upload directory inside the container. |
 | `PORT` | No | `3001` | Container-side port the server listens on. |
 | `BASE_URL` | No |  | Subpath prefix when mounted behind a reverse proxy (e.g. `/nt`). |
-| `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug`. |
+| `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug` \| `trace`. |
+| `TRACE_REQUEST_BODIES` | No | unset | Set to `1` with trace logging to include redacted request bodies. |
+| `TRACE_REQUEST_PATHS` | No | `/api/diary,/api/sync/push` | Comma-separated body-trace path prefixes; `*` traces all and `none` traces no request bodies. |
+| `TRACE_BODY_MAX_BYTES` | No | `32768` | Maximum serialized bytes emitted for one traced request body. |
 | `INSECURE_COOKIES` | If on plain HTTP | unset | `1` drops the `Secure` cookie flag; needed only on plain-HTTP LAN. See [docs/getting-started/lan-http/](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `MAX_SESSION_HOURS` | No | `720` | Auth cookie lifetime. |
 | `RECOVERY_TOKEN` | No |  | Passphrase to disable user management from the login page (lockout recovery). |
@@ -121,6 +125,14 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `SMTP_HOST` | No |  | SMTP server for password reset & invites; also `SMTP_PORT` (587), `SMTP_SECURE` (false), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. |
 
 Full list (Docker secrets `*_FILE` variants, air-gap `OFF_LOCAL_ONLY`, per-provider AI knobs, all `OIDC_*` options) at [docs/self-hosting/env-vars/](https://traceapps.github.io/docs/self-hosting/env-vars/). SMTP and AI can also be set in the Settings UI; env vars take priority and lock those fields.
+
+### Request logging
+
+API request logs include a client/server correlation ID, method, path, response status, duration, outcome, and observed wire-body bytes. Uploaded images and frontend assets are not request-logged. `Content-Length` is reported separately as an untrusted `declared_bytes` value and is never substituted for bytes actually observed. Oversized JSON requests return HTTP 413 with `request_id`, observed `size_bytes` (or `null`), `declared_bytes`, and `limit_bytes` fields.
+
+`LOG_LEVEL=trace` enables fine-grained internal trace calls, but request content remains off unless `TRACE_REQUEST_BODIES=1` is also set. Minimal byte counting happens before body-size enforcement; body inspection happens only after parsing and access checks. Selected request bodies, including sync pushes, use bounded traversal with credential and setting-value redaction, URL sanitization, inline `data:` URL summaries, and the `TRACE_BODY_MAX_BYTES` output cap. Query strings are omitted. Bodies can still contain private diary and health data; enable body tracing only temporarily and do not publish the resulting logs without reviewing them.
+
+The app sends `X-Request-ID` to the server and records the same ID in verbose client diagnostics. The server returns the ID on responses, so a failing app request can be matched directly to its server log. Invalid logging configuration fails at startup instead of silently falling back.
 
 ## Data persistence
 

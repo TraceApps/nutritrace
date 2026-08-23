@@ -28,6 +28,7 @@ import oidcRoutes       from './routes/oidc.js';
 import oidcAdminRoutes  from './routes/oidc-admin.js';
 import apiTokensRoutes  from './routes/api-tokens.js';
 import apiV1Routes      from './routes/api/v1/index.js';
+import mcpRoutes        from './routes/mcp.js';
 import nutritionImportRoutes from './routes/nutrition-import.js';
 import offLocalRoutes from './routes/off-local.js';
 import updatesRoutes  from './routes/updates.js';
@@ -35,9 +36,17 @@ import { logger }   from './logger.js';
 import { authenticate, userMgmtActive } from './middleware/auth.js';
 import { csrfProtect } from './middleware/csrf.js';
 import { makeRateLimiter } from './middleware/rate-limit.js';
+import {
+  captureRequestTraceBody,
+  recordParserBodyError,
+  requestBodySizeDetails,
+  requestLogging,
+  validateRequestLoggingConfig,
+} from './middleware/request-logging.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv } from './ai.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
+import { APP_VERSION } from './routes/version-source.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -50,6 +59,8 @@ seedOidcFromEnv();
 const app  = express();
 const PORT = process.env.PORT || 3001;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+validateRequestLoggingConfig();
 
 // ── Reverse-proxy / subpath support ───────────────────────────────────────
 // BASE_URL lets users mount NutriTrace at a path other than root, e.g. for
@@ -65,6 +76,10 @@ if (BASE_URL && !BASE_URL.startsWith('/')) {
 // Using a sub-router keeps `req.path` in middleware (e.g. csrf.js skip lists)
 // relative to the mount point so existing path checks keep working.
 const router = express.Router();
+
+// Start API request diagnostics before consuming the body so rejected or
+// interrupted requests still have an ID, observed byte count, and outcome.
+router.use(requestLogging);
 
 // Per-route JSON limits for endpoints that legitimately handle large payloads
 // (full data export/import, full-history sync push). Registered BEFORE the
@@ -106,7 +121,8 @@ router.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token, X-Request-ID');
+      res.setHeader('Access-Control-Expose-Headers', 'X-Request-ID');
       if (req.method === 'OPTIONS') return res.sendStatus(204);
     }
   }
@@ -126,17 +142,8 @@ router.use('/api/proxy', proxyRoutes);
 
 router.use(authenticate);   // attach req.user on every request
 router.use(csrfProtect);   // CSRF protection for cookie-based sessions
-
-// ── Request logging ────────────────────────────────────────────────────────
-router.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const ms   = Date.now() - start;
-    const lvl  = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
-    logger[lvl](`${req.method} ${req.path} → ${res.statusCode} (${ms}ms)`);
-  });
-  next();
-});
+// Optional body summaries are captured only from parsed, access-checked requests.
+router.use(captureRequestTraceBody);
 
 // Prevent browser/proxy caching of all API responses
 router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
@@ -175,6 +182,11 @@ router.use('/api/admin/api-tokens', apiTokensRoutes);
 // /api/v1 so the version is part of the contract URL. See
 // docs/federation.md for the wire format.
 router.use('/api/v1', apiV1Routes);
+// Model Context Protocol endpoint — Bearer-token auth, scope 'mcp:read'.
+// Feature-flagged: the route itself is always mounted but returns 404
+// unless MCP_ENABLED=1 in the server env. See server/routes/mcp.js and
+// server/lib/mcp/ for the tool implementations. Issue #103.
+router.use('/api/mcp', mcpRoutes);
 // proxy already registered before auth (line 64)
 router.use('/api/data',   dataRoutes);
 router.use('/api/foods',  foodsRoutes);
@@ -333,6 +345,22 @@ app.use(BASE_URL || '/', router);
 // ── Global error handler ───────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 router.use((err, req, res, next) => {
+  if (err.type === 'entity.too.large') {
+    recordParserBodyError(req, err);
+    const sizes = requestBodySizeDetails(req);
+    const actual = sizes.parserBytesReceived
+      ?? (sizes.wireBytesReceived > 0 ? sizes.wireBytesReceived : null);
+    if (!res.headersSent) {
+      return res.status(413).json({
+        error: 'Request body too large',
+        request_id: req.requestId || null,
+        size_bytes: actual,
+        declared_bytes: sizes.declaredBytes,
+        limit_bytes: sizes.limitBytes,
+      });
+    }
+    return;
+  }
   logger.error(`${req.method} ${req.path} — ${err.stack || err.message}`);
   if (!res.headersSent) {
     res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
@@ -349,7 +377,7 @@ process.on('uncaughtException', (err) => {
 });
 
 app.listen(PORT, () => {
-  logger.info(`NutriTrace running on port ${PORT}`);
+  logger.info(`NutriTrace ${APP_VERSION} running on port ${PORT}`);
 
   // Start the notification + sync scheduler
   import('./lib/scheduler.js').then(({ startScheduler }) => startScheduler()).catch(e => {

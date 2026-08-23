@@ -10,7 +10,7 @@
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import { DB, localDateStr } from './lib/db.js';
   import { currentDate, loadEntry } from './stores/diary.js';
-  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation } from './stores/settings.js';
+  import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation, forceMobileLayout } from './stores/settings.js';
   import { locale, _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive, setupRequired, loadAuthState, handleOidcCallback } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl } from './lib/platform.js';
@@ -92,8 +92,27 @@
     // banner both sit outside <main>. Dialogs, sheets, sidebars and bottom
     // navigation retain their own touch handling.
     if (event.target.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav')) return;
-    const pageScroller = document.querySelector('.page-transition');
-    if (event.touches.length !== 1 || (pageScroller?.scrollTop || 0) > 0) return;
+    if (event.touches.length !== 1) return;
+    // Walk up from the touch target to the nearest scrolling ancestor.
+    // Editor pages have their own overflow container that sits on top of
+    // .page-transition (position: fixed + overflow-y: auto) so its
+    // scrollTop climbs while .page-transition stays at 0 — this walk-up
+    // catches whichever container is actually scrolling.
+    let el = event.target;
+    let foundScroller = false;
+    while (el && el !== document.body) {
+      const s = getComputedStyle(el);
+      if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+        if (el.scrollTop > 0) return;
+        foundScroller = true;
+        break;
+      }
+      el = el.parentElement;
+    }
+    if (!foundScroller) {
+      const rootScroll = window.scrollY || document.scrollingElement?.scrollTop || 0;
+      if (rootScroll > 0) return;
+    }
     _pullStartX = event.touches[0].clientX;
     _pullStartY = event.touches[0].clientY;
     _pullDistance = 0;
@@ -274,6 +293,13 @@
   $: if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('no-animations', !!$disableAnimations);
   }
+  // Force-mobile layout: gates every desktop @media rule via the
+  // :where(html:not(.force-mobile-layout)) prefix in Diary + Settings
+  // stylesheets. When on, wide viewports still get the mobile pattern
+  // (single-column diary, drill-in settings, no rail, no week strip).
+  $: if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('force-mobile-layout', !!$forceMobileLayout);
+  }
   // Apply/remove banner-gradient class on the document so portaled top-bar
   // action buttons (which live outside the .page-header in the DOM, e.g.
   // .diary-topbar-actions and .wl-topbar-actions) can pick up the frosted-
@@ -317,9 +343,55 @@
       // isn't mounted — e.g. app was cold-started via the tap.
       import('./lib/notifications.js').then(({ registerUpdateTapListener }) => {
         registerUpdateTapListener(() => {
-          import('svelte-spa-router').then(({ push }) => push('/settings'));
+          import('svelte-spa-router').then(({ push }) => push('/settings/updates'));
         });
       }).catch(() => { /* ignore */ });
+    } else {
+      // PWA: register the service worker via virtual:pwa-register so we
+      // get onNeedRefresh callbacks. Without this, registerType:'prompt'
+      // downloads new bundles but never tells the app they're ready.
+      import('./lib/pwa-update.js').then(({ registerPwaSw }) => registerPwaSw()).catch(() => {});
+    }
+
+    // Visibility-change trigger for BOTH update channels. A user who
+    // leaves the tab open for hours / a laptop that resumes from sleep
+    // gets a re-check the moment the tab regains focus — respecting the
+    // per-user cadence setting (Settings → Updates). The GitHub-tag
+    // check returns cached inside the cadence window; the PWA SW-file
+    // check just forces the browser to compare sw.js against what it
+    // registered (otherwise the browser only bothers every 24h).
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') return;
+        import('./lib/updates.js').then(({ checkForUpdate, getAutoCheck }) => {
+          if (!getAutoCheck()) return;
+          checkForUpdate({ force: false }).catch(() => {});
+        }).catch(() => {});
+        if (!isNative) {
+          import('./lib/pwa-update.js').then(({ checkForPwaUpdate }) => checkForPwaUpdate()).catch(() => {});
+        }
+      });
+    }
+
+    // Periodic PWA-bundle poll on the same cadence as the GitHub-tag
+    // check, so a tab that stays open all day still surfaces a fresh
+    // deploy without a full reload. Cadence honors the same
+    // updateCheckInterval setting; 0 (manual) disables the poll.
+    if (!isNative && typeof window !== 'undefined') {
+      Promise.all([
+        import('./lib/pwa-update.js'),
+        import('./stores/settings.js'),
+      ]).then(([{ checkForPwaUpdate }, { updateCheckInterval }]) => {
+        let _pwaPollTimer = null;
+        const _resetPoll = (hours) => {
+          if (_pwaPollTimer) clearInterval(_pwaPollTimer);
+          _pwaPollTimer = null;
+          const h = Number(hours) || 0;
+          if (!h) return; // manual only
+          _pwaPollTimer = setInterval(checkForPwaUpdate, h * 60 * 60 * 1000);
+        };
+        updateCheckInterval.subscribe(_resetPoll);
+      }).catch(() => {});
     }
 
     // Android back button: navigate back or confirm exit
@@ -738,7 +810,16 @@
 {#if !needsLogin}<UpdateBanner />{/if}
 
 <!-- Page content -->
-{#key $location}
+<!-- Key on the top-level path segment (/settings, /foods, /goals, …)
+     instead of the full $location. Otherwise inner nav within a
+     shell that keeps the same component mounted (e.g. Settings
+     jumping between /settings/appearance → /settings/diary via
+     the desktop rail) still triggers a full <main> remount +
+     fade-in, which reads as a page load and blows away all local
+     state in the shell (rail scroll position, expand states,
+     matchMedia trackers, etc.). Segment-keyed means only true
+     shell changes animate. -->
+{#key ($location || '').split('/')[1] || ''}
   <main
     class="page-transition"
     class:has-topbar={showNav}

@@ -8,6 +8,7 @@
  */
 
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
+import { hydrateWithoutFoods } from './diary-hydration.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -82,9 +83,25 @@ const SCHEMA = `
     notes       TEXT DEFAULT NULL,
     updated_at  TEXT DEFAULT (datetime('now')),
     deleted_at  TEXT DEFAULT NULL,
-    sync_status TEXT DEFAULT 'synced',
-    UNIQUE(date, user_id)
+    sync_status TEXT DEFAULT 'synced'
+    , UNIQUE(date, user_id)
   );
+
+  -- Local mirror of the server's diary_tombstones. Populated from
+  -- pull responses so items deleted on another device get dropped
+  -- from the local diary view; also serves as a "do not resurrect"
+  -- marker if a stale local write tries to re-add the same uuid.
+  CREATE TABLE IF NOT EXISTS diary_tombstones (
+    user_id     INTEGER DEFAULT 1,
+    date        TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    uuid        TEXT NOT NULL,
+    deleted_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    sync_status TEXT DEFAULT 'synced',
+    PRIMARY KEY (user_id, date, kind, uuid)
+  );
+  CREATE INDEX IF NOT EXISTS idx_diary_tombstones_user_date
+    ON diary_tombstones(user_id, date);
 
   CREATE TABLE IF NOT EXISTS wellness_data (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -393,6 +410,7 @@ const _DIARY_KEEP = new Set([
   'id', 'food_server_id', 'is_recipe',
   'name', 'brand', 'portion', 'unit', 'quantity',
   'nutrition', 'notes', 'imgUrl',
+  'source', 'source_meal_id',
 ]);
 function _shrinkDiaryItem(it) {
   if (!it || typeof it !== 'object') return it;
@@ -782,7 +800,7 @@ async function _hydrateItems(items) {
         if (typeof id === 'number') foodIds.add(id);
       }
     }
-    if (!foodIds.size) return items.map(_hydrateSplitChildren);
+    if (!foodIds.size) return hydrateWithoutFoods(items, _hydrateSplitChildren);
     const db = await getDb();
     const placeholders = Array.from(foodIds).map(() => '?').join(',');
     const r = await db.query(
@@ -821,19 +839,87 @@ async function _hydrateSplitChildren(item) {
 // Routing: items with is_recipe truthy resolve against meals only,
 // everything else resolves against foods only. Within each pool, lookup
 // order is id+name → name+brand (foods only) → name only → ''.
+//
+// Performance (2026-08-12): the fetch is scoped to only the foods and
+// meals that MATCH the day's items — by id, by (name+brand) for foods,
+// or by name alone. Prior implementation full-scanned the images-having
+// foods + meals tables on every diary read, which through the Capacitor
+// SQLite bridge added multi-hundred-ms latency to every day-swipe. The
+// three-tier lookup semantic is preserved because we fetch every row
+// that ANY tier could match against.
 const _norm = s => String(s || '').trim().toLowerCase();
 async function _freshenItemImages(items) {
   if (!Array.isArray(items) || !items.length) return items;
   try {
+    // Split items by pool + collect the id/name/brand key sets we
+    // actually need to look up. Names/brands are matched case-insensitive
+    // downstream, but SQLite LIKE / lower() would defeat any index, so we
+    // send both cases the caller might store and normalise in JS.
+    const foodIds = new Set();
+    const foodNames = new Set();
+    const mealIds = new Set();
+    const mealNames = new Set();
+    for (const it of items) {
+      if (!it) continue;
+      // Include BOTH id shapes: `it.id` (local autoincrement) AND
+      // `it.food_server_id` (server-assigned). Post-Android-reinstall or
+      // freshly-synced items may have one that matches the local
+      // foods.id and one that doesn't; querying both means the merge
+      // never misses a hit that the prior full-scan would have found.
+      // Set dedupes when they happen to be equal.
+      const nameKey = String(it.name || '').trim();
+      if (it.is_recipe) {
+        if (typeof it.id === 'number') mealIds.add(it.id);
+        if (typeof it.food_server_id === 'number') mealIds.add(it.food_server_id);
+        if (nameKey) mealNames.add(nameKey);
+      } else {
+        if (typeof it.id === 'number') foodIds.add(it.id);
+        if (typeof it.food_server_id === 'number') foodIds.add(it.food_server_id);
+        if (nameKey) foodNames.add(nameKey);
+      }
+    }
+
+    // Fast path: nothing to look up. Return items with empty imgUrl so
+    // the downstream image-cache falls back to placeholder rendering.
+    if (!foodIds.size && !foodNames.size && !mealIds.size && !mealNames.size) {
+      return items.map(it => ({ ...it, imgUrl: '' }));
+    }
+
     const db = await getDb();
-    const fr = await db.query(
-      `SELECT id, name, brand, img_url FROM foods WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' ORDER BY id ASC`
-    );
-    const mr = await db.query(
-      `SELECT id, name, img_url FROM meals WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' ORDER BY id ASC`
-    );
-    const foods = _rows(fr);
-    const meals = _rows(mr);
+
+    async function _lookupPool(table, ids, names, extraCols) {
+      if (!ids.size && !names.size) return [];
+      const conds = [];
+      const params = [];
+      if (ids.size) {
+        conds.push(`id IN (${Array.from(ids).map(() => '?').join(',')})`);
+        params.push(...ids);
+      }
+      if (names.size) {
+        // Case-insensitive name match: SQLite's default LIKE/=  is
+        // case-sensitive for non-ASCII text and case-insensitive for
+        // ASCII only. Use COLLATE NOCASE = to get the same normalisation
+        // the JS-side _norm() applies (lowercased trim).
+        conds.push(`name COLLATE NOCASE IN (${Array.from(names).map(() => '?').join(',')})`);
+        params.push(...names);
+      }
+      const cols = ['id', 'name', ...extraCols, 'img_url'].join(', ');
+      const r = await db.query(
+        `SELECT ${cols} FROM ${table}
+         WHERE deleted_at IS NULL
+           AND img_url IS NOT NULL
+           AND img_url != ''
+           AND (${conds.join(' OR ')})
+         ORDER BY id ASC`,
+        params
+      );
+      return _rows(r);
+    }
+
+    const [foods, meals] = await Promise.all([
+      _lookupPool('foods', foodIds, foodNames, ['brand']),
+      _lookupPool('meals', mealIds, mealNames, []),
+    ]);
     const foodByIdName = new Map();
     const foodByNameBrand = new Map();
     const foodByName = new Map();
@@ -900,7 +986,109 @@ export async function dbSaveDiaryDate(date, data) {
        notes=excluded.notes, updated_at=excluded.updated_at, sync_status='pending'`,
     [LOCAL_USER_ID, date, items, body_stats, water, notes, _now()]
   );
+  // Option C: persist per-uuid deletions locally as pending tombstones so
+  // an offline delete survives an app restart and gets pushed on the next
+  // sync. Without this, sync-push serialises the diary row (items minus
+  // the deleted one) but not the deletion intent — server-side merge
+  // would then PRESERVE the deleted item and it would reappear on pull.
+  const pd = data.deleted_uuids;
+  if (pd) {
+    const insert = `INSERT OR IGNORE INTO diary_tombstones
+      (user_id, date, kind, uuid, deleted_at, sync_status)
+      VALUES (?, ?, ?, ?, ?, 'pending')`;
+    const nowTs = _now();
+    for (const uuid of (Array.isArray(pd.items) ? pd.items : [])) {
+      if (typeof uuid === 'string' && uuid) {
+        await db.run(insert, [LOCAL_USER_ID, date, 'item', uuid, nowTs]);
+      }
+    }
+    for (const uuid of (Array.isArray(pd.water) ? pd.water : [])) {
+      if (typeof uuid === 'string' && uuid) {
+        await db.run(insert, [LOCAL_USER_ID, date, 'water', uuid, nowTs]);
+      }
+    }
+  }
   return dbGetDiaryDate(date);
+}
+
+/**
+ * Return pending tombstones (sync_status='pending') grouped by date and
+ * kind, in the shape sync-push expects: { [date]: { items: [uuid...],
+ * water: [uuid...] } }. Used by sync.js when it assembles the diary
+ * push payload so client-side deletions actually reach the server-side
+ * merge as explicit deleted_uuids (otherwise the merge would preserve
+ * the "missing" entries and the delete would silently fail to sync).
+ */
+export async function dbGetPendingDiaryTombstones() {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT date, kind, uuid FROM diary_tombstones
+     WHERE user_id = ? AND sync_status = 'pending' ORDER BY date`,
+    [LOCAL_USER_ID]
+  );
+  const out = {};
+  for (const row of _rows(r)) {
+    (out[row.date] = out[row.date] || { items: [], water: [] });
+    if (row.kind === 'item')  out[row.date].items.push(row.uuid);
+    if (row.kind === 'water') out[row.date].water.push(row.uuid);
+  }
+  return out;
+}
+
+/**
+ * Mark tombstones for a set of (date, kind, uuid) triples as synced.
+ * Called after a successful sync-push so the same tombstones aren't
+ * resent on the next push cycle. Wraps in a single tx for atomicity.
+ */
+export async function dbMarkTombstonesSynced(triples) {
+  if (!Array.isArray(triples) || !triples.length) return;
+  const db = await getDb();
+  const stmt = `UPDATE diary_tombstones SET sync_status = 'synced'
+                WHERE user_id = ? AND date = ? AND kind = ? AND uuid = ?`;
+  for (const t of triples) {
+    await db.run(stmt, [LOCAL_USER_ID, t.date, t.kind, t.uuid]);
+  }
+}
+
+/**
+ * Apply tombstones received from the server on a sync-pull. Each entry
+ * is upserted with sync_status='synced' (nothing to push back). Also
+ * drops any matching item/water entries from the local diary row's
+ * items/water JSON, so a delete performed on another device shows up
+ * immediately in the local UI without waiting for a subsequent write.
+ */
+export async function dbApplyServerTombstones(tombstones) {
+  if (!Array.isArray(tombstones) || !tombstones.length) return;
+  const db = await getDb();
+  const upsert = `INSERT INTO diary_tombstones
+                  (user_id, date, kind, uuid, deleted_at, sync_status)
+                  VALUES (?, ?, ?, ?, ?, 'synced')
+                  ON CONFLICT(user_id, date, kind, uuid) DO UPDATE SET
+                    deleted_at = excluded.deleted_at, sync_status = 'synced'`;
+  const byDate = new Map();
+  for (const t of tombstones) {
+    if (!t || typeof t !== 'object') continue;
+    await db.run(upsert, [LOCAL_USER_ID, t.date, t.kind, t.uuid, t.deleted_at || _now()]);
+    const g = byDate.get(t.date) || { items: new Set(), water: new Set() };
+    if (t.kind === 'item')  g.items.add(t.uuid);
+    if (t.kind === 'water') g.water.add(t.uuid);
+    byDate.set(t.date, g);
+  }
+  // Filter matching entries out of the local diary rows so the UI reflects
+  // the deletion right away.
+  for (const [date, sets] of byDate) {
+    const row = _row(await db.query(
+      `SELECT items, water FROM diary WHERE user_id = ? AND date = ?`,
+      [LOCAL_USER_ID, date]
+    ));
+    if (!row) continue;
+    const items = _parseJson(row.items, []).filter(it => !sets.items.has(it?.uuid));
+    const water = _parseJson(row.water, []).filter(w  => !sets.water.has(w?.uuid));
+    await db.run(
+      `UPDATE diary SET items = ?, water = ? WHERE user_id = ? AND date = ?`,
+      [JSON.stringify(items), JSON.stringify(water), LOCAL_USER_ID, date]
+    );
+  }
 }
 
 export async function dbGetAllDiary() {

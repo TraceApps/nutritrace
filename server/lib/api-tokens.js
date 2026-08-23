@@ -21,17 +21,61 @@ const TOKEN_BYTES = 32;  // 256-bit secret
  *  (`read:meals`, `read:diary`) and any write scopes will be added back
  *  alongside the endpoints they unlock — gating tokens on scopes the server
  *  can't actually serve is just confusing UI. */
+/**
+ * One-line human descriptions per scope, surfaced to the Settings UI so
+ * admins picking scopes at token-creation time don't have to guess what
+ * each grants. Kept next to KNOWN_SCOPES so the two stay in sync — a
+ * scope registered here but missing from KNOWN_SCOPES (or vice versa)
+ * is a bug the wiring test catches on load.
+ */
+export const SCOPE_DESCRIPTIONS = {
+  'read:foods':      "Read the token owner's foods library. Used by CookTrace federation.",
+  'write:workouts':  "Post workouts into the token owner's wellness history. Used by LiftTrace federation.",
+  'write:activity':  "Log manual activity entries into the diary Activity section. Used by external trackers and headless integrations (issue #154).",
+  'mcp:read':        'MCP: read the diary, goals, daily totals, and foods catalog (5 tools).',
+  'mcp:write':       'MCP: log food / water / meals / body stats (4 additive tools). Requires MCP_WRITE_ENABLED=1 on the server.',
+  'mcp:destroy':     'MCP: delete or edit diary entries, create catalog foods (3 tools). Requires MCP_DESTROY_ENABLED=1 AND every call to include confirm=true.',
+};
+
 export const KNOWN_SCOPES = new Set([
   'read:foods',
   // write:workouts unlocks POST /api/v1/workouts — used by LiftTrace to
   // log completed-workout calorie burns into the user's wellness data so
   // the dynamic-TDEE calc has the additional energy expenditure.
   'write:workouts',
+  // write:activity unlocks POST /api/v1/activity — for external
+  // trackers pushing manual activity entries (cardio from a map app,
+  // TCX pipelines from Dropbox, headless Node-RED / HA rules, etc.)
+  // straight into the diary's Activity section. Writes to activity_log
+  // the same way the in-app "Add Activity" sheet does. Distinct from
+  // write:workouts, which targets the workouts table + wellness_data
+  // rollup for the dynamic-TDEE calorie-goal path. See issue #154.
+  'write:activity',
   // write:body-measurements unlocks POST /api/v1/body-measurements —
   // for Home Assistant / Node-RED / Gadgetbridge and other headless
   // integrations pushing smart-scale readings straight to the server
   // (BLE → HA → NT), skipping the phone/Health-Connect roundtrip.
   'write:body-measurements',
+  // mcp:read unlocks the Model Context Protocol read tools (issue #103)
+  // exposed under /api/mcp when MCP_ENABLED=1. Read-only in Phase 1;
+  // future mcp:write scope will be added alongside the write tools.
+  // Tokens created with this scope let a user's own agent (Claude
+  // Desktop / Cursor / Codex / etc.) inspect their diary, goals, and
+  // food catalog through the MCP standard interface.
+  'mcp:read',
+  // mcp:write unlocks Model Context Protocol WRITE tools (Phase 2:
+  // log_food, log_water, log_meal, log_body_stat). Independent of
+  // mcp:read but tokens typically hold both. The write tools rely on
+  // read primitives (food lookup, meal lookup) at execution time.
+  // Requires MCP_WRITE_ENABLED=1 on the server for any effect.
+  'mcp:write',
+  // mcp:destroy unlocks Model Context Protocol DESTRUCTIVE tools
+  // (Phase 3: edit_diary_entry, delete_diary_entry, create_food).
+  // Requires MCP_DESTROY_ENABLED=1 on the server AND each destructive
+  // tool call to include an explicit `confirm: true` argument. Kept
+  // separate from mcp:write so an admin can grant "log stuff" without
+  // granting "delete stuff that's already there".
+  'mcp:destroy',
 ]);
 
 function _hash(raw) {

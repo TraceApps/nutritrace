@@ -24,6 +24,7 @@
   import { showSuccess, showError } from '../../stores/toast.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import DateInput from '../ui/DateInput.svelte';
+  import { decimalInput, parseDecimal } from '../../lib/decimal-input.js';
   import TimePicker from '../ui/TimePicker.svelte';
 
   const BUILTIN_PRESETS = [
@@ -143,7 +144,7 @@
   }
 
   async function _onStart() {
-    const hrs = _showCustom ? Number(_customHours) : _selectedHours;
+    const hrs = _showCustom ? parseDecimal(_customHours) : _selectedHours;
     if (!Number.isFinite(hrs) || hrs <= 0) {
       showError('Enter a goal between 1 and 168 hours.');
       return;
@@ -165,7 +166,7 @@
   }
 
   function _saveCustomPreset() {
-    const hrs = Number(_customHours);
+    const hrs = parseDecimal(_customHours);
     if (!Number.isFinite(hrs) || hrs <= 0 || hrs > 168) {
       showError('Enter a valid goal between 1 and 168 hours.');
       return;
@@ -250,7 +251,7 @@
         </div>
         {#if _showCustom}
           <div class="fast-custom" transition:slide={{ duration: 140 }}>
-            <input class="input" type="number" min="1" max="168" step="0.5" bind:value={_customHours}
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={_customHours}
               placeholder={$_('fasting.hours_ph')} />
             <span class="fast-custom-suffix">hours</span>
             {#if ($fastingCustomPresets || []).length < 3}

@@ -124,7 +124,10 @@ services:
 | `JWT_SECRET` | Yes (prod) | `dev-secret` | Secret for signing JWT auth tokens — **change this**. Server refuses to start in production with the dev default. |
 | `TOKEN_ENC_KEY` | No | derived from `JWT_SECRET` | At-rest encryption key (AES-GCM, HKDF) for OIDC client secrets and wearable OAuth tokens. By default we derive a key from `JWT_SECRET`, which means rotating `JWT_SECRET` invalidates every stored secret too. Set `TOKEN_ENC_KEY` explicitly if you want to rotate session tokens without forcing users to re-authorize their wearables and re-enter OIDC client secrets. Use a long random string (e.g. `openssl rand -base64 48`). |
 | `PORT` | No | `3001` | Internal Express port (map to host in docker-compose) |
-| `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug`. Use `debug` for verbose wellness sync output (Fitbit, Withings, Garmin, Health Connect). |
+| `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug` \| `trace`. Use `debug` for verbose wellness sync output. |
+| `TRACE_REQUEST_BODIES` | No | unset | Set to `1` with `LOG_LEVEL=trace` to log redacted request bodies temporarily. |
+| `TRACE_REQUEST_PATHS` | No | `/api/diary,/api/sync/push` | Comma-separated body-trace path prefixes; `*` traces all and `none` traces no request bodies. |
+| `TRACE_BODY_MAX_BYTES` | No | `32768` | Maximum serialized bytes emitted for one traced request body. |
 | `RECOVERY_TOKEN` | No | — | Lockout-recovery token. Required to use the "Disable user management" recovery option on the login page. Without this, the recovery endpoint is disabled for safety. |
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on JWT + cookie lifetime. The per-user setting in app_config can be lower than this but cannot exceed it. |
 | `INSECURE_COOKIES` | No | `0` | Set `1` only for non-HTTPS deployments. Default uses `secure: true` cookies (HTTPS-only). |
@@ -140,6 +143,10 @@ services:
 | `AI_MODEL` | No | provider default | Optional model override (e.g. `claude-haiku-4-5-20251001`, `llama3.1:8b`). Required when `AI_PROVIDER=oai-compat`. |
 | `AI_BASE_URL` | No | — | Required when `AI_PROVIDER=oai-compat`. Base URL of your OpenAI-compatible endpoint, e.g. `http://ollama:11434`. Reached from the server container, not the browser — Docker Compose sidecars on internal networks work. |
 | `AI_ENABLED` | No | — | If `true`, auto-enables the AI Assistant for all users. |
+| `MCP_ENABLED` | No | `0` | Set to `1` to expose the Model Context Protocol endpoint at `/api/mcp`. Off by default. See [the MCP setup guide](https://traceapps.github.io/docs/nutritrace/mcp/) for Claude Desktop / Cursor / Codex config. |
+| `MCP_WRITE_ENABLED` | No | `0` | Set to `1` to allow MCP write tools (`log_food`, `log_water`, `log_meal`, `log_body_stat`) to be registered. Also requires the calling token to hold `mcp:write`. |
+| `MCP_DESTROY_ENABLED` | No | `0` | Set to `1` to allow MCP destructive tools (`delete_diary_entry`, `edit_diary_entry`, `create_food`). Also requires the token to hold `mcp:destroy` AND every call to include `confirm: true`. |
+| `ALLOWED_ORIGINS` | No | — | Comma-separated list of Origins that browser-based MCP clients may use. Server-to-server clients (no Origin header) always pass. Leave empty unless you're specifically using the MCP Inspector in a browser. `*` is refused (DNS-rebinding defense). |
 
 > **Note:** SMTP and AI settings can also be configured in **Settings → Email** / **Settings → AI Assistant** (admin only). Environment variables take priority over the UI and lock the corresponding fields when set.
 

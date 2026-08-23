@@ -329,7 +329,7 @@ export async function readTodayData() {
         if (latest.diastolic?.inMillimetersOfMercury) metrics.blood_pressure_diastolic = Math.round(latest.diastolic.inMillimetersOfMercury);
       }
     }
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] BloodPressure read failed: ${e?.message}`); }
 
   // Oxygen saturation (SpO2)
   try {
@@ -346,7 +346,7 @@ export async function readTodayData() {
         metrics.spo2_avg = latest.percentage?.value || latest.percentage || latest.value;
       }
     }
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] OxygenSaturation read failed: ${e?.message}`); }
 
   // Body fat percentage
   try {
@@ -380,7 +380,7 @@ export async function readTodayData() {
       const latest = records[records.length - 1];
       metrics.respiratory_rate = +(latest.rate || latest.value || 0).toFixed(1);
     }
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] RespiratoryRate read failed: ${e?.message}`); }
 
   // Floors climbed
   try {
@@ -389,7 +389,7 @@ export async function readTodayData() {
       type: 'FloorsClimbed', groupBy: 'day',
     });
     if (aggregates.length > 0) metrics.floors = Math.round(aggregates[0].value);
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] FloorsClimbed read failed: ${e?.message}`); }
 
   // Hydration
   try {
@@ -398,7 +398,7 @@ export async function readTodayData() {
       type: 'Hydration', groupBy: 'day',
     });
     if (aggregates.length > 0) metrics.water_ml = Math.round(aggregates[0].value * 1000); // liters to ml
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] Hydration read failed: ${e?.message}`); }
 
   // Bone mass
   try {
@@ -407,7 +407,7 @@ export async function readTodayData() {
       const latest = records[records.length - 1];
       metrics.bone_mass_kg = +(latest.mass?.inKilograms || latest.value || 0).toFixed(2);
     }
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] BoneMass read failed: ${e?.message}`); }
 
   // Lean body mass
   try {
@@ -416,7 +416,7 @@ export async function readTodayData() {
       const latest = records[records.length - 1];
       metrics.lean_mass_kg = +(latest.mass?.inKilograms || latest.value || 0).toFixed(1);
     }
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] LeanBodyMass read failed: ${e?.message}`); }
 
   // Body temperature
   try {
@@ -425,7 +425,7 @@ export async function readTodayData() {
       const latest = records[records.length - 1];
       metrics.body_temperature = +(latest.temperature?.inCelsius || latest.value || 0).toFixed(1);
     }
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] BodyTemperature read failed: ${e?.message}`); }
 
   // Basal metabolic rate
   try {
@@ -434,7 +434,7 @@ export async function readTodayData() {
       const latest = records[records.length - 1];
       metrics.basal_metabolic_rate = Math.round(latest.basalMetabolicRate?.inKilocaloriesPerDay || latest.value || 0);
     }
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] BasalMetabolicRate read failed: ${e?.message}`); }
 
   // VO2 Max
   try {
@@ -443,7 +443,7 @@ export async function readTodayData() {
       const latest = records[records.length - 1];
       metrics.vo2_max = +(latest.vo2MillilitersPerMinuteKilogram || latest.value || 0).toFixed(1);
     }
-  } catch {}
+  } catch (e) { _dlog(`[health-connect] Vo2Max read failed: ${e?.message}`); }
 
   return metrics;
 }

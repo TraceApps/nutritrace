@@ -29,6 +29,8 @@
 
   let tokens = [];
   let knownScopes = [];
+  let scopeDescriptions = {};
+  let mcpState = { enabled: false, write: false, destroy: false };
   let loading = false;
   let creating = false;
 
@@ -64,6 +66,8 @@
       const data = await r.json();
       tokens = data.tokens || [];
       knownScopes = data.known_scopes || [];
+      scopeDescriptions = data.scope_descriptions || {};
+      mcpState = data.mcp_state || { enabled: false, write: false, destroy: false };
     } catch (e) {
       showError(e.message);
     } finally {
@@ -238,11 +242,24 @@
               </div>
               <div class="form-group">
                 <label class="form-label">{$_('settings_api_tokens.form.scopes')}</label>
+                {#if mcpState.enabled || mcpState.write || mcpState.destroy}
+                  <div class="mcp-status">
+                    MCP on this server:
+                    <span class:on={mcpState.enabled}>read {mcpState.enabled ? '✓' : '✗'}</span>
+                    · <span class:on={mcpState.write}>write {mcpState.write ? '✓' : '✗'}</span>
+                    · <span class:on={mcpState.destroy}>destroy {mcpState.destroy ? '✓' : '✗'}</span>
+                  </div>
+                {/if}
                 <div class="scope-grid">
                   {#each knownScopes as s (s)}
                     <label class="scope-option">
                       <input type="checkbox" checked={newScopes.has(s)} on:change={() => toggleScope(s)} />
-                      <code>{s}</code>
+                      <div class="scope-text">
+                        <code>{s}</code>
+                        {#if scopeDescriptions[s]}
+                          <span class="scope-desc">{scopeDescriptions[s]}</span>
+                        {/if}
+                      </div>
                     </label>
                   {/each}
                 </div>
@@ -299,4 +316,14 @@
   }
   .scope-option:hover { background: var(--surface-2); }
   .scope-option code { font-size: 12px; color: var(--text-2); }
+  .scope-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .scope-desc { font-size: 11px; color: var(--text-3); line-height: 1.3; }
+  .mcp-status {
+    font-size: 11px; color: var(--text-3);
+    padding: 4px 8px; margin-bottom: 6px;
+    background: var(--surface-2); border-radius: var(--radius-sm);
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  }
+  .mcp-status span { color: var(--text-3); }
+  .mcp-status span.on { color: var(--success, var(--accent)); font-weight: 500; }
 </style>

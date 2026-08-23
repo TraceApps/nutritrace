@@ -3,11 +3,32 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
+import { mergeEntries, ensureUuids } from '../lib/diary-merge.js';
 
 const router = Router();
 router.use(requireAuth);
 
 const uid = req => userMgmtActive() ? req.user.id : null;
+
+// ── Tombstone helpers ─────────────────────────────────────────────────────
+// diary_tombstones records per-uuid deletions for items and water. Clients
+// pulling a date get the tombstone list so they can drop entries locally
+// even if their local copy still holds them. Server keeps tombstones as
+// the authoritative "do not resurrect" marker on future merges.
+function _tombstoneWhereClause(u) {
+  return u == null ? 'user_id IS NULL' : 'user_id = ?';
+}
+function _loadTombstones(u, date) {
+  const where = _tombstoneWhereClause(u);
+  const stmt = db.prepare(`SELECT kind, uuid, deleted_at FROM diary_tombstones WHERE ${where} AND date = ?`);
+  return u == null ? stmt.all(date) : stmt.all(u, date);
+}
+function _loadTombstoneUuids(u, date, kind) {
+  const where = _tombstoneWhereClause(u);
+  const stmt = db.prepare(`SELECT uuid FROM diary_tombstones WHERE ${where} AND date = ? AND kind = ?`);
+  const rows = u == null ? stmt.all(date, kind) : stmt.all(u, date, kind);
+  return rows.map(r => r.uuid);
+}
 
 // Get all diary dates (for statistics)
 router.get('/', wrap((req, res) => {
@@ -18,14 +39,17 @@ router.get('/', wrap((req, res) => {
   res.json(rows.map(parse));
 }));
 
-// Get single date
+// Get single date. Response includes tombstones so pulling clients can
+// drop the same items/water entries from their local mirror. Legacy clients
+// that don't read tombstones ignore the field.
 router.get('/:date', wrap((req, res) => {
   const u = uid(req);
   const row = u == null
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND deleted_at IS NULL').get(req.params.date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(req.params.date, u);
-  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [], notes: '' });
-  res.json(parse(row));
+  const tombstones = _loadTombstones(u, req.params.date);
+  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [], notes: '', tombstones });
+  res.json({ ...parse(row), tombstones });
 }));
 
 // Save/replace entire diary entry for a date
@@ -56,28 +80,60 @@ function _stripDataUrlImages(items) {
   return changed ? out : items;
 }
 
+// Merge-based upsert. Prior implementation replaced items/water wholesale,
+// which let a stale client (mobile SQLite reset, cache truncated) silently
+// wipe the day when it pushed its empty local copy. See
+// project_nutritrace_diary_persist_gap for the 2026-07-23 and 2026-08-11
+// incidents. New behavior:
+//
+//   items/water:   per-uuid merge via server/lib/diary-merge. Server state
+//                  is preserved by default; entries only leave via explicit
+//                  tombstone (client-sent deleted_uuids or existing
+//                  diary_tombstones row).
+//   body_stats:    still last-writer-wins with the empty-guard (was in
+//                  place for issue #81; body_stats is a single object per
+//                  day so per-key merge is unnecessary).
+//   notes:         last-writer-wins.
+//
+// The whole write runs inside a single db.transaction so a crash mid-merge
+// leaves the row untouched.
 router.put('/:date', wrap((req, res) => {
   const { body_stats, water, notes } = req.body;
   const items = _stripDataUrlImages(req.body.items);
   const notesVal = (typeof notes === 'string' && notes.trim()) ? notes : null;
   const u = uid(req);
-  const itemsJson = JSON.stringify(items || []);
-  const waterJson = JSON.stringify(water || []);
+  const date = req.params.date;
 
-  // Issue #81 (data loss across mobile + PWA edits): the PWA's addDiaryItem
-  // path uses the cached currentEntry, appends a food, and PUTs the whole
-  // row back. If the cached entry was loaded before another device wrote
-  // body_stats, the PWA's PUT sends body_stats:{} and silently wipes the
-  // server's real values. Mobile then pulls the empty state and loses it
-  // locally too. Mitigation: when the incoming write carries empty
-  // body_stats AND the existing row has values, preserve the existing
-  // values. Empty-on-incoming has no legitimate "clear all body stats"
-  // semantics in any current UI flow (saveBodyStats merges over existing
-  // and explicit clears send {weight:null,fat:null,...} which is non-
-  // empty), so this is safe to treat as "client didn't intend to touch".
+  // Parse deleted_uuids in either shape:
+  //   { items: [...], water: [...] }   — new client, per-kind
+  //   [...]                            — very-old fallback, treated as items
+  //   undefined / null                 — legacy client, no explicit deletes
+  const deletedRaw = req.body.deleted_uuids;
+  const deletedItemUuids = Array.isArray(deletedRaw?.items) ? deletedRaw.items
+    : Array.isArray(deletedRaw) ? deletedRaw
+    : [];
+  const deletedWaterUuids = Array.isArray(deletedRaw?.water) ? deletedRaw.water : [];
+
+  // Load current server state (may not exist yet — new day).
   const existingRow = u == null
-    ? db.prepare(`SELECT body_stats FROM diary WHERE date = ? AND user_id IS NULL`).get(req.params.date)
-    : db.prepare(`SELECT body_stats FROM diary WHERE date = ? AND user_id = ?`).get(req.params.date, u);
+    ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL').get(date)
+    : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+  const serverItems = existingRow ? JSON.parse(existingRow.items || '[]') : [];
+  const serverWater = existingRow ? JSON.parse(existingRow.water || '[]') : [];
+
+  // Load existing tombstones for this user/date. The merge treats those
+  // as authoritative "do not resurrect" markers.
+  const priorItemTombstones = _loadTombstoneUuids(u, date, 'item');
+  const priorWaterTombstones = _loadTombstoneUuids(u, date, 'water');
+
+  // Merge. Any client entry with a uuid we've already tombstoned is
+  // dropped; any server entry not mentioned by the client is preserved.
+  const { merged: mergedItems, newTombstoneUuids: newItemTombstones } =
+    mergeEntries(serverItems, ensureUuids(items || []), deletedItemUuids, priorItemTombstones);
+  const { merged: mergedWater, newTombstoneUuids: newWaterTombstones } =
+    mergeEntries(serverWater, ensureUuids(water || []), deletedWaterUuids, priorWaterTombstones);
+
+  // body_stats: same empty-guard as before (issue #81).
   const incomingBsEmpty = !body_stats || (typeof body_stats === 'object' && Object.keys(body_stats).length === 0);
   let existingBsHasKeys = false;
   if (existingRow && existingRow.body_stats) {
@@ -87,34 +143,46 @@ router.put('/:date', wrap((req, res) => {
     ? existingRow.body_stats
     : JSON.stringify(body_stats || {});
 
-  if (u == null) {
-    // Single-user mode: SQLite UNIQUE(date, user_id) treats NULL user_id as
-    // distinct per row, so the standard UPSERT never collides — each PUT
-    // would insert a new row and GET would return the oldest (issue #37,
-    // "only the first food item added each day saves"). Manual upsert:
-    const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(req.params.date);
-    if (existing) {
-      db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
-        .run(itemsJson, bsJson, waterJson, notesVal, existing.id);
+  const itemsJson = JSON.stringify(mergedItems);
+  const waterJson = JSON.stringify(mergedWater);
+
+  const insertTombstone = db.prepare(
+    `INSERT OR IGNORE INTO diary_tombstones (user_id, date, kind, uuid, deleted_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`
+  );
+
+  db.transaction(() => {
+    if (u == null) {
+      // Single-user mode: SQLite UNIQUE(date, user_id) treats NULL user_id
+      // as distinct per row, so the standard UPSERT never collides (issue
+      // #37, "only the first food item added each day saves"). Manual upsert:
+      const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(date);
+      if (existing) {
+        db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
+          .run(itemsJson, bsJson, waterJson, notesVal, existing.id);
+      } else {
+        db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`)
+          .run(date, itemsJson, bsJson, waterJson, notesVal);
+      }
     } else {
-      db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`)
-        .run(req.params.date, itemsJson, bsJson, waterJson, notesVal);
+      db.prepare(
+        `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(date, user_id) DO UPDATE SET
+           items=excluded.items, body_stats=excluded.body_stats,
+           water=excluded.water, notes=excluded.notes,
+           updated_at=excluded.updated_at,
+           deleted_at=NULL`
+      ).run(u, date, itemsJson, bsJson, waterJson, notesVal);
     }
-  } else {
-    db.prepare(
-      `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(date, user_id) DO UPDATE SET
-         items=excluded.items, body_stats=excluded.body_stats,
-         water=excluded.water, notes=excluded.notes,
-         updated_at=excluded.updated_at,
-         deleted_at=NULL`
-    ).run(u, req.params.date, itemsJson, bsJson, waterJson, notesVal);
-  }
+    for (const uuid of newItemTombstones) insertTombstone.run(u, date, 'item', uuid);
+    for (const uuid of newWaterTombstones) insertTombstone.run(u, date, 'water', uuid);
+  })();
+
   const row = u == null
-    ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(req.params.date)
-    : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(req.params.date, u);
-  res.json(parse(row));
+    ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(date)
+    : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(date, u);
+  res.json({ ...parse(row), tombstones: _loadTombstones(u, date) });
 }));
 
 router.delete('/:date', wrap((req, res) => {

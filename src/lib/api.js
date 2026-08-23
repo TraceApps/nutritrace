@@ -881,15 +881,35 @@ import { NtApiCached } from './api-cached.js';
 
 export const NtApi = new Proxy({}, {
   get(_, prop) {
-    let impl;
+    // Skip well-known thenable / meta probes. Awaiting a Proxy without
+    // this returns the fallback stub for `then`, which JS tries to
+    // invoke as a resolver and behavior gets weird.
+    if (typeof prop === 'symbol' || prop === 'then' || prop === 'toJSON') return undefined;
+
+    let impl, implName;
     if (!isNative) {
-      impl = _NtApiHttp;                    // Web PWA — always server
+      impl = _NtApiHttp;    implName = 'HTTP';       // Web PWA — always server
     } else if (!getServerUrl()) {
-      impl = NtApiNative;                   // Native standalone — always local
+      impl = NtApiNative;   implName = 'Native';     // Native standalone — always local
     } else {
-      impl = NtApiCached;                   // Native + server — cached/offline
+      impl = NtApiCached;   implName = 'Cached';     // Native + server — cached/offline
     }
-    return typeof impl[prop] === 'function' ? impl[prop].bind(impl) : impl[prop];
+    const v = impl[prop];
+    if (typeof v === 'function') return v.bind(impl);
+    if (v !== undefined) return v;
+
+    // The requested method isn't implemented on the current impl. Return
+    // a stub that returns a rejected promise instead of undefined, so a
+    // caller doing `NtApi.foo(...).catch(...)` still gets its .catch()
+    // attached — a bare undefined throws SYNCHRONOUSLY at the call site,
+    // which inside a Svelte reactive block aborts the update and looks
+    // like the button did nothing (#162 root cause). The warn helps the
+    // next divergence surface in DevTools / Diagnostic Logs.
+    return function _ntApiMissing() {
+      const msg = `[NtApi] '${String(prop)}' is not implemented in ${implName} mode`;
+      try { console.warn(msg); } catch { /* noop */ }
+      return Promise.reject(new Error(msg));
+    };
   }
 });
 export { API, USDA };

@@ -1,0 +1,14 @@
+{
+  "nav": {
+    "diary": "Deník",
+    "foods": "Jídla",
+    "statistics": "Statistiky",
+    "goals": "Cíle",
+    "settings": "Nastavení"
+  },
+  "common": {
+    "sign_out": "Odhlásit",
+    "experimental": "Experimentální",
+    "hide": "Skrýt"
+  }
+}

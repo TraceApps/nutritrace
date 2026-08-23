@@ -523,7 +523,8 @@
 
   <!-- Full backup (admin only, server mode only — files stored on server) -->
   {#if $currentUser?.role === 'admin' && !isNativeLocal}
-  <p class="sub-label">{$_('settings_backup.sections.full_backup')}</p>
+  <p class="settings-group-heading">{$_('settings_backup.sections.full_backup')}</p>
+  <p class="settings-group-sub">Full server backup (SQLite + uploads) with optional scheduled runs. Admin only.</p>
   <div class="card settings-card">
     <div style="padding:12px 16px 4px">
       <p class="setting-desc" style="margin:0 0 12px">{$_('settings_backup.full_backup.desc_server')}</p>
@@ -668,7 +669,8 @@
   {/if}
 
   {#if isNativeLocal}
-  <p class="sub-label">{$_('settings_backup.sections.full_backup')}</p>
+  <p class="settings-group-heading">{$_('settings_backup.sections.full_backup')}</p>
+  <p class="settings-group-sub">On-device backup zip saved to Documents/nutritrace-backups. Manual or scheduled.</p>
   <div class="card settings-card">
     <div style="padding:12px 16px 4px">
       <p class="setting-desc" style="margin:0 0 12px">{$_('settings_backup.full_backup.desc_local')}</p>
@@ -804,7 +806,8 @@
   </div>
   {/if}
   <!-- Danger zone -->
-  <p class="sub-label danger-zone-label">{$_('settings_backup.sections.danger_zone')}</p>
+  <p class="settings-group-heading danger-zone-label">{$_('settings_backup.sections.danger_zone')}</p>
+  <p class="settings-group-sub">Irreversible actions. Wipe logged data or reset every setting to defaults.</p>
   <div class="card settings-card danger-zone-card">
     <button class="setting-row setting-action danger" on:click={() => showClearDialog = true}>
       <span class="material-symbols-rounded si" style="color:var(--danger)">delete_forever</span>
@@ -953,7 +956,6 @@
     min-height: 50px;
   }
   .setting-label { font-size: 14px; font-weight: 500; flex: 1; }
-  .setting-desc  { font-size: 12px; color: var(--text-3); margin-top: 2px; font-weight: 400; }
   .setting-divider { height: 1px; background: var(--border); margin: 0 16px; }
 
   .sub-label {

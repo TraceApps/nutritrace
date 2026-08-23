@@ -122,6 +122,10 @@
 </script>
 
 <div class="section-body">
+
+  <!-- Group: Chart Options -->
+  <p class="settings-group-heading">Chart Options</p>
+  <p class="settings-group-sub">Default chart type and overlays applied across the Statistics page.</p>
   <div class="card settings-card">
     <div class="setting-row">
       <span class="setting-label">{$_('settings_stats.default_chart')}</span>
@@ -161,8 +165,9 @@
     </div>
   </div>
 
-  <p class="sub-label">{$_('settings.statistics.categories') || 'Categories'}</p>
-  <p class="setting-desc" style="padding:0 4px 8px">{$_('settings.statistics.categories_help') || 'Drag to reorder the metric chips on the Statistics page. Toggle off any category you never look at.'}</p>
+  <!-- Group: Categories -->
+  <p class="settings-group-heading">{$_('settings.statistics.categories') || 'Categories'}</p>
+  <p class="settings-group-sub">{$_('settings.statistics.categories_help') || 'Drag to reorder the metric chips on the Statistics page. Toggle off any category you never look at.'}</p>
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="card settings-card drag-list"
     on:pointermove={onSMDragMove}

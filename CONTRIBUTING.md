@@ -7,7 +7,7 @@ Thanks for your interest in NutriTrace.
 - Open an issue at [github.com/traceapps/nutritrace/issues](https://github.com/traceapps/nutritrace/issues).
 - Include your version (Settings → About), what you expected, and what you saw.
 - For sync issues, include whether you're on PWA or native Android, and your server version.
-- Don't paste server logs publicly without redacting — `LOG_LEVEL=debug` includes personal health data (HRV, RHR, sleep) and any tokens that happened to be in flight.
+- Don't paste server logs publicly without redacting — debug output can contain personal health data, and trace request bodies can contain diary entries, notes, or other private content despite credential redaction.
 
 ## Suggesting features
 
@@ -28,13 +28,17 @@ Thanks for your interest in NutriTrace.
 
 NutriTrace uses [svelte-i18n](https://github.com/kaisermann/svelte-i18n) with one JSON file per locale in `src/i18n/`. The English file at `src/i18n/en.json` is the source of truth.
 
-### Preferred: Weblate (no code required)
+### Two ways to contribute (pick either)
 
-The easiest way to contribute translations is via [Weblate](https://hosted.weblate.org/projects/nutritrace/) — a browser-based translation platform that syncs directly with this repo. Pick a language, translate strings inline, and commits land as PRs automatically. No git, no JSON syntax, no code. You can also request a new language from within Weblate; the maintainer will register it in `src/i18n/index.js` and add it to the Settings language picker after the first batch of strings comes in.
+**A. Weblate (preferred, no code required).** NutriTrace is hosted at [hosted.weblate.org/projects/nutritrace/](https://hosted.weblate.org/projects/nutritrace/). Pick a language, translate strings in the web UI, and pull requests to `dev` are opened automatically. If your language isn't in the list, click **Add new translation** and it'll be approved. If you already have a completed JSON file, seed the language with **Files → Upload translation → Add as translation** on the language page.
 
 [![Translation status](https://hosted.weblate.org/widget/nutritrace/multi-auto.svg)](https://hosted.weblate.org/engage/nutritrace/)
 
-### Alternative: adding a new language via PR
+**B. Direct JSON PR.** Follow the steps below. This still works and Weblate will pick up the file on its next sync.
+
+Full guidance for both paths: [traceapps.github.io/docs/contribute/translations/](https://traceapps.github.io/docs/contribute/translations/).
+
+### Adding a new language via direct PR
 
 If you'd rather bootstrap a language locally and open a PR directly:
 
@@ -51,11 +55,15 @@ If you'd rather bootstrap a language locally and open a PR directly:
    ```
    The label is what shows in the Settings → Regional & Units → Language picker. Use the language's native name (e.g. `Français` not `French`).
 4. Run `npm run i18n:check` to confirm no keys are missing or orphaned.
-5. Open a PR.
+5. Open a PR against `dev`.
+
+Note: the `index.js` step is required whether you go through Weblate or PR directly, because Weblate only touches the JSON file. If Weblate adds a new language, an app-side commit will follow to register it in the picker.
 
 ### Updating an existing language
 
-If new keys land in `en.json` between releases, your locale file will report them as "missing" in `npm run i18n:check`. The app will fall back to English for those strings until you translate them. There is no urgency — translate at your own pace.
+If you translated through Weblate: keep using Weblate. Direct edits to a file that Weblate is watching will be overwritten by the next Weblate sync.
+
+If new keys are added to `en.json` between releases, your locale file will report them as "missing" in `npm run i18n:check`. The app will fall back to English for those strings until you translate them. No urgency, translate at your own pace.
 
 The English source text may also change occasionally without renaming the key. We do not have automatic stale-translation detection, so a quick diff of `en.json` against the version you originally translated from is the most reliable way to catch these.
 

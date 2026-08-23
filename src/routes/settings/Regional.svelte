@@ -29,6 +29,10 @@
 </script>
 
 <div class="section-body">
+
+  <!-- Group: Language & Formats -->
+  <p class="settings-group-heading">Language &amp; Formats</p>
+  <p class="settings-group-sub">Interface language and how dates and times are shown.</p>
   <div class="card settings-card">
     <div class="setting-row">
       <span class="setting-label">{$_('settings.regional.language')}</span>
@@ -60,7 +64,12 @@
         </select>
       </div>
     </div>
-    <div class="setting-divider"></div>
+  </div>
+
+  <!-- Group: Units — metric / imperial preferences across the app -->
+  <p class="settings-group-heading">Units</p>
+  <p class="settings-group-sub">Unit choices apply everywhere the value shows.</p>
+  <div class="card settings-card">
     <div class="setting-row">
       <span class="setting-label">{$_('settings.regional.energy')}</span>
       <div class="select-wrap" style="width:160px">
@@ -121,4 +130,5 @@
       </div>
     </div>
   </div>
+
 </div>

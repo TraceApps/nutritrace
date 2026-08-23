@@ -3,6 +3,8 @@
   import { _ } from 'svelte-i18n';
   import { wellnessEnabled, fitbitEnabled, withingsEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled } from '../../stores/settings.js';
   import WellnessIcon from '../icons/WellnessIcon.svelte';
+  import { updateAvailable } from '../../lib/updates.js';
+  import { pwaUpdateReady } from '../../lib/pwa-update.js';
 
   $: BASE_TABS = [
     { path: '/',            icon: 'book',          label: $_('nav.diary')      },
@@ -51,7 +53,12 @@
       {#if tab.customIcon}
         <span class="nav-icon custom-icon"><svelte:component this={tab.customIcon} /></span>
       {:else}
-        <span class="material-symbols-rounded nav-icon">{tab.icon}</span>
+        <span class="material-symbols-rounded nav-icon">
+          {tab.icon}
+          {#if tab.path === '/settings' && ($updateAvailable.available || $pwaUpdateReady)}
+            <span class="nav-update-dot" aria-label="Update available"></span>
+          {/if}
+        </span>
       {/if}
       <span class="nav-label">{tab.label}</span>
     </button>
@@ -111,6 +118,18 @@
   .nav-icon {
     font-size: 22px;
     transition: transform var(--dur-fast) var(--ease-spring);
+    position: relative;
+  }
+  /* Update-available dot, same accent tint as the sidebar/banner. */
+  .nav-update-dot {
+    position: absolute;
+    top: -1px;
+    right: -3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--surface-1);
   }
   .nav-tab.active .nav-icon { transform: scale(1.1); }
   /* Custom SVG icon: match material symbols display size */

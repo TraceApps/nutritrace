@@ -255,7 +255,8 @@
 
 <div class="section-body">
   <!-- Import card -->
-  <p class="sub-label">{$_('settings_import_export.sections.import')}</p>
+  <p class="settings-group-heading">{$_('settings_import_export.sections.import')}</p>
+  <p class="settings-group-sub">Pull data in: bulk-add foods by barcode list, or restore a NutriTrace JSON export.</p>
   <div class="card settings-card">
     <button class="setting-row setting-action" on:click={openBulkImport}>
       <span class="material-symbols-rounded si" style="color:var(--accent)">playlist_add</span>
@@ -277,7 +278,8 @@
   </div>
 
   <!-- Export card -->
-  <p class="sub-label">{$_('settings_import_export.sections.export')}</p>
+  <p class="settings-group-heading">{$_('settings_import_export.sections.export')}</p>
+  <p class="settings-group-sub">Portable JSON snapshot or CSV of your diary or activity log.</p>
   <div class="card settings-card">
     <button class="setting-row setting-action" on:click={exportBackup}>
       <span class="material-symbols-rounded si" style="color:var(--accent)">download</span>
@@ -342,7 +344,6 @@
   .setting-action:hover { background: var(--surface-2); }
   .setting-label { font-size: 14px; font-weight: 500; }
   .setting-divider { height: 1px; background: var(--border); margin: 0 16px; }
-  .setting-desc { font-size: 12px; color: var(--text-3); line-height: 1.5; font-weight: 400; }
   .si { font-size: 22px; flex-shrink: 0; }
   .sub-label {
     font-size: 11px;

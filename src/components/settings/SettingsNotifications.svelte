@@ -143,7 +143,8 @@
 <div class="section-body" transition:slide={{ duration: 180 }}>
 
   <!-- Delivery setup -->
-  <p class="sub-label">{$_('settings_notifications.sections.delivery')}</p>
+  <p class="settings-group-heading">{$_('settings_notifications.sections.delivery')}</p>
+  <p class="settings-group-sub">How notifications reach you: on-device pop-ups and optional third-party push service.</p>
   <div class="card settings-card">
     {#if _notifPushService !== 'none'}
       <ConnectionStatus
@@ -239,7 +240,8 @@
   </div>
 
   {#if _anyNotifEnabled}
-    <p class="sub-label">{$_('settings_notifications.sections.scheduled_reminders')}</p>
+    <p class="settings-group-heading">{$_('settings_notifications.sections.scheduled_reminders')}</p>
+    <p class="settings-group-sub">Recurring reminders at set times of day: water, meals, weigh-in, bedtime.</p>
     <div class="card settings-card">
       <div class="setting-row">
         <div>
@@ -353,7 +355,8 @@
       {/if}
     </div>
 
-    <p class="sub-label">{$_('settings_notifications.sections.alerts_summaries')}</p>
+    <p class="settings-group-heading">{$_('settings_notifications.sections.alerts_summaries')}</p>
+    <p class="settings-group-sub">Milestone alerts and periodic summary reports.</p>
     <div class="card settings-card">
       <div class="setting-row">
         <div>
@@ -445,7 +448,6 @@
     min-height: 50px;
   }
   .setting-label { font-size: 14px; font-weight: 500; flex: 1; }
-  .setting-desc  { font-size: 12px; color: var(--text-3); margin-top: 2px; font-weight: 400; }
   .setting-divider { height: 1px; background: var(--border); margin: 0 16px; }
   .sel-sm { height: 36px; font-size: 13px; width: auto; max-width: 100%; }
 

@@ -14,6 +14,10 @@
 </script>
 
 <div class="section-body">
+
+  <!-- Group: Food Row Display — what shows on each row in the Foods / Meals list -->
+  <p class="settings-group-heading">Food Row Display</p>
+  <p class="settings-group-sub">Fields shown on each row in the Foods, Meals, and Recipes tabs.</p>
   <div class="card settings-card">
     <div class="setting-row">
       <div><span class="setting-label">{$_('settings_foods_picker.show_thumbnails')}</span><div class="setting-desc">{$_('settings_foods_picker.show_thumbnails_desc')}</div></div>
@@ -39,7 +43,12 @@
       <div><span class="setting-label">Show Yesterday's Meals</span><div class="setting-desc">Pin yesterday's meals as quick-add cards in the Meals tab. Tap the info icon to see what's in each one.</div></div>
       <Toggle checked={$foodsShowYesterdayMeals} on:change={e => foodsShowYesterdayMeals.set(e.detail)} />
     </div>
-    <div class="setting-divider"></div>
+  </div>
+
+  <!-- Group: Sort & Source — default search source + per-tab sort order -->
+  <p class="settings-group-heading">Sort &amp; Source</p>
+  <p class="settings-group-sub">Default source when searching, and ordering on each list.</p>
+  <div class="card settings-card">
     <div class="setting-row">
       <div>
         <span class="setting-label">{$_('settings_foods_picker.default_source')}</span>
@@ -98,7 +107,10 @@
       </div>
     </div>
   </div>
-  <p class="sub-label">Camera &amp; Scanning</p>
+
+  <!-- Group: Camera & Scanning — barcode scanner UX -->
+  <p class="settings-group-heading">Camera &amp; Scanning</p>
+  <p class="settings-group-sub">Barcode scanner audio, flashlight, and photo crop preferences.</p>
   <div class="card settings-card">
     <div class="setting-row"><span class="setting-label">{$_('settings_scanner.beep_on_scan')}</span><Toggle checked={$barcodeBeep} on:change={e => barcodeBeep.set(e.detail)} /></div>
     {#if isNative}
@@ -108,4 +120,5 @@
     <div class="setting-divider"></div>
     <div class="setting-row"><span class="setting-label">{$_('settings_scanner.crop_photos')}</span><Toggle checked={$cropPhotos} on:change={e => cropPhotos.set(e.detail)} /></div>
   </div>
+
 </div>

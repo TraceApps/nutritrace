@@ -1,5 +1,6 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
 
   import { portal } from '../lib/portal.js';
@@ -10,12 +11,16 @@
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import Toggle from '../components/settings/Toggle.svelte';
   import UnitPicker from '../components/ui/UnitPicker.svelte';
+  import ImageCropper from '../components/ui/ImageCropper.svelte';
   import { takePhoto } from '../lib/camera.js';
   import { isNative } from '../lib/platform.js';
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
-  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, energyUnit, showUnitMetadata, warnUnitMismatch, catName as _catName, catDisplay as _catDisplay } from '../stores/settings.js';
+  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, energyUnit, showUnitMetadata, warnUnitMismatch, catName as _catName, catDisplay as _catDisplay, disableAnimations } from '../stores/settings.js';
   import { callAI, callAIProxy } from '../lib/aiChat.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
+  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist } from '../lib/editor-draft.js';
+  import { acquireScreenWakeLock } from '../lib/wake-lock.js';
+  import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
 
   // ── Photo capture / upload ─────────────────────────────────
   let fileInput;
@@ -32,9 +37,6 @@
   let cameraStream = null;
   let showCrop    = false;
   let cropSrc     = '';
-  let cropImg     = null;
-  let cropBox     = null;
-  let cropDragging = false, cropStartX, cropStartY, cropOrigL, cropOrigT;
 
   function openGallery() { fileInput && fileInput.click(); }
 
@@ -106,49 +108,6 @@
 
   function removePhoto() { food.imgUrl = ''; }
 
-  // Crop UI helpers
-  function onCropImgLoad() {
-    if (!cropImg || !cropBox) return;
-    const w = cropImg.offsetWidth, h = cropImg.offsetHeight;
-    cropBox.style.left   = Math.round(w * 0.1) + 'px';
-    cropBox.style.top    = Math.round(h * 0.1) + 'px';
-    cropBox.style.width  = Math.round(w * 0.8) + 'px';
-    cropBox.style.height = Math.round(h * 0.8) + 'px';
-  }
-
-  function cropStartDrag(e) {
-    cropDragging = true;
-    const pt = e.touches ? e.touches[0] : e;
-    cropStartX = pt.clientX; cropStartY = pt.clientY;
-    cropOrigL = parseInt(cropBox.style.left); cropOrigT = parseInt(cropBox.style.top);
-    e.preventDefault();
-  }
-
-  function cropMoveDrag(e) {
-    if (!cropDragging || !cropImg || !cropBox) return;
-    const pt = e.touches ? e.touches[0] : e;
-    const w = cropImg.offsetWidth, h = cropImg.offsetHeight;
-    cropBox.style.left = Math.max(0, Math.min(w - parseInt(cropBox.style.width),  cropOrigL + pt.clientX - cropStartX)) + 'px';
-    cropBox.style.top  = Math.max(0, Math.min(h - parseInt(cropBox.style.height), cropOrigT + pt.clientY - cropStartY)) + 'px';
-  }
-
-  function cropEndDrag() { cropDragging = false; }
-
-  function confirmCrop() {
-    if (!cropImg || !cropBox) return;
-    const scaleX = cropImg.naturalWidth  / cropImg.offsetWidth;
-    const scaleY = cropImg.naturalHeight / cropImg.offsetHeight;
-    const cx = parseInt(cropBox.style.left) * scaleX;
-    const cy = parseInt(cropBox.style.top)  * scaleY;
-    const cw = parseInt(cropBox.style.width)  * scaleX;
-    const ch = parseInt(cropBox.style.height) * scaleY;
-    const canvas = document.createElement('canvas');
-    canvas.width = cw; canvas.height = ch;
-    canvas.getContext('2d').drawImage(cropImg, cx, cy, cw, ch, 0, 0, cw, ch);
-    food.imgUrl = canvas.toDataURL('image/jpeg', 0.9);
-    showCrop = false; cropSrc = '';
-  }
-
   export let params = {};
 
   let food = {
@@ -199,6 +158,30 @@
   let _myFoods = [];
   let duplicateOf = null;
   $: isNewFood = !(params && params.id);
+
+  // ── Draft persistence (#157) ────────────────────────────────────────────
+  // Samsung camera-mode lmkd kills the WebView renderer, Chromium kills
+  // the host, Android cold-starts us into an empty form. Persisting the
+  // draft to localStorage lets the remount restore what the user had
+  // typed. See src/lib/editor-draft.js for the shared helper.
+  // Draft key must be tied to the food's IDENTITY, not the URL. Every
+  // food edit pushes /foods/edit with no :id, so params.id is undefined
+  // whether the user is adding new or editing existing. The identity
+  // lives on editorState.foodPrefill.id. Without this, every session
+  // shares one 'new' draft key and typing while editing food A leaks
+  // into a subsequent "add new food" (Wildenhaus, #157).
+  $: _draftKey = _mkDraftKey('food', params?.id ?? editorState.foodPrefill?.id ?? null);
+  let _draftReady = false;      // gate: don't persist before onMount overlays the draft
+  let _persistDraft = null;
+  $: if (_draftKey) _persistDraft = makeDebouncedPersist(_draftKey, 400);
+  // Fire on every food change once we're past mount. Debounced inside
+  // makeDebouncedPersist so rapid typing collapses into a single write.
+  $: if (_draftReady && _persistDraft) _persistDraft(food);
+  // Banner state: true once a draft has been overlaid, so the user can
+  // tell "restored from earlier" apart from "clean form". Discard button
+  // resets to the pre-overlay server baseline and clears the draft.
+  let _draftRestored = false;
+  let _serverBaseline = null;
   $: hasBarcode = !!(food.barcode && food.barcode.trim());
 
   function _normBarcode(b) {
@@ -329,8 +312,8 @@
 
   function takeSnapshot() {
     const allNuts = [...NUTRIMENTS, ...($customNutriments || [])];
-    _snapshot = { portion: parseFloat(food.portion) || 0 };
-    for (const n of allNuts) _snapshot[n.id] = parseFloat(food[n.id]) || 0;
+    _snapshot = { portion: parseDecimal(food.portion) || 0 };
+    for (const n of allNuts) _snapshot[n.id] = parseDecimal(food[n.id]) || 0;
   }
 
   let _scaleTimer = null;
@@ -357,7 +340,7 @@
     _scaleTimer = setTimeout(() => { applyProportional(changedId, getVal()); }, 400);
   }
 
-  function onPortionInput() { scheduleScale('__portion__', () => parseFloat(food.portion) || 0); }
+  function onPortionInput() { scheduleScale('__portion__', () => parseDecimal(food.portion) || 0); }
   function onNutInput(id)   {
     // Per-nutrient typing does NOT trigger proportional scaling. The
     // link toggle is for "scale all nutrients to a new serving size",
@@ -378,7 +361,7 @@
     if (food._derived[changedId]) food._derived = { ...food._derived, [changedId]: false };
 
     const otherId = changedId === 'sodium' ? 'salt' : 'sodium';
-    const changedVal = parseFloat(food[changedId]);
+    const changedVal = parseDecimal(food[changedId]);
 
     // Last-edited-wins. Sodium and salt are the same datum in different
     // units, so any edit to either side should recompute the other —
@@ -524,6 +507,10 @@
     const image = await _captureLabelPhoto();
     if (!image || !image.base64) return;
     scanningLabel = true;
+    // #158: hold a screen wake lock while the model reads the label.
+    // Slow self-hosted models can take a minute+; without this the
+    // screen times out and the WebView suspends, killing the fetch.
+    const _releaseWakeLock = await acquireScreenWakeLock();
     try {
       const provider = $aiProvider || 'claude';
       const messages = _buildLabelMessages(provider, image);
@@ -556,6 +543,7 @@
       showError($_('food_editor.toast.scan_failed', { values: { error: e?.message || $_('food_editor.toast.unknown_error') } }));
     } finally {
       scanningLabel = false;
+      try { await _releaseWakeLock(); } catch { /* noop */ }
     }
   }
 
@@ -577,6 +565,38 @@
         food = { ...food, ...existing, ...flatNutrition };
       }
     }
+    // ── Restore any in-progress draft (#157) ──────────────────────────
+    // Overlays a fresh (<4h) draft on top of whatever we just loaded
+    // above. The user gets a banner + Discard button so a restored draft
+    // isn't invisible (Wildenhaus feedback on dev05). Draft was written
+    // on every keystroke, so it captures whatever they typed up to the
+    // moment of crash. Clears on save; no clear on back-out, so a real
+    // back-tap-then-return within TTL also restores.
+    //
+    // Capture the pre-overlay state so the banner's Discard button can
+    // reset the form to what actually came from the server (or empty,
+    // for the "add new" path).
+    _serverBaseline = { ...food };
+    try {
+      const _draft = loadDraft(_draftKey);
+      if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0) {
+        food = { ...food, ..._draft };
+        _draftRestored = true;
+      }
+    } catch { /* draft parse issues fall through to server-loaded state */ }
+    // Photo lives in IndexedDB (see editor-draft.js). Async restore —
+    // don't gate _draftReady on it; typing should be persistable even
+    // if the photo restore is still in flight. If the photo lands after
+    // the user has already picked a different one, don't clobber theirs.
+    loadDraftImg(_draftKey).then((_img) => {
+      if (_img && !food.imgUrl) {
+        food = { ...food, imgUrl: _img };
+        _draftRestored = true;
+      }
+    }).catch(() => { /* IDB unavailable or read failed; text draft still works */ });
+    // Now that any draft has been overlaid, enable the reactive persist.
+    _draftReady = true;
+
     // Default `linked` to ON when editing an existing food (the user is
     // almost always rescaling, and they expect serving size to preserve
     // density). For NEW food entry where the form starts empty, leave it
@@ -644,8 +664,8 @@
       const _nutrition = {};
       for (const _n of NUTRIMENTS) {
         const _v = food[_n.id];
-        if (_v !== undefined && _v !== '' && _v !== null && !isNaN(parseFloat(_v))) {
-          _nutrition[_n.id] = parseFloat(_v) || 0;
+        if (_v !== undefined && _v !== '' && _v !== null && !isNaN(parseDecimal(_v))) {
+          _nutrition[_n.id] = parseDecimal(_v) || 0;
         }
       }
       // Persist the derived-flag map so the calculator icon survives reloads.
@@ -673,6 +693,12 @@
         );
       }
       clearFoodEditorState();
+      // #157: draft persistence — clear the localStorage draft now that
+      // the form has landed successfully. Any subsequent process death
+      // shouldn't bring the pre-save state back.
+      _draftReady = false;
+      if (_persistDraft && typeof _persistDraft.cancel === 'function') _persistDraft.cancel();
+      clearDraft(_draftKey);
       showSuccess(ctx ? $_('food_editor.added_to_diary') : $_('food_editor.saved'));
       if (ctx) {
         // Go back twice to return to diary
@@ -695,6 +721,23 @@
     } else {
       food.categories = [...food.categories, name];
     }
+  }
+
+  // Discard restored draft (#157 followup, Wildenhaus). Snaps form back
+  // to what the server actually loaded (or empty for the add-new path)
+  // and wipes both text + photo from the draft store. Banner disappears
+  // once the state is reset.
+  function _discardDraft() {
+    // Drop any in-flight debounced write so it doesn't fire 400ms later
+    // and re-save the pre-discard state back into the draft store.
+    if (_persistDraft && typeof _persistDraft.cancel === 'function') _persistDraft.cancel();
+    // Suppress the reactive persist for the assignment that follows,
+    // then re-enable after Svelte's tick has settled.
+    _draftReady = false;
+    if (_serverBaseline) food = { ..._serverBaseline };
+    clearDraft(_draftKey);
+    _draftRestored = false;
+    tick().then(() => { _draftReady = true; });
   }
 
   // Apply the user's custom nutriment order (set via drag-to-reorder in
@@ -761,6 +804,13 @@
   {/if}
 
   <div class="page-content editor-content" class:readonly-content={_readOnly} inert={_readOnly || null}>
+    <!-- Left column (desktop ≥1024px): identity + metadata.
+         Photo, Basic Info, Categories, Notes all stack here.
+         Below 1024px this wrapper is display:contents so cards
+         fall back to the single-column flex flow that used to
+         live on .editor-content directly. -->
+    <div class="editor-left-col">
+
     <!-- Photo -->
     <div class="card editor-card photo-card">
       <div class="editor-card-title">{$_('food_editor.card_photo')}</div>
@@ -824,31 +874,31 @@
 
     <!-- Crop popup -->
     {#if showCrop}
-      <div class="cam-overlay" role="dialog" aria-modal="true" use:portal>
-        <div class="cam-popup">
-          <div class="cam-header">
-            <span class="cam-title">{$_('food_editor.crop_photo')}</span>
-            <button class="btn-icon" on:click={() => { showCrop = false; cropSrc = ''; }} aria-label={$_('food_editor.cancel')} title={$_('food_editor.cancel')}>
-              <span class="material-symbols-rounded">close</span>
-            </button>
-          </div>
-          <p class="crop-hint">{$_('food_editor.crop_hint')}</p>
-          <div class="crop-container"
-            on:mousemove={cropMoveDrag}
-            on:touchmove={cropMoveDrag}
-            on:mouseup={cropEndDrag}
-            on:touchend={cropEndDrag}
-          >
-            <img bind:this={cropImg} src={cropSrc} class="crop-img" alt="Crop" on:load={onCropImgLoad} />
-            <div bind:this={cropBox} class="crop-box"
-              on:mousedown={cropStartDrag}
-              on:touchstart={cropStartDrag}
-            ></div>
-          </div>
-          <div class="cam-footer">
-            <button class="btn btn-primary" on:click={confirmCrop}>Crop &amp; Use</button>
-          </div>
-        </div>
+      <ImageCropper
+        src={cropSrc}
+        title={$_('food_editor.crop_photo')}
+        hint={$_('food_editor.crop_hint')}
+        cancelLabel={$_('food_editor.cancel')}
+        outputSize={512}
+        on:confirm={(event) => {
+          food.imgUrl = event.detail.dataUrl;
+          showCrop = false;
+          cropSrc = '';
+        }}
+        on:cancel={() => { showCrop = false; cropSrc = ''; }}
+      />
+    {/if}
+
+    <!-- Restored-draft banner (#157 followup). Only visible when a
+         draft was overlaid at mount; Discard resets the form to the
+         server-loaded (or empty) baseline and clears the draft store. -->
+    {#if _draftRestored}
+      <div class="draft-restored-banner">
+        <span class="material-symbols-rounded">history</span>
+        <span class="draft-restored-text">{$_('food_editor.draft_restored')}</span>
+        <button type="button" class="draft-restored-discard" on:click={_discardDraft}>
+          {$_('food_editor.draft_discard')}
+        </button>
       </div>
     {/if}
 
@@ -866,7 +916,7 @@
       <div class="form-row" style="align-items:flex-end">
         <div class="form-group" style="flex:1">
           <label class="form-label">{$_('food_editor.field_serving_size')}</label>
-          <input class="input" type="number" min="0" bind:value={food.portion}
+          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={food.portion}
             on:input={onPortionInput} />
         </div>
         <div class="form-group" style="width:100px">
@@ -914,7 +964,7 @@
               <input class="input alt-unit-abbr" placeholder="e.g. slice"
                 bind:value={row.abbr} />
               <span class="alt-unit-eq">=</span>
-              <input class="input alt-unit-grams" type="number" min="0" step="0.1"
+              <input class="input alt-unit-grams" type="text" inputmode="decimal" use:decimalInput
                 placeholder="grams" bind:value={row.grams} />
               <span class="alt-unit-suffix">g</span>
               <button type="button" class="btn-icon alt-unit-del"
@@ -942,7 +992,7 @@
       <div class="form-group">
         <label class="form-label">Density (g/ml)</label>
         <div style="display:flex;align-items:center;gap:6px">
-          <input class="input" type="number" min="0" step="0.01"
+          <input class="input" type="text" inputmode="decimal" use:decimalInput
             placeholder={$_('food_editor.placeholder_optional')}
             value={food.density_g_ml ?? ''}
             on:input={e => food.density_g_ml = e.target.value === '' ? null : Number(e.target.value)} />
@@ -1042,6 +1092,13 @@
       </div>
     {/if}
 
+    </div><!-- /.editor-left-col -->
+
+    <!-- Right column (desktop ≥1024px): the primary work area —
+         Nutrition. On mobile this wrapper is display:contents so
+         the card flows naturally under the left-column cards. -->
+    <div class="editor-right-col">
+
     <!-- Nutrition -->
     <div class="card editor-card">
       <div class="editor-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
@@ -1060,9 +1117,23 @@
       <!-- Hidden file input for the web Scan Label flow. On native we go
            through @capacitor/camera directly. -->
       <input bind:this={scanLabelFileInput} type="file" accept="image/*" capture="environment" style="display:none" />
-      {#each displayFields as n}
+      <!-- Nutrition fields grid. Single column on mobile / narrow
+           so labels + inputs stack full-width. At ≥1024px (desktop
+           editor pane) it becomes a 2-column grid so pairs like
+           Fat / Saturated Fat + Carbs / Fiber sit side-by-side —
+           each input capped to a sensible width instead of one
+           number stretching across the ~1500px right column. -->
+      <div class="nutrition-fields">
+      {#each displayFields as n (n.id)}
         {@const _kjMode = n.id === 'calories' && $energyUnit === 'kJ'}
-        <div class="form-group" class:nutrient-sub={n.subOf}>
+        <!-- Keyed by n.id so toggling 'Show All Nutrients' only
+             animates the fields that actually get added/removed
+             — visible fields don't jitter. slide|local scopes the
+             transition to this each's mount/unmount inside the
+             persistent nutrition-fields container. -->
+        <div class="form-group nutrient-cell" class:nutrient-sub={n.subOf}
+          in:slide|local={{ duration: $disableAnimations ? 0 : 180 }}
+          out:slide|local={{ duration: $disableAnimations ? 0 : 140 }}>
           <label class="form-label">
             {_kjMode ? 'Energy' : n.label} ({_kjMode ? 'kJ' : n.unit})
             {#if (n.id === 'sodium' || n.id === 'salt') && food._derived && food._derived[n.id]}
@@ -1071,16 +1142,17 @@
             {/if}
           </label>
           {#if _kjMode}
-            <input class="input" type="number" min="0" step="1" placeholder="0"
+            <input class="input" type="text" inputmode="decimal" use:decimalInput placeholder="0"
               value={food.calories ? Math.round(food.calories * 4.184) : ''}
-              on:input={(e) => { const v = parseFloat(e.target.value); food.calories = isNaN(v) ? '' : v / 4.184; onNutInput('calories'); }} />
+              on:input={(e) => { const v = parseDecimal(e.target.value); food.calories = isNaN(v) ? '' : v / 4.184; onNutInput('calories'); }} />
           {:else}
-            <input class="input" type="number" min="0" step="0.1" placeholder="0"
+            <input class="input" type="text" inputmode="decimal" use:decimalInput placeholder="0"
               bind:value={food[n.id]}
               on:input={() => onNutInput(n.id)} />
           {/if}
         </div>
       {/each}
+      </div><!-- /.nutrition-fields -->
       <button class="btn btn-ghost w-full" style="margin-top:8px"
         on:click={() => showAllNutrients = !showAllNutrients}>
         {showAllNutrients ? 'Show Less' : 'Show All Nutrients'}
@@ -1088,6 +1160,7 @@
     </div>
 
     <div style="height:16px"></div>
+    </div><!-- /.editor-right-col -->
   </div>
 </div>
 
@@ -1159,6 +1232,93 @@
   .fav-btn.on { color: var(--macro-protein, #ec4899); }
   .editor-content { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 32px; }
   .readonly-content { opacity: 0.78; pointer-events: none; }
+
+  /* Mobile default: column wrappers are display:contents so the
+     cards fall through into the parent's flex-column flow, exactly
+     as before the desktop split was introduced. */
+  .editor-left-col,
+  .editor-right-col { display: contents; }
+
+  /* Desktop ≥1024px: two-column form layout.
+     Left column (340px) — identity / metadata: Photo, Basic Info,
+     Categories, Notes. Compact fields that don't need width.
+     Right column (fills) — Nutrition. The primary work area; needs
+     the wider column so each field row (label + value + unit) sits
+     on one line without wrapping.
+     Gated by :global(html:not(.force-mobile-layout)) so the Force
+     Mobile Layout toggle collapses the editor back to a single
+     column at every viewport. */
+  @media (min-width: 1024px) {
+    :global(html:not(.force-mobile-layout)) .editor-content {
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr);
+      column-gap: 16px;
+      row-gap: 0;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .editor-left-col,
+    :global(html:not(.force-mobile-layout)) .editor-right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+    }
+    /* Sticky left column — keeps photo + basic info visible while
+       scrolling the tall Nutrition card on the right. No max-height
+       or internal scroll: if the left stack ever exceeds viewport
+       height, sticky just unsticks against .editor-content's bottom
+       so the whole column is still reachable via page scroll. Users
+       don't have to hunt for an internal scrollbar to see cards at
+       the bottom of the left column. */
+    :global(html:not(.force-mobile-layout)) .editor-left-col {
+      position: sticky;
+      top: calc(var(--safe-top, 0px) + 76px);
+      align-self: start;
+    }
+    /* Left column is only ~340px wide on desktop — the shared
+       .form-row (used by 'View on OFF' + 'Refresh from OFF' etc.)
+       assumes width for two side-by-side buttons and clips long
+       labels at this width. Force full-width buttons via
+       flex-basis 100% on any .btn inside a left-col .form-row so
+       button pairs stack vertically. Compact side-by-side inputs
+       like Serving Size (input) + Unit (select) still fit because
+       they aren't .btn elements. */
+    :global(html:not(.force-mobile-layout)) .editor-left-col :global(.form-row) {
+      flex-wrap: wrap;
+    }
+    :global(html:not(.force-mobile-layout)) .editor-left-col :global(.form-row) :global(> .btn) {
+      flex: 1 1 100%;
+    }
+    /* Nutrition fields inside the right column: 2-column grid at
+       ≥1024px so pairs of related fields sit side-by-side instead
+       of every number spanning the full column width. */
+    :global(html:not(.force-mobile-layout)) .nutrition-fields {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      column-gap: 16px;
+      row-gap: 12px;
+    }
+    /* Sub-nutrients (Saturated Fat, Trans Fat, etc.) sit under
+       their parent macro — in the 2-col grid they'd otherwise
+       flow into the second column, breaking the visual grouping.
+       Force them onto their own row with a narrow indent. */
+    :global(html:not(.force-mobile-layout)) .nutrition-fields :global(.nutrient-sub) {
+      grid-column: 1 / -1;
+      padding-left: 16px;
+    }
+  }
+  /* Three columns on ultrawide so short number fields don't span
+     an entire ~700px half-column. Kicks in at ≥1600 so it only
+     applies when there's genuinely room. */
+  @media (min-width: 1600px) {
+    :global(html:not(.force-mobile-layout)) .nutrition-fields {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+    }
+    :global(html:not(.force-mobile-layout)) .nutrition-fields :global(.nutrient-sub) {
+      grid-column: auto;
+      padding-left: 8px;
+    }
+  }
   .readonly-banner {
     display: flex; align-items: center; gap: 12px;
     padding: 12px var(--page-px);
@@ -1170,6 +1330,32 @@
   .readonly-title { font-weight: 600; }
   .readonly-sub   { color: var(--text-3); font-size: 12px; margin-top: 2px; line-height: 1.4; }
   .editor-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  /* Restored-draft banner (#157 followup). Sits above the first form
+     card so the user knows their fields came from a prior session and
+     can wipe them via Discard. Accent-tinted to be noticeable without
+     alarming — this is informational, not an error. */
+  .draft-restored-banner {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    background: var(--accent-dim, rgba(59,130,246,0.10));
+    border: 1px solid var(--accent, #3b82f6);
+    border-radius: var(--radius-md);
+    color: var(--text-1);
+    font-size: 13px;
+  }
+  .draft-restored-banner .material-symbols-rounded { font-size: 20px; color: var(--accent, #3b82f6); }
+  .draft-restored-text { flex: 1; }
+  .draft-restored-discard {
+    background: transparent;
+    border: 1px solid var(--accent, #3b82f6);
+    color: var(--accent, #3b82f6);
+    padding: 4px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .draft-restored-discard:hover { background: var(--accent, #3b82f6); color: #fff; }
   .editor-card-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }
   .form-row { display: flex; gap: 12px; align-items: flex-end; }
   /* Issues #69 + #70: nutrition basis + alt-unit + density UI */
@@ -1320,18 +1506,6 @@
     flex-shrink: 0;
   }
   :global(.cam-capture-btn) { gap: 6px; min-width: 140px; }
-  :global(.crop-hint) { padding: 8px 16px 0; font-size: 12px; color: var(--text-3); }
-  :global(.crop-container) { position: relative; overflow: hidden; user-select: none; touch-action: none; }
-  :global(.crop-img) { display: block; max-width: 100%; max-height: 55vh; user-select: none; }
-  :global(.crop-box) {
-    position: absolute;
-    border: 2px solid #fff;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
-    cursor: move;
-    box-sizing: border-box;
-    touch-action: none;
-  }
-
   /* Scan Label button — sits in the Nutrition card title row. Icon + text
      so the action is obvious (camera alone could be confused with food
      photo / profile picture). Compact enough to fit the title row on

@@ -1,6 +1,14 @@
 <script>
   import { onMount } from 'svelte';
-  import { pop } from 'svelte-spa-router';
+  import { pop, location } from 'svelte-spa-router';
+
+  // Embedded mode: when the Profile view is rendered inside the
+  // Settings shell — either as the /settings/profile section OR
+  // inline inside the desktop welcome hero at /settings — the
+  // outer Settings chrome already supplies the title / back button
+  // and we don't want our own sticky page-header duplicating it.
+  // Matches both '/settings' and '/settings/*' via startsWith.
+  $: _embedded = ($location || '').startsWith('/settings');
   import { _ } from 'svelte-i18n';
   import { get } from 'svelte/store';
   import { currentUser, userMgmtActive, logout as logoutAuth } from '../stores/auth.js';
@@ -282,18 +290,31 @@
   }
 </script>
 
-<div class="page-wrap">
-  <div class="page-header sticky-header">
-    <button class="btn-icon" on:click={pop} title={$_('common.back')}>
-      <span class="material-symbols-rounded">arrow_back</span>
-    </button>
-    <h2 class="page-title">{$_('profile.title')}</h2>
-    <button class="btn btn-primary" on:click={save} disabled={saving}>
-      {saving ? $_('common.saving') : $_('common.save')}
-    </button>
-  </div>
+<div class="page-wrap" class:profile-embedded={_embedded}>
+  {#if !_embedded}
+    <div class="page-header sticky-header">
+      <button class="btn-icon" on:click={pop} title={$_('common.back')}>
+        <span class="material-symbols-rounded">arrow_back</span>
+      </button>
+      <h2 class="page-title">{$_('profile.title')}</h2>
+      <button class="btn btn-primary" on:click={save} disabled={saving}>
+        {saving ? $_('common.saving') : $_('common.save')}
+      </button>
+    </div>
+  {/if}
 
   <div class="profile-body">
+    {#if _embedded}
+      <!-- Embedded save button — replaces the sticky header's Save
+           since Settings owns the outer header. Sits above the
+           avatar so it's the first thing the user sees when they
+           want to commit changes. -->
+      <div class="profile-embedded-save">
+        <button class="btn btn-primary" on:click={save} disabled={saving}>
+          {saving ? $_('common.saving') : $_('common.save')}
+        </button>
+      </div>
+    {/if}
     <!-- Avatar -->
     <div class="avatar-section">
       <button class="avatar-btn" on:click={pickAvatar} disabled={uploading} title={$_('profile.change_photo')}>
@@ -604,5 +625,19 @@
   }
   .danger-zone-btn:hover {
     background: color-mix(in srgb, var(--danger) 8%, transparent);
+  }
+
+  /* Embedded mode — rendered inside the Settings two-pane shell.
+     Drop the outer .page-wrap padding since Settings already
+     supplies it, and dock the Save button at the top-right of the
+     body so it's clearly the primary action for the section. */
+  .page-wrap.profile-embedded {
+    padding: 0;
+    min-height: 0;
+  }
+  .profile-embedded-save {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 4px 8px;
   }
 </style>

@@ -10,6 +10,7 @@
   import { ACTIVITIES, search as searchCompendium, metKcal, findById } from '../../lib/activity-picker.js';
   import { readBodyStat } from '../../lib/body-stats-unit.js';
   import ActivityCategoryPicker from './ActivityCategoryPicker.svelte';
+  import { decimalInput, parseDecimal } from '../../lib/decimal-input.js';
 
   export let open = false;
   export let date = '';        // YYYY-MM-DD
@@ -219,10 +220,10 @@
     error = '';
     const trimmed = name.trim();
     if (!trimmed) { error = $_('diary.activity.errors.name_required'); return; }
-    const rawNum = Math.max(0, Number(kcal) || 0);
+    const rawNum = Math.max(0, parseDecimal(kcal) || 0);
     const kcalNum = Math.round($energyUnit === 'kJ' ? rawNum / 4.184 : rawNum);
     if (!kcalNum) { error = $_('diary.activity.errors.kcal_required'); return; }
-    const dur = durationMin === '' ? null : Math.max(0, Math.round(Number(durationMin) || 0));
+    const dur = durationMin === '' ? null : Math.max(0, Math.round(parseDecimal(durationMin) || 0));
     const dist = distance.trim() || null;
     // Source promotes to 'compendium' when a MET is attached; otherwise
     // keeps whatever it was (or defaults to manual_form for new rows).
@@ -304,8 +305,8 @@
     <div class="row-2">
       <label class="field">
         <span class="field-label">{$_('diary.activity.field_duration')} <span class="hint">{$_('diary.activity.field_optional')}</span></span>
-        <input id="activity-duration-input" class="input" type="number" bind:value={durationMin}
-          inputmode="numeric" min="0" placeholder={$_('diary.activity.field_duration_placeholder')} />
+        <input id="activity-duration-input" class="input" type="text" bind:value={durationMin}
+          inputmode="decimal" use:decimalInput placeholder={$_('diary.activity.field_duration_placeholder')} />
       </label>
       <label class="field">
         <span class="field-label">{$_('diary.activity.field_distance')} <span class="hint">{$_('diary.activity.field_optional')}</span></span>
@@ -315,8 +316,8 @@
 
     <label class="field">
       <span class="field-label">{$_('diary.activity.field_kcal')} ({$energyUnit || 'kcal'})</span>
-      <input class="input" type="number" bind:value={kcal} on:input={onKcalInput}
-        inputmode="numeric" min="0" placeholder={$energyUnit === 'kJ' ? '500' : '120'} />
+      <input class="input" type="text" bind:value={kcal} on:input={onKcalInput}
+        inputmode="decimal" use:decimalInput placeholder={$energyUnit === 'kJ' ? '500' : '120'} />
       {#if previewKcal != null && met != null}
         {@const _wKgRounded = userWeightKg.toFixed(1)}
         {@const _weightDisp = $weightUnit === 'lb'

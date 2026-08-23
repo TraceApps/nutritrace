@@ -9,6 +9,259 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.0] - 2026-08-23
+
+Minor release with substantial new territory: Model Context Protocol
+support for AI agents, OpenID Connect authentication, Google Health
+integration (replacing the deprecated Fitbit-only path), a proper
+Activity tracking surface with MET-based estimation, and a first-pass
+wide-screen redesign across every section of the app. The AI Assistant
+also learned to be terse and use plain text, comma decimal separator
+is now supported everywhere numbers get typed, and in-app updates
+finally tell you when a new version is out.
+
+Community translations are open on Weblate.
+
+### Added
+
+- **Wide-screen redesign at ≥1280px, first pass.** Every routed section
+  (Diary, Foods, Statistics, Goals, Wellness, Settings) plus the Food
+  and Meal editors got a proper desktop layout in this cycle. The goal
+  is a genuinely useful experience on the extra horizontal real estate
+  instead of a stretched-out phone stack. This is the starting point,
+  not the finish line. Wider breakpoint coverage (foldables and small
+  tablets currently fall back to the mobile layout), a per-user layout-
+  width picker, and the full two-pane Settings shell are all on the
+  backlog for future releases. `Force Mobile Layout` remains the
+  opt-out for anyone who prefers the compact stack on wide screens.
+- **Model Context Protocol (MCP) server** ([#103](https://github.com/TraceApps/nutritrace/issues/103)). NutriTrace now exposes a read + write MCP endpoint so Claude, Continue, and other MCP-aware agents can search your food catalog, log entries, propose meals, and read diary history without a separate API dance. Read tools cover foods (search / list / detail), meals (search / recent / detail), diary (by date / range / averages), and body stats. Write tools cover diary logging, quick calories, food catalog creation, and meal creation. All gated behind the `mcp:read` / `mcp:write` API-key scopes. Tolerates common nutriment aliases (`protein`, `carbs`, `vitamin-b12`) automatically. See [/reference/mcp-tools/](https://traceapps.github.io/docs/reference/mcp-tools/) for the full tool list. Thanks to @javydekoning for the meal-side tool feedback.
+- **OpenID Connect authentication (Phase 1 + 2)**. Self-hosters can now front NutriTrace with Authelia, Authentik, Keycloak, or any OIDC-compliant provider. Configure via `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`; the login page shows a "Sign in with SSO" button alongside the existing password flow. Local accounts continue to work in parallel; no forced migration.
+- **Google Health integration** replaces the Fitbit-only path. Steps, distance, calories out, active calories, weight, sleep, and heart rate now sync from Google Health on Android via the Health Connect bridge. The legacy Fitbit web-API path stays supported through September 2026 as Google winds down that surface.
+- **Activity tracking** (Diary → Activity section). Log workouts by name + duration and NutriTrace estimates the kcal burn from your body weight × MET × duration using the Compendium of Physical Activities. Auto-estimate is opt-in (Settings → Diary → Auto-estimate); user-stated kcal always wins if you provide a number. Wellness-reported calories (from Fitbit / Garmin / Google Health) can either replace or add to manual entries via the Manual Activity Policy setting.
+- **`POST /api/v1/activity`** ([#154](https://github.com/TraceApps/nutritrace/issues/154)). External services can log a manual activity entry via API using the new `write:activity` scope. Supports `external_id` for idempotent posts.
+- **Nutrition Facts Box** (food detail sheet). Tap any food and get a proper FDA-style label with per-serving + per-100g columns instead of the compact chip row. Turned on by default; toggle in Settings → Foods → Show Nutrition Facts Box.
+- **Statistics: category order + hidden metrics** (Settings → Statistics). Drag to reorder metric categories and hide the ones you don't track; the Statistics tab picks the first available metric per your ordering.
+- **Comma decimal separator** across all numeric inputs ([#160](https://github.com/TraceApps/nutritrace/issues/160)). Portion, quantity, nutrition per 100 g, weight and body measurements, water custom amount, Quick Calories, recipe amount, and all goal targets accept either `,` or `.`. Comma-locale users can type "2,5" without fighting the form.
+- **Shared image cropper** across Food / Meal / Recipe editors ([#159](https://github.com/TraceApps/nutritrace/pull/159), thanks @librarian). Resize handle, touch support, unified visual. Previously each editor had its own cropper and the Recipe one was stuck top-left with no resize.
+- **Editor draft persistence.** If Android's low-memory killer terminates the app while you're editing a food or meal (Samsung's camera-mode lmkd is the usual culprit), your in-progress typing is restored on next open. A banner surfaces the restored draft with a Discard button so you can wipe it in one tap. Photos persist too via IndexedDB.
+- **Screen wake lock** during AI-Assistant and Scan-Label requests ([#158](https://github.com/TraceApps/nutritrace/issues/158)). Screen no longer sleeps mid-request and drops the connection.
+
+### Changed
+
+- **In-app updates now actually tell you when a new version is out.** The update-check system was already present but silent in most cases: the PWA silently auto-swapped, Android only surfaced either a banner or a notification (not both), the check ran at most once per 24h, and there was no in-app cue anywhere else. Now: PWA users get a "Reload" prompt when a fresh bundle is deployed, Android shows both a banner AND a one-shot OS notification, check frequency is configurable in Settings → Updates (Hourly / Every 4 Hours / Every 12 Hours / Once a Day / Manual Only, default every 4 hours), a re-check fires when the tab regains focus so a laptop resumed from sleep updates immediately, and a small red dot appears on the Settings nav icon while an update is pending. Skip-this-version clears every surface for that version in one tap.
+- **AI Assistant is quieter and plain-text by default** ([#163](https://github.com/TraceApps/nutritrace/issues/163)). Response length defaults to 2–4 sentences. Markdown is off so `**bold**` and `##headings` no longer show as literal characters.
+- **AI Assistant asks fewer questions before logging** ([#163](https://github.com/TraceApps/nutritrace/issues/163)). A single substring hit in your local foods auto-logs the same way an exact hit did. The prior "6+ hits silently discarded" bug is also fixed.
+- **Manual estimate path in the AI Assistant** ([#163](https://github.com/TraceApps/nutritrace/issues/163)). Asking "don't search, just estimate it" routes to a review card with the estimated nutrition instead of running a catalog search.
+- **Confirmation before clearing the AI chat history.** Was a one-tap wipe with no way back.
+
+### Fixed
+
+- **Add Activity sheet crashed on Android** ([#162](https://github.com/TraceApps/nutritrace/issues/162), thanks @knew3be for the diagnosis). A missing method on the native backend threw before the sheet could render. Bug present since v1.0.1. Also fixed the underlying divergence risk (proxy now surfaces missing methods as a warning + rejected promise instead of a silent sync crash).
+- **Clear all items in a meal actually clears on the server** ([#169](https://github.com/TraceApps/nutritrace/issues/169), thanks @simonmoreau). The bulk clear was filtering items on the client but not sending delete markers, so the server put them right back on the next refresh.
+- **Add-to-Diary button no longer duplicates entries under mash-click** ([#156](https://github.com/TraceApps/nutritrace/issues/156), thanks @sunjam). The button now disables the moment you tap it and stays disabled until the save completes.
+- **Statistics default metric honors category order** ([#155](https://github.com/TraceApps/nutritrace/issues/155)). Opening the Statistics tab picks the first metric under your Settings → Statistics ordering, skipping wearables that aren't connected, body stats you've hidden, and water when it's turned off.
+- **Health Connect no longer overwrites past dates with today's data** ([#161](https://github.com/TraceApps/nutritrace/issues/161), thanks @knew3be). Viewing an old day and tapping Sync used to write today's steps and weight into that day. Per-metric read errors are now surfaced to Diagnostic Logs so silent failures can be diagnosed.
+- **Android external https images load directly** instead of being routed through `/api/proxy` (was slow and unnecessary on native).
+- **Android diary photo hydration is fast again** on days with many entries. Was full-scanning the foods + meals tables per read; now targeted at the items actually on the day.
+
+### Translations
+
+- **Weblate is open for community translations** at [hosted.weblate.org/projects/nutritrace](https://hosted.weblate.org/projects/nutritrace). Contribute a locale (or improve an existing one) without a GitHub round-trip. See [CONTRIBUTING.md](CONTRIBUTING.md#translations) for the workflow. Direct JSON pull requests still work too.
+
+### Security
+
+- No new vulnerabilities. `npm audit` reports 0.
+- Three new dependencies for the features above: `@modelcontextprotocol/sdk` (MCP), `openid-client` (OIDC), `zod` (MCP schema validation). All actively maintained.
+
+---
+
+## [1.2.0-dev07] - 2026-08-22 (pre-release)
+
+Seventh dev pre-release of the 1.2.0 minor. Two big themes: wide-screen
+layouts (rails now stay put on scroll) and a proper update-notification
+loop that finally tells you when a new version is out.
+
+### Added
+
+- **Updates: check-frequency picker** in Settings → Updates (Hourly /
+  Every 4 Hours / Every 12 Hours / Once a Day / Manual Only). Defaults
+  to every 4 hours. Persisted per-user across devices.
+- **Updates: red dot on the Settings nav icon** whenever a new version
+  is available and hasn't been dismissed. Clears the moment you tap
+  "Skip This Version" or the banner's dismiss button.
+
+### Changed
+
+- **Updates: PWA now actually notices new deploys.** The service worker
+  is prompt-based instead of silent-auto-update, so a fresh build no
+  longer swaps out from under you with no warning. A "Reload" banner
+  offers to apply the new bundle. Also polls for `sw.js` changes on the
+  same cadence you pick above, and on visibility change, so a long-lived
+  tab surfaces updates in minutes instead of the browser's default 24h.
+- **Updates: Android shows both an OS notification AND an in-app banner**
+  (previously it was either/or). Both respect the same "Skip This
+  Version" flag — one dismiss clears every surface for that version.
+- **Wide-screen layouts on Diary + Foods stay welded to the viewport.**
+  The Diary right rail (Body Stats / Water / Activity widgets) and the
+  Foods page's Sources sidebar + food preview no longer drift on
+  scroll or slip off near the bottom of the page. Fixed properly via
+  the portal-plus-position:fixed pattern instead of sticky.
+
+### Fixed
+
+- **Wellness page: `getLatestWellness` no longer crashes** — mentioned
+  it in dev06 notes but the fix relies on the proxy stub that also
+  landed in this cycle; both are now working together on Android.
+
+### Security
+
+- No new dependencies. `npm audit` reports 0 vulnerabilities.
+
+---
+
+## [1.2.0-dev06] - 2026-08-21 (pre-release)
+
+Sixth dev pre-release of the 1.2.0 minor. Bug fixes across the community
+issue tracker plus follow-ups on the dev05 comma decimal work.
+
+### Changed
+
+- **AI Assistant: shorter, plain-text answers** ([#163](https://github.com/TraceApps/nutritrace/issues/163)). Default response length is now 2 to 4 sentences instead of paragraphs, and markdown is off so `**bold**` and `##headings` no longer show as literal characters.
+- **Fewer questions before logging** ([#163](https://github.com/TraceApps/nutritrace/issues/163)). A single substring hit in your local foods now auto-logs the same way an exact hit did. Previously it asked which one. The prior 6+ hits bug that silently discarded all local matches is also fixed.
+- **Manual estimate path in the AI Assistant** ([#163](https://github.com/TraceApps/nutritrace/issues/163)). Explicitly asking to skip the database ("don't search, just estimate") now routes to a review card with the estimated nutrition instead of running a catalog search.
+- **Confirmation before clearing the AI chat history.** A single tap used to wipe the whole conversation with no way back.
+- **Settings sidebar sliding highlight** on the desktop rail.
+
+### Fixed
+
+- **Add Activity sheet opens on Android again** ([#162](https://github.com/TraceApps/nutritrace/issues/162)). A missing method on the native backend was throwing before the sheet could render. Also fixed the underlying class of bug (the proxy now surfaces missing methods as a warning + rejected promise instead of a silent crash).
+- **Health Connect no longer overwrites past dates with today's data** ([#161](https://github.com/TraceApps/nutritrace/issues/161)). Viewing an old day and tapping Sync used to write today's steps and weight into that day. The sync now refuses on any non-today view, and the button is hidden there.
+- **Per-metric Health Connect read errors are logged to Diagnostic Logs** ([#161](https://github.com/TraceApps/nutritrace/issues/161)). Silent `catch {}` blocks on ten of the read paths now emit the actual error so wrong record type names surface instead of vanishing.
+- **Clear all items actually clears the meal** ([#169](https://github.com/TraceApps/nutritrace/issues/169)). The bulk clear was filtering items on the client but not telling the server they were deleted, so the server put them right back. Individual delete worked because it emits the tombstone.
+- **Body Stats widget on the diary rail** ([#168](https://github.com/TraceApps/nutritrace/issues/168)). Weight now shows immediately after refresh instead of only after opening the sheet, and clearing the field or entering 0 removes the weight (was silently ignored).
+- **Editor draft no longer leaks between different foods or meals** ([#157](https://github.com/TraceApps/nutritrace/issues/157) follow-up). Every session was writing to the same draft key, so typing while editing food A would appear as pre-filled data when adding a new food. Restored drafts now show a banner with a Discard button, and the photo persists too (moved to IndexedDB so it stops fighting localStorage quota).
+- **Comma decimal separator now works on the remaining number fields** ([#160](https://github.com/TraceApps/nutritrace/issues/160) follow-up). Body Stats sheet, Foods portion + servings prompt, Diary edit sheet, water custom amount, Onboarding wizard, Goals editor, Fasting custom hours, Water container settings, Activity duration and kcal. The dev05 pass missed these.
+
+### Translations
+
+- **Weblate is open for community translations** at [hosted.weblate.org/projects/nutritrace](https://hosted.weblate.org/projects/nutritrace). Contribute a locale (or improve an existing one) without a GitHub round-trip. Direct JSON pull requests still work too. See [CONTRIBUTING.md](CONTRIBUTING.md#translations) for the workflow.
+- Czech translation started via Weblate (early, most strings still fall back to English).
+
+### Security
+
+- No new dependencies. `npm audit` reports 0 vulnerabilities.
+
+---
+
+## [1.2.0-dev05] - 2026-08-16 (pre-release)
+
+Fifth dev pre-release of the 1.2.0 minor. Bug fixes from the community
+issue tracker plus a shared image cropper contributed by @librarian.
+
+### Added
+
+- **POST /api/v1/activity** ([#154](https://github.com/TraceApps/nutritrace/issues/154)). External services can log a manual activity entry via API using the new `write:activity` scope. Supports `external_id` for idempotent posts.
+- **MCP `create_food` accepts common nutriment aliases** ([#103](https://github.com/TraceApps/nutritrace/issues/103) followup). `protein`, `carbs`, `vitamin-b12` and other legacy keys are now mapped to the canonical NUTRIMENTS names. A one-time backfill also renames any prior rows written with the wrong keys.
+
+### Changed
+
+- **Comma decimal separator supported across numeric inputs** ([#160](https://github.com/TraceApps/nutritrace/issues/160)). Portion, quantity, nutrition per 100 g, weight, body measurements, water custom amount, Quick Calories, and recipe amount all accept either `,` or `.`. Comma-locale users can type "2,5" without fighting the form.
+- **Image cropper is now shared across Food/Meal/Recipe editors** ([#159](https://github.com/TraceApps/nutritrace/pull/159), thanks @librarian). One component, resize handle, and proper touch support. Meal editor used to be mouse-only and had a hardcoded 200 px box stuck near the top-left; now centered, resizable, and works on phones.
+- **Cropper output standardized at 512 px** and the resize handle grown to 44 px for comfortable tap targets.
+- **Stats default metric honors category order** ([#155](https://github.com/TraceApps/nutritrace/issues/155)). Opening the Statistics tab picks the first metric under Settings > Statistics category order, skipping wearables that aren't connected, body stats you've hidden, and water when it's turned off.
+- **Screen wake lock held during in-flight AI and Scan Label requests** ([#158](https://github.com/TraceApps/nutritrace/issues/158)). Slow-model calls no longer die on screen timeout mid-request.
+- **Editor drafts persist to localStorage** ([#157](https://github.com/TraceApps/nutritrace/issues/157)). If the OS kills the WebView while the camera is up (Samsung lmkd behavior on lower-RAM devices), the Food/Meal editor restores what you'd typed on the next open. 4-hour TTL.
+
+### Fixed
+
+- **Add-to-Diary button no longer duplicates entries under mash-click** ([#156](https://github.com/TraceApps/nutritrace/issues/156)). The button now disables the moment you tap it and stays disabled until the save completes, so extra taps during a slow write don't fire extra PUTs.
+- **Same-day copied diary items no longer look like duplicates on the local device.** Each copy gets a fresh uuid so the row keys are unique.
+- **Android diary photo hydration no longer full-scans the foods and meals tables on every diary read.** Queries are now targeted at the items actually on the day.
+- **Android external https images load directly** instead of being routed through `/api/proxy` (was slow and unnecessary on native).
+
+### Security
+
+- No new dependencies. `npm audit` reports 0 vulnerabilities.
+
+---
+
+## [1.2.0-dev04] - 2026-08-11 (pre-release)
+
+Fourth dev pre-release of the 1.2.0 minor. MCP gets meal-side read tools (thanks to feedback from @javydekoning on #103), an Android hydration bug that made recipe-only days render as ghost placeholders is fixed, and a couple of Settings labels are tidied up.
+
+### Added
+
+- **MCP: three new read tools for saved meals** ([#103](https://github.com/TraceApps/nutritrace/issues/103)). Agents connecting via MCP can now search, list, and inspect saved meals without the numeric `meal_id` up front.
+  - **`search_meals`** — text search over saved meals by name. Query is **optional**: with no query, browses the whole catalog (covers the `list_meals` ask). Recipes excluded by default; `include_recipes: true` opts them in.
+  - **`get_recent_meals`** — most-recently-used saved meals, ordered by `last_used_at`.
+  - **`get_meal_details`** — full contents of one saved meal or recipe (items[] + per-item nutrition + meta).
+  - All three sit under the existing `mcp:read` scope; no new env flag or token change needed. Docs: [/reference/mcp-tools/](https://traceapps.github.io/docs/reference/mcp-tools/).
+
+### Fixed
+
+- **Recipes added as the first item of a day on Android no longer render as a 100g placeholder with no image or nutrition** (PR #153, thanks @librarian). Recipe-only days took a hydration shortcut that returned unresolved Promises instead of actual items; downstream image + nutrition passes read undefined fields and rendered a ghost row. The shortcut now awaits its children properly.
+- **Recipe logging on Android no longer bumps the wrong "recently used" counter** (PR #153, thanks @librarian). `addDiaryItem` was routing every usage bump to `markFoodUsed`, so logging a recipe silently incremented `usage_count` on whatever random food happened to share the recipe's numeric id. It now routes recipe items to `markMealUsed` instead.
+
+### Changed
+
+- **Settings copy: "desktop" terminology aligned with the large-screen redesign.** The Force Mobile Layout description now says "large screens" (the trigger is a viewport-width breakpoint, so Android tablets and foldables get the layout too), and the Diary settings group heading is now "Rail Widgets" (the subtext already clarified the ≥1280px threshold).
+
+---
+
+## [1.2.0-dev03] - 2026-08-11 (pre-release)
+
+Third dev pre-release of the 1.2.0 minor. Data-safety upgrade to how diary items and water round-trip between clients and the server.
+
+### Fixed
+
+- **Diary items and water are now merged per-entry across devices instead of replaced wholesale.** Every diary item and water log carries a stable identifier, and deletions travel as explicit tombstones. If a client's local copy of a day is stale, its next write can no longer overwrite items or water that the server holds; the merge preserves anything the client didn't address. Existing rows get identifiers assigned automatically on the first server start after upgrade. No user-visible change under normal use; the safety kicks in when two devices race, when a mobile local cache thins out, or when an offline delete is synced later.
+
+---
+
+## [1.2.0-dev02] - 2026-08-10 (pre-release)
+
+Second dev pre-release of the 1.2.0 minor, and a substantial one. Every major page (Diary, Foods, Settings, Wellness, Statistics, Goals) now has a proper large-screen layout with rails, wider content areas, and page-specific extras like drag-to-copy meals and click-to-drill charts. Editors get a two-column layout. Deep-links wire the whole app to Statistics. A handful of bugs are fixed, notably an Android pull-to-refresh that fired mid-page. AI model presets are refreshed to current generations. Opt-in trace-level request diagnostics arrive server-side.
+
+> **Note on the large-screen redesign.** This is a first pass. Every page listed under "Large-screen layouts" below is expected to change further as feedback comes in and as I keep using it myself. If a widget placement, rail behavior, or interaction feels off, please open a Discussion or an issue with a screenshot; nothing here is locked in.
+
+### Added
+
+**Large-screen layouts (first pass, iterating)**
+
+- **Diary large-screen layout.** Two-column shell with a Day Summary widget that mirrors the full Nutrition Summary sheet (same numbers, same layout, same % vs g toggle). Right rail carries Water, Body Stats (merged Weight + Measurements), Notes, and configurable per-widget visibility toggles. 7-day week strip anchors on the viewed date (not real-world "today") with a hover preview that respects your Date Format preference. Drag meals onto week-strip days to copy them forward. Drag items between meals within the same day. Nutrient widget in the rail excludes calories / protein / carbs / fat (those already live in the Day Summary). All configured Water containers render (not just the first three). A "Weekly trend" indicator sits on the Day Summary KPI strip (rolling 7 days vs previous 7).
+- **Foods large-screen layout.** Left filter rail, wider detail pane, adjusted grid, bottom-nav clearance, rail empty state.
+- **Settings large-screen layout.** Two-pane shell with an always-visible search bar. Sections regrouped for scannability across Diary, Appearance, Regional/Foods, Statistics/Water/Nutrients/Sharing, Notifications/Backup/Import-Export, and Components. Profile becomes a first-class rail section that inline-expands in the welcome hero. Cross-fade between sections.
+- **Wellness, Statistics, and Goals large-screen layouts.** Each page gets a left rail (providers / metrics / your goals), a wider content area, and (where useful) a right rail (insights / detail / drill-in). Rails collapse cleanly on narrow screens.
+- **Editor two-column layout.** FoodEditor and MealEditor gain a sticky left column on wide screens plus a two-column nutrition grid; Show All Nutrients now slides open.
+- **Force Mobile Layout toggle.** New Settings option turns every large-screen layout above off entirely and falls back to the single-column mobile view app-wide.
+
+**Statistics deep-linking + polish**
+
+- **Deep-link into Statistics from anywhere.** Diary's Day Summary, every Wellness metric card, and every Goals row now have a "View trend" affordance that jumps to Statistics with the right metric and range preselected.
+- **Statistics polish pass.** Left rail is searchable and scrollable, charts are clickable to drill into a specific date, timelines auto-group by month past 60 days, an empty state suggests what to log next, and CSV export is available on every chart.
+
+**Server + AI**
+
+- **Opt-in trace-level request diagnostics.** `LOG_LEVEL=trace` adds the most verbose server level, while request bodies require the separate `TRACE_REQUEST_BODIES=1` switch. Pre-parser instrumentation counts observed bytes and catches aborted or oversized requests without trusting `Content-Length`. Post-parser tracing emits bounded, credential-redacted contents for selected routes including sync pushes. API calls carry `X-Request-ID` across app and server logs, 413s emit one structured warning, static and upload traffic stays out of INFO logs, invalid logging configuration fails at startup, and the server startup line now includes its resolved NutriTrace version. Thanks to @librarian (PR #150).
+- **Model Context Protocol (MCP) server** ([#103](https://github.com/TraceApps/nutritrace/issues/103), thanks @javydekoning). *(promoted from dev01 for release-notes visibility)* 12 tools across three tiers, each gated by its own env flag AND its own token scope. Read tools (5) enabled with `MCP_ENABLED=1` and `mcp:read`. Write tools (4) add `MCP_WRITE_ENABLED=1` and `mcp:write`; everything lands as normal editable diary entries. Destructive tools (3) add `MCP_DESTROY_ENABLED=1`, `mcp:destroy`, AND every call must include `confirm: true`. Tombstoned diary days refuse writes rather than silently resurrect. Every tool query is scoped on `user_id`. Full setup + Claude Desktop config at [docs/nutritrace/mcp/](https://traceapps.github.io/docs/nutritrace/mcp/).
+
+### Fixed
+
+- **AI Assistant custom model didn't persist** ([#151](https://github.com/TraceApps/nutritrace/issues/151), thanks @pliddle). Typing a model ID into the Custom field on any provider now saves on every keystroke instead of reverting to the last preset the next time you opened Settings. NutriTrace-only bug; the same code path was already correct in LiftTrace and CookTrace.
+- **Android pull-to-refresh fired mid-page.** Scrolling downward anywhere on a page could trigger the sync spinner because the gesture recognizer accepted any downward swipe. It now only fires at true top-of-scroll, matching Android's standard SwipeRefreshLayout behavior.
+- **Whole-app remount on every navigation.** The app shell was keying `<main>` on the full URL, which force-remounted on every intra-app link (flashing content, losing transient state on the incoming view). Now keys on the top-level route segment so same-shell nav stays live.
+
+### Changed
+
+- **Refreshed AI model presets.** Google Gemini added 3.5 Flash Lite / 3.6 Flash / 3.1 Pro to the top of the dropdown; OpenAI added GPT-5.6 Luna / Terra / full. Previous-generation entries (Gemini 2.5, GPT-4o, Claude Opus 4.8) remain in the dropdown labeled "(previous)" and continue to work unchanged. Defaults for new installs bumped to Gemini 3.6 Flash and GPT-5.6 Luna.
+
+### Infrastructure
+
+- **i18n CI check ported from LiftTrace.** GitHub Actions now enforces no-duplicate keys across ARB files, and every code-referenced translation key must resolve.
+- **Docs:** roadmap updated to reflect the current API token scope set (adds `write:workouts` and `mcp:*`).
+
+---
+
 ## [1.1.2] - 2026-08-08
 
 Patch release. Full OFF integration migration to the two current-canonical endpoints (search-a-licious for text search, v3 for barcode / product detail), a Kilojoules-vs-Calories goal storage cleanup, and smaller UI polish. Six code-review passes on the accumulated dev diff turned up 18 issues across the cycle; the resulting release has been through more static-analysis scrutiny than most NT releases to date.

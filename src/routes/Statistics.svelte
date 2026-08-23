@@ -38,13 +38,46 @@
   let range = '30';   // '7','14','30','90','180','365','all','custom'
   let customStart = '';
   let customEnd   = localDateStr(); // today
-  // Default energy metric matches the user's chosen energy unit so AU/NZ
-  // users see kJ out of the box instead of having to switch every time.
-  let metric = ($energyUnit === 'kJ') ? 'kilojoules' : 'calories';
+  // Default metric respects the user's Statistics category order (Settings →
+  // Statistics → Categories drag-reorder), skipping hidden AND currently-
+  // unavailable ones. Falls back to the energy metric (calories /
+  // kilojoules by unit preference) when no valid ordered candidate exists.
+  // Fixes #155 where calories was hardcoded as the default regardless of
+  // the ordered list; the availability check also handles the corner
+  // where a user had e.g. wl_steps first, then disconnected their wearable
+  // — we skip it rather than paint an empty chart.
+  function _isCurrentlyAvailable(key) {
+    if (!key) return false;
+    if (key.startsWith('wl_')) {
+      const hasWellness = $fitbitFamilyEnabled || $garminEnabled;
+      if (key === 'wl_muscle') return hasWellness || $withingsEnabled;
+      return hasWellness;
+    }
+    if (key === 'water') return _waterShowInStats;
+    // Body-stat keys can be individually hidden via Settings → Body.
+    const isBody = ['weight','neck','waist','hips','chest','thighs','biceps','calves','body_fat','body_water'].includes(key);
+    if (isBody) return !($hiddenBodyStats || []).includes(key);
+    // Nutriments and anything else — always in the picker.
+    return true;
+  }
+  function _initialMetric() {
+    const order = Array.isArray($statsMetricOrder) ? $statsMetricOrder : [];
+    const hidden = new Set(Array.isArray($statsHiddenMetrics) ? $statsHiddenMetrics : []);
+    const first = order.find(k => k && !hidden.has(k) && _isCurrentlyAvailable(k));
+    if (first) return first;
+    return ($energyUnit === 'kJ') ? 'kilojoules' : 'calories';
+  }
+  let metric = _initialMetric();
   let data   = [];    // [{ date, val }]
   let loading = false;
   let summary = null; // { avg, min, max, total, daysWithData }
   let _loadVer = 0;   // cancel stale concurrent loadData calls
+  // Desktop-only rail + timeline UI state. All gated by the same
+  // :global(html:not(.force-mobile-layout)) block below in <style>, so
+  // mobile behavior is untouched even if these vars change.
+  let _railQuery = '';                          // #2 left-rail filter
+  let _timelineExpandedMonths = new Set();      // #4 collapsible months
+  let _compareMetric = '';                      // #5 compare mode (deferred)
 
   // Cumulative metrics accumulate throughout the day (calories, steps, water, etc.).
   // Excluded from charts by default until the day is complete to avoid trend distortion.
@@ -493,6 +526,22 @@
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
+        // Chart click drill-through (#3). Labels array is display-format
+        // (Aug 9) so we can't parse an ISO date back out of it —
+        // displayData in the enclosing closure still carries .date, so
+        // we index into that directly and hand it to _drillIntoDate,
+        // which routes wellness metrics to /wellness and everything else
+        // to /diary on that day.
+        onClick: (_evt, activeEls) => {
+          if (!activeEls?.length) return;
+          const idx = activeEls[0].index;
+          const row = displayData[idx];
+          if (row?.date) _drillIntoDate(row.date);
+        },
+        onHover: (evt, activeEls) => {
+          const t = evt?.native?.target;
+          if (t && t.style) t.style.cursor = activeEls?.length ? 'pointer' : 'default';
+        },
         plugins: {
           legend: { display: datasets.length > 1, labels: { color: textColor, boxHeight: 2, usePointStyle: true } },
           tooltip: {
@@ -579,6 +628,161 @@
     return m ? (m.unit || '') : '';
   })();
 
+  // Desktop rail — partition the (already filtered + ordered) METRICS
+  // array into semantic groups so the left rail can render category
+  // headings instead of one flat pill scroller. Membership inferred from
+  // source-array shape: NUTRIMENTS items carry `.id` (no `.value`), body
+  // stats use `.value` present in BODY_STATS, water is the literal
+  // 'water' key, wellness values are prefixed `wl_`.
+  $: groupedMetrics = (() => {
+    const bodyValues = new Set(BODY_STATS.map(s => s.value));
+    const buckets = { nutrient: [], body: [], water: [], wellness: [] };
+    for (const m of METRICS) {
+      const key = _metricKey(m);
+      let bucket;
+      if (typeof key === 'string' && key.startsWith('wl_')) bucket = 'wellness';
+      else if (key === 'water') bucket = 'water';
+      else if (bodyValues.has(key)) bucket = 'body';
+      else bucket = 'nutrient';
+      buckets[bucket].push({ ...m, _key: key });
+    }
+    const groups = [];
+    if (buckets.nutrient.length) groups.push({ label: 'Nutrition', metrics: buckets.nutrient });
+    if (buckets.body.length)     groups.push({ label: 'Body',      metrics: buckets.body });
+    if (buckets.water.length)    groups.push({ label: 'Water',     metrics: buckets.water });
+    if (buckets.wellness.length) groups.push({ label: 'Wellness',  metrics: buckets.wellness });
+    return groups;
+  })();
+
+  // Goal value + delta for the right-rail KPI stack. Mirrors the goal
+  // computation inside renderChart() (lines ~436-446); kept reactive here
+  // so the "vs goal" chip stays in sync with metric / energyUnit changes
+  // without re-running the chart pipeline.
+  $: _goalValReactive = (() => {
+    const g = $goals && $goals[metric];
+    let gv = g ? (g.max ?? g.min ?? null) : null;
+    if (gv != null && g?.isPercent) {
+      const density = {fat:9,'saturated-fat':9,carbohydrates:4,sugars:4,proteins:4}[metric];
+      const calGoal = $goals.calories?.max ?? $goals.calories?.min ?? 2000;
+      if (density) gv = Math.round(calGoal * gv / 100 / density);
+    }
+    if (gv != null && metric === 'calories' && $energyUnit === 'kJ') gv = Math.round(Nutrition.kcalToKj(gv));
+    return gv;
+  })();
+  $: _goalIsMin = (() => {
+    const g = $goals && $goals[metric];
+    return !!(g && g.min != null && g.max == null);
+  })();
+  $: _goalDelta = (summary?.avg != null && _goalValReactive) ? Math.round((summary.avg - _goalValReactive) / _goalValReactive * 100) : null;
+
+  // Group the timeline by month once the visible span crosses 60 days
+  // — a flat list of 100+ rows scrolls forever. #4. Most-recent month
+  // auto-expands on data change so the user still sees rows without a
+  // click; older months collapse to header-only entries.
+  $: _rangeIsLong = data.length > 60;
+  $: _timelineMonths = (() => {
+    if (!_rangeIsLong) return [];
+    const map = new Map();
+    for (const row of data) {
+      if (!Number.isFinite(row.val)) continue;
+      const key = row.date.slice(0, 7); // YYYY-MM
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(row);
+    }
+    const arr = [...map.entries()].map(([key, entries]) => {
+      const dt = new Date(key + '-01T12:00:00');
+      const label = dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      return { key, label, count: entries.length, entries: entries.slice().reverse() };
+    });
+    arr.sort((a, b) => b.key.localeCompare(a.key));
+    return arr;
+  })();
+  // Seed most-recent expanded when the month list changes and the
+  // current expanded set no longer intersects (e.g. metric switched,
+  // range moved, first load). Assigning a new Set triggers Svelte
+  // reactivity — mutating in-place would not.
+  $: if (_timelineMonths.length) {
+    const stale = ![..._timelineExpandedMonths].some(k => _timelineMonths.find(m => m.key === k));
+    if (stale) _timelineExpandedMonths = new Set([_timelineMonths[0].key]);
+  }
+  function _toggleMonth(key) {
+    const s = new Set(_timelineExpandedMonths);
+    if (s.has(key)) s.delete(key); else s.add(key);
+    _timelineExpandedMonths = s;
+  }
+
+  // 7-vs-previous-7-day trend delta (#6). Hidden when the range holds
+  // fewer than 14 logged days — otherwise the comparison is meaningless
+  // (e.g. 3-day range shows a 100% "trend" off noise). Direction goodness
+  // reuses the goal-direction convention: if the goal is a floor, up is
+  // good; else lower is good; no goal → neutral.
+  $: _trendDelta = (() => {
+    if (data.length < 14) return null;
+    const withVal = data.filter(d => Number.isFinite(d.val));
+    if (withVal.length < 14) return null;
+    const last7 = withVal.slice(-7);
+    const prev7 = withVal.slice(-14, -7);
+    if (!last7.length || !prev7.length) return null;
+    const avg = arr => arr.reduce((s, r) => s + r.val, 0) / arr.length;
+    const a = avg(last7), b = avg(prev7);
+    if (b === 0) return null;
+    return Math.round((a - b) / Math.abs(b) * 100);
+  })();
+
+  // Empty-state alternatives (#7). Best-guess list — we can't verify
+  // "has data" without loading each series (a full extra pipeline pass
+  // per metric). Keeping it to metrics the user has enabled makes the
+  // suggestion honest for the vast majority of setups.
+  $: _emptyAlternatives = (() => {
+    if (data.length > 0) return [];
+    const cands = ['calories', 'weight', 'wl_steps'];
+    return cands
+      .filter(c => c !== metric)
+      .filter(c => METRICS.find(m => (m.value ?? m.id) === c))
+      .slice(0, 3);
+  })();
+  function _altLabel(key) {
+    const m = METRICS.find(x => (x.value ?? x.id) === key);
+    return m ? m.label : key;
+  }
+
+  // CSV export (#8). Uses the same rows Chart.js is looking at, not
+  // the raw pre-filter set, so what the user sees is what they get.
+  function _exportCsv() {
+    if (!data.length) return;
+    const lines = ['Date,Value'];
+    for (const row of data) {
+      if (Number.isFinite(row.val)) lines.push(`${row.date},${row.val}`);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${metric}-${range}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // Deep-link support (#: ?metric=X&range=Y). Wellness/Diary/Goals
+  // linking to Statistics for a specific metric+range lands here; if the
+  // metric isn't currently visible the existing METRICS-snap reactive
+  // (line ~120) resets it to the first visible metric on the next tick,
+  // so an unknown key silently no-ops rather than throwing.
+  onMount(() => {
+    try {
+      const hash = window.location.hash || '';
+      const qi = hash.indexOf('?');
+      if (qi < 0) return;
+      const params = new URLSearchParams(hash.slice(qi + 1));
+      const mp = params.get('metric');
+      const rp = params.get('range');
+      if (mp) metric = mp;
+      if (rp && RANGES.some(r => r.value === rp)) range = rp;
+    } catch {}
+  });
+
   $: { metric; range; customStart; customEnd; $statsIncludeToday; $statsShowEmptyDays; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine;
        if (canvasEl) loadData(); }
 
@@ -662,7 +866,26 @@
     <h1>{$_('routes.statistics.title')}</h1>
   </header>
 
-  <div class="stats-content">
+  <div class="stats-body">
+  <!-- Desktop left rail: grouped metric picker. Hidden on mobile; the
+       horizontal metric-scroll below still owns metric selection there. -->
+  <aside class="stats-left-rail">
+    <div class="stats-rail-heading">Metrics</div>
+    <input class="stats-rail-search" type="search" placeholder="Filter metrics…" bind:value={_railQuery} />
+    {#each groupedMetrics as g}
+      {@const _filtered = g.metrics.filter(m => !_railQuery || m.label.toLowerCase().includes(_railQuery.toLowerCase()))}
+      {#if _filtered.length}
+        <p class="stats-rail-group">{g.label}</p>
+        {#each _filtered as m}
+          <button class="stats-rail-metric" class:active={metric === m._key}
+            on:click={() => metric = m._key}>
+            {m.label}
+          </button>
+        {/each}
+      {/if}
+    {/each}
+  </aside>
+  <div class="stats-content stats-main">
     <!-- Metric selector (scrollable) -->
     <div class="metric-scroll" use:dragScroll>
       {#each METRICS as m}
@@ -724,8 +947,10 @@
       </div>
     {/if}
 
-    <!-- Summary stats (above chart) -->
+    <!-- Summary stats (above chart) — mobile owns this; desktop shows the
+         same numbers in the right rail (.stats-rail-only) instead. -->
     {#if summary}
+      <div class="stats-center-only">
       <div class="summary-card card">
         <div class="summary-grid">
           <div class="summary-item">
@@ -750,10 +975,19 @@
           </div>
         </div>
       </div>
+      </div>
     {/if}
 
     <!-- Chart -->
     <div class="chart-card card">
+      {#if data.length > 0}
+        <!-- CSV export lives on the chart itself so mobile and large-screen
+             both get it. Was previously desktop-rail-only. -->
+        <button class="chart-csv" type="button" on:click={_exportCsv}
+          title="Export CSV" aria-label="Export CSV">
+          <span class="material-symbols-rounded">download</span>
+        </button>
+      {/if}
       {#if loading}
         <div class="chart-loading">
           <span class="material-symbols-rounded spin">refresh</span>
@@ -772,6 +1006,19 @@
                 {$_('statistics_page.empty.hint_other')}
               {/if}
             </div>
+            {#if _emptyAlternatives.length}
+              <!-- #7 Nudge toward metrics likely to have data instead of
+                   leaving the user staring at an empty chart. Click swaps
+                   the current metric — the loader re-runs via the metric
+                   reactive at line ~647. -->
+              <div class="stats-empty-alts text-3 text-sm">
+                Try
+                {#each _emptyAlternatives as alt, i}
+                  <button class="stats-empty-alt-link" type="button" on:click={() => metric = alt}>{_altLabel(alt)}</button>{#if i < _emptyAlternatives.length - 2}, {:else if i === _emptyAlternatives.length - 2} or {/if}
+                {/each}
+                . You may have data there.
+              </div>
+            {/if}
           </div>
         </div>
       {/if}
@@ -785,26 +1032,61 @@
       <div class="timeline-section">
         <div class="section-title">{$_('statistics_page.history_heading')}</div>
         <div class="timeline-list card">
-          {#each [...data].reverse() as row}
-            {#if Number.isFinite(row.val)}
-              <div class="timeline-row">
-                <button class="timeline-date-link" type="button"
-                  on:click={() => _drillIntoDate(row.date)}
-                  title={metric.startsWith('wl_') ? 'Open this day in Wellness' : 'Open this day in Diary'}
-                  aria-label={metric.startsWith('wl_') ? `Open Wellness for ${row.date}` : `Open Diary for ${row.date}`}>
-                  {(() => {
-                    const dt = new Date(row.date + 'T12:00:00');
-                    const fmt = $dateFormat || 'ISO';
-                    if (fmt === 'US') { const m=String(dt.getMonth()+1).padStart(2,'0'),d=String(dt.getDate()).padStart(2,'0'); return m+'/'+d+'/'+dt.getFullYear(); }
-                    if (fmt === 'EU') { const m=String(dt.getMonth()+1).padStart(2,'0'),d=String(dt.getDate()).padStart(2,'0'); return d+'/'+m+'/'+dt.getFullYear(); }
-                    if (fmt === 'natural') return dt.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
-                    return row.date;
-                  })()}
-                </button>
-                <span class="timeline-val accent-text">{row.val.toLocaleString()} {_metricUnit}</span>
-              </div>
-            {/if}
-          {/each}
+          {#if _rangeIsLong}
+            <!-- #4 Long-range view: month headers with collapsible bodies.
+                 Most-recent month auto-expanded; older months click to open.
+                 Falls back to the flat list for ≤60-day ranges (else branch). -->
+            {#each _timelineMonths as m (m.key)}
+              <button class="stats-tl-month" type="button"
+                on:click={() => _toggleMonth(m.key)}
+                aria-expanded={_timelineExpandedMonths.has(m.key)}>
+                <span class="stats-tl-month-label">{m.label}</span>
+                <span class="stats-tl-month-count">{m.count}</span>
+                <span class="material-symbols-rounded stats-tl-chevron" class:open={_timelineExpandedMonths.has(m.key)}>expand_more</span>
+              </button>
+              {#if _timelineExpandedMonths.has(m.key)}
+                {#each m.entries as row}
+                  <div class="timeline-row">
+                    <button class="timeline-date-link" type="button"
+                      on:click={() => _drillIntoDate(row.date)}
+                      title={metric.startsWith('wl_') ? 'Open this day in Wellness' : 'Open this day in Diary'}
+                      aria-label={metric.startsWith('wl_') ? `Open Wellness for ${row.date}` : `Open Diary for ${row.date}`}>
+                      {(() => {
+                        const dt = new Date(row.date + 'T12:00:00');
+                        const fmt = $dateFormat || 'ISO';
+                        if (fmt === 'US') { const mm=String(dt.getMonth()+1).padStart(2,'0'),dd=String(dt.getDate()).padStart(2,'0'); return mm+'/'+dd+'/'+dt.getFullYear(); }
+                        if (fmt === 'EU') { const mm=String(dt.getMonth()+1).padStart(2,'0'),dd=String(dt.getDate()).padStart(2,'0'); return dd+'/'+mm+'/'+dt.getFullYear(); }
+                        if (fmt === 'natural') return dt.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+                        return row.date;
+                      })()}
+                    </button>
+                    <span class="timeline-val accent-text">{row.val.toLocaleString()} {_metricUnit}</span>
+                  </div>
+                {/each}
+              {/if}
+            {/each}
+          {:else}
+            {#each [...data].reverse() as row}
+              {#if Number.isFinite(row.val)}
+                <div class="timeline-row">
+                  <button class="timeline-date-link" type="button"
+                    on:click={() => _drillIntoDate(row.date)}
+                    title={metric.startsWith('wl_') ? 'Open this day in Wellness' : 'Open this day in Diary'}
+                    aria-label={metric.startsWith('wl_') ? `Open Wellness for ${row.date}` : `Open Diary for ${row.date}`}>
+                    {(() => {
+                      const dt = new Date(row.date + 'T12:00:00');
+                      const fmt = $dateFormat || 'ISO';
+                      if (fmt === 'US') { const m=String(dt.getMonth()+1).padStart(2,'0'),d=String(dt.getDate()).padStart(2,'0'); return m+'/'+d+'/'+dt.getFullYear(); }
+                      if (fmt === 'EU') { const m=String(dt.getMonth()+1).padStart(2,'0'),d=String(dt.getDate()).padStart(2,'0'); return d+'/'+m+'/'+dt.getFullYear(); }
+                      if (fmt === 'natural') return dt.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+                      return row.date;
+                    })()}
+                  </button>
+                  <span class="timeline-val accent-text">{row.val.toLocaleString()} {_metricUnit}</span>
+                </div>
+              {/if}
+            {/each}
+          {/if}
         </div>
       </div>
     {/if}
@@ -814,6 +1096,80 @@
     {/if}
 
     <div style="height:16px"></div>
+  </div>
+  <!-- Desktop right rail: KPI stack + overlay toggles. Hidden on mobile. -->
+  <aside class="stats-right-rail">
+    <div class="stats-rail-heading">Summary</div>
+    {#if summary}
+      <div class="stats-rail-kpi">
+        <span class="stats-rail-kpi-lbl">{$_('statistics_page.summary.average')}</span>
+        <span class="stats-rail-kpi-val">
+          {summary.avg.toLocaleString()}
+          <span class="stats-rail-kpi-unit">{_metricUnit}</span>
+          {#if _goalDelta != null}
+            {@const good = _goalIsMin ? _goalDelta >= 0 : _goalDelta <= 0}
+            <span class="stats-rail-delta" class:good class:bad={!good}>
+              {_goalDelta > 0 ? '+' : ''}{_goalDelta}%
+            </span>
+          {/if}
+        </span>
+      </div>
+      <div class="stats-rail-kpi">
+        <span class="stats-rail-kpi-lbl">{$_('statistics_page.summary.min')}</span>
+        <span class="stats-rail-kpi-val">{summary.min.toLocaleString()} <span class="stats-rail-kpi-unit">{_metricUnit}</span></span>
+      </div>
+      <div class="stats-rail-kpi">
+        <span class="stats-rail-kpi-lbl">{$_('statistics_page.summary.max')}</span>
+        <span class="stats-rail-kpi-val">{summary.max.toLocaleString()} <span class="stats-rail-kpi-unit">{_metricUnit}</span></span>
+      </div>
+      <div class="stats-rail-kpi">
+        <span class="stats-rail-kpi-lbl">{$_('statistics_page.summary.logged')}</span>
+        <span class="stats-rail-kpi-val">{summary.daysWithData.toLocaleString()} <span class="stats-rail-kpi-unit">{$_('statistics_page.summary.days_unit')}</span></span>
+      </div>
+      {#if _trendDelta != null}
+        <!-- #6 7-vs-previous-7-day trend. Hidden for <14-day ranges.
+             Direction goodness mirrors _goalDelta's convention: floor
+             goals (goal.min only) → up is good; else lower is good. -->
+        {@const _tGood = _goalValReactive == null ? null : (_goalIsMin ? _trendDelta >= 0 : _trendDelta <= 0)}
+        <div class="stats-rail-kpi">
+          <span class="stats-rail-kpi-lbl" title="Last 7-day average vs the previous 7 days. Deep trend analysis lives on the chart itself — this is the quick pulse.">Weekly trend</span>
+          <span class="stats-rail-kpi-val">
+            <span class="stats-rail-delta"
+              class:good={_tGood === true}
+              class:bad={_tGood === false}
+              class:neutral={_tGood === null}>
+              {_trendDelta > 0 ? '↑' : _trendDelta < 0 ? '↓' : '·'} {Math.abs(_trendDelta)}%
+            </span>
+          </span>
+        </div>
+      {/if}
+    {:else}
+      <p class="stats-rail-empty text-3 text-sm">{$_('statistics_page.empty.no_data')}</p>
+    {/if}
+
+    <div class="stats-rail-heading" style="margin-top:16px">Overlays</div>
+    <label class="stats-rail-check">
+      <input type="checkbox" checked={$statsAvgLine}
+        on:change={(e) => statsAvgLine.set(e.currentTarget.checked)} />
+      <span>Average</span>
+    </label>
+    <label class="stats-rail-check">
+      <input type="checkbox" checked={$statsGoalLine}
+        on:change={(e) => statsGoalLine.set(e.currentTarget.checked)} />
+      <span>Goal</span>
+    </label>
+    <label class="stats-rail-check">
+      <input type="checkbox" checked={$statsTrendLine}
+        on:change={(e) => statsTrendLine.set(e.currentTarget.checked)} />
+      <span>Trend</span>
+    </label>
+    <!-- TODO: compare mode (#5) — needs loader refactor to accept a
+         metric argument (loadSeries(metricId) → { labels, values }).
+         The current loadData() closes over the module-level `metric`
+         var across ~200 lines of wellness/body/nutrient branches;
+         extracting it cleanly is a bigger diff than this pass allows,
+         so the compare select is deferred. -->
+  </aside>
   </div>
 </div>
 
@@ -1100,4 +1456,300 @@
 
   :global(.spin) { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── Desktop three-pane layout ─────────────────────────────────────────
+     Mobile defaults keep the single-column stack; rails + duplicate KPIs
+     hidden. Desktop grid + rail visibility gated inside a
+     :global(html:not(.force-mobile-layout)) media query below so a user
+     with "Force mobile layout" ON stays on the mobile presentation. */
+  .stats-body { display: block; }
+  .stats-left-rail,
+  .stats-right-rail,
+  .stats-rail-only { display: none; }
+  .stats-center-only { display: block; }
+
+  :global(html:not(.force-mobile-layout)) .stats-body { /* mobile placeholder */ }
+
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .stats-body {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr) 320px;
+      column-gap: 20px;
+      align-items: start;
+      padding: 12px var(--page-px, 16px);
+    }
+    :global(html:not(.force-mobile-layout)) .stats-content.stats-main {
+      padding: 0;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-left-rail,
+    :global(html:not(.force-mobile-layout)) .stats-right-rail {
+      display: block;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 72px + var(--hamburger-row, 0px));
+      align-self: start;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+    }
+    /* #2 Rail becomes scrollable on desktop — long metric lists (all
+       body stats + wellness enabled) overflow a 900px viewport otherwise.
+       Same thin-scrollbar treatment as the Settings + Foods rails so
+       the whole app reads as one system. */
+    :global(html:not(.force-mobile-layout)) .stats-left-rail {
+      max-height: calc(100vh - var(--page-top, var(--safe-top)) - 100px - var(--hamburger-row, 0px) - var(--nav-h, 0px) - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    :global(html:not(.force-mobile-layout)) .stats-left-rail::-webkit-scrollbar { width: 6px; }
+    :global(html:not(.force-mobile-layout)) .stats-left-rail::-webkit-scrollbar-track { background: transparent; }
+    :global(html:not(.force-mobile-layout)) .stats-left-rail::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    :global(html:not(.force-mobile-layout)) .stats-left-rail::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+    :global(html:not(.force-mobile-layout)) .stats-rail-only { display: block; }
+    :global(html:not(.force-mobile-layout)) .stats-center-only { display: none; }
+    /* Horizontal pill scroller replaced by the rail on desktop */
+    :global(html:not(.force-mobile-layout)) .metric-scroll { display: none; }
+    /* Chart grows to fill the vertical rhythm the rails set */
+    :global(html:not(.force-mobile-layout)) .chart-wrap {
+      height: clamp(300px, 45vh, 520px);
+    }
+
+    /* Calendar sheet becomes a centered popover on desktop instead of a
+       bottom-sheet slide-up (Phase D). Backdrop centers its child; sheet
+       drops the mobile-only bottom-flush border-radius. */
+    :global(html:not(.force-mobile-layout)) .stat-backdrop {
+      align-items: center;
+      justify-content: center;
+    }
+    :global(html:not(.force-mobile-layout)) .stat-cal-sheet {
+      border-radius: var(--radius-xl);
+      max-height: 90vh;
+      overflow-y: auto;
+      padding-bottom: 8px;
+    }
+  }
+
+  /* Left rail chrome — mimics the Settings rail's section-toggle look. */
+  .stats-rail-heading {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    margin: 0 0 8px;
+  }
+  .stats-rail-group {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 10px 0 4px;
+    padding: 0 6px;
+  }
+  .stats-rail-metric {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    margin: 2px 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    border: none;
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--dur-fast), color var(--dur-fast);
+  }
+  .stats-rail-metric:hover {
+    background: var(--surface-2);
+    color: var(--text-1);
+  }
+  .stats-rail-metric.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Right rail KPI stack */
+  .stats-rail-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .stats-rail-kpi:last-of-type { border-bottom: none; }
+  .stats-rail-kpi-lbl {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-3);
+  }
+  .stats-rail-kpi-val {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .stats-rail-kpi-unit {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    opacity: 0.6;
+  }
+  .stats-rail-delta {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: var(--radius-full);
+    letter-spacing: 0;
+  }
+  .stats-rail-delta.good {
+    background: color-mix(in srgb, #22c55e 22%, transparent);
+    color: #16a34a;
+  }
+  .stats-rail-delta.bad {
+    background: color-mix(in srgb, #ef4444 22%, transparent);
+    color: #dc2626;
+  }
+  :global([data-theme="dark"]) .stats-rail-delta.good { color: #4ade80; }
+  :global([data-theme="dark"]) .stats-rail-delta.bad  { color: #f87171; }
+  .stats-rail-empty { margin: 4px 0 8px; }
+
+  /* Overlay checkbox rows */
+  .stats-rail-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 4px;
+    font-size: 13px;
+    color: var(--text-1);
+    cursor: pointer;
+    user-select: none;
+  }
+  .stats-rail-check input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  /* ── Phase-C polish additions (desktop-only, gated inline where needed) ── */
+  /* #2 Rail filter input */
+  .stats-rail-search {
+    width: 100%;
+    padding: 6px 10px;
+    margin: 0 0 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-1);
+    font-size: 12px;
+    font-family: inherit;
+    box-sizing: border-box;
+    transition: border-color var(--dur-fast), background var(--dur-fast);
+  }
+  .stats-rail-search:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface-1);
+  }
+  .stats-rail-search::placeholder { color: var(--text-3); }
+
+  /* #4 Timeline month header */
+  .stats-tl-month {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border: none;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font: inherit;
+    color: var(--text-1);
+    text-align: left;
+    transition: background var(--dur-fast);
+  }
+  .stats-tl-month:hover { background: var(--surface-3); }
+  .stats-tl-month-label { flex: 1; font-weight: 600; font-size: 13px; }
+  .stats-tl-month-count {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-3);
+    background: var(--surface-1);
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+  }
+  .stats-tl-chevron {
+    font-size: 18px;
+    color: var(--text-3);
+    transition: transform var(--dur-fast);
+  }
+  .stats-tl-chevron.open { transform: rotate(180deg); }
+
+  /* #7 Empty-state alternatives */
+  .stats-empty-alts {
+    margin-top: 10px;
+    line-height: 1.6;
+  }
+  .stats-empty-alt-link {
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    margin: 0 1px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background var(--dur-fast);
+  }
+  .stats-empty-alt-link:hover {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    text-decoration: underline;
+  }
+
+  /* #6 Neutral trend chip (goal-less metrics) */
+  .stats-rail-delta.neutral {
+    background: var(--surface-2);
+    color: var(--text-2);
+  }
+
+  /* #8 CSV export button — sits in the chart-card corner on all viewports */
+  .chart-csv {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+  }
+  .chart-csv .material-symbols-rounded { font-size: 18px; }
+  .chart-csv:hover,
+  .chart-csv:focus-visible {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: transparent;
+    outline: none;
+  }
 </style>

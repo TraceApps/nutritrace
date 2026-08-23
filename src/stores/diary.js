@@ -88,11 +88,13 @@ function _stripCachedPaths(items) {
 // re-attach the safe-to-refresh fields (imgUrl already lived under
 // this pattern via freshenItemImages).
 const _KEEP_FIELDS = [
-  'meal', 'addedAt', 'type',                        // routing + display + branch
+  'uuid',                                           // Option C stable per-item identity for merge
+  'meal', 'addedAt', 'updatedAt', 'type',           // routing + display + branch
   'id', 'food_server_id', 'is_recipe',              // hydration keys
   'name', 'brand', 'portion', 'unit', 'quantity',   // history-protected snapshot
   'nutrition', 'notes',                             // history-protected snapshot
   'imgUrl',                                         // scrubbed by _stripCachedPaths, hydrated on read
+  'source', 'source_meal_id',                       // provenance (MCP writes / imports)
 ];
 function _toReferenceShape(items) {
   if (!Array.isArray(items)) return items;
@@ -107,12 +109,39 @@ function _toReferenceShape(items) {
   });
 }
 
+// Option C — stable per-item identity generator. Every new diary item
+// and every new water entry needs a uuid so the server-side merge can
+// tell "add this new one" from "update the existing one". crypto.randomUUID
+// is available on all modern browsers and Node ≥14. Safe fallback for
+// ancient WebViews via _uuidFallback below.
+export function _newUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return _uuidFallback();
+}
+function _uuidFallback() {
+  // Not crypto-strength; only used on WebViews that predate randomUUID.
+  // The uuid is a sync identifier, not a security token, so this is fine.
+  const rnd = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
+  return `${rnd()}${rnd()}-${rnd()}-${rnd()}-${rnd()}-${rnd()}${rnd()}${rnd()}`;
+}
+
 function _toApi(entry) {
+  const pd = entry._pendingDeletions || {};
   return {
     items:      _toReferenceShape(_stripCachedPaths(entry.items || [])),
     body_stats: entry.bodyStats  || entry.body_stats || {},
     water:      entry.water      || [],
     notes:      entry.notes      || '',
+    // Option C: explicit per-uuid deletions. The server preserves any
+    // item/water entry it holds that isn't mentioned by the client AND
+    // isn't listed here, so this list is what turns "item disappeared
+    // from the client's list" from a wipe into a genuine delete.
+    deleted_uuids: {
+      items: Array.isArray(pd.items) ? pd.items.slice() : [],
+      water: Array.isArray(pd.water) ? pd.water.slice() : [],
+    },
   };
 }
 
@@ -120,12 +149,16 @@ function _toApi(entry) {
  *  water log write, and replace flow) that bypass _save(). Applies the same
  *  reference-shape trim + cached-path scrub, so no future raw NtApi.saveDiaryDate
  *  call can silently reintroduce the recipe-inlining bloat that #125 traced to. */
-export function buildDiaryWritePayload({ items, body_stats, bodyStats, water, notes } = {}) {
+export function buildDiaryWritePayload({ items, body_stats, bodyStats, water, notes, deleted_uuids } = {}) {
   return {
     items:      _toReferenceShape(_stripCachedPaths(items || [])),
     body_stats: bodyStats || body_stats || {},
     water:      water || [],
     notes:      typeof notes === 'string' ? notes : '',
+    deleted_uuids: {
+      items: Array.isArray(deleted_uuids?.items) ? deleted_uuids.items.slice() : [],
+      water: Array.isArray(deleted_uuids?.water) ? deleted_uuids.water.slice() : [],
+    },
   };
 }
 
@@ -196,6 +229,10 @@ async function _refetchAndSave(targetDate, mutator) {
 async function _save(entry) {
   const saved = await NtApi.saveDiaryDate(entry.date, _toApi(entry));
   const result = _fromApi(saved);
+  // Option C: pending tombstones only exist locally until a successful
+  // save. Clear them once the server has acknowledged so a subsequent
+  // save doesn't re-send the same delete list.
+  if (result) result._pendingDeletions = { items: [], water: [] };
 
   // Check goals after every save (only for today)
   const today = new Date().toLocaleDateString('sv-SE');
@@ -237,6 +274,7 @@ export async function addDiaryItem(foodItem, meal, date) {
     : (typeof foodItem.id === 'number' ? foodItem.id : null);
   const item = {
     ...foodItem,
+    uuid: _newUuid(),
     meal: meal != null ? Number(meal) : 0,
     addedAt: new Date().toISOString(),
     food_server_id,
@@ -250,11 +288,15 @@ export async function addDiaryItem(foodItem, meal, date) {
     items: [...(entry.items || []), item],
   }));
 
-  // Bump usage_count + last_used_at on the source food so it can rise in
-  // the "Most Used" / "Recently Used" sort modes. Fire-and-forget; a failed
-  // bump shouldn't block the diary save the user already saw succeed.
+  // Bump usage_count + last_used_at on the correct source table so foods,
+  // meals, and recipes can rise in their "Most Used" / "Recently Used"
+  // sort modes. Fire-and-forget; a failed bump shouldn't block the diary
+  // save the user already saw succeed.
   if (typeof item.id === 'number') {
-    NtApi.markFoodUsed(item.id, targetDate).catch(() => {});
+    const usageUpdate = item.is_recipe
+      ? NtApi.markMealUsed(item.id, targetDate)
+      : NtApi.markFoodUsed(item.id, targetDate);
+    usageUpdate.catch(() => {});
   }
 }
 
@@ -308,7 +350,16 @@ export async function removeDiaryItem(index) {
   let entry = null;
   currentEntry.subscribe(v => entry = v)();
   if (!entry) return;
-  const updated = { ...entry, items: entry.items.filter((_, i) => i !== index) };
+  const removed = entry.items?.[index];
+  const prior = entry._pendingDeletions || { items: [], water: [] };
+  const updated = {
+    ...entry,
+    items: entry.items.filter((_, i) => i !== index),
+    _pendingDeletions: {
+      items: removed?.uuid ? [...(prior.items || []), removed.uuid] : (prior.items || []),
+      water: prior.water || [],
+    },
+  };
   currentEntry.set(await _save(updated));
 }
 
@@ -316,7 +367,12 @@ export async function updateDiaryItem(index, changes) {
   let entry = null;
   currentEntry.subscribe(v => entry = v)();
   if (!entry) return;
-  const updated = { ...entry, items: entry.items.map((item, i) => i === index ? { ...item, ...changes } : item) };
+  const updated = {
+    ...entry,
+    items: entry.items.map((item, i) => i === index
+      ? { ...item, ...changes, updatedAt: new Date().toISOString() }
+      : item),
+  };
   currentEntry.set(await _save(updated));
 }
 
@@ -488,7 +544,10 @@ export async function copyMealItems(fromMealIdx, toMealIdx) {
     if (!src.length) { copiedCount = 0; return null; }
     copiedCount = src.length;
     const now = new Date().toISOString();
-    const copies = src.map(it => ({ ...it, meal: Number(toMealIdx), addedAt: now }));
+    // Fresh uuid on every copy — see copyMealToDate for the full write-up.
+    // Without this the same-day copy showed as duplicated items in local
+    // UI while the server-side merge deduped by uuid.
+    const copies = src.map(it => ({ ...it, uuid: _newUuid(), meal: Number(toMealIdx), addedAt: now }));
     return { ...entry, items: [...(entry.items || []), ...copies] };
   });
   return copiedCount;
@@ -522,10 +581,26 @@ export async function clearMealItems(mealIdx) {
   let removedCount = 0;
   await _refetchAndSave(viewDate, (entry) => {
     const before = entry.items?.length || 0;
-    const items = (entry.items || []).filter(it => Number(it.meal ?? 0) !== Number(mealIdx));
-    if (items.length === before) { removedCount = 0; return null; }
-    removedCount = before - items.length;
-    return { ...entry, items };
+    const kept    = (entry.items || []).filter(it => Number(it.meal ?? 0) !== Number(mealIdx));
+    const removed = (entry.items || []).filter(it => Number(it.meal ?? 0) === Number(mealIdx));
+    if (kept.length === before) { removedCount = 0; return null; }
+    removedCount = before - kept.length;
+    // Option C tombstones: server preserves any item not in the payload
+    // AND not in deleted_uuids, so a filtered-only clear was a no-op on
+    // the server side (#169). Emit a uuid tombstone for every removed
+    // item that has one; items without a uuid predate Option C and get
+    // dropped by omission alone (safe because the server still bases its
+    // "seen" set on uuid — non-uuid items were already best-effort).
+    const prior = entry._pendingDeletions || { items: [], water: [] };
+    const newTombstones = removed.map(it => it?.uuid).filter(Boolean);
+    return {
+      ...entry,
+      items: kept,
+      _pendingDeletions: {
+        items: [...(prior.items || []), ...newTombstones],
+        water: prior.water || [],
+      },
+    };
   });
   return removedCount;
 }
@@ -543,7 +618,13 @@ export async function copyMealToDate(fromMealIdx, targetDate, targetMealIdx) {
   const src = (srcEntry.items || []).filter(it => Number(it.meal ?? 0) === Number(fromMealIdx));
   if (!src.length) return 0;
   const now = new Date().toISOString();
-  const copies = src.map(it => ({ ...it, meal: Number(targetMealIdx), addedAt: now }));
+  // Fresh uuid on every copy: a "copy" is a NEW diary item, not a
+  // moved one. Reusing the source uuid meant a same-day copy (e.g.
+  // breakfast → breakfast) showed as duplicate items in the local
+  // UI (the wholesale local save appended both), while the server's
+  // Option C merge deduped by uuid so the two views drifted until
+  // the next reload. Also affected same-day cross-meal copies.
+  const copies = src.map(it => ({ ...it, uuid: _newUuid(), meal: Number(targetMealIdx), addedAt: now }));
 
   await _refetchAndSave(targetDate, (target) => ({
     ...target,
@@ -559,7 +640,11 @@ export async function addWaterLog(amountMl, date) {
   const targetDate = date || viewDate || todayStr();
 
   const use24 = DB.getSetting('timeFormat', '12h') === '24h';
-  const log = { amount: Math.round(amountMl), time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !use24 }) };
+  const log = {
+    uuid: _newUuid(),
+    amount: Math.round(amountMl),
+    time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !use24 }),
+  };
 
   await _refetchAndSave(targetDate, (entry) => ({
     ...entry,

@@ -8,40 +8,52 @@
     "settings": "Paramètres"
   },
   "routes": {
-    "diary":      { "title": "Journal" },
-    "foods":      { "title": "Aliments" },
-    "wellness":   { "title": "Bien-être" },
-    "statistics": { "title": "Statistiques" },
-    "goals":      { "title": "Objectifs" },
-    "settings":   { "title": "Paramètres" }
+    "diary": {
+      "title": "Journal"
+    },
+    "foods": {
+      "title": "Aliments"
+    },
+    "wellness": {
+      "title": "Bien-être"
+    },
+    "statistics": {
+      "title": "Statistiques"
+    },
+    "goals": {
+      "title": "Objectifs"
+    },
+    "settings": {
+      "title": "Paramètres"
+    }
   },
   "common": {
-    "sign_out":     "Déconnexion",
-    "log_out":      "Se déconnecter",
-    "signing_out":  "Déconnexion…",
+    "sign_out": "Déconnexion",
+    "log_out": "Se déconnecter",
+    "signing_out": "Déconnexion…",
     "experimental": "Expérimental",
-    "hide":         "Masquer",
-    "save":         "Enregistrer",
-    "saving":       "Enregistrement…",
-    "cancel":       "Annuler",
-    "back":         "Retour",
-    "close":        "Fermer",
-    "delete":       "Supprimer",
-    "signed_in":    "Connecté",
-    "signed_out":   "Déconnecté",
-    "linked":       "Associé",
-    "unlinked":     "Dissocié",
-    "admin":        "admin",
+    "hide": "Masquer",
+    "save": "Enregistrer",
+    "saving": "Enregistrement…",
+    "cancel": "Annuler",
+    "back": "Retour",
+    "close": "Fermer",
+    "delete": "Supprimer",
+    "signed_in": "Connecté",
+    "signed_out": "Déconnecté",
+    "linked": "Associé",
+    "unlinked": "Dissocié",
+    "admin": "admin",
     "errors": {
-      "cant_reach_server":     "Impossible de se connecter au serveur",
-      "failed":                "Échec",
-      "unlink_failed":         "Impossible de dissocier",
-      "save_failed":           "Échec de l'enregistrement",
-      "delete_failed":         "Échec de la suppression",
-      "name_required":         "Le nom est requis",
-      "network_error_upload":  "Erreur réseau lors du téléversement",
-      "voice_unsupported":     "Saisie vocale non prise en charge dans ce navigateur",
-      "cant_start_mic":        "Impossible de démarrer le microphone"
+      "cant_reach_server": "Impossible de se connecter au serveur",
+      "failed": "Échec",
+      "unlink_failed": "Impossible de dissocier",
+      "save_failed": "Échec de l'enregistrement",
+      "delete_failed": "Échec de la suppression",
+      "name_required": "Le nom est requis",
+      "network_error_upload": "Erreur réseau lors du téléversement",
+      "voice_unsupported": "Saisie vocale non prise en charge dans ce navigateur",
+      "cant_start_mic": "Impossible de démarrer le microphone"
     }
   },
   "sync": {
@@ -75,293 +87,331 @@
   },
   "settings": {
     "appearance": {
-      "section":          "Apparence",
-      "theme":            "Thème",
-      "accent_color":     "Couleur d'accentuation",
+      "section": "Apparence",
+      "theme": "Thème",
+      "accent_color": "Couleur d'accentuation",
       "navigation_style": "Style de navigation"
     },
-    "regional":           {
-      "section":       "Langue & Unités",
-      "language":      "Langue",
-      "date_format":   "Format de date",
-      "time_format":   "Format de l'heure",
-      "energy":        "Énergie",
-      "weight":        "Poids",
-      "height":        "Taille",
+    "regional": {
+      "section": "Langue & Unités",
+      "language": "Langue",
+      "date_format": "Format de date",
+      "time_format": "Format de l'heure",
+      "energy": "Énergie",
+      "weight": "Poids",
+      "height": "Taille",
       "circumference": "Tour",
-      "distance":      "Distance",
-      "temperature":   "Température",
-      "time_12h":      "12 heures (AM/PM)",
-      "time_24h":      "24 heures"
+      "distance": "Distance",
+      "temperature": "Température",
+      "time_12h": "12 heures (AM/PM)",
+      "time_24h": "24 heures"
     },
-    "diary":              {
+    "diary": {
       "section": "Journal",
-      "show_quick_calories":        "Afficher le bouton Calories Rapides",
-      "show_quick_calories_desc":   "Ajoute une icône d'éclair sur chaque section de repas pour une saisie rapide des calories uniquement (sans aliment, ni portion). Utile lorsque vous connaissez les calories mais ne voulez pas modéliser l'aliment, ou lorsque vous êtes habitué aux calories rapides de type Fitbit.",
-      "quick_calories_display":     "Affichage des Calories Rapides",
-      "quick_calories_display_desc":"Comment les entrées multiples de Calories Rapides dans le même repas apparaissent dans le journal. \"Regroupées\" les fusionne sur une seule ligne ; \"Séparées\" affiche chaque entrée sur sa propre ligne.",
-      "quick_calories_summed":      "Regroupées",
-      "quick_calories_separate":    "Séparées"
+      "show_quick_calories": "Afficher le bouton Calories Rapides",
+      "show_quick_calories_desc": "Ajoute une icône d'éclair sur chaque section de repas pour une saisie rapide des calories uniquement (sans aliment, ni portion). Utile lorsque vous connaissez les calories mais ne voulez pas modéliser l'aliment, ou lorsque vous êtes habitué aux calories rapides de type Fitbit.",
+      "quick_calories_display": "Affichage des Calories Rapides",
+      "quick_calories_display_desc": "Comment les entrées multiples de Calories Rapides dans le même repas apparaissent dans le journal. \"Regroupées\" les fusionne sur une seule ligne ; \"Séparées\" affiche chaque entrée sur sa propre ligne.",
+      "quick_calories_summed": "Regroupées",
+      "quick_calories_separate": "Séparées"
     },
-    "water":              { "section": "Eau" },
-    "foods":              { "section": "Aliments" },
-    "categories":         { "section": "Catégories" },
-    "nutrients":          { "section": "Nutriments" },
-    "goals":              { "section": "Objectifs caloriques" },
-    "body_stats":         { "section": "Mensurations" },
-    "statistics":         { "section": "Statistiques", "categories": "Catégories", "categories_help": "Faites glisser pour réorganiser les vignettes de mesures sur la page Statistiques. Désactivez les catégories que vous ne consultez jamais." },
+    "water": {
+      "section": "Eau"
+    },
+    "foods": {
+      "section": "Aliments"
+    },
+    "categories": {
+      "section": "Catégories"
+    },
+    "nutrients": {
+      "section": "Nutriments"
+    },
+    "goals": {
+      "section": "Objectifs caloriques"
+    },
+    "body_stats": {
+      "section": "Mensurations"
+    },
+    "statistics": {
+      "section": "Statistiques",
+      "categories": "Catégories",
+      "categories_help": "Faites glisser pour réorganiser les vignettes de mesures sur la page Statistiques. Désactivez les catégories que vous ne consultez jamais."
+    },
     "connected_services": {
       "section": "Sources d'aliments",
       "off": {
-        "header":                 "Open Food Facts",
-        "enable":                 "Activer Open Food Facts",
-        "enable_desc":            "Rechercher dans la base de données alimentaire mondiale collaborative lors de l'ajout d'aliments. Aucun compte n'est requis pour les recherches ; il n'est nécessaire que pour envoyer des modifications.",
-        "search_language":        "Langue de recherche",
-        "search_country":         "Pays de recherche",
-        "upload_country":         "Pays de téléversement",
-        "upload_country_auto":    "Auto",
-        "import_portion":         "Importer la portion sous",
-        "import_portion_100g":    "Pour 100g",
+        "header": "Open Food Facts",
+        "enable": "Activer Open Food Facts",
+        "enable_desc": "Rechercher dans la base de données alimentaire mondiale collaborative lors de l'ajout d'aliments. Aucun compte n'est requis pour les recherches ; il n'est nécessaire que pour envoyer des modifications.",
+        "search_language": "Langue de recherche",
+        "search_country": "Pays de recherche",
+        "upload_country": "Pays de téléversement",
+        "upload_country_auto": "Auto",
+        "import_portion": "Importer la portion sous",
+        "import_portion_100g": "Pour 100g",
         "import_portion_serving": "Par portion",
-        "import_portion_desc":    "Lorsque le produit scanné contient des données de portion, pré-remplir l'aliment avec les valeurs par portion au lieu de par 100g. Les produits sans données de portion sur OFF reviennent toujours par défaut à 100g.",
-        "account_username":       "Nom d'utilisateur du compte",
-        "account_password":       "Mot de passe du compte",
-        "account_note":           "Optionnel, requis uniquement pour envoyer des modifications.",
-        "account_create_link":    "Créer un compte OFF →",
-        "username_placeholder":   "Nom d'utilisateur du compte OFF",
-        "password_placeholder":   "Mot de passe du compte OFF",
-        "auto_refresh":           "Actualisation automatique",
-        "auto_refresh_desc":      "Fréquence de retéléchargement du miroir depuis Open Food Facts. Chaque actualisation télécharge la base complète (~4 Go).",
-        "auto_refresh_off":       "Désactivée",
-        "auto_refresh_daily":     "Quotidienne",
-        "auto_refresh_weekly":    "Hebdomadaire",
-        "auto_refresh_monthly":   "Mensuelle"
+        "import_portion_desc": "Lorsque le produit scanné contient des données de portion, pré-remplir l'aliment avec les valeurs par portion au lieu de par 100g. Les produits sans données de portion sur OFF reviennent toujours par défaut à 100g.",
+        "account_username": "Nom d'utilisateur du compte",
+        "account_password": "Mot de passe du compte",
+        "account_note": "Optionnel, requis uniquement pour envoyer des modifications.",
+        "account_create_link": "Créer un compte OFF →",
+        "username_placeholder": "Nom d'utilisateur du compte OFF",
+        "password_placeholder": "Mot de passe du compte OFF",
+        "auto_refresh": "Actualisation automatique",
+        "auto_refresh_desc": "Fréquence de retéléchargement du miroir depuis Open Food Facts. Chaque actualisation télécharge la base complète (~4 Go).",
+        "auto_refresh_off": "Désactivée",
+        "auto_refresh_daily": "Quotidienne",
+        "auto_refresh_weekly": "Hebdomadaire",
+        "auto_refresh_monthly": "Mensuelle"
       }
     },
-    "ai":                 { "section": "Assistant IA" },
-    "notifications":      { "section": "Notifications" },
-    "wellness":           { "section": "Bien-être" },
-    "sharing":            { "section": "Partage d'aliments" },
-    "profile_hero": {
-      "label_fallback":  "Mon profil",
-      "subtitle_empty":  "Appuyez pour ajouter votre nom et photo"
+    "ai": {
+      "section": "Assistant IA"
     },
-    "authentication":     { "section": "Authentification" },
-    "users":              {
-      "section":              "Utilisateurs",
-      "users_heading":        "Utilisateurs",
-      "add_user":             "+ Ajouter un utilisateur",
-      "username":             "Nom d'utilisateur",
-      "username_required":    "Nom d'utilisateur *",
-      "full_name":            "Nom complet (Optionnel)",
-      "password_required":    "Mot de passe *",
-      "confirm_required":     "Confirmer *",
-      "role":                 "Rôle",
-      "role_admin":           "admin",
-      "role_user":            "utilisateur",
-      "role_self_suffix":     "(vous)",
-      "create":               "Créer",
-      "creating":             "Création…",
-      "delete_user_title":    "Supprimer {name} ?",
-      "delete_user_message":  "Toutes les données de cet utilisateur — aliments, repas, entrées du journal, paramètres — seront supprimées. Cette action est irréversible.",
-      "delete":               "Supprimer",
-      "promote_title":        "Promouvoir {name} ?",
-      "promote_message":      "Il pourra gérer les utilisateurs, le partage, la configuration e-mail et les fournisseurs OIDC.",
-      "promote_confirm":      "Promouvoir",
-      "demote_title":         "Rétrograder {name} ?",
-      "demote_message":       "Il perdra son accès administrateur. Vous pourrez le promouvoir de nouveau plus tard.",
-      "demote_confirm":       "Rétrograder",
-      "reset_password":       "Réinitialiser le mot de passe",
+    "notifications": {
+      "section": "Notifications"
+    },
+    "wellness": {
+      "section": "Bien-être"
+    },
+    "sharing": {
+      "section": "Partage d'aliments"
+    },
+    "profile_hero": {
+      "label_fallback": "Mon profil",
+      "subtitle_empty": "Appuyez pour ajouter votre nom et photo"
+    },
+    "authentication": {
+      "section": "Authentification"
+    },
+    "users": {
+      "section": "Utilisateurs",
+      "users_heading": "Utilisateurs",
+      "add_user": "+ Ajouter un utilisateur",
+      "username": "Nom d'utilisateur",
+      "username_required": "Nom d'utilisateur *",
+      "full_name": "Nom complet (Optionnel)",
+      "password_required": "Mot de passe *",
+      "confirm_required": "Confirmer *",
+      "role": "Rôle",
+      "role_admin": "admin",
+      "role_user": "utilisateur",
+      "role_self_suffix": "(vous)",
+      "create": "Créer",
+      "creating": "Création…",
+      "delete_user_title": "Supprimer {name} ?",
+      "delete_user_message": "Toutes les données de cet utilisateur — aliments, repas, entrées du journal, paramètres — seront supprimées. Cette action est irréversible.",
+      "delete": "Supprimer",
+      "promote_title": "Promouvoir {name} ?",
+      "promote_message": "Il pourra gérer les utilisateurs, le partage, la configuration e-mail et les fournisseurs OIDC.",
+      "promote_confirm": "Promouvoir",
+      "demote_title": "Rétrograder {name} ?",
+      "demote_message": "Il perdra son accès administrateur. Vous pourrez le promouvoir de nouveau plus tard.",
+      "demote_confirm": "Rétrograder",
+      "reset_password": "Réinitialiser le mot de passe",
       "reset_password_prompt": "Définir un nouveau mot de passe pour {name}\n\n(Doit contenir au moins 8 caractères avec majuscule, minuscule, chiffre et caractère spécial.)",
-      "invite_user":          "Inviter un utilisateur",
+      "invite_user": "Inviter un utilisateur",
       "invite_user_explainer": "Envoyez un lien d'inscription pour que l'utilisateur choisisse son propre mot de passe. Fournissez une adresse e-mail pour l'envoyer directement (nécessite SMTP), ou laissez vide pour générer un lien à copier et partager comme vous le souhaitez.",
-      "email_optional":       "E-mail (Optionnel)",
-      "send_invite":          "Envoyer l'invitation",
-      "generate_link":        "Générer le lien d'invitation",
-      "invite_sent":          "Invitation envoyée",
-      "invite_sent_to":       "Invitation envoyée à {email}",
-      "user_fallback":        "utilisateur",
-      "share_link_intro":     "Partagez ce lien :",
-      "copy":                 "Copier",
-      "copy_link":            "Copier le lien",
-      "add_user_show":        "Ajouter un utilisateur manuellement",
-      "add_user_hide":        "Masquer l'ajout manuel",
-      "add_user_explainer":   "Vous définissez vous-même le nom d'utilisateur et le mot de passe, puis vous les partagez avec l'utilisateur. Utile lorsque SMTP n'est pas configuré ou pour les configurations hors ligne.",
-      "create_directly":      "Créer l'utilisateur",
-      "session_duration":     "Durée de la session",
-      "session_never":        "N'expire jamais",
-      "session_8h":           "8 heures",
-      "session_1d":           "1 jour",
-      "session_7d":           "7 jours",
-      "session_30d":          "30 jours",
-      "session_90d":          "90 jours",
-      "session_1y":           "1 an",
-      "save":                 "Enregistrer",
-      "disable_um":           "Désactiver la gestion des utilisateurs",
-      "disable_um_subtitle":  "Supprime tous les comptes utilisateurs et revient au mode mono-utilisateur",
-      "disable_um_title":     "Désactiver la gestion des utilisateurs ?",
-      "disable_um_message":   "Cela supprimera tous les comptes utilisateurs et leurs données ne pourront pas être récupérées. L'application reviendra en mode mono-utilisateur.",
-      "disable_um_confirm":   "Désactiver et tout supprimer",
-      "enable_um":            "Activer la gestion des utilisateurs",
-      "enable_um_subtitle":   "Ajouter plusieurs comptes utilisateurs avec des données et paramètres séparés",
+      "email_optional": "E-mail (Optionnel)",
+      "send_invite": "Envoyer l'invitation",
+      "generate_link": "Générer le lien d'invitation",
+      "invite_sent": "Invitation envoyée",
+      "invite_sent_to": "Invitation envoyée à {email}",
+      "user_fallback": "utilisateur",
+      "share_link_intro": "Partagez ce lien :",
+      "copy": "Copier",
+      "copy_link": "Copier le lien",
+      "add_user_show": "Ajouter un utilisateur manuellement",
+      "add_user_hide": "Masquer l'ajout manuel",
+      "add_user_explainer": "Vous définissez vous-même le nom d'utilisateur et le mot de passe, puis vous les partagez avec l'utilisateur. Utile lorsque SMTP n'est pas configuré ou pour les configurations hors ligne.",
+      "create_directly": "Créer l'utilisateur",
+      "session_duration": "Durée de la session",
+      "session_never": "N'expire jamais",
+      "session_8h": "8 heures",
+      "session_1d": "1 jour",
+      "session_7d": "7 jours",
+      "session_30d": "30 jours",
+      "session_90d": "90 jours",
+      "session_1y": "1 an",
+      "save": "Enregistrer",
+      "disable_um": "Désactiver la gestion des utilisateurs",
+      "disable_um_subtitle": "Supprime tous les comptes utilisateurs et revient au mode mono-utilisateur",
+      "disable_um_title": "Désactiver la gestion des utilisateurs ?",
+      "disable_um_message": "Cela supprimera tous les comptes utilisateurs et leurs données ne pourront pas être récupérées. L'application reviendra en mode mono-utilisateur.",
+      "disable_um_confirm": "Désactiver et tout supprimer",
+      "enable_um": "Activer la gestion des utilisateurs",
+      "enable_um_subtitle": "Ajouter plusieurs comptes utilisateurs avec des données et paramètres séparés",
       "create_admin_account": "Créer un compte administrateur",
       "create_admin_explainer": "Le premier compte est toujours administrateur. Toutes les données existantes d'aliments, de repas et de journal sur ce serveur lui seront attribuées.",
-      "enable_create":        "Activer et créer l'administrateur",
-      "enabling":             "Activation…",
-      "toast_user_created":   "Utilisateur ajouté",
-      "toast_user_deleted":   "Utilisateur supprimé",
+      "enable_create": "Activer et créer l'administrateur",
+      "enabling": "Activation…",
+      "toast_user_created": "Utilisateur ajouté",
+      "toast_user_deleted": "Utilisateur supprimé",
       "toast_password_reset": "Mot de passe réinitialisé",
-      "toast_role_changed":   "{name} est maintenant {role}",
-      "toast_um_enabled":     "Gestion des utilisateurs activée",
-      "toast_um_disabled":    "Gestion des utilisateurs désactivée",
-      "toast_invite_sent":    "Invitation envoyée",
-      "toast_link_copied":    "Copié !",
+      "toast_role_changed": "{name} est maintenant {role}",
+      "toast_um_enabled": "Gestion des utilisateurs activée",
+      "toast_um_disabled": "Gestion des utilisateurs désactivée",
+      "toast_invite_sent": "Invitation envoyée",
+      "toast_link_copied": "Copié !",
       "err_username_required": "Le nom d'utilisateur est requis",
       "err_passwords_mismatch": "Les mots de passe ne correspondent pas",
       "err_username_password_required": "Nom d'utilisateur et mot de passe requis",
       "err_registration_failed": "Échec de l'inscription",
-      "err_failed_to_add":    "Échec de l'ajout de l'utilisateur",
+      "err_failed_to_add": "Échec de l'ajout de l'utilisateur",
       "err_could_not_change_role": "Impossible de modifier le rôle",
       "err_could_not_reset_password": "Impossible de réinitialiser le mot de passe",
       "err_could_not_reach_server": "Impossible de joindre le serveur"
     },
-    "email":              { "section": "E-mail (SMTP)" },
-    "backup":             { "section": "Sauvegarde & Restauration" },
-    "importExport":       { "section": "Importer & Exporter" },
-    "server":             { "section": "Connexion au serveur" },
-    "diagnostics":        { "section": "Diagnostics" },
-    "about":              { "section": "À propos" }
+    "email": {
+      "section": "E-mail (SMTP)"
+    },
+    "backup": {
+      "section": "Sauvegarde & Restauration"
+    },
+    "importExport": {
+      "section": "Importer & Exporter"
+    },
+    "server": {
+      "section": "Connexion au serveur"
+    },
+    "diagnostics": {
+      "section": "Diagnostics"
+    },
+    "about": {
+      "section": "À propos"
+    }
   },
   "login": {
-    "subtitle":             "Connectez-vous à votre compte",
-    "username":             "Nom d'utilisateur",
+    "subtitle": "Connectez-vous à votre compte",
+    "username": "Nom d'utilisateur",
     "username_placeholder": "Entrez le nom d'utilisateur",
-    "password":             "Mot de passe",
+    "password": "Mot de passe",
     "password_placeholder": "Entrez le mot de passe",
-    "sign_in":              "Se connecter",
-    "signing_in":           "Connexion…",
-    "forgot_password":      "Mot de passe oublié ?",
-    "locked_out":           "Compte bloqué ?",
-    "sso_sign_in_with":     "Se connecter avec {provider}",
-    "sso_or":               "ou",
-    "no_signin_methods":    "Aucune méthode de connexion disponible. Demandez à votre administrateur.",
+    "sign_in": "Se connecter",
+    "signing_in": "Connexion…",
+    "forgot_password": "Mot de passe oublié ?",
+    "locked_out": "Compte bloqué ?",
+    "sso_sign_in_with": "Se connecter avec {provider}",
+    "sso_or": "ou",
+    "no_signin_methods": "Aucune méthode de connexion disponible. Demandez à votre administrateur.",
     "errors": {
       "failed": "Échec de la connexion"
     },
     "recovery": {
-      "confirm":           "Cela supprimera tous les comptes utilisateurs. Vos données alimentaires et de journal seront conservées. Continuer ?",
-      "explainer":         "Si vous n'avez jamais configuré intentionnellement de comptes utilisateurs, vous pouvez désactiver la gestion des utilisateurs. <strong>Cela supprimera tous les comptes utilisateurs.</strong> Vos données alimentaires et de journal seront conservées.",
-      "token_prompt":      "Entrez le <code>RECOVERY_TOKEN</code> de l'environnement de votre serveur :",
+      "confirm": "Cela supprimera tous les comptes utilisateurs. Vos données alimentaires et de journal seront conservées. Continuer ?",
+      "explainer": "Si vous n'avez jamais configuré intentionnellement de comptes utilisateurs, vous pouvez désactiver la gestion des utilisateurs. <strong>Cela supprimera tous les comptes utilisateurs.</strong> Vos données alimentaires et de journal seront conservées.",
+      "token_prompt": "Entrez le <code>RECOVERY_TOKEN</code> de l'environnement de votre serveur :",
       "token_placeholder": "Jeton de récupération",
-      "action":            "Désactiver la gestion des utilisateurs & Réinitialiser",
-      "disabling":         "Désactivation…",
-      "failed":            "Échec de la récupération",
-      "success":           "Gestion des utilisateurs désactivée — vous êtes maintenant en mode mono-utilisateur",
-      "done":              "La gestion des utilisateurs a été désactivée.<br>Redirection…"
+      "action": "Désactiver la gestion des utilisateurs & Réinitialiser",
+      "disabling": "Désactivation…",
+      "failed": "Échec de la récupération",
+      "success": "Gestion des utilisateurs désactivée — vous êtes maintenant en mode mono-utilisateur",
+      "done": "La gestion des utilisateurs a été désactivée.<br>Redirection…"
     }
   },
   "forgot_password": {
-    "title":             "Réinitialiser le mot de passe",
-    "intro":             "Entrez votre adresse e-mail et nous vous enverrons un lien pour réinitialiser votre mot de passe.",
-    "email_label":       "Adresse e-mail",
-    "send_link":         "Envoyer le lien de réinitialisation",
-    "sending":           "Envoi…",
-    "back_to_signin":    "Retour à la connexion",
-    "sent":              "Si un compte existe pour <strong>{email}</strong>, un lien de réinitialisation a été envoyé. Vérifiez votre boîte de réception."
+    "title": "Réinitialiser le mot de passe",
+    "intro": "Entrez votre adresse e-mail et nous vous enverrons un lien pour réinitialiser votre mot de passe.",
+    "email_label": "Adresse e-mail",
+    "send_link": "Envoyer le lien de réinitialisation",
+    "sending": "Envoi…",
+    "back_to_signin": "Retour à la connexion",
+    "sent": "Si un compte existe pour <strong>{email}</strong>, un lien de réinitialisation a été envoyé. Vérifiez votre boîte de réception."
   },
   "reset_password": {
-    "title":               "Nouveau mot de passe",
-    "verifying":           "Vérification du lien…",
-    "invalid_link":        "Ce lien de réinitialisation est invalide ou a expiré.",
-    "request_new":         "Demander un nouveau lien",
-    "success":             "Mot de passe mis à jour. Redirection…",
-    "set_for":             "Définir un nouveau mot de passe pour <strong>{username}</strong>",
-    "new_password":        "Nouveau mot de passe",
-    "confirm_password":    "Confirmer le mot de passe",
+    "title": "Nouveau mot de passe",
+    "verifying": "Vérification du lien…",
+    "invalid_link": "Ce lien de réinitialisation est invalide ou a expiré.",
+    "request_new": "Demander un nouveau lien",
+    "success": "Mot de passe mis à jour. Redirection…",
+    "set_for": "Définir un nouveau mot de passe pour <strong>{username}</strong>",
+    "new_password": "Nouveau mot de passe",
+    "confirm_password": "Confirmer le mot de passe",
     "password_placeholder": "+8 car., maj, min, chiffre, symbole",
-    "submit":              "Définir le nouveau mot de passe",
-    "saving":              "Enregistrement…",
+    "submit": "Définir le nouveau mot de passe",
+    "saving": "Enregistrement…",
     "errors": {
       "required": "Le mot de passe est requis",
       "mismatch": "Les mots de passe ne correspondent pas",
-      "failed":   "Échec de la réinitialisation"
+      "failed": "Échec de la réinitialisation"
     }
   },
   "profile": {
-    "title":                "Profil",
-    "personal_info":        "Informations personnelles",
-    "security":             "Sécurité",
-    "change_photo":         "Changer la photo",
-    "full_name":            "Nom complet",
+    "title": "Profil",
+    "personal_info": "Informations personnelles",
+    "security": "Sécurité",
+    "change_photo": "Changer la photo",
+    "full_name": "Nom complet",
     "full_name_placeholder": "Votre nom complet",
-    "email_placeholder":    "Utilisé pour réinitialiser le mot de passe",
-    "nickname":             "Surnom / Nom d'affichage",
+    "email_placeholder": "Utilisé pour réinitialiser le mot de passe",
+    "nickname": "Surnom / Nom d'affichage",
     "nickname_placeholder": "Comment devons-nous vous appeler ?",
-    "birthday":             "Date de naissance",
-    "gender":               "Genre",
-    "gender_unset":         "Préfère ne pas répondre",
-    "change_password":      "Changer de mot de passe",
-    "set_password":         "Définir un mot de passe",
-    "current_password":     "Mot de passe actuel",
+    "birthday": "Date de naissance",
+    "gender": "Genre",
+    "gender_unset": "Préfère ne pas répondre",
+    "change_password": "Changer de mot de passe",
+    "set_password": "Définir un mot de passe",
+    "current_password": "Mot de passe actuel",
     "confirm_new_password": "Confirmer le nouveau mot de passe",
-    "saved":                "Profil enregistré",
-    "password_changed":     "Mot de passe modifié",
-    "linked_accounts":      "Comptes associés",
-    "no_linked_accounts":   "Aucun fournisseur d'identité associé pour le moment.",
-    "link_with":            "Associer avec",
-    "unlink":               "Dissocier",
-    "danger_zone":          "Zone de danger",
-    "delete_account":       "Supprimer mon compte",
+    "saved": "Profil enregistré",
+    "password_changed": "Mot de passe modifié",
+    "linked_accounts": "Comptes associés",
+    "no_linked_accounts": "Aucun fournisseur d'identité associé pour le moment.",
+    "link_with": "Associer avec",
+    "unlink": "Dissocier",
+    "danger_zone": "Zone de danger",
+    "delete_account": "Supprimer mon compte",
     "delete_account_explainer": "Supprimez définitivement votre compte et toutes les données associées — aliments, repas, journal, bien-être, paramètres.",
     "delete_account_title": "Supprimer votre compte ?",
     "delete_account_message": "Vos aliments, repas, journal, paramètres et données de bien-être seront définitivement supprimés. Cette action est irréversible.",
     "delete_account_confirm": "Supprimer le compte",
-    "deleting":             "Suppression…",
-    "account_deleted":      "Compte supprimé",
+    "deleting": "Suppression…",
+    "account_deleted": "Compte supprimé",
     "errors": {
-      "save_failed":            "Impossible d'enregistrer le profil",
-      "upload_failed":          "Échec du téléversement",
+      "save_failed": "Impossible d'enregistrer le profil",
+      "upload_failed": "Échec du téléversement",
       "password_change_failed": "Impossible de changer le mot de passe",
-      "delete_account_failed":  "Impossible de supprimer le compte"
+      "delete_account_failed": "Impossible de supprimer le compte"
     }
   },
   "wizard": {
     "nav": {
-      "skip":         "Ignorer",
-      "get_started":  "Commencer",
-      "next":         "Suivant",
-      "finish":       "Terminer"
+      "skip": "Ignorer",
+      "get_started": "Commencer",
+      "next": "Suivant",
+      "finish": "Terminer"
     },
     "welcome": {
       "title": "Bienvenue sur NutriTrace",
-      "desc":  "Votre tracker de nutrition personnel. Configurons-le en une minute environ."
+      "desc": "Votre tracker de nutrition personnel. Configurons-le en une minute environ."
     },
     "name": {
-      "title":       "Comment devons-nous vous appeler ?",
-      "desc":        "Utilisé dans les salutations, le menu latéral et votre assistant IA. Vous pourrez le modifier plus tard dans les Paramètres.",
+      "title": "Comment devons-nous vous appeler ?",
+      "desc": "Utilisé dans les salutations, le menu latéral et votre assistant IA. Vous pourrez le modifier plus tard dans les Paramètres.",
       "placeholder": "Votre nom (optionnel)"
     },
     "usermgmt": {
       "create_account_title": "Créer votre compte",
-      "create_account_desc":  "Configurez votre compte administrateur pour sécuriser votre instance NutriTrace. Vous pourrez inviter d'autres utilisateurs plus tard depuis les Paramètres.",
-      "multi_user_title":     "Support multi-utilisateurs",
-      "multi_user_desc":      "NutriTrace peut fonctionner en mode mono-utilisateur (par défaut) ou multi-utilisateurs avec des connexions et des réinitialisations de mot de passe séparées. Vous pourrez toujours activer cela plus tard dans les Paramètres."
+      "create_account_desc": "Configurez votre compte administrateur pour sécuriser votre instance NutriTrace. Vous pourrez inviter d'autres utilisateurs plus tard depuis les Paramètres.",
+      "multi_user_title": "Support multi-utilisateurs",
+      "multi_user_desc": "NutriTrace peut fonctionner en mode mono-utilisateur (par défaut) ou multi-utilisateurs avec des connexions et des réinitialisations de mot de passe séparées. Vous pourrez toujours activer cela plus tard dans les Paramètres."
     },
     "units": {
       "title": "Système de mesure",
-      "desc":  "Comment mesurez-vous les choses ?"
+      "desc": "Comment mesurez-vous les choses ?"
     },
     "gender": {
       "title": "Quel est votre genre ?",
-      "desc":  "Utilisé pour calculer vos besoins caloriques."
+      "desc": "Utilisé pour calculer vos besoins caloriques."
     },
     "dob": {
       "title": "Quelle est votre date de naissance ?",
-      "desc":  "Votre âge influence votre métabolisme de base."
+      "desc": "Votre âge influence votre métabolisme de base."
     },
     "height": {
       "title": "Quelle est votre taille ?",
-      "desc":  "Utilisée pour estimer vos besoins caloriques."
+      "desc": "Utilisée pour estimer vos besoins caloriques."
     },
     "weight": {
       "title": "Quel est votre poids ?"
@@ -371,95 +421,95 @@
     },
     "activity": {
       "title": "Quel est votre niveau d'activité ?",
-      "desc":  "Influence vos besoins caloriques quotidiens."
+      "desc": "Influence vos besoins caloriques quotidiens."
     },
     "integrations": {
       "title": "Intégrations",
-      "desc":  "Connectez des services optionnels. Ignorez ce dont vous n'avez pas besoin — vous pourrez les configurer plus tard dans les Paramètres."
+      "desc": "Connectez des services optionnels. Ignorez ce dont vous n'avez pas besoin — vous pourrez les configurer plus tard dans les Paramètres."
     },
     "notifications": {
       "title": "Restez sur la bonne voie",
-      "desc":  "Recevez des rappels utiles et célébrez vos victoires. Vous pourrez tous les personnaliser plus tard dans les Paramètres."
+      "desc": "Recevez des rappels utiles et célébrez vos victoires. Vous pourrez tous les personnaliser plus tard dans les Paramètres."
     },
     "summary": {
       "title": "Vos objectifs quotidiens",
-      "desc":  "Calculés à partir de vos statistiques à l'aide de la formule de Mifflin-St Jeor."
+      "desc": "Calculés à partir de vos statistiques à l'aide de la formule de Mifflin-St Jeor."
     },
     "skip_modal": {
-      "title":    "Ignorer la configuration ?",
-      "desc":     "Vous pouvez configurer vos objectifs, unités et intégrations à tout moment depuis les <strong>Paramètres</strong>. En attendant, les objectifs caloriques ne seront pas calculés automatiquement.",
+      "title": "Ignorer la configuration ?",
+      "desc": "Vous pouvez configurer vos objectifs, unités et intégrations à tout moment depuis les <strong>Paramètres</strong>. En attendant, les objectifs caloriques ne seront pas calculés automatiquement.",
       "continue": "Continuer la configuration",
       "skip_now": "Ignorer pour l'instant"
     }
   },
   "diary": {
-    "add_food":          "Ajouter un aliment",
+    "add_food": "Ajouter un aliment",
     "notes_placeholder": "Comment s'est passée la journée ? Sommeil, énergie, faim, envies…",
     "quick_calories": {
-      "title":            "Calories rapides",
-      "title_meal":       "Calories rapides : {meal}",
-      "default_name":     "Calories rapides",
-      "help":             "Consignez uniquement les {unit} lorsque vous n'avez pas les informations nutritionnelles complètes, ou lorsque vous ne voulez pas modéliser l'aliment. Ajoute directement au journal ; aucune entrée d'aliment n'est créée.",
-      "name_label":       "Nom (optionnel)",
+      "title": "Calories rapides",
+      "title_meal": "Calories rapides : {meal}",
+      "default_name": "Calories rapides",
+      "help": "Consignez uniquement les {unit} lorsque vous n'avez pas les informations nutritionnelles complètes, ou lorsque vous ne voulez pas modéliser l'aliment. Ajoute directement au journal ; aucune entrée d'aliment n'est créée.",
+      "name_label": "Nom (optionnel)",
       "name_placeholder": "Collation au bureau, petit-déjeuner à l'hôtel...",
-      "value_label":      "{unit}",
-      "add":              "Ajouter",
-      "adding":           "Ajout…",
-      "cancel":           "Annuler",
-      "summed_hint":      "passez à \"Séparées\" pour modifier les entrées individuelles"
+      "value_label": "{unit}",
+      "add": "Ajouter",
+      "adding": "Ajout…",
+      "cancel": "Annuler",
+      "summed_hint": "passez à \"Séparées\" pour modifier les entrées individuelles"
     },
     "nav": {
-      "previous_day":  "Jour précédent",
-      "next_day":      "Jour suivant",
-      "jump_to_date":  "Aller à la date"
+      "previous_day": "Jour précédent",
+      "next_day": "Jour suivant",
+      "jump_to_date": "Aller à la date"
     },
     "actions": {
-      "cancel_selection":       "Annuler la sélection",
-      "delete_selected":        "Supprimer la sélection",
-      "log_water":              "Consigner l'eau",
-      "log_water_long":         "Eau — consignez votre consommation d'eau",
-      "nutrition_summary":      "Résumé nutritionnel",
+      "cancel_selection": "Annuler la sélection",
+      "delete_selected": "Supprimer la sélection",
+      "log_water": "Consigner l'eau",
+      "log_water_long": "Eau — consignez votre consommation d'eau",
+      "nutrition_summary": "Résumé nutritionnel",
       "nutrition_summary_long": "Résumé nutritionnel — détail complet des nutriments d'aujourd'hui",
-      "body_stats":             "Mensurations",
-      "body_stats_long":        "Mensurations — consignez votre poids, masse grasse et mesures"
+      "body_stats": "Mensurations",
+      "body_stats_long": "Mensurations — consignez votre poids, masse grasse et mesures"
     },
     "toast": {
       "body_stats_saved": "Mensurations enregistrées",
-      "updated":          "Mis à jour",
-      "item_removed":     "Élément retiré",
+      "updated": "Mis à jour",
+      "item_removed": "Élément retiré",
       "activity_removed": "Activité retirée"
     },
     "errors": {
-      "note_save_failed":     "Échec de l'enregistrement de la note",
-      "name_required":        "Veuillez entrer un nom",
-      "nothing_to_save":      "Rien à enregistrer",
+      "note_save_failed": "Échec de l'enregistrement de la note",
+      "name_required": "Veuillez entrer un nom",
+      "nothing_to_save": "Rien à enregistrer",
       "activity_save_failed": "Impossible d'enregistrer l'activité",
       "activity_delete_failed": "Impossible de supprimer l'activité"
     },
     "activity": {
-      "section":              "Activité",
-      "tap_to_add":           "Appuyez pour ajouter une activité",
-      "add":                  "Ajouter une activité",
-      "add_to_diary":         "Ajouter au journal",
-      "save_changes":         "Enregistrer les modifications",
-      "title_add":            "Ajouter une activité",
-      "title_edit":           "Modifier l'activité",
-      "field_name":           "Activité",
+      "section": "Activité",
+      "tap_to_add": "Appuyez pour ajouter une activité",
+      "add": "Ajouter une activité",
+      "add_to_diary": "Ajouter au journal",
+      "save_changes": "Enregistrer les modifications",
+      "title_add": "Ajouter une activité",
+      "title_edit": "Modifier l'activité",
+      "field_name": "Activité",
       "field_name_placeholder": "ex. Randonnée matinale",
-      "field_kcal":           "Calories brûlées",
+      "field_kcal": "Calories brûlées",
       "field_kcal_placeholder": "kcal",
-      "field_duration":       "Durée",
+      "field_duration": "Durée",
       "field_duration_placeholder": "minutes",
-      "field_distance":       "Distance",
+      "field_distance": "Distance",
       "field_distance_placeholder": "ex. 10 km",
-      "field_optional":       "(optionnel)",
-      "saving":               "Ajout…",
-      "estimated_short":      "est.",
-      "wellness_hint":        "Les entraînements synchronisés depuis votre appareil se trouvent dans Bien-être",
-      "not_counted":          "non compté — utilisation d'un appareil connecté",
-      "policy_chip":          "Politique : l'appareil connecté prime. À modifier dans Paramètres → Journal.",
+      "field_optional": "(optionnel)",
+      "saving": "Ajout…",
+      "estimated_short": "est.",
+      "wellness_hint": "Les entraînements synchronisés depuis votre appareil se trouvent dans Bien-être",
+      "not_counted": "non compté — utilisation d'un appareil connecté",
+      "policy_chip": "Politique : l'appareil connecté prime. À modifier dans Paramètres → Journal.",
       "actions": {
-        "edit":   "Modifier",
+        "edit": "Modifier",
         "delete": "Supprimer"
       },
       "errors": {
@@ -469,100 +519,94 @@
     }
   },
   "foods": {
-    "search_placeholder":      "Rechercher des aliments ou scanner un code-barres...",
-    "scan_barcode":            "Scanner un code-barres",
-    "add_new":                 "Ajouter nouveau",
-    "n_selected":              "{n} sélectionné(s)",
-    "add_n":                   "Ajouter {n}",
-    "adding":                  "Ajout…",
-    "add_selected_to_diary":   "Ajouter la sélection au journal",
-    "search_in":               "Rechercher dans {source}",
-    "searching_in":            "Recherche dans {source}…",
-    "no_results_in":           "Aucun résultat dans {source}",
-    "looking_up_barcode":      "Recherche du code-barres",
+    "search_placeholder": "Rechercher des aliments ou scanner un code-barres...",
+    "scan_barcode": "Scanner un code-barres",
+    "add_new": "Ajouter nouveau",
+    "n_selected": "{n} sélectionné(s)",
+    "add_n": "Ajouter {n}",
+    "adding": "Ajout…",
+    "add_selected_to_diary": "Ajouter la sélection au journal",
+    "search_in": "Rechercher dans {source}",
+    "searching_in": "Recherche dans {source}…",
+    "no_results_in": "Aucun résultat dans {source}",
+    "looking_up_barcode": "Recherche du code-barres",
     "detail": {
-      "edit":            "Modifier",
-      "edit_aria":       "Modifier l'aliment",
-      "add_to_diary":    "Ajouter au journal",
+      "edit": "Modifier",
+      "edit_aria": "Modifier l'aliment",
+      "add_to_diary": "Ajouter au journal",
       "add_to_diary_aria": "Ajouter au journal",
       "add_to_which_meal": "Ajouter à quel repas ?",
-      "per_serving":     "par portion",
-      "barcode":         "Code-barres",
-      "added_to":        "Ajouté à {meal}",
-      "delete_aria":     "Supprimer l'aliment",
+      "per_serving": "par portion",
+      "barcode": "Code-barres",
+      "added_to": "Ajouté à {meal}",
+      "delete_aria": "Supprimer l'aliment",
       "delete_confirm_title": "Supprimer cet aliment ?",
-      "delete_confirm_body":  "\"{name}\" sera retiré de vos aliments. Les entrées existantes du journal qui font référence à cet aliment sont conservées.",
-      "deleted":         "Aliment supprimé"
+      "delete_confirm_body": "\"{name}\" sera retiré de vos aliments. Les entrées existantes du journal qui font référence à cet aliment sont conservées.",
+      "deleted": "Aliment supprimé"
     },
     "sources": {
-      "local":       "Local",
+      "local": "Local",
       "from_others": "D'autres utilisateurs"
     },
     "toast": {
       "deleted": "Supprimé",
-      "cloned":  "Cloné"
+      "cloned": "Cloné"
     }
   },
   "trace": {
-    "panel_label":        "Discussion Coach IA",
-    "ask_placeholder":    "Demandez-moi n'importe quoi…",
+    "panel_label": "Discussion Coach IA",
+    "ask_placeholder": "Demandez-moi n'importe quoi…",
     "clear_conversation": "Effacer la conversation",
-    "attach_image":       "Joindre une image"
-  },
-  "smart_log": {
-    "placeholder": "au petit-déjeuner j'ai pris 2 œufs et des toasts"
+    "attach_image": "Joindre une image"
   },
   "goals": {
     "save_goal": "Enregistrer l'objectif",
     "toast": {
-      "goal_saved":       "Objectif enregistré",
+      "goal_saved": "Objectif enregistré",
       "water_goal_saved": "Objectif d'eau enregistré",
-      "template_saved":   "Modèle enregistré",
+      "template_saved": "Modèle enregistré",
       "template_applied": "\"{name}\" appliqué"
     }
   },
   "food_editor": {
-    "name_placeholder":  "Nom de l'aliment",
+    "name_placeholder": "Nom de l'aliment",
     "brand_placeholder": "Marque (optionnelle)",
-    "saved":             "Enregistré",
-    "added_to_diary":    "Ajouté au journal",
-    "errors": {
-      "name_required": "Veuillez entrer un nom"
-    }
+    "saved": "Enregistré",
+    "added_to_diary": "Ajouté au journal"
   },
   "meal_editor": {
-    "meal_name_placeholder":   "Nom du repas",
+    "meal_name_placeholder": "Nom du repas",
     "recipe_name_placeholder": "Nom de la recette",
     "servings": {
-      "title":              "Portions",
+      "title": "Portions",
       "amount_placeholder": "Auto d'après les ingrédients",
-      "total_weight_hint":  "Poids total. Auto d'après les ingrédients ; modifiez pour les changements liés à la cuisson (ex. évaporation).",
-      "yields_unit":        "portions",
-      "yields_hint":        "Nombre de portions que donne cette recette.",
-      "per_serving_label":  "Par portion :"
+      "total_weight_hint": "Poids total. Auto d'après les ingrédients ; modifiez pour les changements liés à la cuisson (ex. évaporation).",
+      "yields_unit": "portions",
+      "yields_hint": "Nombre de portions que donne cette recette.",
+      "per_serving_label": "Par portion :"
     },
     "errors": {
       "no_ingredients": "Veuillez ajouter au moins un ingrédient"
     }
   },
   "accept_invite": {
-    "title":                "Créer un compte",
-    "verifying":            "Vérification de l'invitation…",
-    "invalid_link":         "Ce lien d'invitation est invalide ou a expiré. Demandez-en un nouveau à votre administrateur.",
-    "success":              "Compte créé ! Redirection…",
-    "intro":                "Vous avez été invité sur NutriTrace. Choisissez un nom d'utilisateur et un mot de passe pour commencer.",
-    "intro_with_email":     "Vous avez été invité en tant que <strong>{email}</strong>. Choisissez un nom d'utilisateur et un mot de passe pour commencer.",
-    "username_label":       "Nom d'utilisateur *",
+    "title": "Créer un compte",
+    "verifying": "Vérification de l'invitation…",
+    "invalid_link": "Ce lien d'invitation est invalide ou a expiré. Demandez-en un nouveau à votre administrateur.",
+    "success": "Compte créé ! Redirection…",
+    "intro": "Vous avez été invité sur NutriTrace. Choisissez un nom d'utilisateur et un mot de passe pour commencer.",
+    "intro_with_email": "Vous avez été invité en tant que <strong>{email}</strong>. Choisissez un nom d'utilisateur et un mot de passe pour commencer.",
+    "username_label": "Nom d'utilisateur *",
     "username_placeholder": "Choisissez un nom d'utilisateur",
-    "full_name_label":      "Nom complet (optionnel)",
+    "full_name_label": "Nom complet (optionnel)",
     "full_name_placeholder": "Votre nom",
-    "password_label":       "Mot de passe *",
-    "confirm_label":        "Confirmer le mot de passe *",
-    "submit":               "Créer le compte",
-    "creating":             "Création du compte…",
+    "password_label": "Mot de passe *",
+    "confirm_label": "Confirmer le mot de passe *",
+    "submit": "Créer le compte",
+    "creating": "Création du compte…",
     "errors": {
       "username_required": "Le nom d'utilisateur est requis",
-      "failed":            "Échec de la création du compte"
+      "failed": "Échec de la création du compte"
     }
   }
 }

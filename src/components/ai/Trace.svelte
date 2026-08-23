@@ -5,6 +5,7 @@
   import { _ } from 'svelte-i18n';
   import TraceFace from './TraceFace.svelte';
   import { NtApi }     from '../../lib/api.js';
+  import { confirmDialog } from '../../stores/confirmDialog.js';
   import { DB, localDateStr } from '../../lib/db.js';
   import { Nutrition, NUTRIMENTS } from '../../lib/nutrition.js';
   // Comma-joined list of every NT-tracked nutriment ID — inlined into the
@@ -28,6 +29,7 @@
   import SmartLogModal from '../diary/SmartLogModal.svelte';
   import { showError } from '../../stores/toast.js';
   import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
+  import { acquireScreenWakeLock } from '../../lib/wake-lock.js';
 
   // ── State ──────────────────────────────────────────────────────────────────
   let panelOpen  = false;
@@ -613,20 +615,43 @@
               hint: `${exactLocal.length} local foods match "${foodQuery}" exactly. Ask the user which one (by brand or saved portion).`,
             };
           }
-          // Substring local matches (no exact). Returned as candidates so
-          // the AI can present them — we don't auto-pick because substring
-          // matches are noisier than the AI's verbatim user-word.
+          // Substring local matches (no exact). #163: a single substring
+          // hit is treated as an obvious auto-pick — same reasoning as
+          // "exactLocal.length === 1" above. Asking the user "did you mean
+          // the ONE thing that matched?" was pure friction. Multiple hits
+          // still surface as candidates for the user to pick.
           const substringLocal = (localFoods || []).filter(f => _norm(f.name).includes(qNorm));
-          if (substringLocal.length > 0 && substringLocal.length <= 5) {
+          if (substringLocal.length === 1) {
+            const food = substringLocal[0];
+            try {
+              const item = {
+                ...food,
+                portion: portionOverride ?? food.portion ?? 100,
+                unit:    unitOverride    ?? food.unit    ?? 'g',
+                quantity,
+              };
+              const { addDiaryItem } = await import('../../stores/diary.js');
+              await addDiaryItem(item, mealIdx, date);
+              const kcal = Math.round(((food.nutrition?.calories || 0) * (item.portion / (food.portion || 100))) * quantity);
+              return { ok: true, date, meal: mealIdx, meal_name: mealName, food_name: food.name, portion: item.portion, unit: item.unit, quantity, kcal, source: 'local' };
+            } catch (e) {
+              return { error: 'Failed to log food: ' + (e?.message || String(e)) };
+            }
+          }
+          // #163: was `length > 0 && length <= 5` — a user with 6+ local
+          // foods containing the word saw NONE of their own entries and
+          // fell through to Open Food Facts. Now caps the returned list
+          // at 5 but still offers local matches when the user has many.
+          if (substringLocal.length > 0) {
             return {
-              candidates: substringLocal.map(f => ({
+              candidates: substringLocal.slice(0, 5).map(f => ({
                 name: f.name,
                 brand: f.brand || '',
                 portion: f.portion || 100,
                 unit: f.unit || 'g',
                 source: 'local',
               })),
-              hint: `Found ${substringLocal.length} local food(s) containing "${foodQuery}". Ask the user which one (or none) before calling log_food again with the chosen name.`,
+              hint: `Found ${substringLocal.length} local food(s) containing "${foodQuery}"${substringLocal.length > 5 ? ' (showing top 5)' : ''}. Ask the user which one (or none) before calling log_food again with the chosen name.`,
             };
           }
           // Tier 2: Open Food Facts (uses local mirror if admin enabled it).
@@ -1606,6 +1631,7 @@ LOGGING A REAL FOOD — When the user wants to add a NAMED food to their diary (
 - If the tool returns \`no_match\`, tell the user to add it via the Foods tab (barcode scan or manual entry) and then try again.
 - DO NOT use log_quick_calories when the user names a food. Quick Calories is ONLY for kcal-number asks.
 - When the tool returns ok:true, confirm using the \`meal_name\` and \`food_name\` from the tool result — do not assume the meal name from the index you passed. This is how you avoid telling the user "I added X to snacks" when it actually went to a different meal.
+- MANUAL ESTIMATE PATH: if the user EXPLICITLY asks you to estimate ("don't search, just estimate it", "skip the database, estimate it yourself", "you estimate it and log it"), skip log_food and use propose_food instead. Pass a full nutrition estimate you're confident about. The user gets a review card and picks the meal and Save & Add to Diary. This is the ONLY sanctioned bypass — do not use it when the user hasn't explicitly opted out of the search.
 
 LOGGING QUICK CALORIES — When the user gives a kcal number WITH NO FOOD NAME ("log 200 calories for lunch", "punch in 1200 kJ for dinner", "add 350 quick calories"), use log_quick_calories. This is the Fitbit-style quick-add path; no food row is created. Rules:
 - If the user gave kJ, convert to kcal yourself: kcal = kj / 4.184. Pass the kcal number.
@@ -1658,6 +1684,10 @@ IMPORTANT — User's preferred units (ALWAYS use these when presenting data):
 - Energy: ${ctx.energyUnit === 'kJ' ? 'kilojoules (kJ)' : 'kilocalories (kcal)'}
 Convert all values to these units before presenting. ONLY show the preferred unit — do NOT show both or include the original metric/imperial value.
 
+RESPONSE FORMAT — the chat renders as PLAIN TEXT. Do not use markdown: no **bold**, no ##headings, no \`- \` bullet lists, no code fences. Asterisks and hashes will show as literal characters. Use plain sentences and, if you must list, use short lines separated by newlines.
+
+RESPONSE LENGTH — default to 2-4 short sentences. Go longer only when the user explicitly asks for detail, or when presenting multi-day / multi-metric data that genuinely needs the space. Prefer a single concrete answer over a walkthrough. When you complete a tool call, one sentence confirming the result is enough — do not restate the numbers the card / tool already surfaces.
+
 Be warm, encouraging, and concise. Give practical, evidence-based advice. Use the data to personalize your responses.
 
 Current date: ${ctx.today}
@@ -1701,6 +1731,11 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     input    = '';
     attachedImage = null;
     loading  = true;
+    // #158: hold a screen wake lock while the request is in-flight so
+    // the user doesn't have to keep tapping the screen when a slow
+    // self-hosted model is thinking. Released in the finally block.
+    // Safe no-op on browsers/WebViews that don't support Wake Lock API.
+    const _releaseWakeLock = await acquireScreenWakeLock();
     // Clear any COMMITTED-state proposal indicators when the user sends
     // a new message. The "Logged X kcal to Lunch" / "Saved to Foods"
     // indicators were sticking around past the turn that committed them,
@@ -1768,6 +1803,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     } finally {
       loading = false;
       _toolStatus = '';
+      try { await _releaseWakeLock(); } catch { /* noop */ }
       await tick();
       _scrollBottom();
     }
@@ -1831,7 +1867,13 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
-  function clearChat() {
+  async function clearChat() {
+    if (!await confirmDialog({
+      title: $_('trace.clear_confirm_title'),
+      message: $_('trace.clear_confirm_message'),
+      confirmText: $_('trace.clear_confirm_ok'),
+      dangerous: true,
+    })) return;
     messages = [];
     localStorage.removeItem('wl:aiChatHistory');
     NtApi.del('/api/ai/history').catch(() => {});

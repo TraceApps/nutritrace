@@ -66,8 +66,8 @@ router.delete('/history', requireAuth, wrap((req, res) => {
 
 const AI_DEFAULT_MODELS = {
   claude: 'claude-haiku-4-5-20251001',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.5-flash',
+  openai: 'gpt-5.6-luna',
+  gemini: 'gemini-3.6-flash',
 };
 
 // Models Google has shut down (404) or scheduled for shutdown.

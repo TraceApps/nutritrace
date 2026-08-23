@@ -10,6 +10,11 @@
   import { cubicOut } from 'svelte/easing';
 
   import MacroRing    from '../components/diary/MacroRing.svelte';
+  import DaySummaryWidget from '../components/diary/DaySummaryWidget.svelte';
+  import WaterWidget       from '../components/diary/WaterWidget.svelte';
+  import BodyStatsWidget   from '../components/diary/BodyStatsWidget.svelte';
+  import ActivityImpactWidget from '../components/diary/ActivityImpactWidget.svelte';
+  import WeekStrip           from '../components/diary/WeekStrip.svelte';
   import AddActivitySheet from '../components/diary/AddActivitySheet.svelte';
   import QuickCaloriesSheet from '../components/diary/QuickCaloriesSheet.svelte';
   import FastingWidget from '../components/diary/FastingWidget.svelte';
@@ -24,10 +29,12 @@
   import {
     currentDate, currentEntry, diaryTotals, macroPercents,
     prevDay, nextDay, loadEntry, removeDiaryItem, updateDiaryItem, saveBodyStats,
+    addWaterLog,
     copyMealItems, moveMealItems, clearMealItems, copyMealToDate, saveDiaryNote,
     splitRecipeItem, removeSplitChild, updateSplitChild,
     diaryShowNutritionSummary, diaryShowBodyStats, diaryLoadError,
-    buildDiaryWritePayload
+    buildDiaryWritePayload,
+    _newUuid as _diaryUuid
   } from '../stores/diary.js';
   import { mealNames, goals, energyUnit, weightUnit, lengthUnit, navStyle,
            diaryShowBrands, diaryShowThumbnails,
@@ -39,7 +46,11 @@
            calorieGoalMode, calorieGoalFactor,
            diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
            fastingEnabled,
-           wellnessEnabled } from '../stores/settings.js';
+           wellnessEnabled,
+           diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
+           diaryRailShowActivity as diaryRailShowActivityWidget,
+           diaryRailShowNotes,
+           forceMobileLayout } from '../stores/settings.js';
   import { dayActivity, activitySummary, loadActivity, deleteActivity } from '../stores/activity.js';
   import WaterBanner  from '../components/banners/WaterBanner.svelte';
   import { editorState } from '../stores/editorState.js';
@@ -48,6 +59,7 @@
   import { portal } from '../lib/portal.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
   import { readBodyStat, tagBodyStats, LENGTH_KEYS } from '../lib/body-stats-unit.js';
+  import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
 
   let addMealIdx = 0;
   let showAddAction = false;
@@ -157,8 +169,55 @@
     // sheet. Falls through silently if the user has hidden the weight row.
     tick().then(() => weightInput?.focus());
   }
+  // Rail body-stats widget derives its display straight from the entry so
+  // it stays in sync across refresh / tab-switch — bodyStatsData is only
+  // populated when the sheet opens, so binding the widget to it left the
+  // rail card blank until the sheet had been touched (#168). Values are
+  // converted into the user's current display unit via readBodyStat, same
+  // as openBodyStats does.
+  $: _widgetWeight = (() => {
+    const raw = entry?.bodyStats || {};
+    if (raw.weight == null || raw.weight === '') return null;
+    return readBodyStat(raw, 'weight', $weightUnit || 'kg', $lengthUnit || 'in');
+  })();
+  $: _widgetStats = (() => {
+    const raw = entry?.bodyStats || {};
+    const out = {};
+    for (const k of LENGTH_KEYS) {
+      if (raw[k] != null && raw[k] !== '') {
+        out[k] = readBodyStat(raw, k, $weightUnit || 'kg', $lengthUnit || 'in');
+      }
+    }
+    return out;
+  })();
+
+  // Widget's inline weight save goes straight to storage — merges a single
+  // {weight, weight_unit} pair into entry.bodyStats so other measurements
+  // aren't touched. val === null means the user cleared the field, which
+  // saveBodyStats propagates as weight=null; readBodyStat then filters it
+  // out on display so the rail card and sheet both show "Not logged" (#168).
+  async function _widgetSaveWeight(val) {
+    const stats = val == null
+      ? { weight: null }
+      : tagBodyStats({ weight: val }, $weightUnit || 'kg', $lengthUnit || 'in');
+    await saveBodyStats(stats);
+    showSuccess($_('diary.toast.body_stats_saved'));
+  }
+
   async function saveBodyStatsLocal() {
-    const payload = tagBodyStats(bodyStatsData, $weightUnit || 'kg', $lengthUnit || 'in');
+    // Normalize each numeric field via parseDecimal so a comma survives
+    // to a period even in the rare case a paste bypasses the input action
+    // (#160 follow-up). Only touch fields that hold user-typed strings —
+    // weight_unit / lengths_unit tags stay as-is.
+    const _num = (v) => {
+      if (v == null || v === '') return v;
+      const n = parseDecimal(v);
+      return Number.isFinite(n) ? n : v;
+    };
+    const _numeric = ['weight', 'body_fat', 'body_water', ...LENGTH_KEYS];
+    const normalized = { ...bodyStatsData };
+    for (const k of _numeric) if (k in normalized) normalized[k] = _num(normalized[k]);
+    const payload = tagBodyStats(normalized, $weightUnit || 'kg', $lengthUnit || 'in');
     await saveBodyStats(payload);
     diaryShowBodyStats.set(false);
     showSuccess($_('diary.toast.body_stats_saved'));
@@ -209,14 +268,14 @@
     // daily totals don't pick up zero-filled phantoms (same shape as
     // addQuickCalories in src/stores/diary.js).
     if (editItem.type === 'quick_calories') {
-      const raw = Number(editKcalDisplay);
+      const raw = parseDecimal(editKcalDisplay);
       if (!Number.isFinite(raw) || raw <= 0) {
         showError(`Enter a positive ${$energyUnit === 'kJ' ? 'kJ' : 'kcal'} value.`);
         return;
       }
       const kcal = $energyUnit === 'kJ' ? Math.round(raw / 4.184) : Math.round(raw);
       const _opt = v => {
-        const n = Number(v);
+        const n = parseDecimal(v);
         return Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : null;
       };
       const p = _opt(editProtein), c = _opt(editCarbs), f = _opt(editFat);
@@ -240,7 +299,7 @@
     }
     const origPortion = parseFloat(editItem.portion) || 100;
     const origUnit    = editItem.unit || 'g';
-    const newPortion  = parseFloat(editPortion)      || 100;
+    const newPortion  = parseDecimal(editPortion)      || 100;
     // Pass editItem as the food so the scaler can consult per-food alt_units
     // (slice/cookie/bottle = X g) and density for cross-system conversion.
     // Issues #69 + #70.
@@ -254,7 +313,7 @@
     const changes = {
       portion:   newPortion,
       unit:      editUnit,
-      quantity:  parseFloat(editQuantity) || 1,
+      quantity:  parseDecimal(editQuantity) || 1,
       nutrition: newNutrition,
     };
     if (_editChildContext) {
@@ -278,7 +337,7 @@
     if (!editItem) return {};
     const origPortion   = parseFloat(editItem.portion) || 100;
     const origUnit      = editItem.unit || 'g';
-    const newPortion    = parseFloat(editPortion)      || origPortion;
+    const newPortion    = parseDecimal(editPortion)      || origPortion;
     // editItem carries the food's nutrition_basis / alt_units / density_g_ml
     // via the addDiaryItem spread, so passing it gives accurate cross-system
     // conversion when those fields are set. Issues #69 + #70.
@@ -286,7 +345,7 @@
     const scaledNutrition = editItem.nutrition
       ? Object.fromEntries(Object.entries(editItem.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * portionFactor]))
       : editItem.nutrition;
-    return Nutrition.calculate({ ...editItem, nutrition: scaledNutrition, quantity: parseFloat(editQuantity) || 1 });
+    return Nutrition.calculate({ ...editItem, nutrition: scaledNutrition, quantity: parseDecimal(editQuantity) || 1 });
   })();
   $: _editEnergy = Nutrition.displayEnergy(editCalc.calories || 0, $energyUnit);
   // Only use currentEntry if it belongs to the currently-displayed date;
@@ -295,6 +354,13 @@
     ? $currentEntry
     : { items: [], bodyStats: {} };
   $: totals = $diaryTotals || {};
+
+  // Bump the week-strip refetch key whenever an entry's item count
+  // or item-nutrition changes so the strip's daily-totals cache stays
+  // in sync with what the user just logged. `_weekStripSig` is a cheap
+  // digest string that changes on any meaningful diary mutation.
+  $: _weekStripSig = `${$currentDate}|${(entry.items || []).length}|${(entry.water || []).length}`;
+  $: if (_weekStripSig) { _weekStripRefreshKey = (_weekStripRefreshKey + 1); }
 
   // Nutrition Summary drill-down: tap a nutrient row → show top contributing
   // items for that nutrient sorted descending. Only one expanded at a time so
@@ -414,6 +480,234 @@
   let _waterGoalCelebrating = false;
   let _prevCalPct   = null;
   let _prevWaterPct = null;
+
+  // Phase 6: week strip refetch key. Bumped whenever entry data changes
+  // so the strip's cached daily totals reload. Tied to currentEntry
+  // subscription below (each new entry increments the key once).
+  let _weekStripRefreshKey = 0;
+
+  // Right rail is position:fixed in desktop mode. `sticky` unsticks
+  // when the containing block runs out of vertical room, which the user
+  // saw as "the rail moves near the end of the page". Fixed keeps it
+  // welded to the viewport regardless of scroll position.
+  //
+  // JS measures the rail's natural position + horizontal placement on
+  // mount + resize and pushes both into CSS custom properties. The
+  // grid still reserves the 360px column (explicit track size, not auto)
+  // so the meal content doesn't reflow when the aside leaves the flow.
+  let _railStickyTopPx = 0;   // exposed as --diary-rail-top
+  let _railFixedLeftPx = 0;   // exposed as --diary-rail-left
+  let _railFixedWidthPx = 360; // exposed as --diary-rail-width
+  let _diaryRightColEl = null;
+  let _diaryContentEl  = null;
+  function _measureRail() {
+    if (!_diaryContentEl) return;
+    // Grid's right edge is where the 360px rail column ends. We anchor
+    // fixed-left there minus the column width so the fixed aside sits
+    // exactly on top of the reserved cell.
+    const gridRect = _diaryContentEl.getBoundingClientRect();
+    const colWidth = _railFixedWidthPx; // 360, the explicit grid track
+    const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
+
+    // Vertical anchor: the aside's natural top when NOT taken out of
+    // flow. Since we're already position:fixed, we can't read that
+    // directly — read the grid's top + its padding-top instead, which
+    // is where the aside's cell sits.
+    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    const pad = parseFloat(getComputedStyle(_diaryContentEl).paddingTop || '0') || 0;
+    const naturalDocTop = gridRect.top + scrollY + pad;
+    const rootCS = getComputedStyle(document.documentElement);
+    const pageTop = parseFloat(rootCS.getPropertyValue('--page-top') || rootCS.getPropertyValue('--safe-top') || '0') || 0;
+    const hamRow  = parseFloat(rootCS.getPropertyValue('--hamburger-row') || '0') || 0;
+    // We want the fixed aside pinned to the SAME viewport-Y as the
+    // grid's cell-top at scroll=0. Since gridRect.top + scrollY already
+    // gives the document position (constant), just subtract page-top +
+    // hamburger-row so the CSS calc reconstructs the correct viewport
+    // top. Do NOT subtract scrollY again — a fixed element's `top` is
+    // scroll-independent by definition.
+    const topPx = Math.max(0, Math.round(naturalDocTop - pageTop - hamRow));
+    // Only push updates when values change to avoid a reactive storm.
+    if (topPx  !== _railStickyTopPx)  _railStickyTopPx  = topPx;
+    if (leftPx !== _railFixedLeftPx)  _railFixedLeftPx  = leftPx;
+  }
+  let _railResizeObs = null;
+  onMount(() => {
+    requestAnimationFrame(() => requestAnimationFrame(_measureRail));
+    try {
+      _railResizeObs = new ResizeObserver(_measureRail);
+      if (_diaryContentEl) _railResizeObs.observe(_diaryContentEl);
+    } catch { /* ResizeObserver unavailable — one-shot measurement stands */ }
+    window.addEventListener('resize', _measureRail);
+    return () => {
+      window.removeEventListener('resize', _measureRail);
+      try { _railResizeObs?.disconnect(); } catch {}
+    };
+  });
+
+  // Polish batch 4: right-rail mode. Two states:
+  //   'pinned' — rail always visible in the desktop grid (default)
+  //   'hidden' — rail folded out of the grid; a small chevron tab
+  //     hovers on the right edge; clicking opens the rail as a
+  //     slide-in overlay (fixed, right-anchored, own scroll). The
+  //     overlay has a pin button to switch back to 'pinned', and a
+  //     close button to dismiss while staying in 'hidden' mode.
+  // Persisted to localStorage so the choice survives reloads.
+  let _railMode = 'pinned';
+  let _railOverlay = false;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const v = localStorage.getItem('nt:diaryRailMode');
+      if (v === 'hidden' || v === 'pinned') _railMode = v;
+    }
+  } catch { /* ignore */ }
+  function _persistRailMode() {
+    try { localStorage.setItem('nt:diaryRailMode', _railMode); } catch { /* ignore */ }
+  }
+  function railPin() {
+    _railMode = 'pinned';
+    _railOverlay = false;
+    _persistRailMode();
+  }
+  function railHide() {
+    _railMode = 'hidden';
+    _railOverlay = false;
+    _persistRailMode();
+  }
+  function railToggleOverlay() {
+    if (_railMode !== 'hidden') return;
+    _railOverlay = !_railOverlay;
+  }
+
+  // Polish batch 4: loading skeleton during day-swap. When the user
+  // clicks a week-strip day (or the arrow buttons), track that the
+  // new entry is loading so the meal-cols block can show skeleton
+  // cards instead of stale-then-instant-swap. The fade transition
+  // covers the wait when the load is fast; skeletons take over if
+  // the API is slow enough that the user would otherwise see empty.
+  let _daySwapLoading = false;
+  async function _loadEntryTracked(iso) {
+    _daySwapLoading = true;
+    try { await loadEntry(iso); }
+    finally { _daySwapLoading = false; }
+  }
+
+  // Phase 7: viewport-width tracker so drag-to-copy is only enabled
+  // at ≥1280px where the week strip (drop target) actually renders.
+  // Below that, dragging would silently no-op (nowhere to drop); the
+  // ⋮ → Copy flow covers the touch use case.
+  let _wideViewport = false;
+  function _syncWideViewport() {
+    if (typeof window === 'undefined') return;
+    _wideViewport = window.matchMedia('(min-width: 1280px)').matches;
+  }
+  // Re-evaluate whenever the force-mobile toggle flips so drag
+  // features don't quietly activate on a viewport the user has
+  // opted to treat as narrow.
+  $: if (typeof window !== 'undefined') {
+    _wideViewport = !$forceMobileLayout && window.matchMedia('(min-width: 1280px)').matches;
+  }
+  onMount(() => {
+    _syncWideViewport();
+    const mq = window.matchMedia('(min-width: 1280px)');
+    const handler = () => _syncWideViewport();
+    // .addEventListener is the modern signature; keep .addListener for older Safari
+    mq.addEventListener ? mq.addEventListener('change', handler) : mq.addListener(handler);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener('change', handler) : mq.removeListener(handler);
+    };
+  });
+
+  // Phase 7: drag-to-copy meals across the week strip.
+  //   1. User grabs a populated meal card (draggable={!isEmpty}; works
+  //      on any viewed day — copyMealToDate uses currentDate as source)
+  //   2. WeekStrip cells accept the drop and fire onDropMeal(iso, mealIdx)
+  //   3. Diary opens the existing Copy sheet pre-populated with target
+  //      date + source meal so users can adjust the target meal slot
+  //      or bail before the write actually happens
+  let _dragMealIdx = -1;
+  function _onMealDragStart(e, mealIdx) {
+    if (!e.dataTransfer) return;
+    _dragMealIdx = mealIdx;
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/x-nt-meal-idx', String(mealIdx));
+    // Some browsers need this fallback for cross-element drags
+    e.dataTransfer.setData('text/plain', `meal:${mealIdx}`);
+  }
+  function _onMealDragEnd() {
+    _dragMealIdx = -1;
+  }
+
+  // Batch 5: drag a single food item from one meal to another within
+  // the same day. Distinct MIME type so it doesn't collide with the
+  // meal-level drag (which targets the week strip). Drop target is
+  // every meal header. Same viewport gate as the meal drag.
+  //
+  //   1. User grabs a diary-item row (draggable={_wideViewport})
+  //   2. dragstart stores the entry-level item index in
+  //      application/x-nt-diary-item-idx
+  //   3. Every meal-group accepts the drop; dragover paints an accent
+  //      ring via _itemDropTarget
+  //   4. drop calls updateDiaryItem(idx, { meal: targetMealIdx }) —
+  //      no confirmation, this is a same-day cheap move
+  let _dragItemIdx    = -1;
+  let _itemDropTarget = -1;
+  function _onItemDragStart(e, itemIdx) {
+    if (!e.dataTransfer) return;
+    _dragItemIdx = itemIdx;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-nt-diary-item-idx', String(itemIdx));
+    e.dataTransfer.setData('text/plain', `item:${itemIdx}`);
+    e.stopPropagation();
+  }
+  function _onItemDragEnd() {
+    _dragItemIdx    = -1;
+    _itemDropTarget = -1;
+  }
+  function _onMealItemDragOver(e, mealIdx) {
+    if (!e.dataTransfer) return;
+    // Only paint / accept when an item is being dragged, not a whole meal
+    if (!e.dataTransfer.types.includes('application/x-nt-diary-item-idx')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    _itemDropTarget = mealIdx;
+  }
+  function _onMealItemDragLeave(mealIdx) {
+    if (_itemDropTarget === mealIdx) _itemDropTarget = -1;
+  }
+  async function _onMealItemDrop(e, targetMealIdx) {
+    if (!e.dataTransfer) return;
+    const raw = e.dataTransfer.getData('application/x-nt-diary-item-idx');
+    _itemDropTarget = -1;
+    if (raw === '' || raw == null) return;
+    const idx = Number(raw);
+    if (!Number.isInteger(idx) || idx < 0) return;
+    e.preventDefault();
+    // No-op if the item is already in the target meal
+    let entry = null;
+    currentEntry.subscribe(v => entry = v)();
+    const item = entry?.items?.[idx];
+    if (!item) return;
+    if (Number(item.meal ?? 0) === Number(targetMealIdx)) return;
+    await updateDiaryItem(idx, { meal: Number(targetMealIdx) });
+  }
+  function _onDropMealOnWeekDay(targetIso, mealIdx) {
+    if (mealIdx == null || mealIdx < 0) return;
+    if (targetIso === $currentDate) {
+      showInfo("Can't copy a meal onto the same day.");
+      return;
+    }
+    // Open the same Copy sheet the meal ⋮ menu uses, pre-populated
+    // with the target date + source meal slot as defaults. User can
+    // change the target meal in the dropdown, then confirm. Consistent
+    // with the existing Copy flow — no invisible write on a drop.
+    copyMode      = 'meal';
+    actionMealIdx = mealIdx;
+    copyDate      = targetIso;
+    copyMeal      = Number(mealIdx) || 0;
+    // copySourceName is reactive on copyMode + actionMealIdx above,
+    // so it'll pick up the source meal's name without an assignment.
+    _lockAndOpen(() => showCopySheet = true);
+  }
   $: if (_prevCalPct !== null && $goalCelebrations && !$disableAnimations && calPct >= 100 && _prevCalPct < 100) {
     _calGoalCelebrating = true;
     setTimeout(() => { _calGoalCelebrating = false; }, 1200);
@@ -691,6 +985,35 @@
     diaryTotalsMode.set(next);
   }
 
+  // ── Meal layout (Phase 5 desktop redesign) ─────────────────────────────
+  // At ≥1280px, meals render as TWO independent flex-columns instead of
+  // a row-aligned 2-col grid. Each column stacks its own cards top-to-
+  // bottom with no cross-column row alignment — so a tall breakfast in
+  // the left column doesn't force a gap next to a short snack 1 in the
+  // right column. Reading pattern becomes "down the left, then down
+  // the right," same as newspapers / dashboards / macOS System Settings.
+  //
+  // Split is by index parity (even → left, odd → right) so cards stay
+  // in fixed positions across every data change. Adding items to Lunch
+  // never causes another meal to jump columns; only the affected card
+  // grows in place. For alternating meal/snack configs the split lands
+  // as "main meals column + snacks column," which is semantically
+  // clean; for non-alternating configs the split is arbitrary but
+  // stable and the height mismatches are smaller so it degrades fine.
+  //
+  // Below 1280px the split is CSS-collapsed into a single column
+  // stack via the .meal-cols container (see the media query).
+  $: mealLayout = meals.map((meal, mealIdx) => {
+    const items = getMealItems(entry?.items || [], mealIdx);
+    return {
+      meal, mealIdx, items,
+      itemCount: items.length,
+      isEmpty:   items.length === 0,
+    };
+  });
+  $: mealsLeft  = mealLayout.filter(m => m.mealIdx % 2 === 0);
+  $: mealsRight = mealLayout.filter(m => m.mealIdx % 2 === 1);
+
   // Nutrition bar: visible NUTRIMENTS that have goals set
   $: nutritionBarItems = (() => {
     if (!$diaryShowNutritionBar) return [];
@@ -768,8 +1091,18 @@
     let ent = null;
     currentEntry.subscribe(v => ent = v)();
     if (!ent) return;
+    // Option C: collect uuids of the items being removed so the server
+    // merge sees an explicit tombstone rather than inferring the deletion
+    // from absence (which under merge semantics is preserved by default).
+    const removedUuids = (ent.items || [])
+      .filter((_, i) => toDelete.has(i))
+      .map(it => it?.uuid)
+      .filter(Boolean);
     const updated = { ...ent, items: ent.items.filter((_, i) => !toDelete.has(i)) };
-    await NtApi.saveDiaryDate($currentDate, buildDiaryWritePayload(updated));
+    await NtApi.saveDiaryDate($currentDate, buildDiaryWritePayload({
+      ...updated,
+      deleted_uuids: { items: removedUuids, water: [] },
+    }));
     await loadEntry($currentDate);
     showSuccess(`${count} item${count !== 1 ? 's' : ''} removed`);
     exitSelectMode();
@@ -992,7 +1325,7 @@
   // always ml. Reported by cearum (#11) when in Imperial mode the input
   // was treated as ml regardless of the unit label.
   async function _addWaterCustom() {
-    const raw = Number(_waterCustomAmt);
+    const raw = parseDecimal(_waterCustomAmt);
     if (!raw || raw <= 0) return;
     let ml = raw;
     if      (_waterUnit === 'oz') ml = raw * 29.5735;
@@ -1008,7 +1341,11 @@
     let ent = null;
     currentEntry.subscribe(v => ent = v)();
     const _use24 = $timeFormat === '24h';
-    const log = { amount: ml, time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !_use24 }) };
+    const log = {
+      uuid: _diaryUuid(),
+      amount: ml,
+      time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !_use24 }),
+    };
     const updated = { ...ent, water: [...(ent?.water || []), log] };
     await NtApi.saveDiaryDate($currentDate, buildDiaryWritePayload(updated));
     await loadEntry($currentDate);
@@ -1036,8 +1373,16 @@
     let ent = null;
     currentEntry.subscribe(v => ent = v)();
     if (!ent) return;
+    const removed = (ent.water || [])[index];
     const water = (ent.water || []).filter((_, i) => i !== index);
-    await NtApi.saveDiaryDate($currentDate, buildDiaryWritePayload({ ...ent, water }));
+    // Option C: send the water uuid as an explicit tombstone so the
+    // server-side merge doesn't just preserve the missing entry (which
+    // is now its safe default for anything not addressed).
+    await NtApi.saveDiaryDate($currentDate, buildDiaryWritePayload({
+      ...ent,
+      water,
+      deleted_uuids: { items: [], water: removed?.uuid ? [removed.uuid] : [] },
+    }));
     await loadEntry($currentDate);
   }
 
@@ -1052,7 +1397,7 @@
   }
 
   async function _saveWaterEdit(i) {
-    const val = parseFloat(_waterEditAmt);
+    const val = parseDecimal(_waterEditAmt);
     if (!val || val <= 0) { _waterEditIndex = -1; return; }
     // Convert display unit back to ml
     let ml = val;
@@ -1063,7 +1408,11 @@
     let ent = null;
     currentEntry.subscribe(v => ent = v)();
     if (!ent) return;
-    const water = (ent.water || []).map((l, idx) => idx === i ? { ...l, amount: ml } : l);
+    // Option C: bump updatedAt on the edited entry so the server merge picks
+    // this copy over a stale server-side one.
+    const water = (ent.water || []).map((l, idx) => idx === i
+      ? { ...l, amount: ml, updatedAt: new Date().toISOString() }
+      : l);
     await NtApi.saveDiaryDate($currentDate, buildDiaryWritePayload({ ...ent, water }));
     _waterEditIndex = -1;
     await loadEntry($currentDate);
@@ -1111,8 +1460,13 @@
         const { index } = JSON.parse(replaceData);
         const entry = $currentEntry;
         if (entry && entry.items && index < entry.items.length) {
+          // Option C: tombstone the removed item explicitly.
+          const removedUuid = entry.items[index]?.uuid;
           const updated = { ...entry, items: entry.items.filter((_, i) => i !== index) };
-          await NtApi.saveDiaryDate($currentDate, buildDiaryWritePayload(updated));
+          await NtApi.saveDiaryDate($currentDate, buildDiaryWritePayload({
+            ...updated,
+            deleted_uuids: { items: removedUuid ? [removedUuid] : [], water: [] },
+          }));
           await loadEntry($currentDate);
           showSuccess('Item replaced');
         }
@@ -1157,6 +1511,117 @@
     };
   });
 </script>
+
+<!-- Rail widgets snippet. Defined at the top level so it's in
+     scope for BOTH render sites: (a) the sticky in-grid aside
+     inside .diary-content for pinned mode, and (b) the portaled
+     overlay aside outside .page-shell for hidden+overlay mode.
+     Svelte 5 snippets have block scope — a definition inside a
+     block is not visible outside it. -->
+{#snippet railWidgets()}
+  <!-- Rail title bar. Always the first row of the widget stack —
+       gives the panel a clear identity and a consistent home for
+       the mode controls (pin/hide/close). Replaces the previous
+       "put the hide button inside DaySummary's header" approach
+       so DaySummary can go back to just %/g toggle + open_in_full. -->
+  <header class="rail-title">
+    <span class="rail-title-text">Overview</span>
+    <div class="rail-title-actions">
+      {#if _railMode === 'pinned'}
+        <button
+          type="button"
+          class="rail-ctrl-btn"
+          on:click={railHide}
+          aria-label="Hide widget panel"
+          title="Hide widgets (edge tab reopens)"
+        >
+          <span class="material-symbols-rounded">right_panel_close</span>
+        </button>
+      {:else}
+        <button
+          type="button"
+          class="rail-ctrl-btn"
+          on:click={railPin}
+          aria-label="Pin widget panel"
+          title="Pin widgets"
+        >
+          <span class="material-symbols-rounded">push_pin</span>
+        </button>
+        <button
+          type="button"
+          class="rail-ctrl-btn"
+          on:click={() => _railOverlay = false}
+          aria-label="Close widget panel"
+          title="Close"
+        >
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      {/if}
+    </div>
+  </header>
+  {#if $diaryRailShowSummary}
+    <DaySummaryWidget
+      eatenKcal={$_calTween}
+      protein={$_protTween}
+      carbs={$_carbTween}
+      fat={$_fatTween}
+      goalKcal={caloriesGoalAdjusted}
+      proteinGoal={protGoal}
+      carbGoal={carbGoal}
+      fatGoal={fatGoal}
+      onOpenSummary={() => diaryShowNutritionSummary.set(true)}
+      onOpenTrends={() => push('#/statistics?metric=calories&range=1M')}
+    />
+  {/if}
+  {#if $diaryRailShowWater && _waterShowInDiary}
+    <WaterWidget
+      logs={_waterLogs}
+      totalMl={_waterTotal}
+      goalMl={_waterGoalMl}
+      unit={_waterUnit}
+      containers={_waterContainers}
+      onQuickAdd={(ml) => addWaterLog(ml, $currentDate)}
+      onRemove={_removeWaterLog}
+      onOpen={() => showWaterQuickAdd = true}
+    />
+  {/if}
+  {#if $diaryRailShowBodyStats}
+    <BodyStatsWidget
+      currentWeight={_widgetWeight}
+      weightUnit={$weightUnit || 'kg'}
+      stats={_widgetStats}
+      lengthUnit={$lengthUnit || 'in'}
+      onSaveWeight={_widgetSaveWeight}
+      onOpen={openBodyStats}
+    />
+  {/if}
+  {#if $diaryRailShowActivityWidget}
+    <ActivityImpactWidget
+      activeKcal={_effectiveActive}
+      baseGoalKcal={caloriesGoal}
+      adjustedGoalKcal={caloriesGoalAdjusted}
+      energyUnit={$energyUnit}
+      calorieGoalMode={$calorieGoalMode}
+      dynamicCaloriesOut={_dynamicCaloriesOut}
+      adaptiveTdee={_adaptiveTdee}
+    />
+  {/if}
+  {#if $diaryRailShowNotes && $diaryShowNotes}
+    <section class="card rail-notes-widget">
+      <header class="rn-header">
+        <span class="material-symbols-rounded rn-icon">edit_note</span>
+        <span class="rn-title">{$_('diary_deep.day_notes')}</span>
+      </header>
+      <textarea class="rn-textarea" bind:value={_notesText}
+        on:blur={commitNotes}
+        placeholder={$_('diary.notes_placeholder')}
+        rows="3"></textarea>
+      <div class="rn-meta">
+        <span class="text-3 text-sm">{_notesSaving ? 'Saving…' : (_notesText ? `${_notesText.length} characters` : '')}</span>
+      </div>
+    </section>
+  {/if}
+{/snippet}
 
 <div class="page-shell diary-page">
   <!-- Action icons — fixed at top-right, same level as hamburger -->
@@ -1212,7 +1677,32 @@
     </button>
   </div>
 
-  <div class="page-content diary-content" style="padding-bottom:{contentPad}">
+  <!-- Week strip (Phase 6 desktop). Sticky below the date bar at
+       ≥1280px; hidden on mobile. Data refetches whenever the diary
+       store fires an update (bumps refreshKey). -->
+  <div class="diary-week-strip-wrap">
+    <WeekStrip
+      currentDate={$currentDate}
+      calorieGoal={caloriesGoalAdjusted}
+      refreshKey={_weekStripRefreshKey}
+      onSelectDate={(iso) => _loadEntryTracked(iso)}
+      onDropMeal={_onDropMealOnWeekDay}
+    />
+  </div>
+
+  <div
+    bind:this={_diaryContentEl}
+    class="page-content diary-content"
+    class:rail-notes-active={$diaryRailShowNotes && $diaryShowNotes}
+    class:rail-hidden={_railMode === 'hidden'}
+    class:day-loading={_daySwapLoading}
+    style="padding-bottom:{contentPad}"
+  >
+    <!-- Main column: meal groups + activities + notes. On desktop
+         (≥1280px) this sits inside a 2-col grid alongside the right
+         rail. Below 1280px, the wrapper collapses to a no-op (block
+         layout, no visual difference from pre-Phase-2). -->
+    <div class="diary-main">
 {#if $diaryLoadError}
       <div class="server-error-banner">
         <span class="material-symbols-rounded">cloud_off</span>
@@ -1223,10 +1713,36 @@
     {#if $fastingEnabled}
       <FastingWidget />
     {/if}
-    <!-- Meal groups -->
-    {#each meals as meal, mealIdx}
-      {@const items = getMealItems(entry.items, mealIdx)}
-      <section class="meal-group card" id="meal-{mealIdx}" in:fly={{ y: 18, duration: _isInitialMount && !$disableAnimations ? 280 : 0, delay: _isInitialMount && !$disableAnimations ? 60 + mealIdx * 55 : 0 }}>
+    <!-- Meal groups. Rendered via a Svelte 5 snippet `mealCard` so we
+         can consume it twice below — once per column (mealsLeft +
+         mealsRight) — without duplicating ~230 lines of card markup.
+         At ≥1280px .meal-cols becomes a 2-col grid where each column
+         is an independent flex-column, so a tall breakfast in the
+         left column doesn't force a gap next to a shorter card in
+         the right column (each column packs tightly). Below 1280px
+         the columns' children flatten into a single flex-column and
+         are re-ordered by `style="order:{mealIdx}"` to preserve
+         temporal reading order (Breakfast, Snack 1, Lunch, ...). -->
+    {#snippet mealCard(m)}
+      {@const meal    = m.meal}
+      {@const mealIdx = m.mealIdx}
+      {@const items   = m.items}
+      {@const isEmpty = m.isEmpty}
+      <section
+        class="meal-group card"
+        class:empty={isEmpty}
+        class:dragging={_dragMealIdx === mealIdx}
+        class:item-drop-target={_itemDropTarget === mealIdx}
+        id="meal-{mealIdx}"
+        style="order:{mealIdx}"
+        in:fly={{ y: 18, duration: _isInitialMount && !$disableAnimations ? 280 : 0, delay: _isInitialMount && !$disableAnimations ? 60 + mealIdx * 55 : 0 }}
+        draggable={!isEmpty && _wideViewport}
+        on:dragstart={(e) => _onMealDragStart(e, mealIdx)}
+        on:dragend={_onMealDragEnd}
+        on:dragover={(e) => _onMealItemDragOver(e, mealIdx)}
+        on:dragleave={() => _onMealItemDragLeave(mealIdx)}
+        on:drop={(e) => _onMealItemDrop(e, mealIdx)}
+      >
         <div class="meal-header" style="--meal-color:{mealColor(mealIdx)}">
           <span class="meal-type-icon material-symbols-rounded">{mealIcon(meal)}</span>
           <span class="meal-name">{meal}</span>
@@ -1265,6 +1781,10 @@
               {@const _itemEnergy = Nutrition.displayEnergy(formatKcal(item), $energyUnit)}
               <div class="diary-item" in:fly={{ y: 6, duration: _isInitialMount && !$disableAnimations ? 180 : 0 }}
                 class:item-selected={selectMode && selectedItems.has(item._i)}
+                class:item-dragging={_dragItemIdx === item._i}
+                draggable={_wideViewport && !selectMode}
+                on:dragstart={(e) => _onItemDragStart(e, item._i)}
+                on:dragend={_onItemDragEnd}
                 on:touchstart|passive={e => onItemTouchStart(e, item)}
                 on:touchmove|passive={onItemTouchMove}
                 on:touchend={onItemTouchEnd}
@@ -1444,7 +1964,29 @@
           {/if}
         {/if}
       </section>
-    {/each}
+    {/snippet}
+
+    <!-- {#key $currentDate} re-mounts the whole meal-cols block when the
+         user swaps to another day (via prev/next arrows OR week-strip
+         click), triggering the outer fade so the day change feels like
+         a swap rather than an abrupt content replace. Individual card
+         entrance animations stay gated on _isInitialMount (fires once
+         at initial page mount, not on every re-render). Fade honors
+         the disableAnimations setting. -->
+    {#key $currentDate}
+      <div class="meal-cols" in:fade|local={{ duration: $disableAnimations ? 0 : 180 }}>
+        <div class="meal-col">
+          {#each mealsLeft as m (m.mealIdx)}
+            {@render mealCard(m)}
+          {/each}
+        </div>
+        <div class="meal-col">
+          {#each mealsRight as m (m.mealIdx)}
+            {@render mealCard(m)}
+          {/each}
+        </div>
+      </div>
+    {/key}
 
     {#if $diaryShowActivity}
       {@const acts = $dayActivity || []}
@@ -1536,9 +2078,73 @@
         {/if}
       </section>
     {/if}
+    </div><!-- /.diary-main -->
+
+    <!-- Right rail (Phase 2+ desktop redesign).
+         Only visible at ≥1280px via CSS; hidden on mobile/tablet where
+         the bottom bar + top-right icons continue to serve. Widgets
+         are additive as later phases land (Phase 2 = just DaySummary,
+         Phase 3 adds Water + Weight, etc.). -->
+    <!-- Right-edge tab. Only visible when the rail is in 'hidden' mode
+         (on desktop). Portaled to document.body so position:fixed
+         resolves against the viewport, not against .page-transition
+         (which is itself position:fixed and the app's scroll
+         container — descendants of it don't get viewport-relative
+         fixed positioning cleanly). -->
+    {#if _railMode === 'hidden' && _wideViewport}
+      <button
+        use:portal
+        type="button"
+        class="rail-edge-tab"
+        on:click={railToggleOverlay}
+        aria-label={_railOverlay ? 'Close widget panel' : 'Open widget panel'}
+        aria-expanded={_railOverlay}
+        title={_railOverlay ? 'Close widgets' : 'Show widgets'}
+      >
+        <span class="material-symbols-rounded" style="pointer-events:none">
+          {_railOverlay ? 'chevron_right' : 'chevron_left'}
+        </span>
+      </button>
+    {/if}
+    <!-- PINNED mode: rail sits inside the desktop grid, sticky
+         below the week strip. Rendered only when in pinned mode so
+         we don't waste layout space when the rail is hidden.
+         Snippet is defined at the top of the component (outside
+         .diary-content) so both this render and the portaled
+         overlay render below can resolve it — Svelte 5 snippets
+         have block scope. -->
+    {#if _railMode === 'pinned'}
+      <!-- Portaled to document.body so position:fixed resolves against
+           the viewport, not against .page-transition (which has
+           will-change:transform + is the app's scroll container, so
+           fixed children inside it don't stay put). JS keeps the aside
+           aligned to the grid column via --diary-rail-top /
+           --diary-rail-left set on the aside itself (custom properties
+           don't inherit across a portal). Grid still reserves the 360px
+           column because its track size is explicit. -->
+      <aside
+        use:portal
+        class="diary-right-col"
+        bind:this={_diaryRightColEl}
+        style="--diary-rail-top:{_railStickyTopPx}px; --diary-rail-left:{_railFixedLeftPx}px; --diary-rail-width:{_railFixedWidthPx}px"
+      >
+        {@render railWidgets()}
+      </aside>
+    {/if}
 
   </div>
 </div>
+
+<!-- HIDDEN mode overlay: rail portaled to document.body so
+     position:fixed resolves against the viewport, not against
+     .page-transition (which is itself position:fixed + overflow-y
+     auto — the app's scroll container). Rendered only when the
+     overlay is actually open so widgets don't double-mount. -->
+{#if _railMode === 'hidden' && _railOverlay && _wideViewport}
+  <aside use:portal class="diary-right-col diary-right-col-overlay">
+    {@render railWidgets()}
+  </aside>
+{/if}
 
 <!-- Persistent bottom nutrition bar -->
 <div use:portal class="diary-bottom-bar" style="bottom:{barBottom}">
@@ -1757,7 +2363,7 @@
 
     {#if _waterShowCustom}
       <div class="wc-custom-row" transition:slide={{ duration: 160 }}>
-        <input class="input" type="number" min="0" step={_waterUnit === 'ml' ? '1' : '0.01'}
+        <input class="input" type="text" inputmode="decimal" use:decimalInput
           placeholder={`Amount (${_waterUnit === 'oz' ? 'fl oz' : _waterUnit})`}
           bind:value={_waterCustomAmt} bind:this={_waterCustomInput}
           on:keydown={e => e.key === 'Enter' && _addWaterCustom()} />
@@ -1832,8 +2438,7 @@
                placeholder={$_('diary_deep.qce_name_ph')}
                bind:value={editName} />
         <div class="qce-kcal-pill" style="background:var(--macro-calories-dim);margin-top:12px">
-          <input class="qce-kcal-input" type="number" inputmode="numeric"
-                 min="1" step="1"
+          <input class="qce-kcal-input" type="text" inputmode="numeric" use:decimalInput
                  style="color:var(--macro-calories)"
                  bind:value={editKcalDisplay} />
           <span class="qce-kcal-unit" style="color:var(--macro-calories)">{_qcUnit.toUpperCase()}</span>
@@ -1842,8 +2447,8 @@
         <div class="qce-macros">
           <div class="qce-macro-pill" style="background:var(--macro-protein-dim)">
             <div class="qce-macro-val-row">
-              <input class="qce-macro-input" type="number" inputmode="decimal"
-                     min="0" step="0.1" placeholder="0"
+              <input class="qce-macro-input" type="text" inputmode="decimal" use:decimalInput
+                     placeholder="0"
                      style="color:var(--macro-protein); --qce-w:{Math.max(1, String(editProtein || '').length)}ch"
                      bind:value={editProtein} />
               <span class="qce-macro-unit" style="color:var(--macro-protein)">g</span>
@@ -1852,8 +2457,8 @@
           </div>
           <div class="qce-macro-pill" style="background:var(--macro-carbs-dim)">
             <div class="qce-macro-val-row">
-              <input class="qce-macro-input" type="number" inputmode="decimal"
-                     min="0" step="0.1" placeholder="0"
+              <input class="qce-macro-input" type="text" inputmode="decimal" use:decimalInput
+                     placeholder="0"
                      style="color:var(--macro-carbs); --qce-w:{Math.max(1, String(editCarbs || '').length)}ch"
                      bind:value={editCarbs} />
               <span class="qce-macro-unit" style="color:var(--macro-carbs)">g</span>
@@ -1862,8 +2467,8 @@
           </div>
           <div class="qce-macro-pill" style="background:var(--macro-fat-dim)">
             <div class="qce-macro-val-row">
-              <input class="qce-macro-input" type="number" inputmode="decimal"
-                     min="0" step="0.1" placeholder="0"
+              <input class="qce-macro-input" type="text" inputmode="decimal" use:decimalInput
+                     placeholder="0"
                      style="color:var(--macro-fat); --qce-w:{Math.max(1, String(editFat || '').length)}ch"
                      bind:value={editFat} />
               <span class="qce-macro-unit" style="color:var(--macro-fat)">g</span>
@@ -1882,7 +2487,7 @@
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">{$_('diary_deep.serving_size')}</label>
-          <input class="input" type="number" min="0.1" step="0.1" bind:value={editPortion} style="width:100%" />
+          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editPortion} style="width:100%" />
         </div>
         <div style="width:100px">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">Unit</label>
@@ -1892,7 +2497,7 @@
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">{$_('diary_deep.num_servings')}</label>
-          <input class="input" type="number" min="0.1" step="0.1" bind:value={editQuantity} style="width:100%" />
+          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editQuantity} style="width:100%" />
         </div>
         {#if !_editChildContext && $diaryShowTimestamps}
           <div style="width:130px">
@@ -1903,7 +2508,7 @@
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface-2);border-radius:var(--radius-md);margin-bottom:16px">
         <span style="font-size:13px;color:var(--text-3)">{$_('diary_deep.total_amount')}</span>
-        <span style="font-size:14px;font-weight:500">{Math.round((parseFloat(editPortion) || 100) * (parseFloat(editQuantity) || 1) * 10) / 10}{editUnit}</span>
+        <span style="font-size:14px;font-weight:500">{Math.round((parseDecimal(editPortion) || 100) * (parseDecimal(editQuantity) || 1) * 10) / 10}{editUnit}</span>
       </div>
       <div class="edit-macros">
         <div class="edit-macro-pill" style="background:var(--macro-calories-dim)">
@@ -2108,43 +2713,43 @@
         <div class="bs-grid">
           {#if !($hiddenBodyStats||[]).includes('weight')}
           <div><label class="form-label">Weight ({$weightUnit||'kg'})</label>
-            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.weight} bind:this={weightInput} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={bodyStatsData.weight} bind:this={weightInput} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('body_fat')}
           <div><label class="form-label">Body Fat %</label>
-            <input class="input" type="number" step="0.1" min="0" max="100" bind:value={bodyStatsData.body_fat} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput max="100" bind:value={bodyStatsData.body_fat} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('body_water')}
           <div><label class="form-label">Body Water %</label>
-            <input class="input" type="number" step="0.1" min="0" max="100" bind:value={bodyStatsData.body_water} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput max="100" bind:value={bodyStatsData.body_water} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('neck')}
           <div><label class="form-label">Neck ({$lengthUnit||'in'})</label>
-            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.neck} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={bodyStatsData.neck} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('waist')}
           <div><label class="form-label">Waist ({$lengthUnit||'in'})</label>
-            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.waist} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={bodyStatsData.waist} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('hips')}
           <div><label class="form-label">Hips ({$lengthUnit||'in'})</label>
-            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.hips} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={bodyStatsData.hips} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('chest')}
           <div><label class="form-label">Chest ({$lengthUnit||'in'})</label>
-            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.chest} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={bodyStatsData.chest} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('thighs')}
           <div><label class="form-label">Thighs ({$lengthUnit||'in'})</label>
-            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.thighs} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={bodyStatsData.thighs} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('biceps')}
           <div><label class="form-label">Biceps ({$lengthUnit||'in'})</label>
-            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.biceps} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={bodyStatsData.biceps} /></div>
           {/if}
           {#if !($hiddenBodyStats||[]).includes('calves')}
           <div><label class="form-label">Calves ({$lengthUnit||'in'})</label>
-            <input class="input" type="number" step="0.1" min="0" bind:value={bodyStatsData.calves} /></div>
+            <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={bodyStatsData.calves} /></div>
           {/if}
         </div>
       </div>
@@ -2401,6 +3006,409 @@
 
   .diary-content { padding-top: 12px; padding-bottom: 16px; gap: 12px; display: flex; flex-direction: column; }
 
+  /* Desktop redesign — Phase 1: content max-width cap.
+     Phase 2: two-column layout + right rail with DaySummary widget.
+
+     Below 1280px: .diary-main wraps children in a no-op block; the
+     .diary-right-col is hidden entirely. Everything behaves as before.
+
+     At ≥1280px: .diary-content becomes a CSS grid with the main column
+     (meals + activities + notes) and a fixed-width right rail. The
+     sticky date bar stays full-width so its glass blur + border span
+     the viewport; only its inner padding shifts inward to align with
+     the capped content column below. */
+  /* Week strip wrapper — hidden below 1280px so mobile keeps its
+     familiar prev/next arrow date bar as the sole day navigator. At
+     wide viewports the strip renders between the date bar and the
+     content grid, giving 7-day-at-a-glance context + click-to-nav. */
+  .diary-week-strip-wrap { display: none; }
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .diary-week-strip-wrap {
+      display: block;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 120px + var(--hamburger-row, 0px));
+      z-index: 8;
+    }
+  }
+
+  /* .diary-main is the wrapper around meals + activities + notes.
+     Below 1280px it's the sole flex child of .diary-content, so its
+     OWN children need the flex-column + gap that used to live on
+     .diary-content. At ≥1280px it becomes one column of the grid.
+     Kept unconditional so mobile behavior is identical to pre-Phase 2. */
+  .diary-main {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;   /* prevents grid children from overflowing on long text */
+  }
+  /* Meal columns.
+     Below 1280px: .meal-cols is a plain flex-column; .meal-col children
+     use display:contents so all meal cards become direct flex children
+     of .meal-cols and re-order via inline `order:{mealIdx}` back into
+     temporal order (Breakfast → Snack 1 → Lunch → ...).
+     At ≥1280px (see media query below): .meal-cols becomes a 2-col
+     grid and each .meal-col is a real independent flex-column, so
+     cards in the right column pack tightly against each other and
+     don't inherit a gap from the left column's taller cards. */
+  .meal-cols {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .meal-col {
+    display: contents;
+  }
+  .diary-right-col { display: none; }
+  /* Rail controls (pin/close chevrons) and edge-tab are desktop-only.
+     Hide them explicitly on mobile so the button elements don't
+     render at all — the mobile layout has its own top-right icons
+     + bottom bar and doesn't use the rail. */
+  .rail-edge-tab,
+  .rail-controls { display: none; }
+
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .diary-content {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      column-gap: 20px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      /* Rail is position:fixed so it stays put through the entire
+         scroll of the page, including near the bottom (where sticky
+         would previously unstick and drift up with the grid).
+         --diary-rail-top / --diary-rail-left / --diary-rail-width are
+         set by JS from the grid's live bounding rect on mount + resize
+         (see _measureRail in Diary.svelte). Grid still reserves the
+         360px column via its explicit track size, so the meal content
+         does not reflow when the aside leaves the flow. */
+      position: fixed;
+      top: calc(var(--page-top, var(--safe-top)) + var(--diary-rail-top, 210px) + var(--hamburger-row, 0px));
+      left: var(--diary-rail-left, auto);
+      width: var(--diary-rail-width, 360px);
+      z-index: 5;
+      /* Cap the rail height at the remaining viewport minus the bottom
+         nav so the widget stack scrolls internally if it exceeds that. */
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - var(--diary-rail-top, 210px)
+        - 10px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      /* Visible thin scrollbar so users know they can scroll when
+         the stack exceeds the rail height. Firefox uses
+         scrollbar-width; webkit uses ::-webkit-scrollbar. */
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+      padding-right: 4px;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-right-col::-webkit-scrollbar { width: 8px; }
+    :global(html:not(.force-mobile-layout)) .diary-right-col::-webkit-scrollbar-track { background: transparent; }
+    :global(html:not(.force-mobile-layout)) .diary-right-col::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: var(--radius-full);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-right-col::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+    /* Widgets never shrink to fit the rail's max-height — they keep
+       their natural size, and the rail scrolls internally when the
+       stack overflows. Without this, flex-shrink:1 default squishes
+       the widgets. :global(*) is required because widget component
+       roots (WaterWidget, WeightWidget, etc.) don't carry Diary's
+       scoping hash, so an un-globalized `> *` would fail to match. */
+    :global(html:not(.force-mobile-layout)) .diary-right-col > :global(*) { flex-shrink: 0; }
+    /* Banner shift is handled automatically now: JS measures the grid's
+       live bounding rect and pushes it into --diary-rail-top, so
+       has-banner needs no manual offset override. */
+
+    /* Two independent flex-columns. Each meal-col packs its own cards
+       top-to-bottom; no cross-column row alignment. A tall breakfast
+       in the left column no longer leaves a gap next to a shorter
+       card in the right column — the right column just keeps stacking.
+       Split is by index parity (even → left, odd → right); for
+       alternating meal/snack configs this cleanly separates main
+       meals into one column and snacks into the other. Card positions
+       stay fixed under data changes (no auto-balance shuffle). */
+    :global(html:not(.force-mobile-layout)) .meal-cols {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      column-gap: 12px;
+      align-items: start;
+    }
+    :global(html:not(.force-mobile-layout)) .meal-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+    }
+    /* The inline `order:{mealIdx}` on each meal-group is only
+       load-bearing on mobile where .meal-col is display:contents and
+       cards flatten into .meal-cols; here at desktop the cards live
+       in their real column containers so `order` is a no-op. */
+
+    /* Compact empty-meal chip — header row only, no body / macro footer,
+       hover subtly signals it's clickable. On mobile / narrow this whole
+       rule is skipped so the standard "big Tap to add food" empty state
+       still renders below 1280px (touch users want the bigger target). */
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group.empty {
+      transition: background 160ms ease, border-color 160ms ease;
+    }
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group.empty :global(.meal-empty) {
+      padding: 6px 12px;
+      opacity: 0.7;
+    }
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group.empty :global(.meal-empty-icon) {
+      font-size: 16px;
+    }
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group.empty:hover {
+      border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    }
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group.empty:hover :global(.meal-empty) {
+      opacity: 1;
+    }
+    /* Soften card shadows a touch at wide viewports — feels less boxy
+       on a desktop where multiple cards sit next to each other. */
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group {
+      box-shadow: 0 1px 3px -1px rgba(0,0,0,0.08);
+    }
+    /* Phase 7: grab-cursor + subtle lift while dragging. */
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group[draggable="true"] { cursor: grab; }
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group[draggable="true"]:active { cursor: grabbing; }
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group.dragging {
+      opacity: 0.25;
+      transform: scale(0.985);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+    /* Batch 5: item-drop target ring. When the user drags a food
+       item over a different meal, that meal card gets an accent
+       outline + tint so the drop zone is obvious. */
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group.item-drop-target {
+      outline: 2px dashed var(--accent);
+      outline-offset: -2px;
+      background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
+    }
+    /* Polish: hover elevation on desktop with hover-capable input.
+       Subtle 2px lift + slightly stronger shadow signals card is
+       interactive without being noisy. Skipped on touch (:hover fires
+       oddly on tap-and-hold). */
+    @media (hover: hover) {
+      :global(html:not(.force-mobile-layout)) .meal-col > .meal-group:not(.dragging):hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px -8px rgba(0,0,0,0.14);
+        transition: transform 160ms ease, box-shadow 160ms ease;
+      }
+      :global(html:not(.force-mobile-layout) [data-theme="dark"]) .meal-col > .meal-group:not(.dragging):hover,
+    :global(html:not(.force-mobile-layout) :root:not([data-theme="light"])) .meal-col > .meal-group:not(.dragging):hover {
+        box-shadow: 0 8px 24px -8px rgba(0,0,0,0.6);
+      }
+      /* Right rail widgets get the same treatment. */
+      :global(html:not(.force-mobile-layout)) .diary-right-col > :hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px -8px rgba(0,0,0,0.14);
+        transition: transform 160ms ease, box-shadow 160ms ease;
+      }
+    }
+    /* Keyboard focus rings — visible + accent-colored on interactive
+       elements. Focus-visible so mouse clicks don't leave a lingering
+       ring on buttons the user just clicked. */
+    :global(html:not(.force-mobile-layout)) .diary-right-col button:focus-visible,
+    :global(html:not(.force-mobile-layout)) .diary-right-col :global([role="button"]):focus-visible,
+    :global(html:not(.force-mobile-layout)) .meal-col > .meal-group:focus-visible,
+    :global(html:not(.force-mobile-layout) .week-strip) .ws-day:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: var(--radius-sm);
+    }
+    :global(html:not(.force-mobile-layout) [data-theme="dark"]) .meal-col > .meal-group,
+    :global(html:not(.force-mobile-layout) :root:not([data-theme="light"])) .meal-col > .meal-group {
+      box-shadow: 0 4px 14px -8px rgba(0,0,0,0.55);
+    }
+
+    /* Phase 4: right rail now carries feature-parity with the bottom
+       bar + top-right icons (day summary, water, weight, body
+       measurements, nutrient detail, activity impact). Hide both
+       mobile-only surfaces at ≥1280px to eliminate the redundancy
+       that Phases 2 and 3 deliberately kept for safety. */
+    :global(html:not(.force-mobile-layout) .diary-topbar-actions) { display: none; }
+    :global(html:not(.force-mobile-layout) .diary-bottom-bar) { display: none; }
+    /* Notes mutual-exclusion: when the rail widget is showing Notes,
+       hide the bottom card so it doesn't render twice. If the user
+       turns off railShowNotes, the bottom card returns naturally. */
+    :global(html:not(.force-mobile-layout)) .diary-content.rail-notes-active .diary-main .diary-notes.card {
+      display: none;
+    }
+
+    /* Rail title bar. First row of the widget stack — a small
+       header row with an 'Overview' label on the left and the
+       mode-control buttons (pin/hide/close) on the right. Gives
+       the panel a clear identity and a stable home for the
+       controls so widgets below can align with the meal-column
+       top edge cleanly. */
+    :global(html:not(.force-mobile-layout)) .rail-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2px 4px 4px;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-title-text {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-title-actions {
+      display: flex;
+      gap: 2px;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-ctrl-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius-full);
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-3);
+      cursor: pointer;
+      padding: 0;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-ctrl-btn:hover {
+      background: var(--surface-2);
+      color: var(--text-1);
+      border-color: var(--border);
+    }
+    :global(html:not(.force-mobile-layout)) .rail-ctrl-btn .material-symbols-rounded { font-size: 16px; }
+
+    /* Rail hidden mode. Grid collapses to a single column; the aside
+       stops rendering in-flow. A small edge-tab button floats on the
+       right edge of the viewport so the user can pull the panel back
+       out as an overlay whenever they need it. */
+    :global(html:not(.force-mobile-layout)) .diary-content.rail-hidden {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    :global(html:not(.force-mobile-layout)) .diary-content.rail-hidden .diary-right-col {
+      display: none;
+    }
+    /* Overlay mode: rail returns as a fixed slide-in panel on the
+       right edge with its own scroll region. Sits above the page
+       content, doesn't dim the background (widgets are additive, not
+       a modal task). */
+    /* Overlay panel — the portaled aside variant. Portal moves the
+       DOM to document.body; Svelte's scoped-class hashes still ride
+       along, so scoped styles apply. Fixed positioning resolves
+       against the viewport now that the aside is outside the
+       .page-transition scroll container. */
+    :global(html:not(.force-mobile-layout)) .diary-right-col-overlay {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: fixed;
+      top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
+      right: 12px;
+      bottom: 12px;
+      width: 380px;
+      max-width: calc(100vw - 24px);
+      z-index: 40;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 20px 50px -20px rgba(0,0,0,0.35);
+      padding: 12px;
+      overflow-y: auto;
+      /* Reset any sticky-mode constraints inherited via the base
+         class; overlay has its own fixed dimensions. */
+      max-height: none;
+      align-self: auto;
+      animation: rail-slide-in 200ms ease-out;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-right-col-overlay > :global(*) { flex-shrink: 0; }
+    @keyframes rail-slide-in {
+      from { transform: translateX(24px); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      :global(html:not(.force-mobile-layout)) .diary-content.rail-overlay-open .diary-right-col { animation: none; }
+    }
+
+    /* Right-edge tab: small vertical chevron button pinned to the
+       right side of the viewport, visible only in hidden mode. Uses
+       fixed positioning so it survives scroll. */
+    :global(html:not(.force-mobile-layout)) .rail-edge-tab {
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 24px;
+      height: 56px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-right: none;
+      border-top-left-radius: var(--radius-md);
+      border-bottom-left-radius: var(--radius-md);
+      color: var(--text-2);
+      cursor: pointer;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 41;
+      transition: background 120ms ease, color 120ms ease, width 120ms ease;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-edge-tab:hover {
+      background: var(--surface-3);
+      color: var(--text-1);
+      width: 28px;
+    }
+    :global(html:not(.force-mobile-layout)) .rail-edge-tab .material-symbols-rounded { font-size: 18px; }
+
+    /* Day-swap loading skeleton — subtle shimmer on the meal-cols
+       block while the new day's data is in flight. The fade transition
+       covers fast loads; skeletons kick in visually if the load is
+       slow enough for the fade to complete first. */
+    :global(html:not(.force-mobile-layout)) .diary-content.day-loading .meal-cols > .meal-col > .meal-group {
+      position: relative;
+      overflow: hidden;
+    }
+    :global(html:not(.force-mobile-layout)) .diary-content.day-loading .meal-cols > .meal-col > .meal-group::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        color-mix(in srgb, var(--text-3) 6%, transparent) 50%,
+        transparent
+      );
+      animation: skeleton-shimmer 1.2s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes skeleton-shimmer {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      :global(html:not(.force-mobile-layout)) .diary-content.day-loading .meal-cols > .meal-col > .meal-group::after {
+        animation: none;
+      }
+    }
+    /* The inline `style="padding-bottom:{contentPad}"` on .diary-content
+       reserves height for the (now-hidden) bottom bar. Reclaim it at
+       wide so the diary doesn't have a huge empty gap under the last
+       meal / notes card. !important because inline style otherwise wins. */
+    :global(html:not(.force-mobile-layout)) .diary-content { padding-bottom: 24px !important; }
+
+  }
+
   /* Water blue — dedicated color, always blue regardless of theme accent */
   :global(:root) { --water-blue: #2196F3; --water-blue-dim: rgba(33,150,243,0.15); }
 
@@ -2556,6 +3564,51 @@
   .diary-notes-preview { flex: 1; min-width: 0; font-size: 13px; color: var(--text-3); }
   .diary-notes-chevron { font-size: 20px; color: var(--text-3); margin-left: auto; flex-shrink: 0; }
   .diary-notes-body { padding: 0 14px 14px; }
+  /* Rail Notes widget — reuses .card base, matches the other rail
+     widgets' padding + header style. Textarea always visible (no
+     collapse — the rail's job is ambient access, not saving space). */
+  .rail-notes-widget {
+    padding: 16px 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .rn-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .rn-icon {
+    color: var(--accent);
+    font-size: 20px;
+  }
+  .rn-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-1);
+    letter-spacing: -0.01em;
+  }
+  .rn-textarea {
+    width: 100%;
+    min-height: 88px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-1);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.4;
+    resize: vertical;
+  }
+  .rn-textarea:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+  .rn-meta {
+    min-height: 14px;
+  }
+
   .diary-notes-textarea {
     width: 100%; min-height: 80px; resize: vertical;
     padding: 10px 12px; border-radius: var(--radius-md);
@@ -2638,6 +3691,11 @@
     -webkit-touch-callout: none;
   }
   .diary-item:last-child { border-bottom: none; }
+  /* Batch 5: item-level drag affordance. Grab cursor on desktop
+     where drag is wired; dim the row while it's the source. */
+  .diary-item[draggable="true"] { cursor: grab; }
+  .diary-item[draggable="true"]:active { cursor: grabbing; }
+  .diary-item.item-dragging { opacity: 0.4; }
   .diary-item:active { background: var(--surface-2); }
   .diary-item.item-selected { background: var(--accent-dim); }
 

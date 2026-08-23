@@ -22,6 +22,7 @@ import {
   dbGetPendingSettings, dbMarkSettingsSynced, dbUpsertSettingFromServer,
   dbUpsertWorkoutFromServer, dbUpsertActivityFromServer,
   dbGetPendingWorkouts, dbSetWorkoutServerId,
+  dbGetPendingDiaryTombstones, dbMarkTombstonesSynced, dbApplyServerTombstones,
 } from './db-native.js';
 import { get, writable } from 'svelte/store';
 
@@ -215,9 +216,15 @@ async function pushChanges() {
   // `server_id IS NULL` — see dbGetPendingWorkouts. #91.
   const workouts = await dbGetPendingWorkouts();
   const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || fasts.length || wellness.length || workouts.length || pendingSettings.length;
-  if (!hasPending) return false;
+  // Option C: pending per-uuid deletions must ride along with the diary
+  // rows in the same push so the server's merge treats them as explicit
+  // tombstones. Load once, index by date, consume below.
+  const _pendingDiaryTombstones = await dbGetPendingDiaryTombstones();
+  const _hasPendingTombstones = Object.keys(_pendingDiaryTombstones).length > 0;
 
-  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${fasts.length} fasts, ${wellness.length} wellness, ${workouts.length} workouts, ${pendingSettings.length} settings`);
+  if (!hasPending && !_hasPendingTombstones) return false;
+
+  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${fasts.length} fasts, ${wellness.length} wellness, ${workouts.length} workouts, ${pendingSettings.length} settings, tombstones=${Object.keys(_pendingDiaryTombstones).length}`);
 
   // Build push payload with client_id and server_id
   const payload = {
@@ -254,16 +261,45 @@ async function pushChanges() {
       updated_at: m.updated_at,
       deleted_at: m.deleted_at || null,
     })),
-    diary: pending.diary.map(d => ({
-      client_id: d.id,
-      server_id: d.server_id || null,
-      date: d.date,
-      items: d.items,
-      body_stats: d.body_stats,
-      water: d.water,
-      updated_at: d.updated_at,
-      deleted_at: d.deleted_at || null,
-    })),
+    diary: (() => {
+      // Include every pending diary row plus any date that has only
+      // pending tombstones and no other change (so the merge server-side
+      // still gets the deleted_uuids). For tombstone-only dates we send
+      // the row's current shape so the server merge is a no-op except
+      // for applying the tombstones.
+      const pendingDates = new Set(pending.diary.map(d => d.date));
+      const tombstoneOnlyDates = Object.keys(_pendingDiaryTombstones)
+        .filter(date => !pendingDates.has(date));
+      const rows = pending.diary.map(d => ({
+        client_id: d.id,
+        server_id: d.server_id || null,
+        date: d.date,
+        items: d.items,
+        body_stats: d.body_stats,
+        water: d.water,
+        deleted_uuids: _pendingDiaryTombstones[d.date] || { items: [], water: [] },
+        updated_at: d.updated_at,
+        deleted_at: d.deleted_at || null,
+      }));
+      // Synthetic tombstone-only rows. We look them up from local DB
+      // via dbGetDiaryDate later if needed; for now the client_id/server_id
+      // resolution on the server side matches on (user_id, date) so we
+      // only need the date + the deletions to make the merge fire.
+      for (const date of tombstoneOnlyDates) {
+        rows.push({
+          client_id: null,
+          server_id: null,
+          date,
+          items: [],
+          body_stats: {},
+          water: [],
+          deleted_uuids: _pendingDiaryTombstones[date],
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+        });
+      }
+      return rows;
+    })(),
     activity: activity.map(a => ({
       client_id: a.id,
       server_id: a.server_id || null,
@@ -325,7 +361,7 @@ async function pushChanges() {
     })),
   };
 
-  _dlog(`[sync] push payload: ${payload.foods.length} foods, ${payload.meals.length} meals, ${payload.diary.length} diary, ${payload.activity.length} activity, ${payload.settings.length} settings`);
+  _dlog(`[sync] push payload: ${payload.foods.length} foods, ${payload.meals.length} meals, ${payload.diary.length} diary, ${payload.activity.length} activity, ${payload.fasts.length} fasts, ${payload.wellness.length} wellness, ${payload.workouts.length} workouts, ${payload.settings.length} settings`);
 
   const res = await fetch(apiUrl('/api/sync/push'), {
     method: 'POST',
@@ -388,6 +424,16 @@ async function pushChanges() {
   await dbMarkSynced('foods',        pending.foods.map(f => ({ id: f.id, updated_at: f.updated_at })));
   await dbMarkSynced('meals',        pending.meals.map(m => ({ id: m.id, updated_at: m.updated_at })));
   await dbMarkSynced('diary',        pending.diary.map(d => ({ id: d.id, updated_at: d.updated_at })));
+  // Option C: mark all pending tombstones we just pushed as synced so
+  // they don't get resent on the next push cycle.
+  {
+    const triples = [];
+    for (const [date, kinds] of Object.entries(_pendingDiaryTombstones)) {
+      for (const uuid of (kinds.items || [])) triples.push({ date, kind: 'item',  uuid });
+      for (const uuid of (kinds.water || [])) triples.push({ date, kind: 'water', uuid });
+    }
+    if (triples.length) await dbMarkTombstonesSynced(triples);
+  }
   await dbMarkSynced('activity_log', activity.map(a => ({ id: a.id, updated_at: a.updated_at })));
   await dbMarkSynced('fasts',        fasts.map(f => ({ id: f.id, updated_at: f.updated_at })));
   // wellness_data has no updated_at column, so it can't go through
@@ -453,6 +499,16 @@ async function pullChanges() {
   for (const d of (data.diary || [])) {
     try { await dbUpsertDiaryFromServer(d); }
     catch (e) { _pullErr('diary', d, e); }
+  }
+
+  // Option C: apply any per-item deletion tombstones the server has
+  // accumulated since our last pull. This drops the corresponding
+  // items/water entries from the local diary row and inserts a
+  // synced-status tombstone so a stale local write can't resurrect
+  // them.
+  if (Array.isArray(data.diary_tombstones) && data.diary_tombstones.length) {
+    try { await dbApplyServerTombstones(data.diary_tombstones); }
+    catch (e) { _pullErr('diary_tombstones', { count: data.diary_tombstones.length }, e); }
   }
 
   // Apply wellness data (pull-only, server-generated)

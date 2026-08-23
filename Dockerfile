@@ -32,6 +32,12 @@ COPY server/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 COPY server/ .
 COPY --from=build /app/dist ./dist
+# The MCP daily-totals tool reuses the shared Nutrition module that also
+# powers the Svelte frontend (source of truth for exploded-recipe / legacy
+# item summing). Its relative import climbs out of /app/lib/mcp/tools to
+# /src/lib/nutrition.js — mirror that path in the container so local dev
+# and Docker resolve the same file without a re-export shim.
+COPY src/lib/nutrition.js /src/lib/nutrition.js
 # Also ship the root package.json so the server can read APP_VERSION from
 # it at runtime when TRACEAPPS_APP_VERSION isn't injected via ARG below.
 # Keeps versioning working even for builds that don't pass the build-arg.
