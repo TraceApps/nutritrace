@@ -221,7 +221,11 @@
       "share_link_intro": "Compartir este link:",
       "copy": "Copia",
       "copy_link": "Copiá el link",
-      "add_user_show": "Añadir usuario manualmente"
+      "add_user_show": "Añadir usuario manualmente",
+      "session_90d": "90 días",
+      "session_1y": "1 año",
+      "save": "Guardar",
+      "email_optional": "Email (Opcional)"
     }
   },
   "accept_invite": {
