@@ -371,6 +371,11 @@
   let mealieResults = [];
   let loading = false;
   let loadError = false;
+  // #178 — true while the initial getFoods/getMeals/getRecipes batch is in
+  // flight on mount, false once it resolves (success or failure). Gates the
+  // render so a slow server doesn't show "No foods yet" over the user's
+  // actual library — that empty state was misread as "the app forgot my data".
+  let _initialLoading = true;
   let mealieLoading = false;
   let searchTimeout = null;
   // Pagination state for single-source OFF / USDA modes. Both use the
@@ -728,15 +733,11 @@
       localFoods   = _applySort(foods,   foodsSort.get());
       localMeals   = _applySort(meals,   mealsSort.get());
       localRecipes = _applySort(recipes, recipesSort.get());
-      // #178 diag — remove once cause is confirmed.
-      try {
-        const _mountN = (window.__foodsMountN = (window.__foodsMountN || 0) + 1);
-        await tick();
-        console.log('[foods][diag]', { mountN: _mountN, foodsLen: localFoods.length, ownListLen: (_ownList||[]).length, filteredListLen: (filteredList||[]).length, activeTab, searchSource, search, activeCategoryFilter });
-      } catch (e) { /* diag only */ }
     } catch(e) {
       console.error('[foods] load error:', e);
       loadError = true;
+    } finally {
+      _initialLoading = false;
     }
   }
 
@@ -2056,7 +2057,15 @@
 
     {:else if searchSource === 'local' || searchSource === 'shared' || activeTab !== 0}
       <!-- ── Local list ─────────────────────────────────────────────────────── -->
-      {#if filteredList.length === 0 && !search && !loadError}
+      {#if _initialLoading && filteredList.length === 0 && !loadError}
+        <!-- #178 — hold the empty state while the initial fetch is in
+             flight. A slow /api/foods response would otherwise render
+             "No foods yet" over the user's actual (server-side) library. -->
+        <div class="loading-row">
+          <span class="material-symbols-rounded spin">refresh</span>
+          <span class="text-2 text-sm">{$_('foods.loading_library')}</span>
+        </div>
+      {:else if filteredList.length === 0 && !search && !loadError}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">
             {activeTab === 0 ? 'restaurant' : activeTab === 1 ? 'dinner_dining' : 'book'}

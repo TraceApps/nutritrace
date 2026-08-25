@@ -727,6 +727,7 @@
       "loading_more":           "Loading more…",
       "still_searching_others": "Still searching other sources…"
     },
+    "loading_library":          "Loading…",
     "pagination": {
       "showing_x_of_y": "Showing {shown} of {total}",
       "loading_more":   "Loading more…"
