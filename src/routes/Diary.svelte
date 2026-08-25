@@ -1716,9 +1716,15 @@
        ≥1280px; hidden on mobile. Data refetches whenever the diary
        store fires an update (bumps refreshKey). -->
   <div class="diary-week-strip-wrap">
+    <!-- #180 — pass the UNADJUSTED base goal. caloriesGoalAdjusted
+         mixes in the CURRENT day's activity kcal, and WeekStrip
+         divides every day's food total by that same denominator,
+         so every bar shifted whenever the viewed day's activity
+         changed. The main day-gauge still uses caloriesGoalAdjusted
+         because that one is scoped to the current day. -->
     <WeekStrip
       currentDate={$currentDate}
-      calorieGoal={caloriesGoalAdjusted}
+      calorieGoal={caloriesGoal}
       refreshKey={_weekStripRefreshKey}
       onSelectDate={(iso) => _loadEntryTracked(iso)}
       onDropMeal={_onDropMealOnWeekDay}
