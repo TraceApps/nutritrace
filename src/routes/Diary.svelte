@@ -393,7 +393,13 @@
     }
     let mlSum = 0;
     for (const w of water) mlSum += Number(w.amount) || 0;
-    return `${$currentDate}|${items.length}|${water.length}|${Math.round(kcalSum)}|${Math.round(mlSum)}`;
+    // #180 — activitySummary.effective in the sig too so logging or
+    // removing activity bumps refreshKey, which triggers WeekStrip's
+    // per-day goal recompute for the visible week. Without this the
+    // per-day activity adjustment stays stale until the user manually
+    // navigates dates or reloads.
+    const active = Math.round($activitySummary?.effective || 0);
+    return `${$currentDate}|${items.length}|${water.length}|${Math.round(kcalSum)}|${Math.round(mlSum)}|${active}`;
   })();
   $: if (_weekStripSig) { _weekStripRefreshKey = (_weekStripRefreshKey + 1); }
 
@@ -1725,6 +1731,10 @@
     <WeekStrip
       currentDate={$currentDate}
       calorieGoal={caloriesGoal}
+      calorieGoalMode={$calorieGoalMode}
+      calorieGoalFactor={$calorieGoalFactor}
+      adjustFromActivity={$diaryShowActivity && $calorieAdjustFromActivity}
+      activityPolicy={$manualActivityPolicy || 'wearable_wins'}
       refreshKey={_weekStripRefreshKey}
       onSelectDate={(iso) => _loadEntryTracked(iso)}
       onDropMeal={_onDropMealOnWeekDay}
