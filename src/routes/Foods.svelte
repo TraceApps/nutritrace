@@ -728,6 +728,12 @@
       localFoods   = _applySort(foods,   foodsSort.get());
       localMeals   = _applySort(meals,   mealsSort.get());
       localRecipes = _applySort(recipes, recipesSort.get());
+      // #178 diag — remove once cause is confirmed.
+      try {
+        const _mountN = (window.__foodsMountN = (window.__foodsMountN || 0) + 1);
+        await tick();
+        console.log('[foods][diag]', { mountN: _mountN, foodsLen: localFoods.length, ownListLen: (_ownList||[]).length, filteredListLen: (filteredList||[]).length, activeTab, searchSource, search, activeCategoryFilter });
+      } catch (e) { /* diag only */ }
     } catch(e) {
       console.error('[foods] load error:', e);
       loadError = true;
