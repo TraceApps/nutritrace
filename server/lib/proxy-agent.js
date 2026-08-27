@@ -47,6 +47,20 @@ if (_upper || _lower) {
     };
     console.log('[server] forward-proxy env vars detected, undici EnvHttpProxyAgent installed:', active);
   } catch (e) {
-    console.warn('[server] proxy-agent install failed:', e?.message || e);
+    const msg = e?.message || String(e);
+    // undici's EnvHttpProxyAgent throws a bare 'Invalid URL' when the
+    // env value is missing a scheme (e.g. `user:pass@host:3128` instead
+    // of `http://user:pass@host:3128`). Nudge users toward the fix
+    // rather than making them chase what "Invalid URL" refers to.
+    // Reported by @yoyo-san on #177.
+    if (/invalid url/i.test(msg)) {
+      console.warn(
+        '[server] proxy-agent install failed: Invalid URL. HTTP_PROXY / HTTPS_PROXY must include a scheme like ' +
+        '"http://user:pass@proxy.host:3128". Bare "host:port" or "user:pass@host:port" is not accepted. ' +
+        'See https://traceapps.github.io/docs/self-hosting/env-vars/#value-format'
+      );
+    } else {
+      console.warn('[server] proxy-agent install failed:', msg);
+    }
   }
 }
