@@ -13,6 +13,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
+import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
 
 const router = Router();
@@ -199,10 +200,15 @@ router.post('/push', wrap((req, res) => {
         }
         result.foods.push({ client_id: f.client_id, server_id: f.server_id });
       } else if (!f.deleted_at) {
-        // New record (no server_id, OR server_id refs missing row → re-create)
+        // New record (no server_id, OR server_id refs missing row → re-create).
+        // #183 — honor caller's defaultShareVisibility on new inserts,
+        // matching POST /api/foods. The sync path had been relying on
+        // the SQLite column default ('private'), which silently made
+        // the toggle a no-op for anything created offline first.
+        const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
-          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, visibility, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, f.name, f.brand || null, JSON.stringify(f.nutrition || {}), f.portion ?? 100, f.unit || 'g',
           f.img_url || null, f.notes || null, f.category || null, f.barcode || null,
           f.favorite ? 1 : 0, f.usage_count || 0, f.last_used_at || null,
@@ -210,7 +216,8 @@ router.post('/push', wrap((req, res) => {
           _serializeAltUnitsForServer(f.alt_units),
           f.density_g_ml != null && Number.isFinite(Number(f.density_g_ml))
             ? Number(f.density_g_ml)
-            : null);
+            : null,
+          vis);
         result.foods.push({ client_id: f.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -235,13 +242,18 @@ router.post('/push', wrap((req, res) => {
         }
         result.meals.push({ client_id: m.client_id, server_id: m.server_id });
       } else if (!m.deleted_at) {
+        // #183 — same default-visibility handling as the foods branch.
+        // Applies to both meals and recipes (is_recipe distinguishes them
+        // but shares the same default).
+        const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
-          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, visibility, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, m.name, JSON.stringify(m.nutrition || {}), JSON.stringify(m.items || []),
           m.img_url || null, m.notes || null, m.is_recipe ? 1 : 0, m.portion ?? 100, m.unit || 'g',
           Math.max(1, parseInt(m.servings) || 1),
-          m.favorite ? 1 : 0, m.usage_count || 0, m.last_used_at || null);
+          m.favorite ? 1 : 0, m.usage_count || 0, m.last_used_at || null,
+          vis);
         result.meals.push({ client_id: m.client_id, server_id: r.lastInsertRowid });
       }
     }

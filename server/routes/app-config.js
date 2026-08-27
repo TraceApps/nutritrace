@@ -13,7 +13,7 @@ const ALLOWED_KEYS = new Set([
   'session_hours',
   'fitbit_client_id', 'fitbit_client_secret', 'fitbit_redirect_uri',
   'withings_client_id', 'withings_client_secret', 'withings_redirect_uri',
-  'sharing_enabled', 'default_food_visibility',
+  'sharing_enabled',
   // Per-category bulk-share state (persists what the admin last applied so
   // the form pre-fills correctly). Visibility values: private | group | specific.
   // The user-list keys are JSON-encoded arrays of user ids (used when

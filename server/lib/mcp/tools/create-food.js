@@ -16,6 +16,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { toolResult, toolError } from '../_util.js';
+import { resolveNewItemVisibility } from '../../default-visibility.js';
 import { NUTRIMENTS } from '../../../../src/lib/nutrition.js';
 
 // Derived from the canonical NUTRIMENTS registry so this tool can never
@@ -129,9 +130,12 @@ export function registerCreateFood(server, { userId }) {
         );
       }
 
+      // #183 — MCP-created foods honor the caller's defaultShareVisibility
+      // too. Requester explicitly called out "created via the app or MCP".
+      const vis = resolveNewItemVisibility(userId);
       const result = db.prepare(
-        `INSERT INTO foods (user_id, name, brand, portion, unit, nutrition, category, barcode, notes, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        `INSERT INTO foods (user_id, name, brand, portion, unit, nutrition, category, barcode, notes, visibility, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
       ).run(
         userId,
         cleanName,
@@ -142,6 +146,7 @@ export function registerCreateFood(server, { userId }) {
         category || null,
         barcode || null,
         notes || null,
+        vis,
       );
 
       return toolResult({

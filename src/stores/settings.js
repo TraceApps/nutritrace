@@ -64,7 +64,7 @@ export const USER_PREFS = new Set([
   'garminEnabled','garminSyncRange',
   'garminSyncMode','garminSyncInterval','garminSyncWindowStart','garminSyncWindowEnd',
   'healthConnectSyncMode','healthConnectSyncInterval','healthConnectSyncWindowStart','healthConnectSyncWindowEnd',
-  'defaultFoodVisibility',
+  'defaultShareVisibility',
   // Notifications
   'notifLocalEnabled','notifPushService',
   'notifWaterReminders','notifWaterInterval','notifMealReminders','notifMealTimes',
@@ -840,7 +840,14 @@ export const healthConnectSyncWindowStart  = createSettingStore('healthConnectSy
 export const healthConnectSyncWindowEnd    = createSettingStore('healthConnectSyncWindowEnd',    null);
 
 // Sharing
-export const defaultFoodVisibility = createSettingStore('defaultFoodVisibility', 'private'); // 'private' | 'group' | 'specific'
+// #183 — per-user default visibility applied to newly-created foods,
+// meals, and recipes. Server enforces it in POST /api/foods,
+// /api/meals, and the sync-push new-insert path when the client omits
+// an explicit visibility. Values: 'private' | 'group'. 'specific'
+// deferred (would need a user-list picker paired with this setting).
+// Always overridden to 'private' server-side when the admin's global
+// sharing_enabled toggle is false.
+export const defaultShareVisibility = createSettingStore('defaultShareVisibility', 'private');
 
 // AI Assistant (Trace)
 export const aiEnabled       = createSettingStore('aiEnabled',       false);

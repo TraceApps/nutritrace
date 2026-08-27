@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { sharingEnabled, canRead as _canRead } from '../lib/sharing.js';
+import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { sendFoodShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
@@ -83,7 +84,9 @@ router.post('/', wrap(async (req, res) => {
     nutrition_basis, alt_units, density_g_ml } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
-  const vis = visibility || 'private';
+  // #183 — when the client omits visibility, honor the caller's
+  // defaultShareVisibility setting instead of hard-coding 'private'.
+  const vis = visibility || resolveNewItemVisibility(u);
   // Dedup by barcode within the user's library. The client-side scan handler
   // also looks up local matches before POSTing, but a fast second scan can
   // race the foods-list refresh and reach this endpoint with a barcode that

@@ -6,6 +6,7 @@
   import { isNative, getServerUrl, apiUrl, getAuthToken } from '../../lib/platform.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { currentUser, userMgmtActive } from '../../stores/auth.js';
+  import { defaultShareVisibility } from '../../stores/settings.js';
 
   // Native-standalone = Capacitor on-device with no linked server (nothing to
   // share with). Same rule the parent shell derives.
@@ -156,6 +157,28 @@
       </div>
     {/if}
     {#if adminSharingEnabled}
+    <!-- Group: Default visibility for new items (#183). Per-user
+         setting — every authenticated user sees this, not just the
+         admin. Applies to newly-created foods, meals, and recipes;
+         existing items are left alone (use Bulk Share below for that).
+         Server-side enforcement in server/lib/default-visibility.js
+         backstops the toggle when admin disables sharing globally. -->
+    <p class="settings-group-heading">Default sharing for new items</p>
+    <p class="settings-group-sub">Applied to foods, meals, and recipes you create from now on. Does not touch existing items; use Bulk Share below for that.</p>
+    <div class="card settings-card">
+      <div class="setting-row">
+        <span class="setting-label">Default visibility</span>
+        <div class="select-wrap" style="width:160px">
+          <select class="select sel-sm"
+            value={$defaultShareVisibility}
+            on:change={e => defaultShareVisibility.set(e.target.value)}>
+            <option value="private">{$_('settings_integrations.vis_private')}</option>
+            <option value="group">{$_('settings_integrations.vis_group')}</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
     <!-- Group: Bulk Share -->
     <p class="settings-group-heading">{$_('settings_integrations.bulk_share')}</p>
     <p class="settings-group-sub">Set who can see your existing items. Each category has its own visibility, so changing one doesn't affect the others.</p>
