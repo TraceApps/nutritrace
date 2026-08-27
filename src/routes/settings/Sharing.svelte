@@ -157,17 +157,16 @@
       </div>
     {/if}
     {#if adminSharingEnabled}
-    <!-- Group: Default visibility for new items (#183). Per-user
-         setting — every authenticated user sees this, not just the
-         admin. Applies to newly-created foods, meals, and recipes;
-         existing items are left alone (use Bulk Share below for that).
-         Server-side enforcement in server/lib/default-visibility.js
-         backstops the toggle when admin disables sharing globally. -->
-    <p class="settings-group-heading">Default sharing for new items</p>
-    <p class="settings-group-sub">Applied to foods, meals, and recipes you create from now on. Does not touch existing items; use Bulk Share below for that.</p>
+    <!-- Group: Auto Share (#183). Per-user forward-looking default,
+         parallel to the Bulk Share block below (retroactive). Every
+         authenticated user sees this, not just admins. Server-side
+         enforcement in server/lib/default-visibility.js backstops
+         the toggle when admin disables sharing globally. -->
+    <p class="settings-group-heading">Auto Share</p>
+    <p class="settings-group-sub">Applied automatically to new foods, meals, and recipes you create. Existing items are left alone; use Bulk Share below to update those.</p>
     <div class="card settings-card">
       <div class="setting-row">
-        <span class="setting-label">Default visibility</span>
+        <span class="setting-label">Visibility</span>
         <div class="select-wrap" style="width:160px">
           <select class="select sel-sm"
             value={$defaultShareVisibility}
