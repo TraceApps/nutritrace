@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { push } from 'svelte-spa-router';
@@ -272,6 +272,25 @@
 
   let editWaterOpen = false;
   let editWaterVal = '';
+  let _editWaterInputEl = null;
+  let _editGoalSheetEl = null;
+  // #170 follow-up: goals editor sheets get the same autofocus +
+  // preselect treatment the diary / foods sheets already have, so
+  // typing over an existing value works without a manual Ctrl+A.
+  // Enter to save is wired inline on each input (below).
+  $: if (editWaterOpen) tick().then(() => { _editWaterInputEl?.focus(); _editWaterInputEl?.select?.(); });
+  $: if (editOpen) tick().then(() => {
+    const _first = _editGoalSheetEl?.querySelector('input[inputmode="decimal"]');
+    _first?.focus();
+    _first?.select?.();
+  });
+  function _onEditGoalKey(e) {
+    if (e.key !== 'Enter') return;
+    const t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    e.preventDefault();
+    saveGoal();
+  }
   function openEditWater() {
     editWaterVal = String(mlToDisplay($waterGoalMl, $waterUnit));
     editWaterOpen = true;
@@ -1216,7 +1235,7 @@
       <div class="sheet-header">
         <h3 class="sheet-title">{editStat.label} {_editUnit ? '('+_editUnit+')' : ''}</h3>
       </div>
-      <div class="sheet-body">
+      <div class="sheet-body" bind:this={_editGoalSheetEl} on:keydown={_onEditGoalKey}>
 
         <!-- Display options -->
         {#if !editStat?.isWellness}
@@ -1320,6 +1339,7 @@
       <div class="sheet-body">
         <label class="form-label">{$_('goals_page.editor.water_sheet_label', { values: { unit: $waterUnit } })}</label>
         <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editWaterVal}
+          bind:this={_editWaterInputEl}
           on:keydown={e => e.key === 'Enter' && saveWaterGoal()} />
         <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveWaterGoal}>{$_('common.save')}</button>
       </div>

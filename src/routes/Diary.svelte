@@ -106,8 +106,13 @@
   // the edit. Works for both the food branch (portion input first) and
   // the quick_calories branch (kcal input first).
   let _editSheetEl = null;
+  // #170 follow-up (drekkym on 2026-08-26): also select the existing
+  // value so typing replaces it instead of appending. Matches the
+  // Body Stats weight-edit pattern.
   $: if (showEditSheet) tick().then(() => {
-    _editSheetEl?.querySelector('input[inputmode="numeric"], input[inputmode="decimal"]')?.focus();
+    const _first = _editSheetEl?.querySelector('input[inputmode="numeric"], input[inputmode="decimal"]');
+    _first?.focus();
+    _first?.select?.();
   });
   function _onEditSheetKey(e) {
     if (e.key !== 'Enter') return;

@@ -411,7 +411,11 @@
   // Autofocus the portion input the moment the qty-prompt sheet opens
   // so a user tapping "Add to Diary" on a food can start typing quantity
   // immediately instead of tapping the field first. #170.
-  $: if (showQtyPrompt) tick().then(() => _qtyPromptPortionEl?.focus());
+  // #170 follow-up (drekkym on 2026-08-26): also select the existing
+  // value so typing replaces it instead of appending. Matches the
+  // Body Stats weight-edit pattern the user called out as the
+  // reference. Same applied to every other sheet on this page.
+  $: if (showQtyPrompt) tick().then(() => { _qtyPromptPortionEl?.focus(); _qtyPromptPortionEl?.select?.(); });
   // Enter anywhere in the sheet submits (mirrors QuickCalories + water
   // custom + activity flows). Guarded to not fire inside a select/textarea.
   function _onQtyPromptKey(e) {
@@ -484,7 +488,9 @@
   // Query the first portion input inside the sheet root after mount so we
   // don't have to bind ref per-item — cleaner with the {#each} loop.
   $: if (showMultiPortionSheet) tick().then(() => {
-    _multiPortionSheetEl?.querySelector('input[type="text"][inputmode="decimal"]')?.focus();
+    const _first = _multiPortionSheetEl?.querySelector('input[type="text"][inputmode="decimal"]');
+    _first?.focus();
+    _first?.select?.();
   });
   function _onMultiPortionKey(e) {
     if (e.key !== 'Enter') return;

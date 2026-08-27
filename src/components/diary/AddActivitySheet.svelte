@@ -123,7 +123,10 @@
             .slice(0, 12);
         })
         .catch(() => { pastNames = []; templates = []; });
-      tick().then(() => nameInput?.focus());
+      // #170 follow-up: also select the existing name so an edit
+      // starts by replacing on first keystroke instead of appending.
+      // No-op on a fresh add (empty string).
+      tick().then(() => { nameInput?.focus(); nameInput?.select?.(); });
     }
     _wasOpen = open;
   }
@@ -174,9 +177,12 @@
     userKcalOverridden = false;   // let auto-calc take over
     showSuggestions = false;
     tick().then(() => {
-      // Focus duration next so the user can type "45" and hit save
+      // Focus duration next so the user can type "45" and hit save.
+      // Also select() the existing duration value if any so retyping
+      // replaces it (#170 follow-up).
       const durEl = document.getElementById('activity-duration-input');
       durEl?.focus();
+      durEl?.select?.();
     });
   }
   function pickPastName(n) {
