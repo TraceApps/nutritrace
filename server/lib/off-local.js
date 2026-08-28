@@ -61,6 +61,11 @@ let _disabled = false;       // permanent kill switch after init failure
 let _dbPath = null;          // resolved path for log messages
 let _isParquet = false;      // true when the mirror is the HF Parquet shape;
                              // controls which SQL + which JS adapter run
+// #186 — set when the parquet mirror carries the OFF popularity_key
+// column (present in the stock Hugging Face snapshot). Detected once
+// at init so searchByName can add it as a within-rank tiebreak
+// without binder-erroring on custom parquet files that lack it.
+let _hasPopularityKey = false;
 
 // Refresh state — mirrored back to the client via /api/off-local/status.
 // Single in-flight refresh at a time (mutex via _refreshPromise).
@@ -169,7 +174,17 @@ async function _init() {
         _instance = await DuckDBInstance.create(_dbPath, { access_mode: 'READ_ONLY' });
         _conn = await _instance.connect();
       }
-      logger.info(`[off-local] ready — mirror at ${_dbPath} (${_isParquet ? 'parquet via in-memory view' : 'native duckdb'})${process.env.OFF_LOCAL_ONLY ? ' (air-gap mode, remote disabled)' : ''}`);
+      // #186 — probe once for popularity_key so searchByName knows
+      // whether the within-rank popularity tiebreak is safe to emit.
+      // Stock HF snapshot has it; a custom parquet may not, and an
+      // unconditional reference would binder-error the query.
+      try {
+        const probe = await _conn.runAndReadAll(
+          `SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'popularity_key' LIMIT 1`
+        );
+        _hasPopularityKey = probe.getRowObjects().length > 0;
+      } catch { _hasPopularityKey = false; }
+      logger.info(`[off-local] ready — mirror at ${_dbPath} (${_isParquet ? 'parquet via in-memory view' : 'native duckdb'})${_hasPopularityKey ? ', popularity_key present' : ''}${process.env.OFF_LOCAL_ONLY ? ' (air-gap mode, remote disabled)' : ''}`);
       return _conn;
     } catch (e) {
       _disabled = true;
@@ -284,13 +299,25 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     // Two SQL shapes — Parquet's product_name is LIST<{lang,text}> so we
     // need list_filter to LIKE-match any localized entry; legacy DuckDB's
     // product_name is a single string so the simple LIKE works directly.
+    // #186 (@systems-monitor): within-rank tiebreak. Prefix-match rank
+    // alone leaves table-scan order to fill the page, which on the
+    // stock HF snapshot buries the mainline product ("Nutella") under
+    // near-zero-popularity regional clones, and a parallel scan is not
+    // guaranteed stable so the order can even shift run-to-run. Sort
+    // by popularity_key when the column exists (stock snapshot does);
+    // fall back to code ASC for determinism on custom parquet files
+    // that lack it. Legacy .duckdb branch already had a length-based
+    // tiebreak so it stays untouched.
+    const parquetTiebreak = _hasPopularityKey
+      ? 'popularity_key DESC NULLS LAST'
+      : 'code ASC';
     const sql = _isParquet
       ? `SELECT *,
               CASE WHEN LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $2 ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
            FROM products
           WHERE LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $1 ESCAPE '\\')) > 0
              OR LOWER(brands) LIKE $1 ESCAPE '\\'
-          ORDER BY _rank ASC
+          ORDER BY _rank ASC, ${parquetTiebreak}
           LIMIT $3 OFFSET $4`
       : `SELECT *, CASE WHEN LOWER(product_name) LIKE $2 ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
            FROM products
