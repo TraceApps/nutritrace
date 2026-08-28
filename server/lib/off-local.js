@@ -351,12 +351,19 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     // Cost: one extra full-scan predicate per search. Fine for
     // stock-snapshot scale; if latency shows up on very large
     // custom catalogs a per-query-string cache would amortize it.
+    // #191 (@systems-monitor): COUNT(DISTINCT code) so duplicate
+     // rows (the stock OFF snapshot has 60 duplicated codes across
+     // 4.7M rows) don't inflate the total and drive the load-more
+     // math past the real ceiling. Rows are still returned
+     // undeduped — the render-side defensive key handles the
+     // renderer crash separately, and dropping rows here would
+     // require a window-function pass on both branches.
     const countSql = _isParquet
-      ? `SELECT COUNT(*) AS n FROM products
+      ? `SELECT COUNT(DISTINCT code) AS n FROM products
           WHERE LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $1 ESCAPE '\\')) > 0
              OR LOWER(brands) LIKE $1 ESCAPE '\\'
              OR code LIKE $1 ESCAPE '\\'`
-      : `SELECT COUNT(*) AS n FROM products
+      : `SELECT COUNT(DISTINCT code) AS n FROM products
           WHERE LOWER(product_name) LIKE $1 ESCAPE '\\'
              OR LOWER(brands) LIKE $1 ESCAPE '\\'
              OR code LIKE $1 ESCAPE '\\'`;

@@ -1938,7 +1938,10 @@
         </div>
       {:else}
         <ul class="food-list">
-          {#each _allModeItems as { source, item } (source + ':' + (item.id || item.slug || item.barcode || item.name))}
+          <!-- #191 (@systems-monitor): index-suffixed key so a duplicate
+               code / slug within a source can't crash the render. Same
+               reasoning as the visibleApiResults each below. -->
+          {#each _allModeItems as { source, item }, i (source + ':' + (item.id || item.slug || item.barcode || item.name || 'x') + ':' + i)}
             {@const isMealie = source === 'mealie'}
             {@const isExternal = source === 'off' || source === 'usda'}
             {@const _foodEnergy = isMealie
@@ -2197,7 +2200,15 @@
              changing the underlying fetch. -->
         {#if visibleApiResults.length > 0}
           <ul class="food-list">
-            {#each visibleApiResults as food (food.id || food.barcode)}
+            <!-- #191 (@systems-monitor): key on (code|id, index) so a
+                 duplicate code in the search results (the stock OFF
+                 snapshot has 60 duplicate codes in 4.7M rows, and
+                 custom mirrors have more) can never trigger Svelte's
+                 each_key_duplicate error, which was hard-freezing
+                 the whole app until reload. Index-suffix stays stable
+                 across infinite-scroll appends because rows only
+                 append at the end. -->
+            {#each visibleApiResults as food, i ((food.id || food.barcode || 'x') + ':' + i)}
               {@const _sel = selectedFoods.has(food)}
               {@const _foodEnergy = Nutrition.displayEnergy(food.nutrition?.calories || food.calories || 0, $energyUnit)}
               <li class="food-item card" class:food-selected={_sel}>
