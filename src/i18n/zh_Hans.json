@@ -1,1 +1,118 @@
-{}
+{
+  "native_setup": {
+    "use_locally": "本地使用",
+    "use_locally_desc": "所有数据都保留在此设备上。不需要服务器。您可以稍后在“设置”中连接到服务器。",
+    "connect_to_server": "连接到服务器",
+    "connect_to_server_desc": "与您的 NutriTrace 服务器同步。您的数据在所有设备和 web 应用程序上都可用。"
+  },
+  "wizard": {
+    "welcome": {
+      "title": "欢迎使用 NutriTrace",
+      "desc": "您的个人营养追踪器。我们大约一分钟后为您进行设置。"
+    },
+    "nav": {
+      "get_started": "开始使用",
+      "skip": "跳过"
+    },
+    "integrations_cards": {
+      "skip_this": "跳过这个"
+    }
+  },
+  "nav": {
+    "settings": "设置",
+    "diary": "日记",
+    "foods": "食物",
+    "wellness": "健康",
+    "statistics": "统计",
+    "goals": "目标"
+  },
+  "common": {
+    "save": "保存",
+    "saving": "保存中…",
+    "cancel": "取消",
+    "back": "返回",
+    "close": "关闭",
+    "delete": "删除",
+    "signed_in": "已登录",
+    "signed_out": "退出登录",
+    "linked": "链接",
+    "unlinked": "未连接",
+    "errors": {
+      "cant_reach_server": "无法访问服务器",
+      "failed": "失败",
+      "unlink_failed": "无法取消链接",
+      "save_failed": "保存失败",
+      "delete_failed": "删除失败",
+      "name_required": "姓名为必填项",
+      "network_error_upload": "上传过程中出现网络错误",
+      "voice_unsupported": "此浏览器不支持语音输入",
+      "cant_start_mic": "无法启动麦克风"
+    },
+    "sign_out": "退出登录",
+    "log_out": "退出登录",
+    "signing_out": "退出登录…",
+    "experimental": "实验性",
+    "hide": "隐藏",
+    "admin": "管理员"
+  },
+  "updates": {
+    "skip_this_version": "跳过这个版本"
+  },
+  "routes": {
+    "diary": {
+      "title": "日记"
+    },
+    "foods": {
+      "title": "食物"
+    },
+    "wellness": {
+      "title": "健康"
+    },
+    "statistics": {
+      "title": "统计"
+    },
+    "goals": {
+      "title": "目标"
+    },
+    "settings": {
+      "title": "设置"
+    }
+  },
+  "sync": {
+    "sync_now": "立即同步",
+    "syncing": "正在同步…",
+    "retry": "重试",
+    "retrying": "正在重试…",
+    "dismiss_message": "取消同步消息",
+    "error_title": "同步失败",
+    "connected": "连接",
+    "server_unavailable": "服务器不可用",
+    "last_synced": "上次同步时间",
+    "time": {
+      "never": "从不",
+      "just_now": "刚刚",
+      "seconds_ago": "{count} 秒之前",
+      "minutes_ago": "{count} 分钟之前",
+      "hours_ago": "{count} 小时之前",
+      "days_ago": "{count} 天之前"
+    },
+    "connection": {
+      "server_fallback": "服务器",
+      "no_network_title": "没有网络连接",
+      "cant_reach_title": "无法访问 {host}",
+      "reconnect": "重新连接到互联网。",
+      "server_error": "服务器返回了 HTTP {status}。请稍后再试。",
+      "mobile_data": "您通过移动数据连接。此服务器可能需要您的家庭 Wi-Fi 或 VPN。",
+      "check_connection": "检查您的 Wi-Fi、VPN 或服务器。",
+      "saved_locally": "您的更改已保存在本地，并将自动同步。"
+    }
+  },
+  "settings": {
+    "appearance": {
+      "section": "外观",
+      "theme": "主题",
+      "accent_color": "强调色",
+      "navigation_style": "导航样式"
+    }
+  }
+}
