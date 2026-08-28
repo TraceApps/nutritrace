@@ -604,6 +604,14 @@ function _toOffProduct(row) {
       serving_quantity: row.serving_quantity != null ? _coerceString(row.serving_quantity) : '',
       quantity: _coerceString(row.quantity),
       nutriments: _unfoldNutrimentsList(nutrList || []),
+      // #187 — pass OFF's completeness score through so the client's
+      // quality-tier filter and result ranking can use it. Without
+      // this, every mirror row was bucketed as "Unknown" and any
+      // tier selection other than all-boxes-or-Unknown-only hid all
+      // results. Client (_bucketOff / _mapOFFProduct) tolerates
+      // presence and absence; undefined here matches "column not in
+      // this parquet".
+      completeness: typeof row.completeness === 'number' ? row.completeness : undefined,
     };
   }
   // Legacy native DuckDB shape (product_name is a plain string column)
@@ -622,6 +630,9 @@ function _toOffProduct(row) {
     serving_quantity: row.serving_quantity != null ? _coerceString(row.serving_quantity) : '',
     quantity: _coerceString(row.quantity),
     nutriments,
+    // Same #187 passthrough on the legacy .duckdb shape too — undefined
+    // when the pre-rc.39 snapshot didn't carry the column.
+    completeness: typeof row.completeness === 'number' ? row.completeness : undefined,
   };
 }
 
