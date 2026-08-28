@@ -507,11 +507,39 @@ function _toOffProduct(row) {
   // product_name and broke the client's .trim() call (issue #22 followup
   // from @duplaja). Coerce to a real Array here so both branches see the
   // shape they expect.
-  const _asArray = v => Array.isArray(v)
-    ? v
-    : (v != null && typeof v !== 'string' && typeof v[Symbol.iterator] === 'function')
-      ? Array.from(v)
-      : null;
+  //
+  // #185 (@systems-monitor): under @duckdb/node-api ^1.4 the LIST value
+  // is a DuckDBListValue wrapper whose real array is under `.items`, and
+  // struct elements wrap their fields under `.entries`. Neither is
+  // iterable per Symbol.iterator, so the pre-fix _asArray returned null
+  // and _toOffProduct fell through to _maybeParseListString. That
+  // stringifies the wrapper into DuckDB's SQL-repr, which doubles single
+  // quotes (Dunkin'' inside the payload). Neither JSON.parse nor
+  // _pythonReprToJson accept that escape, both fail, product_name comes
+  // back "" and the client silently drops the row. Recursively unwrap
+  // .items and .entries so the modern parquet branch works with the 1.4
+  // bindings the same way it works with older ones. Downstream
+  // _readField already handles both `.get()` and plain `[key]` access,
+  // so returning plain objects here is safe.
+  const _unwrapDuck = e => {
+    if (e == null || typeof e !== 'object') return e;
+    if (Array.isArray(e)) return e.map(_unwrapDuck);
+    if (Array.isArray(e.items)) return e.items.map(_unwrapDuck);
+    if (e.entries != null && typeof e.entries === 'object' && !Array.isArray(e.entries)) {
+      const o = {};
+      for (const k of Object.keys(e.entries)) o[k] = _unwrapDuck(e.entries[k]);
+      return o;
+    }
+    return e;
+  };
+  const _asArray = v => {
+    const u = _unwrapDuck(v);
+    return Array.isArray(u)
+      ? u
+      : (u != null && typeof u !== 'string' && typeof u[Symbol.iterator] === 'function')
+        ? Array.from(u)
+        : null;
+  };
   // Every string column gets routed through _coerceString — see issue #53
   // for why a raw VARCHAR value reaching the client unconverted can crash
   // the whole search (.split / .trim on a Uint8Array throws and the
