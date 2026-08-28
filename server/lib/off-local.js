@@ -311,18 +311,26 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     const parquetTiebreak = _hasPopularityKey
       ? 'popularity_key DESC NULLS LAST'
       : 'code ASC';
+    // #188 (@systems-monitor): match the code column too so typed or
+    // pasted barcodes resolve via the text-search endpoint. The
+    // scanner path uses a separate exact-code lookup, so without
+    // this a plain-HTTP install (no camera scanner) and any desktop
+    // user has no barcode path at all. LIKE preserves substring
+    // semantics so partial barcodes still match.
     const sql = _isParquet
       ? `SELECT *,
               CASE WHEN LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $2 ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
            FROM products
           WHERE LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $1 ESCAPE '\\')) > 0
              OR LOWER(brands) LIKE $1 ESCAPE '\\'
+             OR code LIKE $1 ESCAPE '\\'
           ORDER BY _rank ASC, ${parquetTiebreak}
           LIMIT $3 OFFSET $4`
       : `SELECT *, CASE WHEN LOWER(product_name) LIKE $2 ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
            FROM products
           WHERE LOWER(product_name) LIKE $1 ESCAPE '\\'
              OR LOWER(brands) LIKE $1 ESCAPE '\\'
+             OR code LIKE $1 ESCAPE '\\'
           ORDER BY _rank ASC, LENGTH(COALESCE(product_name, '')) ASC
           LIMIT $3 OFFSET $4`;
     const reader = await conn.runAndReadAll(sql, [pattern, startPattern, pageSize, offset]);
