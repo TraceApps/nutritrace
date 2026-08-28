@@ -317,6 +317,14 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     // this a plain-HTTP install (no camera scanner) and any desktop
     // user has no barcode path at all. LIKE preserves substring
     // semantics so partial barcodes still match.
+    // #189 (@systems-monitor): append `code ASC` so both ORDER BY
+    // clauses are a total order. popularity_key isn't unique (many
+    // products share a score), and LENGTH(product_name) isn't
+    // either — without a unique final key, LIMIT/OFFSET across
+    // independent page queries can duplicate some rows across
+    // adjacent pages and silently drop others. `code` is unique
+    // per row so it makes the sort deterministic and pages
+    // partition cleanly.
     const sql = _isParquet
       ? `SELECT *,
               CASE WHEN LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $2 ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
@@ -324,20 +332,46 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
           WHERE LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $1 ESCAPE '\\')) > 0
              OR LOWER(brands) LIKE $1 ESCAPE '\\'
              OR code LIKE $1 ESCAPE '\\'
-          ORDER BY _rank ASC, ${parquetTiebreak}
+          ORDER BY _rank ASC, ${parquetTiebreak}, code ASC
           LIMIT $3 OFFSET $4`
       : `SELECT *, CASE WHEN LOWER(product_name) LIKE $2 ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
            FROM products
           WHERE LOWER(product_name) LIKE $1 ESCAPE '\\'
              OR LOWER(brands) LIKE $1 ESCAPE '\\'
              OR code LIKE $1 ESCAPE '\\'
-          ORDER BY _rank ASC, LENGTH(COALESCE(product_name, '')) ASC
+          ORDER BY _rank ASC, LENGTH(COALESCE(product_name, '')) ASC, code ASC
           LIMIT $3 OFFSET $4`;
-    const reader = await conn.runAndReadAll(sql, [pattern, startPattern, pageSize, offset]);
+    // #189 (@systems-monitor): return the real match total. The
+    // envelope previously returned rows.length (page size), so the
+    // client's `hasMore = page * pageSize < totalHits` was always
+    // false and everything past the first page was unreachable
+    // even though the server supports OFFSET. Same predicates as
+    // the search itself, $1 only (the CASE parameter $2 is only
+    // for prefix-ranking within the matched set, not filtering).
+    // Cost: one extra full-scan predicate per search. Fine for
+    // stock-snapshot scale; if latency shows up on very large
+    // custom catalogs a per-query-string cache would amortize it.
+    const countSql = _isParquet
+      ? `SELECT COUNT(*) AS n FROM products
+          WHERE LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $1 ESCAPE '\\')) > 0
+             OR LOWER(brands) LIKE $1 ESCAPE '\\'
+             OR code LIKE $1 ESCAPE '\\'`
+      : `SELECT COUNT(*) AS n FROM products
+          WHERE LOWER(product_name) LIKE $1 ESCAPE '\\'
+             OR LOWER(brands) LIKE $1 ESCAPE '\\'
+             OR code LIKE $1 ESCAPE '\\'`;
+    const [reader, countReader] = await Promise.all([
+      conn.runAndReadAll(sql, [pattern, startPattern, pageSize, offset]),
+      conn.runAndReadAll(countSql, [pattern]),
+    ]);
     const rows = reader.getRowObjects();
+    // Number() unwraps the BigInt the @duckdb/node-api bindings return
+    // for COUNT — otherwise the response JSON would include a raw
+    // BigInt which JSON.stringify refuses and the whole response 500s.
+    const total = Number(countReader.getRowObjects()[0]?.n ?? rows.length);
     return {
       hits: rows.map(_toOffProduct),
-      count: rows.length,
+      count: total,
       page,
       page_size: pageSize,
     };
