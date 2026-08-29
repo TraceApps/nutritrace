@@ -292,8 +292,16 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     .replace(/\s+/g, ' ')
     .trim();
   if (!q) return { hits: [], count: 0, page, page_size: pageSize };
-  const pattern = `%${q.toLowerCase().replace(/[%_]/g, c => '\\' + c)}%`;
-  const startPattern = `${q.toLowerCase().replace(/[%_]/g, c => '\\' + c)}%`;
+  // #190 (@systems-monitor): tokenize on whitespace and AND per-token
+  // matches so "dunkin croissant" and "croissant dunkin" both find a
+  // "Bacon Egg and Cheese Croissant (Dunkin')" hit. Previously the
+  // whole query was one `%q%` pattern, so multi-word searches were
+  // exact-phrase-and-adjacent, which silently missed most legitimate
+  // matches. The prefix-rank CASE keeps using the full phrase so
+  // exact-phrase starts still sort first.
+  const _escLike = t => t.toLowerCase().replace(/[%_]/g, c => '\\' + c);
+  const toks = q.split(/\s+/).filter(Boolean).map(t => `%${_escLike(t)}%`);
+  const startPattern = `${_escLike(q)}%`;
   const offset = Math.max(0, (page - 1) * pageSize);
   try {
     // Two SQL shapes — Parquet's product_name is LIST<{lang,text}> so we
@@ -325,22 +333,35 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     // adjacent pages and silently drop others. `code` is unique
     // per row so it makes the sort deterministic and pages
     // partition cleanly.
+    // #190: parameters are [...toks, startPattern, pageSize, offset].
+    // $1..$N are the token patterns (each AND-joined against name /
+    // brands / code), $(N+1) is the full-phrase start-pattern used
+    // by the rank CASE, and $(N+2), $(N+3) are page + offset.
+    const tokWhereParquet = toks.map((_, i) =>
+      `(LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $${i+1} ESCAPE '\\')) > 0
+             OR LOWER(brands) LIKE $${i+1} ESCAPE '\\'
+             OR code LIKE $${i+1} ESCAPE '\\')`
+    ).join('\n         AND ');
+    const tokWhereLegacy = toks.map((_, i) =>
+      `(LOWER(product_name) LIKE $${i+1} ESCAPE '\\'
+             OR LOWER(brands) LIKE $${i+1} ESCAPE '\\'
+             OR code LIKE $${i+1} ESCAPE '\\')`
+    ).join('\n         AND ');
+    const startIdx = toks.length + 1;
+    const pageIdx  = toks.length + 2;
+    const offIdx   = toks.length + 3;
     const sql = _isParquet
       ? `SELECT *,
-              CASE WHEN LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $2 ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
+              CASE WHEN LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $${startIdx} ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
            FROM products
-          WHERE LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $1 ESCAPE '\\')) > 0
-             OR LOWER(brands) LIKE $1 ESCAPE '\\'
-             OR code LIKE $1 ESCAPE '\\'
+          WHERE ${tokWhereParquet}
           ORDER BY _rank ASC, ${parquetTiebreak}, code ASC
-          LIMIT $3 OFFSET $4`
-      : `SELECT *, CASE WHEN LOWER(product_name) LIKE $2 ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
+          LIMIT $${pageIdx} OFFSET $${offIdx}`
+      : `SELECT *, CASE WHEN LOWER(product_name) LIKE $${startIdx} ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
            FROM products
-          WHERE LOWER(product_name) LIKE $1 ESCAPE '\\'
-             OR LOWER(brands) LIKE $1 ESCAPE '\\'
-             OR code LIKE $1 ESCAPE '\\'
+          WHERE ${tokWhereLegacy}
           ORDER BY _rank ASC, LENGTH(COALESCE(product_name, '')) ASC, code ASC
-          LIMIT $3 OFFSET $4`;
+          LIMIT $${pageIdx} OFFSET $${offIdx}`;
     // #189 (@systems-monitor): return the real match total. The
     // envelope previously returned rows.length (page size), so the
     // client's `hasMore = page * pageSize < totalHits` was always
@@ -360,17 +381,11 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     // pick between them beats silently dropping one. The client's
     // defensive each-key handles the renderer crash separately.
     const countSql = _isParquet
-      ? `SELECT COUNT(*) AS n FROM products
-          WHERE LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $1 ESCAPE '\\')) > 0
-             OR LOWER(brands) LIKE $1 ESCAPE '\\'
-             OR code LIKE $1 ESCAPE '\\'`
-      : `SELECT COUNT(*) AS n FROM products
-          WHERE LOWER(product_name) LIKE $1 ESCAPE '\\'
-             OR LOWER(brands) LIKE $1 ESCAPE '\\'
-             OR code LIKE $1 ESCAPE '\\'`;
+      ? `SELECT COUNT(*) AS n FROM products WHERE ${tokWhereParquet}`
+      : `SELECT COUNT(*) AS n FROM products WHERE ${tokWhereLegacy}`;
     const [reader, countReader] = await Promise.all([
-      conn.runAndReadAll(sql, [pattern, startPattern, pageSize, offset]),
-      conn.runAndReadAll(countSql, [pattern]),
+      conn.runAndReadAll(sql,      [...toks, startPattern, pageSize, offset]),
+      conn.runAndReadAll(countSql, [...toks]),
     ]);
     const rows = reader.getRowObjects();
     // Number() unwraps the BigInt the @duckdb/node-api bindings return
