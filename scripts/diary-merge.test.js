@@ -186,3 +186,41 @@ test('regression: the 2026-08-11 incident cannot happen under the new merge', ()
   const { merged: mergedWater } = mergeEntries(serverWater, clientWater, [], []);
   assert.deepEqual(mergedWater.map(w => w.amount), [3785], 'water add still lands');
 });
+
+// Regression for the LT-diagnosed order-loss bug (2026-08-31, ported
+// here as prevention — dormant in NT today since there's no manual
+// within-item reorder yet, but the merge should be correct regardless
+// of whether a UI feature currently exercises it). A JS Map does not
+// move an existing key on re-.set(), so seeding the merge from server
+// order and only overwriting values silently discarded any client-side
+// reorder while the content change (e.g. a meal reassignment) still
+// landed. See LiftTrace's server/lib/workout-merge.js for the original
+// diagnosis (an orphaned superset card with an unresponsive action menu).
+test('mergeEntries follows client order when the client reorders two existing items', () => {
+  const server = [_item('a'), _item('b'), _item('c')];
+  const client = [_item('c'), _item('a'), _item('b')]; // c moved to the front
+  const { merged } = mergeEntries(server, client, [], []);
+  assert.deepEqual(merged.map(i => i.uuid), ['c', 'a', 'b']);
+});
+
+test('mergeEntries follows client order on a plain swap', () => {
+  const server = [{ uuid: 'a' }, { uuid: 'b' }];
+  const client = [{ uuid: 'b' }, { uuid: 'a' }];
+  const { merged } = mergeEntries(server, client, [], []);
+  assert.deepEqual(merged.map(i => i.uuid), ['b', 'a']);
+});
+
+test('mergeEntries: a content-only update (e.g. reassigning meal) keeps its new position', () => {
+  const server = [_item('a', { meal: 0 }), _item('b', { meal: 0 }), _item('c', { meal: 1 })];
+  const client = [_item('b', { meal: 0 }), _item('a', { meal: 1 }), _item('c', { meal: 1 })]; // a moved to meal 1
+  const { merged } = mergeEntries(server, client, [], []);
+  assert.deepEqual(merged.map(i => i.uuid), ['b', 'a', 'c']);
+  assert.equal(merged.find(i => i.uuid === 'a').meal, 1);
+});
+
+test('mergeEntries: server-only concurrent addition is appended after client order, not interleaved', () => {
+  const server = [_item('a'), _item('b'), _item('c')]; // 'c' was added by another device
+  const client = [_item('b'), _item('a')]; // this client only knows about a/b, and reordered them
+  const { merged } = mergeEntries(server, client, [], []);
+  assert.deepEqual(merged.map(i => i.uuid), ['b', 'a', 'c']);
+});
