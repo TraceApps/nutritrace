@@ -15,6 +15,20 @@ import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
 import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
+import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
+
+// #199 (@tellis82): the POST /api/foods and POST /api/meals routes
+// localize incoming data URLs to /uploads/ (via image-localizer). This
+// sync-push handler wrote img_url verbatim, so an offline-created food
+// with a camera photo (a data URL under isNative) landed in the img_url
+// column raw. That fed the freshenItemImages 50 MB payload amplifier
+// on the diary side. Same rule as the direct routes: if the caller
+// sent an external URL (http/https or data:), route it through
+// localizeImage; if it's already a local /uploads/ path, keep as-is.
+async function _localizeIfNeeded(url) {
+  if (!url) return null;
+  return isExternalUrl(url) ? await localizeImage(url) : url;
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -161,10 +175,25 @@ router.get('/pull', wrap((req, res) => {
 // Receives batch of changed records from the client.
 // Each record has: client_id, server_id (if previously synced), and the data fields.
 // Returns a mapping of client_id → server_id for newly created records.
-router.post('/push', wrap((req, res) => {
+router.post('/push', wrap(async (req, res) => {
   const u = uid(req);
   const { foods = [], meals = [], diary = [], activity = [], fasts = [], wellness = [], settings = [], workouts = [] } = req.body;
   const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [], workouts: [] };
+
+  // #199 (@tellis82): localize any inbound img_url data URLs to
+  // /uploads/ files before the sync transaction. Direct POST /api/foods
+  // and /api/meals already do this via image-localizer; the sync path
+  // was writing them verbatim, so a native user's camera-photo food
+  // landed in the img_url column as a base64 blob and was then
+  // amplified across every referencing diary row by freshenItemImages.
+  // Runs outside the transaction because localizeImage does file IO
+  // and db.transaction() is sync-only.
+  for (const f of foods) {
+    if (f.img_url) f.img_url = await _localizeIfNeeded(f.img_url);
+  }
+  for (const m of meals) {
+    if (m.img_url) m.img_url = await _localizeIfNeeded(m.img_url);
+  }
 
   // Normalize timestamp for comparison (strip T, Z, milliseconds)
   const norm = ts => ts ? ts.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '') : '';
