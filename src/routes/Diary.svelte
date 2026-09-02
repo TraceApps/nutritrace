@@ -1671,7 +1671,7 @@
 
 <div class="page-shell diary-page">
   <!-- Action icons — fixed at top-right, same level as hamburger -->
-  <div use:portal class="diary-topbar-actions">
+  <div use:portal class="diary-topbar-actions" class:select-mode-actions={selectMode}>
     {#if selectMode}
       <button class="btn-icon" on:click={exitSelectMode} aria-label={$_('diary.actions.cancel_selection')} title={$_('diary.actions.cancel_selection')}>
         <span class="material-symbols-rounded">close</span>
@@ -3292,7 +3292,12 @@
        measurements, nutrient detail, activity impact). Hide both
        mobile-only surfaces at ≥1280px to eliminate the redundancy
        that Phases 2 and 3 deliberately kept for safety. */
-    :global(html:not(.force-mobile-layout) .diary-topbar-actions) { display: none; }
+    /* #198: keep the topbar-actions visible in select mode at wide
+       screens too. The rail carries feature-parity for the NORMAL-mode
+       buttons (water / summary / body stats), but has no select-mode
+       UI, so hiding everything hides the multi-select cancel + delete
+       buttons and traps users with no way to act on their selection. */
+    :global(html:not(.force-mobile-layout) .diary-topbar-actions:not(.select-mode-actions)) { display: none; }
     :global(html:not(.force-mobile-layout) .diary-bottom-bar) { display: none; }
     /* Notes mutual-exclusion: when the rail widget is showing Notes,
        hide the bottom card so it doesn't render twice. If the user
