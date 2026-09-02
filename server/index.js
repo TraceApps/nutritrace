@@ -408,6 +408,14 @@ app.listen(PORT, async () => {
     logger.warn(`[scheduler] failed to start: ${e.message}`);
   });
 
+  // #199 one-shot: localize any data-URL img_urls in foods/meals to
+  // /uploads/ files so the diary hydrator stops amplifying them.
+  // Guarded by app_config flag; idempotent; fire-and-forget so it
+  // doesn't delay accepting traffic.
+  import('./lib/img-url-migration.js').then(({ migrateDataUrlImages }) => migrateDataUrlImages()).catch(e => {
+    logger.warn(`[img-url-migration] failed to start: ${e.message}`);
+  });
+
   // Local OFF mirror: kick initial download if file is missing, then start
   // the periodic refresh tick. Both no-op when OFF_LOCAL_DB is unset.
   import('./lib/off-local.js').then(({ primeFromStartup }) => primeFromStartup()).catch(e => {
