@@ -55,6 +55,7 @@ export const USER_PREFS = new Set([
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'wellnessEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
+  'mirrorWellnessWeight',
   'lifttraceOverlapFill',
   'wellnessSyncRange',
   'fitbitSyncMode','fitbitSyncInterval','fitbitSyncWindowStart','fitbitSyncWindowEnd',
@@ -767,6 +768,13 @@ export const googleHealthEnabled = createSettingStore('googleHealthEnabled', fal
 export const healthConnectEnabled = createSettingStore('healthConnectEnabled', false);
 export const wellnessMetrics    = createSettingStore('wellnessMetrics',    null); // null = all visible
 export const workoutsEnabled   = createSettingStore('workoutsEnabled',   false); // show workout history + GPS maps in Movement tab
+// #200: opt-in mirror from Wellness → Body Stats. When true, any weight
+// reading that lands in wellness_data (Fitbit / Withings / Health Connect
+// / API v1 body-measurements) also populates that day's diary
+// body_stats.weight IF empty. Manual Body Stats entries always win.
+// Off by default so the historical two-store split stays intact unless
+// the user asks for the merge.
+export const mirrorWellnessWeight = createSettingStore('mirrorWellnessWeight', false);
 // Federation: when ON, a LiftTrace-imported workout for a given date is
 // counted toward TDEE only if no wearable (Fitbit / Garmin / Google Health /
 // Health Connect) has a daily calories_burned row for the same date.

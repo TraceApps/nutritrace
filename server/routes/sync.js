@@ -16,6 +16,7 @@ import { logger } from '../logger.js';
 import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
+import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
 
 // #199 (@tellis82): the POST /api/foods and POST /api/meals routes
 // localize incoming data URLs to /uploads/ (via image-localizer). This
@@ -457,6 +458,15 @@ router.post('/push', wrap(async (req, res) => {
         w.value == null ? null : Number(w.value),
         typeof w.metadata === 'string' ? w.metadata : JSON.stringify(w.metadata || {}));
       result.wellness.push({ date: w.date, source: w.source, metric_type: w.metric_type });
+      // #200: mirror weight readings into diary body_stats when the
+      // per-user toggle is on. Pass the resolved diary uid (u), not the
+      // wellness sentinel (wellnessUid=0 for anonymous) — the mirror
+      // helper is a no-op for single-user mode anyway, but keeping the
+      // two identifiers separate here matches the diary route's own
+      // "IS NULL vs = uid" convention.
+      if (w.metric_type === 'weight_kg' && w.value != null) {
+        mirrorWeightToBodyStats(u, w.date, Number(w.value));
+      }
     }
 
     // ── Workouts (client-authored, e.g. Health Connect ExerciseSession) ──
