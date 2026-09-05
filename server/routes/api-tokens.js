@@ -6,8 +6,13 @@
  * Settings UI to manage tokens, not for federation clients to use
  * tokens.
  *
- * Restricted to admins; non-admins get 403. (Single-user mode counts
- * as admin via the synthetic LOCAL_USER.)
+ * Restricted to admins; non-admins get 403. requireAuth/requireAdmin
+ * both pass single-user-mode requests through unconditionally (there's
+ * no meaningful non-admin in that mode) — but single-user mode has
+ * zero rows in `users`, so req.user is null there, not a synthetic
+ * "LOCAL_USER". A token needs a real owner (api_tokens.user_id is NOT
+ * NULL), so the guard below refuses cleanly instead of crashing on
+ * req.user.id when this is hit without a real signed-in admin.
  */
 import { Router } from 'express';
 import { wrap } from '../logger.js';
@@ -16,6 +21,15 @@ import { createToken, listTokens, revokeToken, KNOWN_SCOPES, SCOPE_DESCRIPTIONS 
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
+
+router.use((req, res, next) => {
+  if (!req.user) {
+    return res.status(400).json({
+      error: 'API tokens require a signed-in account. Enable user management and sign in as an admin first.',
+    });
+  }
+  next();
+});
 
 function _envFlag(v) {
   if (v === undefined || v === null) return false;
