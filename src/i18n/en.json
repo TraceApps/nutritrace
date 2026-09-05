@@ -256,6 +256,7 @@
     "server":             { "section": "Server Connection" },
     "diagnostics":        { "section": "Diagnostics" },
     "updates":            { "section": "Updates" },
+    "api_tokens":         { "section": "API Tokens" },
     "about":              { "section": "About" }
   },
   "updates": {

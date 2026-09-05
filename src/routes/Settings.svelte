@@ -178,7 +178,7 @@
     users:             { titleKey: 'settings.users.section',             icon: 'group' },
     authentication:    { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
     email:             { titleKey: 'settings.email.section',             icon: 'mail' },
-    apiTokens:         { titleKey: null,                                 icon: 'key' },
+    apiTokens:         { titleKey: 'settings.api_tokens.section',        icon: 'key' },
     about:             { titleKey: 'settings.about.section',             icon: 'info' },
     profile:           { titleKey: 'profile.title',                      icon: 'person' },
   };
@@ -562,7 +562,7 @@
     {#if $currentUser?.role === 'admin'}
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
         <span class="material-symbols-rounded si">key</span>
-        <span>API Tokens</span>
+        <span>{$_('settings.api_tokens.section')}</span>
         <span class="material-symbols-rounded chevron">expand_more</span>
       </button>
     {/if}
