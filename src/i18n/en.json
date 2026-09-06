@@ -1708,6 +1708,8 @@
       "export_json_desc":            "Lighter portable format, JSON only, no images. Useful for sharing data between accounts or quick text-based exports.",
       "export_diary_csv":            "Export Diary As CSV",
       "export_diary_csv_desc":       "Downloads your full diary history as a spreadsheet. Useful for analysis in Excel or Google Sheets.",
+      "export_full_nutrition_csv":      "Export Full Nutrition As CSV",
+      "export_full_nutrition_csv_desc": "Long-form export with per-item time, meal name, brand, and every built-in and custom nutrient (with units). Best for personal databases and long-term analytics.",
       "export_activity_csv":         "Export Activity As CSV",
       "export_activity_csv_desc":    "Downloads your full manual activity log (name, calories, duration, distance, MET) as a spreadsheet."
     }

@@ -14,10 +14,10 @@
   import { showSuccess, showError } from '../../stores/toast.js';
   import { DB } from '../../lib/db.js';
   import { NtApi } from '../../lib/api.js';
-  import { Nutrition } from '../../lib/nutrition.js';
+  import { Nutrition, NUTRIMENTS } from '../../lib/nutrition.js';
   import { isNative, getServerUrl } from '../../lib/platform.js';
   import { get } from 'svelte/store';
-  import { foodCategories, catName as _catName, bulkSet } from '../../stores/settings.js';
+  import { foodCategories, catName as _catName, bulkSet, customNutriments, mealNames } from '../../stores/settings.js';
 
   const isNativeLocal = isNative && !getServerUrl();
 
@@ -222,6 +222,64 @@
     } catch(e) { showError($_('settings_import_export.toast.export_failed_prefix', { values: { error: e.message } })); }
   }
 
+  // ── Full Nutrition CSV Export (#202) ────────────────────────────────────────
+  // Long-form export intended for spreadsheets, personal databases, and
+  // long-term analytics workflows (Cronometer refugees, TBCA users, etc).
+  // One row per diary item. Columns:
+  //   Date, Time, Meal, Food, Brand, Amount, Unit,
+  //   <every built-in NUTRIMENT with unit in header>,
+  //   <every user-defined custom nutrient with unit in header>.
+  // Empty cells for absent nutrients so the target tool distinguishes
+  // "unknown" from "zero" (reporter's spec, matches Cronometer's convention).
+  // Time is ISO 8601 from item.addedAt when present, else empty; date is
+  // the diary day. Meal renders the user's configured meal name (not the
+  // raw 0..3 index) so the export is human-readable at a glance.
+  async function exportFullNutritionCSV() {
+    try {
+      const diary = await NtApi.getAllDiary();
+      const customs = get(customNutriments) || [];
+      const meals   = get(mealNames) || ['Breakfast','Lunch','Dinner','Snacks'];
+      const nutCols = [
+        ...NUTRIMENTS.map(n => ({ id: n.id, header: `${n.label} (${n.unit})` })),
+        ...customs.map(n => ({ id: n.id, header: `${n.label} (${n.unit || ''})`.replace(/ \(\)$/, '') })),
+      ];
+      const header = [
+        'Date', 'Time', 'Meal', 'Food', 'Brand', 'Amount', 'Unit',
+        ...nutCols.map(c => c.header),
+      ].map(_csvEscape).join(',');
+      const lines = [header];
+      diary.forEach(day => {
+        (day.items || []).forEach(item => {
+          const n = Nutrition.calculate(item);
+          const mealIdx = Number(item.meal) || 0;
+          const mealName = meals[mealIdx] ?? `Meal ${mealIdx + 1}`;
+          const time = item.addedAt || '';
+          const row = [
+            _csvEscape(day.date),
+            _csvEscape(time),
+            _csvEscape(mealName),
+            _csvEscape(item.name || ''),
+            _csvEscape(item.brand || ''),
+            item.portion ?? 100,
+            _csvEscape(item.unit || 'g'),
+            ...nutCols.map(c => {
+              const v = n[c.id];
+              // Empty rather than zero when the value is absent, so the
+              // consumer tool can tell "not measured" from "actually zero".
+              if (v == null || v === '' || Number.isNaN(Number(v))) return '';
+              return Number(v).toFixed(2).replace(/\.?0+$/, '');
+            }),
+          ];
+          lines.push(row.join(','));
+        });
+      });
+      const csv = lines.join('\n') + '\n';
+      const blob = new Blob([csv], { type: 'text/csv' });
+      _downloadBlob(blob, `nutritrace-diary-full-${new Date().toISOString().slice(0,10)}.csv`);
+      showSuccess($_('settings_import_export.toast.csv_exported'));
+    } catch(e) { showError($_('settings_import_export.toast.export_failed_prefix', { values: { error: e.message } })); }
+  }
+
   // ── Activity CSV Export (#77) ───────────────────────────────────────────────
   // Separate from the diary export because rows have a different shape
   // (no meal / no portion / MET column). Same all-history range as diary.
@@ -295,6 +353,15 @@
       <div>
         <span class="setting-label">{$_('settings_import_export.actions.export_diary_csv')}</span>
         <div class="setting-desc">{$_('settings_import_export.actions.export_diary_csv_desc')}</div>
+      </div>
+      <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
+    </button>
+    <div class="setting-divider"></div>
+    <button class="setting-row setting-action" on:click={exportFullNutritionCSV}>
+      <span class="material-symbols-rounded si" style="color:var(--info)">assessment</span>
+      <div>
+        <span class="setting-label">{$_('settings_import_export.actions.export_full_nutrition_csv')}</span>
+        <div class="setting-desc">{$_('settings_import_export.actions.export_full_nutrition_csv_desc')}</div>
       </div>
       <span class="material-symbols-rounded text-3" style="font-size:18px;flex-shrink:0">chevron_right</span>
     </button>
