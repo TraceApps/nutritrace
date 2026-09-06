@@ -837,9 +837,12 @@ NT#88 has zero comments as of 2026-07-09 so demand signal is weak.
 
 ### Companion: symmetric NT → CT federation
 
-Right now CT → NT works (recipe → NT food lookup); NT → CT doesn't.
-Not what NT#88 was asking for but the natural next step once
-federation-auth is easy:
+CT → NT federation is now bi-directional: CT can pull NT foods into
+its pantry (long-standing) AND push completed recipes into NT's meals
+catalog (added via the `write:recipes` scope + `POST /api/v1/recipes`
+endpoint; see [Federation API](https://traceapps.github.io/docs/nutritrace/federation-api/#post-apiv1recipes)).
+NT → CT (pull from CT) still doesn't exist. Not what NT#88 was asking
+for but the natural next step once federation-auth is easy:
 
 - CT exposes `/api/v1/recipes` + `/api/v1/log-cooked` mirroring NT's
   federation surface

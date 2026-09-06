@@ -856,6 +856,38 @@
       <input class="input" placeholder={isRecipe ? $_('meal_editor.recipe_name_placeholder') : $_('meal_editor.meal_name_placeholder')} bind:value={meal.name} />
     </div>
 
+    <!-- Federation-source badge + import-warnings banner (CT push, and
+         any future cross-app source). Only renders on rows that came
+         in via a source_app; regular in-NT-authored meals see nothing. -->
+    {#if meal.source_app}
+      <div class="card editor-card ct-source-card">
+        <div class="ct-source-row">
+          <span class="material-symbols-rounded ct-source-icon">restaurant_menu</span>
+          <div class="ct-source-text">
+            <span class="ct-source-label">
+              {meal.source_app === 'cooktrace' ? 'From CookTrace' : `From ${meal.source_app}`}
+            </span>
+            {#if meal.source_url}
+              <a class="ct-source-link" href={meal.source_url} target="_blank" rel="noopener noreferrer">
+                Open original
+                <span class="material-symbols-rounded">open_in_new</span>
+              </a>
+            {/if}
+          </div>
+        </div>
+        {#if Array.isArray(meal.import_warnings) && meal.import_warnings.length > 0}
+          <div class="ct-source-warn">
+            <span class="material-symbols-rounded ct-source-warn-icon">warning</span>
+            <div>
+              {#each meal.import_warnings as w}
+                <p class="ct-source-warn-line">{w}</p>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- Recipe servings: total weight + yields -->
     {#if isRecipe}
       <div class="card editor-card">
@@ -1309,6 +1341,30 @@
   }
   .draft-restored-discard:hover { background: var(--accent, #3b82f6); color: #fff; }
   .editor-card-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+
+  /* Federation source badge + import-warnings banner. Shown only on
+     rows carrying a source_app (currently just CookTrace pushes). */
+  .ct-source-card { gap: 10px; }
+  .ct-source-row { display: flex; align-items: center; gap: 10px; }
+  .ct-source-icon { color: var(--accent); font-size: 22px; }
+  .ct-source-text { display: flex; flex-direction: column; flex: 1; }
+  .ct-source-label { font-weight: 600; font-size: 14px; }
+  .ct-source-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; color: var(--text-3); text-decoration: none;
+    margin-top: 2px; width: fit-content;
+  }
+  .ct-source-link:hover { color: var(--accent); }
+  .ct-source-link .material-symbols-rounded { font-size: 13px; }
+  .ct-source-warn {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 10px 12px; border-radius: 8px;
+    background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent);
+    font-size: 13px;
+  }
+  .ct-source-warn-icon { color: var(--warning, #f59e0b); flex-shrink: 0; font-size: 18px; }
+  .ct-source-warn-line { margin: 0; }
+  .ct-source-warn-line + .ct-source-warn-line { margin-top: 4px; }
 
   /* Photo */
   .photo-preview-wrap {

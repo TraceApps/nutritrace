@@ -457,6 +457,44 @@ if (!columnExists('meals', 'source_id')) {
   db.exec(`ALTER TABLE meals ADD COLUMN source_id INTEGER`);
 }
 
+// ── Cross-app federation source metadata (CT recipes into NT, and any
+//    future cross-app importers). source_id above is an INTEGER used by
+//    the "copy from group" flow and is not usable as a text external id.
+//    These columns give us a proper federation identity per meal plus a
+//    UI-visible warning list for imports where some ingredients arrived
+//    without nutrition data.
+//      source_app: 'cooktrace', 'lifttrace-recipe', etc.
+//                  null means created inside NT, unaffected.
+//      source_external_id: the source app's row id (string, so callers
+//                          can namespace freely without a schema change).
+//      source_url: deep link back to the source (recipe page, etc).
+//                  Rendered as a small link on the row.
+//      import_warnings: nullable JSON array of strings. CT's rollup
+//                       emits one warning per ingredient it couldn't
+//                       sum (missing nutrition, unit mismatch, etc);
+//                       those get shown on the NT recipe row so the
+//                       user knows the total is a lower bound.
+if (!columnExists('meals', 'source_app')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN source_app TEXT`);
+}
+if (!columnExists('meals', 'source_external_id')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN source_external_id TEXT`);
+}
+if (!columnExists('meals', 'source_url')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN source_url TEXT`);
+}
+if (!columnExists('meals', 'import_warnings')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN import_warnings TEXT`);
+}
+// Partial index so an external push can upsert by (user, source, ext_id)
+// without a scan. WHERE clause keeps rows with no federation metadata
+// out of the index entirely so it stays tiny.
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_meals_source_ext
+    ON meals(user_id, source_app, source_external_id)
+    WHERE source_app IS NOT NULL AND source_external_id IS NOT NULL
+`);
+
 // ── Sync migrations (Phase 2) ──────────────────────────────────────────────
 // Add updated_at to tables that lack it (needed for differential sync)
 if (!columnExists('foods', 'updated_at')) {

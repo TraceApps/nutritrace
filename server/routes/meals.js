@@ -214,11 +214,19 @@ router.post('/:id/copy', wrap((req, res) => {
 }));
 
 function parse(row) {
+  // #200-federation: import_warnings is a JSON string on disk (see the
+  // /api/v1/recipes upsert), array on the wire. Parse defensively so a
+  // malformed value doesn't 500 the whole meals GET.
+  let warnings;
+  if (row.import_warnings) {
+    try { warnings = JSON.parse(row.import_warnings); } catch { warnings = null; }
+  }
   return {
     ...row,
     nutrition: JSON.parse(row.nutrition || '{}'),
     items: JSON.parse(row.items || '[]'),
     is_recipe: row.is_recipe === 1,
+    import_warnings: Array.isArray(warnings) ? warnings : undefined,
     _specific_users: row._specific_users || undefined,
   };
 }
