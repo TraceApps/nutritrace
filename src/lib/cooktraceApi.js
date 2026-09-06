@@ -127,8 +127,11 @@ const CookTrace = {
     const items = Array.isArray(recipe.items) ? recipe.items.map(it => ({
       name: String(it?.name || '').slice(0, 200),
       brand: it?.brand ? String(it.brand).slice(0, 120) : '',
-      portion: Number.isFinite(Number(it?.portion)) ? Number(it.portion) : 100,
-      unit: String(it?.unit || 'g').slice(0, 16),
+      // Preserve CT's exact unit (empty string when the ingredient has
+      // no unit, e.g. "4 egg yolks"). Do NOT default to 'g' or NT will
+      // render "4 g" for countable ingredients.
+      portion: Number.isFinite(Number(it?.portion)) ? Number(it.portion) : 1,
+      unit: it?.unit != null ? String(it.unit).slice(0, 16) : '',
       quantity: Number.isFinite(Number(it?.quantity)) ? Number(it.quantity) : 1,
       nutrition: (it?.nutrition && typeof it.nutrition === 'object') ? Nutrition.deriveSodiumSalt(it.nutrition) : {},
       ...(it?.barcode ? { barcode: String(it.barcode) } : {}),
