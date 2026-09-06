@@ -135,12 +135,23 @@ function _getOffSearchLanguage() {
 //   3. Nutri-Score present (means enough data to compute one)
 // Missing fields degrade to 0 so entries without signals sink but aren't
 // hidden.
-function _rankOFFResults(items) {
+// #192 (@systems-monitor): photos-first is a defensible signal on the
+// public OFF dataset (photographed products skew toward verified real
+// items) but works against self-hosters running a local mirror
+// (OFF_LOCAL_DB) whose curated entries are typically imageless. The
+// image tier silently buried their catalog under any photographed
+// public product. Auto-adapt per response envelope: mirror hits
+// (data.hits) drop the image tier and let completeness / nutriscore
+// order the page; public OFF hits (data.products) keep the existing
+// photos-first behavior. Zero settings surface, no user action needed.
+function _rankOFFResults(items, { fromMirror = false } = {}) {
   if (!Array.isArray(items) || items.length < 2) return items;
   return items.slice().sort((a, b) => {
-    const aImg = a.imgUrl ? 1 : 0;
-    const bImg = b.imgUrl ? 1 : 0;
-    if (aImg !== bImg) return bImg - aImg;
+    if (!fromMirror) {
+      const aImg = a.imgUrl ? 1 : 0;
+      const bImg = b.imgUrl ? 1 : 0;
+      if (aImg !== bImg) return bImg - aImg;
+    }
     const aComp = a.completeness ?? 0;
     const bComp = b.completeness ?? 0;
     if (aComp !== bComp) return bComp - aComp;
@@ -252,8 +263,12 @@ const API = {
       // API fall-through when the mirror is off or misses). v1.1.0 shipped
       // reading `hits` only, which silently returned empty for the majority
       // of self-hosters who don't run the mirror. #133 (@JacosVerksted).
+      // #192: local OFF mirror populates `data.hits`; public OFF v2
+      // populates `data.products`. Feed the source hint into the
+      // ranker so mirror pages don't get the photos-first tier.
+      const fromMirror = Array.isArray(data.hits);
       const items = (data.hits || data.products || []).map(p => this._mapOFFProduct(p)).filter(Boolean);
-      return _rankOFFResults(items);
+      return _rankOFFResults(items, { fromMirror });
     } catch(e) {
       console.error('Search failed:', e);
       return [];
@@ -277,10 +292,12 @@ const API = {
       // API fall-through when the mirror is off or misses). v1.1.0 shipped
       // reading `hits` only, which silently returned empty for the majority
       // of self-hosters who don't run the mirror. #133 (@JacosVerksted).
+      // #192: same source hint as searchByName. See _rankOFFResults comment.
+      const fromMirror = Array.isArray(data.hits);
       const items = (data.hits || data.products || []).map(p => this._mapOFFProduct(p)).filter(Boolean);
       const totalHits = typeof data.count === 'number' ? data.count : items.length;
       const hasMore = page * pageSize < totalHits;
-      return { items: _rankOFFResults(items), totalHits, page, hasMore };
+      return { items: _rankOFFResults(items, { fromMirror }), totalHits, page, hasMore };
     } catch(e) {
       console.error('Search failed:', e);
       return { items: [], totalHits: 0, page, hasMore: false };
