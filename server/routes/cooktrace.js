@@ -38,60 +38,74 @@ function _getStoredBase(userId) {
  * POST /api/cooktrace/proxy
  * Body: { baseUrl, token, path, method? }
  */
-router.post('/proxy', wrap(async (req, res) => {
-  const { baseUrl, token, path, method } = req.body || {};
-  if (!baseUrl || !token || !path) {
-    return res.status(400).json({ error: 'baseUrl, token and path required' });
-  }
-
-  const requestedBase = _normalizeUrl(baseUrl);
-  if (userMgmtActive()) {
-    const allowedBase = _getStoredBase(req.user?.id);
-    if (!allowedBase) {
-      return res.status(400).json({ error: 'No CookTrace URL configured. Set it in Settings > Connected Services first.' });
-    }
-    if (allowedBase !== requestedBase) {
-      return res.status(403).json({ error: 'CookTrace URL must match the one saved in Settings.' });
-    }
-  }
-
-  const url = requestedBase + path;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-
+router.post('/proxy', async (req, res) => {
+  const rid = Math.random().toString(36).slice(2, 8);
   try {
-    const response = await fetch(url, {
-      method: (method || 'GET').toUpperCase(),
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-      },
-      signal: controller.signal,
-    });
+    logger.info(`[cooktrace-proxy ${rid}] start user=${req.user?.id ?? 'null'} path=${req.body?.path}`);
+    const { baseUrl, token, path, method } = req.body || {};
+    if (!baseUrl || !token || !path) {
+      return res.status(400).json({ error: 'baseUrl, token and path required' });
+    }
+
+    const requestedBase = _normalizeUrl(baseUrl);
+    if (userMgmtActive()) {
+      const allowedBase = _getStoredBase(req.user?.id);
+      if (!allowedBase) {
+        logger.warn(`[cooktrace-proxy ${rid}] no cooktraceBaseUrl saved for user ${req.user?.id}`);
+        return res.status(400).json({ error: 'No CookTrace URL configured. Set it in Settings > Connected Services first.' });
+      }
+      if (allowedBase !== requestedBase) {
+        logger.warn(`[cooktrace-proxy ${rid}] baseUrl mismatch saved=${allowedBase} requested=${requestedBase}`);
+        return res.status(403).json({ error: 'CookTrace URL must match the one saved in Settings.' });
+      }
+    }
+
+    const url = requestedBase + path;
+    logger.info(`[cooktrace-proxy ${rid}] fetching ${url}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+
+    let response;
+    try {
+      response = await fetch(url, {
+        method: (method || 'GET').toUpperCase(),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      clearTimeout(timer);
+      logger.warn(`[cooktrace-proxy ${rid}] fetch failed: ${fetchErr.message}`);
+      return res.status(503).json({ error: `Fetch failed: ${fetchErr.message}` });
+    }
     clearTimeout(timer);
 
+    logger.info(`[cooktrace-proxy ${rid}] response status=${response.status} ct=${response.headers.get('content-type')}`);
+
+    const rawText = await response.text().catch(() => '');
     if (!response.ok) {
-      let detail = '';
-      try { detail = (await response.text()).slice(0, 400); } catch { /* body unreadable, use status only */ }
+      logger.warn(`[cooktrace-proxy ${rid}] upstream ${response.status}: ${rawText.slice(0, 200)}`);
       return res.status(response.status).json({
         error: `CookTrace returned ${response.status}`,
-        detail: detail || undefined,
+        detail: rawText.slice(0, 400) || undefined,
       });
     }
 
     let body;
     try {
-      body = await response.json();
-    } catch (e) {
-      logger.warn(`[cooktrace-proxy] non-JSON response from ${url}: ${e.message}`);
-      return res.status(502).json({ error: 'CookTrace returned non-JSON response' });
+      body = JSON.parse(rawText);
+    } catch (parseErr) {
+      logger.warn(`[cooktrace-proxy ${rid}] non-JSON body: ${parseErr.message} first120=${rawText.slice(0, 120)}`);
+      return res.status(502).json({ error: 'CookTrace returned non-JSON response', detail: rawText.slice(0, 200) });
     }
-    res.json(body);
+    logger.info(`[cooktrace-proxy ${rid}] ok, body keys=${Object.keys(body || {}).join(',')}`);
+    return res.json(body);
   } catch (e) {
-    clearTimeout(timer);
-    logger.warn(`[cooktrace-proxy] fetch to ${url} failed: ${e.message}`);
-    res.status(503).json({ error: e.message || 'CookTrace fetch failed' });
+    logger.error(`[cooktrace-proxy ${rid}] unhandled ${e?.stack || e?.message || e}`);
+    return res.status(500).json({ error: `Proxy crashed: ${e?.message || e}` });
   }
-}));
+});
 
 export default router;
