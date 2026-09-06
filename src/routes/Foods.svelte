@@ -2130,7 +2130,7 @@
         {/if}
       {/if}
 
-    {:else if searchSource === 'local' || searchSource === 'shared' || activeTab !== 0}
+    {:else if searchSource === 'local' || searchSource === 'shared' || (activeTab !== 0 && searchSource !== 'cooktrace')}
       <!-- ── Local list ─────────────────────────────────────────────────────── -->
       {#if _initialLoading && filteredList.length === 0 && !loadError}
         <!-- #178 — hold the empty state while the initial fetch is in
