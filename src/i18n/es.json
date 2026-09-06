@@ -225,7 +225,92 @@
       "session_90d": "90 días",
       "session_1y": "1 año",
       "save": "Guardar",
-      "email_optional": "Email (Opcional)"
+      "email_optional": "Email (Opcional)",
+      "add_user_hide": "Ocultar carga manual",
+      "add_user_explainer": "Define el nombre de usuario y la contraseña para compartirlos directamente con el usuario. Útil cuando no hay un servidor SMTP configurado o en entornos offline.",
+      "create_directly": "Crear usuario",
+      "session_duration": "Duración de sesion",
+      "session_never": "Nunca expira",
+      "session_8h": "8 horas",
+      "session_1d": "1 dia",
+      "session_7d": "7 dias",
+      "session_30d": "30 dias",
+      "disable_um": "Desactivar gestión de usuarios",
+      "disable_um_subtitle": "Elimina todas las cuentas de usuario y vuelve al modo de usuario único",
+      "disable_um_title": "¿Desactivar gestión de usuarios?",
+      "disable_um_message": "Esto eliminará todas las cuentas de usuario y sus datos no se podrán recuperar. La aplicación volverá al modo de usuario único.",
+      "toast_invite_sent": "Invitación enviada",
+      "toast_link_copied": "Copiado!",
+      "err_username_required": "Nombre de usuario es requerido",
+      "err_passwords_mismatch": "Las contraseñas no coinciden",
+      "err_username_password_required": "Se requiere usuario y contraseña",
+      "err_registration_failed": "Registracion fallida",
+      "err_failed_to_add": "No se pudo agregar el usuario",
+      "err_could_not_change_role": "No se pudo cambiar el rol",
+      "err_could_not_reset_password": "No se pudo restablecer la contraseña",
+      "err_could_not_reach_server": "No se pudo conectar con el servidor",
+      "revoke_invite_title": "¿Revocar invitación?",
+      "revoke_invite_message": "El enlace dejará de funcionar inmediatamente. El destinatario no podrá usarlo después de esto.",
+      "revoke_confirm": "Revocar",
+      "invite_revoked": "Invitación revocada",
+      "err_could_not_revoke": "No se puede revocar la invitación",
+      "invite_email_hint": "Ingresa un correo electrónico válido o deja el campo en blanco para generar un enlace para compartir.",
+      "disable_um_confirm": "Desactivar y eliminar todo",
+      "enable_um": "Habilitar gestión de usuarios",
+      "enable_um_subtitle": "Agrega múltiples cuentas de usuario con datos y configuraciones independientes",
+      "create_admin_account": "Crear cuenta de administrador",
+      "create_admin_explainer": "La primera cuenta siempre es de administrador. Todos los datos de alimentos, comidas y diario existentes en este servidor se le asignarán a esta.",
+      "enable_create": "Habilitar y crear administrador",
+      "enabling": "Activando…",
+      "toast_user_created": "Usuario agregado",
+      "toast_user_deleted": "Usuario borrado",
+      "toast_password_reset": "Restablecer contraseña",
+      "toast_role_changed": "{name} es ahora {role}",
+      "toast_um_enabled": "Gestión de usuarios activada",
+      "toast_um_disabled": "Gestión de usuarios desactivada",
+      "err_invite_email": "Ingresa un correo válido o vacía el campo para crear un enlace para compartir",
+      "err_failed_create_invite": "No se pudo crear la invitación",
+      "err_could_not_create_invite": "No se pudo crear la invitación",
+      "pending_invites": "Invitaciones pendientes",
+      "link_only": "Solo enlace (sin e-mail)",
+      "role_admin_display": "Administrador",
+      "role_user_display": "Usuario",
+      "expires_short": "expira el {date}",
+      "revoke_invite_aria": "Revocar invitación",
+      "strong_passwords": "Exigir contraseñas seguras",
+      "strong_passwords_desc": "Rechaza contraseñas débiles (puntuación de zxcvbn inferior a 3), además de exigir las reglas estándar de al menos 8 caracteres, mayúsculas y minúsculas, números y símbolos. Afecta a nuevos registros, invitaciones y cambios de contraseña. Las contraseñas existentes no se volverán a comprobar.",
+      "saved_short": "Salvado.",
+      "session_desc": "Tiempo de permanencia de la sesión activa. Aplica a nuevos inicios de sesión.",
+      "err_password_policy_prefix": "No se guardó la política de contraseñas: {msg}. Se requiere un redespliegue del servidor.",
+      "err_password_policy": "No se guardó la política de contraseñas: {msg}",
+      "save_failed_status": "Error al guardar ({status})",
+      "network_error": "Error de red",
+      "hide": "Ocultar",
+      "show": "Mostrar"
+    },
+    "email": {
+      "section": "Email (SMTP)"
+    },
+    "backup": {
+      "section": "Backup y Restaurar"
+    },
+    "importExport": {
+      "section": "Importar y Exportar"
+    },
+    "server": {
+      "section": "Conexión al servidor"
+    },
+    "diagnostics": {
+      "section": "Diagnósticos"
+    },
+    "updates": {
+      "section": "Actualizaciones"
+    },
+    "api_tokens": {
+      "section": "Tokens de API"
+    },
+    "about": {
+      "section": "Acerca de"
     }
   },
   "accept_invite": {
@@ -262,6 +347,65 @@
       "max": "Máximo",
       "min": "Mínimo",
       "average": "Promedio"
+    }
+  },
+  "updates": {
+    "current_version": "Versión actual",
+    "channel": {
+      "label": "Actualizar canal",
+      "stable": "Estable",
+      "dev": "Desarrollo",
+      "help": "La versión Estable sigue los lanzamientos oficiales. Desarrollo es la versión continua; puede contener errores."
+    },
+    "auto_check": "Buscar actualizaciones automáticamente",
+    "auto_check_desc": "Comprobar nuevas versiones en segundo plano.",
+    "interval": {
+      "label": "Comprobar frecuencia",
+      "desc": "Determina con qué frecuencia la aplicación busca nuevas versiones cuando está abierta. La opción «Manual» desactiva todas las comprobaciones automáticas.",
+      "hourly": "Cada hora",
+      "every_4h": "Cada 4 horas",
+      "every_12h": "Cada 12 horas",
+      "daily": "Una vez al dia",
+      "manual": "Manual"
+    },
+    "last_checked": "Última comprobación",
+    "last_checked_never": "Nunca",
+    "check_now": "Comprobar ahora",
+    "checking": "Comprobando…",
+    "check_failed": "Error al buscar actualizaciones. Intenta de nuevo en unos momentos.",
+    "up_to_date": "La aplicación está actualizada",
+    "available_headline": "La versión {version} está disponible",
+    "released": "Publicado el {when}",
+    "release_notes_heading": "Novedades",
+    "no_release_notes": "No hay notas de cambios disponibles para esta versión.",
+    "view_on_github": "Ver en GitHub",
+    "download_install": "Descargar e instalar",
+    "downloading": "Descargando… {percent}%",
+    "install_starting": "Abriendo instalador…",
+    "install_failed": "No se pudo instalar. Vuelve a intentarlo.",
+    "skip_this_version": "Omitir esta versión",
+    "no_apk_asset": "Esta versión no tiene un archivo APK adjunto.",
+    "banner_cta": "Toca para ver novedades e instalar.",
+    "banner_view": "Ver",
+    "available_generic": "Hay una nueva versión disponible",
+    "banner_reload": "Recargar",
+    "storage": {
+      "heading": "APK de actualizaciones en caché",
+      "empty": "Sin APK en caché. La limpieza se completó con éxito.",
+      "clear_now": "Limpiar ahora",
+      "clearing": "Limpiando…",
+      "cleared": "Cache limpiado."
+    },
+    "server": {
+      "heading": "Servidor",
+      "headline": "Actualización de servidor {latest} disponible",
+      "behind_desc": "Actualización disponible: {latest}",
+      "current_desc": "La aplicación está actualizada",
+      "versions": "Servidor en versión {current}. Último lanzamiento: {latest}.",
+      "available_chip": "Actualización disponible",
+      "instructions": "Para actualizar el servidor, ejecutá en la máquina host:",
+      "copy_command": "Copiar comando",
+      "copied": "Copiado al portapapeles."
     }
   }
 }
