@@ -13,7 +13,7 @@
  * posture as the Mealie proxy).
  */
 import { Router } from 'express';
-import { wrap } from '../logger.js';
+import { wrap, logger } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import db from '../db.js';
 
@@ -37,7 +37,6 @@ function _getStoredBase(userId) {
 /**
  * POST /api/cooktrace/proxy
  * Body: { baseUrl, token, path, method? }
- * method defaults to GET; only GET is used today (read-only pull from CT).
  */
 router.post('/proxy', wrap(async (req, res) => {
   const { baseUrl, token, path, method } = req.body || {};
@@ -70,21 +69,28 @@ router.post('/proxy', wrap(async (req, res) => {
       signal: controller.signal,
     });
     clearTimeout(timer);
-    const ct = response.headers.get('content-type') || '';
-    const bodyText = await response.text();
+
     if (!response.ok) {
+      let detail = '';
+      try { detail = (await response.text()).slice(0, 400); } catch { /* body unreadable, use status only */ }
       return res.status(response.status).json({
         error: `CookTrace returned ${response.status}`,
-        detail: bodyText && bodyText.length < 400 ? bodyText : undefined,
+        detail: detail || undefined,
       });
     }
-    if (ct.includes('application/json')) {
-      try { return res.json(JSON.parse(bodyText)); } catch { /* fall through */ }
+
+    let body;
+    try {
+      body = await response.json();
+    } catch (e) {
+      logger.warn(`[cooktrace-proxy] non-JSON response from ${url}: ${e.message}`);
+      return res.status(502).json({ error: 'CookTrace returned non-JSON response' });
     }
-    res.type(ct || 'text/plain').send(bodyText);
+    res.json(body);
   } catch (e) {
     clearTimeout(timer);
-    res.status(503).json({ error: e.message });
+    logger.warn(`[cooktrace-proxy] fetch to ${url} failed: ${e.message}`);
+    res.status(503).json({ error: e.message || 'CookTrace fetch failed' });
   }
 }));
 
