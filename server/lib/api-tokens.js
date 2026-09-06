@@ -32,7 +32,6 @@ export const SCOPE_DESCRIPTIONS = {
   'read:foods':      "Read the token owner's foods library. Used by CookTrace federation.",
   'write:workouts':  "Post workouts into the token owner's wellness history. Used by LiftTrace federation.",
   'write:activity':  "Log manual activity entries into the diary Activity section. Used by external trackers and headless integrations (issue #154).",
-  'write:recipes':   "Push recipes into the token owner's meals catalog. Used by CookTrace to publish a completed recipe (with per-ingredient nutrition and any rollup warnings) as an NT recipe entry, upserted by external id so a re-push updates the same row.",
   'mcp:read':        'MCP: read the diary, goals, daily totals, and foods catalog (5 tools).',
   'mcp:write':       'MCP: log food / water / meals / body stats (4 additive tools). Requires MCP_WRITE_ENABLED=1 on the server.',
   'mcp:destroy':     'MCP: delete or edit diary entries, create catalog foods (3 tools). Requires MCP_DESTROY_ENABLED=1 AND every call to include confirm=true.',
@@ -57,15 +56,6 @@ export const KNOWN_SCOPES = new Set([
   // integrations pushing smart-scale readings straight to the server
   // (BLE → HA → NT), skipping the phone/Health-Connect roundtrip.
   'write:body-measurements',
-  // write:recipes unlocks POST /api/v1/recipes. Used by CookTrace to
-  // push a completed recipe (name, items with per-ingredient nutrition,
-  // rollup totals, serving info, optional import warnings) into the
-  // owner's meals catalog as is_recipe=1. Upserts by
-  // (user_id, source_app, source_external_id) so a re-push after a CT
-  // edit updates the same row rather than duplicating it. The recipe
-  // then shows up in every NT surface that lists recipes: MealEditor
-  // picker, Foods > Recipes tab, and Trace AI's meal search.
-  'write:recipes',
   // mcp:read unlocks the Model Context Protocol read tools (issue #103)
   // exposed under /api/mcp when MCP_ENABLED=1. Read-only in Phase 1;
   // future mcp:write scope will be added alongside the write tools.

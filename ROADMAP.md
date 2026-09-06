@@ -835,25 +835,31 @@ NT#88 has zero comments as of 2026-07-09 so demand signal is weak.
 - Bundles neatly with the opaque-session-token migration above (both
   are auth-layer changes; can share design context).
 
-### Companion: symmetric NT → CT federation
+### Companion: CT ↔ NT recipe federation
 
-CT → NT federation is now bi-directional: CT can pull NT foods into
-its pantry (long-standing) AND push completed recipes into NT's meals
-catalog (added via the `write:recipes` scope + `POST /api/v1/recipes`
-endpoint; see [Federation API](https://traceapps.github.io/docs/nutritrace/federation-api/#post-apiv1recipes)).
-NT → CT (pull from CT) still doesn't exist. Not what NT#88 was asking
-for but the natural next step once federation-auth is easy:
+Recipe federation is bi-directional and pull-only in both directions,
+matching the shape of the long-standing Mealie integration:
 
-- CT exposes `/api/v1/recipes` + `/api/v1/log-cooked` mirroring NT's
-  federation surface
-- NT writes a CookTrace adapter for its Foods search source
-  (`_ctEnabled` gate + `CtApi` in `src/lib/`, matching the existing
-  `_mealieEnabled` + `Mealie` pattern in `Foods.svelte`)
-- ~2 days work on top of Phase 2
+- **CT pulls foods from NT** (long-standing). CT holds an
+  `nt_pat_...` token with `read:foods`, browses NT's foods catalog
+  from its pantry picker, imports selections into its own pantry.
+- **NT pulls recipes from CT** (v1.3.0-dev). CT ships a mirrored
+  `/api/v1/*` bearer-auth surface with a `read:recipes` scope. NT
+  writes a CookTrace adapter (`src/lib/cooktraceApi.js`) + server
+  proxy (`/api/cooktrace/proxy`) parallel to Mealie. A **CookTrace**
+  source chip appears on the Foods screen, Recipes tab; picking a
+  recipe opens NT's Recipe editor pre-filled with per-ingredient
+  snapshots + rollup totals, ready to save into NT's meals catalog.
+  Save stamps `source_app='cooktrace'` on the meals row for the
+  MealEditor "From CookTrace" badge, deep-link back to CT, and
+  upsert-on-re-import (partial unique index on
+  `meals(user_id, source_app, source_external_id)`).
 
-**Assessment**: worth doing Phase 1 as tech-debt cleanup regardless
-of NT#88's demand, the admin-only token creation is a real UX gap
-that will bite the next self-hoster. Phase 2 waits for demand.
+Push flows (CT authored the recipe, wants to fan out to NT / other
+sinks) are intentionally not part of this direction. Pull matches
+how home users actually reach for a recipe (many times per week,
+from the logging surface), where push would push once at authoring
+time and then never sync again. See [CT nt-federation docs](https://traceapps.github.io/docs/cooktrace/nt-federation/).
 
 ---
 

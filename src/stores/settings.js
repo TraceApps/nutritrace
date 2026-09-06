@@ -54,6 +54,7 @@ export const USER_PREFS = new Set([
   'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','aiKeyVerified','quickLogEnabled','aiGoalInsights','smartLogVoiceLang',
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
+  'cooktraceEnabled','cooktraceBaseUrl','cooktraceApiToken',
   'wellnessEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
   'mirrorWellnessWeight',
   'lifttraceOverlapFill',

@@ -173,6 +173,78 @@
     }
   }
 
+  // CookTrace: same shape as Mealie above, but the token is a CT PAT
+  // (ct_pat_...) with the read:recipes scope. The Test button hits
+  // /api/cooktrace/proxy → /api/v1/me on the user's CT instance and
+  // reports the signed-in CT username on success, or a specific
+  // failure reason (missing scope, bad token, unreachable URL).
+  let cooktraceEnabled    = DB.getSetting('cooktraceEnabled',   false);
+  let cooktraceBaseUrl    = DB.getSetting('cooktraceBaseUrl',   '');
+  let cooktraceApiToken   = DB.getSetting('cooktraceApiToken',  '');
+  let cooktraceShowToken  = false;
+  let cooktraceTestStatus = '';
+  let cooktraceSaved      = false;
+  $: cooktraceBannerStatus = (cooktraceTestStatus === 'testing' || cooktraceTestStatus === 'fail')
+    ? cooktraceTestStatus
+    : (cooktraceBaseUrl && cooktraceApiToken ? 'ok' : '');
+
+  async function testCooktraceConnection() {
+    if (!cooktraceBaseUrl || !cooktraceApiToken) {
+      cooktraceTestStatus = 'fail';
+      showError('CookTrace test failed: URL and token both required');
+      return;
+    }
+    cooktraceTestStatus = 'testing';
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (isNative && getServerUrl()) {
+        const token = getAuthToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+      } else if (!isNative) {
+        const csrf = localStorage.getItem('nt:csrf');
+        if (csrf) headers['X-CSRF-Token'] = csrf;
+      }
+      const res = await fetch(apiUrl('/api/cooktrace/proxy'), {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+        body: JSON.stringify({
+          baseUrl: cooktraceBaseUrl,
+          token:   cooktraceApiToken,
+          path:    '/api/v1/me',
+        }),
+      });
+      if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const scopes = Array.isArray(body?.scopes) ? body.scopes : [];
+        if (!scopes.includes('read:recipes')) {
+          cooktraceTestStatus = 'fail';
+          showError('CookTrace token is valid but lacks the read:recipes scope. Mint a new token on CookTrace with that scope ticked.');
+          return;
+        }
+        cooktraceTestStatus = 'ok';
+        showSuccess(body?.user?.username ? `Connected as ${body.user.username}` : 'CookTrace connection verified');
+      } else {
+        cooktraceTestStatus = 'fail';
+        let detail = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) detail = j.error; } catch {}
+        showError(`CookTrace test failed: ${detail}`);
+      }
+    } catch (e) {
+      cooktraceTestStatus = 'fail';
+      showError(`CookTrace test failed: ${e?.message || 'network error'}`);
+    }
+  }
+  function saveCooktrace() {
+    set('cooktraceBaseUrl', cooktraceBaseUrl);
+    set('cooktraceApiToken', cooktraceApiToken);
+    cooktraceSaved = true;
+    setTimeout(() => cooktraceSaved = false, 2000);
+    if (cooktraceBaseUrl && cooktraceApiToken && cooktraceTestStatus !== 'testing') {
+      testCooktraceConnection();
+    }
+  }
+
   // ── OFF Local mirror status ────────────────────────────────────────────
   let offMirrorStatus = null;
   let offMirrorPoll = null;
@@ -503,6 +575,62 @@
             <span class="material-symbols-rounded">{mealieShowToken ? 'visibility_off' : 'visibility'}</span>
           </button>
         </div>
+      </div>
+    {/if}
+  </div>
+
+  <p class="sub-label">{$_('settings_integrations.cooktrace_section')}</p>
+  <div class="card settings-card">
+    {#if cooktraceEnabled}
+      <ConnectionStatus
+        status={cooktraceBannerStatus}
+        error={cooktraceTestStatus === 'fail' ? 'Check URL, token, and read:recipes scope' : ''}
+        onRetest={() => testCooktraceConnection()}
+        retestDisabled={cooktraceTestStatus === 'testing' || !cooktraceBaseUrl || !cooktraceApiToken}
+      />
+    {/if}
+    <div class="setting-row">
+      <div>
+        <span class="setting-label">{$_('settings_integrations.enable_cooktrace')}</span>
+        <div class="setting-desc">{$_('settings_integrations.cooktrace_desc')}</div>
+      </div>
+      <Toggle checked={cooktraceEnabled} on:change={e => { cooktraceEnabled = e.detail; set('cooktraceEnabled', e.detail); }} />
+    </div>
+    {#if cooktraceEnabled}
+      <div class="setting-divider"></div>
+      <div class="form-group" style="padding:10px 16px">
+        <label class="form-label" for="cooktrace-base-url">{$_('settings_integrations.base_url')}</label>
+        <input id="cooktrace-base-url" class="input" type="url"
+          placeholder="https://cooktrace.example.com"
+          bind:value={cooktraceBaseUrl}
+          on:blur={saveCooktrace}
+          style="width:100%" />
+      </div>
+      <div class="setting-divider"></div>
+      <div class="form-group" style="padding:10px 16px">
+        <label class="form-label" for="cooktrace-api-token">API Token</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          {#if cooktraceShowToken}
+            <input id="cooktrace-api-token" class="input" type="text"
+              placeholder="ct_pat_..."
+              bind:value={cooktraceApiToken}
+              on:blur={saveCooktrace}
+              autocomplete="off" style="flex:1" />
+          {:else}
+            <input id="cooktrace-api-token" class="input" type="password"
+              placeholder="ct_pat_..."
+              bind:value={cooktraceApiToken}
+              on:blur={saveCooktrace}
+              autocomplete="off" style="flex:1" />
+          {/if}
+          <button class="btn-icon" on:click={() => cooktraceShowToken = !cooktraceShowToken}
+            title={cooktraceShowToken ? 'Hide' : 'Show'}>
+            <span class="material-symbols-rounded">{cooktraceShowToken ? 'visibility_off' : 'visibility'}</span>
+          </button>
+        </div>
+        <p class="setting-desc" style="margin-top:6px">
+          Mint on CookTrace: Settings, API Tokens, New Token, tick <code>read:recipes</code>. Copy the token immediately: it is shown once.
+        </p>
       </div>
     {/if}
   </div>

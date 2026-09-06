@@ -57,20 +57,50 @@ router.get('/:id', wrap((req, res) => {
 
 // ── POST / ────────────────────────────────────────────────────────────────
 router.post('/', wrap(async (req, res) => {
-  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id } = req.body;
+  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id,
+          source_app, source_external_id, source_url, import_warnings } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
-  // #183 — honor the caller's defaultShareVisibility when the client
+  // #183: honor the caller's defaultShareVisibility when the client
   // omits an explicit value. Same rule applies to recipes (is_recipe=1).
   const vis = visibility || resolveNewItemVisibility(u);
   const localImg = isExternalUrl(img_url) ? await localizeImage(img_url) : (img_url || null);
+  const warningsCol = Array.isArray(import_warnings) && import_warnings.length
+    ? JSON.stringify(import_warnings.map(w => String(w || '').slice(0, 400)).filter(Boolean).slice(0, 20))
+    : null;
+  const cleanSourceApp = source_app ? String(source_app).slice(0, 40) : null;
+  const cleanSourceExtId = source_external_id ? String(source_external_id).slice(0, 128) : null;
+  const cleanSourceUrl = source_url ? String(source_url).slice(0, 2048) : null;
+
+  // Upsert on re-import: a save with the same (user, source_app, source_external_id)
+  // as an existing row updates that row in place. This is how the CookTrace pull
+  // flow keeps a re-imported recipe on the same NT meal id rather than tripping
+  // the partial unique index on meals(user_id, source_app, source_external_id).
+  if (cleanSourceApp && cleanSourceExtId) {
+    const existing = u == null
+      ? db.prepare(`SELECT id FROM meals WHERE user_id IS NULL AND source_app = ? AND source_external_id = ? AND deleted_at IS NULL`).get(cleanSourceApp, cleanSourceExtId)
+      : db.prepare(`SELECT id FROM meals WHERE user_id = ? AND source_app = ? AND source_external_id = ? AND deleted_at IS NULL`).get(u, cleanSourceApp, cleanSourceExtId);
+    if (existing) {
+      db.prepare(
+        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?,
+                          source_url=?, import_warnings=?, updated_at=datetime('now') WHERE id=?`
+      ).run(name, JSON.stringify(nutrition || {}), JSON.stringify(items || []),
+        localImg, notes || null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
+        servings != null ? Math.max(1, parseInt(servings) || 1) : null,
+        vis, cleanSourceUrl, warningsCol, existing.id);
+      return res.status(200).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(existing.id)));
+    }
+  }
+
   const result = db.prepare(
-    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id,
+                        source_app, source_external_id, source_url, import_warnings, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(u, name, JSON.stringify(nutrition || {}), JSON.stringify(items || []),
     localImg, notes || null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
     servings != null ? Math.max(1, parseInt(servings) || 1) : null,
-    vis, source_id || null);
+    vis, source_id || null,
+    cleanSourceApp, cleanSourceExtId, cleanSourceUrl, warningsCol);
   res.status(201).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(result.lastInsertRowid)));
 }));
 
@@ -214,9 +244,10 @@ router.post('/:id/copy', wrap((req, res) => {
 }));
 
 function parse(row) {
-  // #200-federation: import_warnings is a JSON string on disk (see the
-  // /api/v1/recipes upsert), array on the wire. Parse defensively so a
-  // malformed value doesn't 500 the whole meals GET.
+  // import_warnings is a JSON string on disk (set by the CookTrace pull
+  // flow when NT imports a CT recipe missing per-ingredient nutrition on
+  // some rows), array on the wire. Parse defensively so a malformed value
+  // does not 500 the whole meals GET.
   let warnings;
   if (row.import_warnings) {
     try { warnings = JSON.parse(row.import_warnings); } catch { warnings = null; }

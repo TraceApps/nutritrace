@@ -486,9 +486,10 @@ if (!columnExists('meals', 'source_url')) {
 if (!columnExists('meals', 'import_warnings')) {
   db.exec(`ALTER TABLE meals ADD COLUMN import_warnings TEXT`);
 }
-// Partial index so an external push can upsert by (user, source, ext_id)
-// without a scan. WHERE clause keeps rows with no federation metadata
-// out of the index entirely so it stays tiny.
+// Partial index so a pulled-from-CookTrace recipe can upsert by
+// (user, source, ext_id) without a scan when NT re-imports it.
+// WHERE clause keeps rows with no federation metadata out of the
+// index entirely so it stays tiny.
 db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_meals_source_ext
     ON meals(user_id, source_app, source_external_id)
