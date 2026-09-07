@@ -59,7 +59,15 @@
     // definition, so the metric silently existed in the local DB without a
     // Wellness surface. Distinct from Resting Heart Rate (fully at rest) so
     // the two live side by side in the Heart group.
-    { id: 'avg_heart_rate',    label: 'Average Heart Rate', unit: 'bpm',  group: 'heart', icon: 'monitor_heart',  fmt: v => Math.round(v), sources: ['fitbit','garmin'], desc: 'Average heart rate across the day from your wearable. Rises with activity, stress, and elevated body temperature; useful for spotting an unusually high or low day at a glance.' },
+    //
+    // hideIfEmpty: only Health Connect populates avg_heart_rate today (Fitbit
+    // and Garmin cloud syncs write avg_hr per workout, not a daily aggregate
+    // to wellness_data). Rendering as a permanent no-data card for Fitbit /
+    // Garmin only users would just add visual noise; the flag is honored by
+    // the Heart tab filter below so the card appears only on days a value
+    // exists. When Fitbit / Garmin start writing daily avg_heart_rate, drop
+    // the flag and the card behaves like every other metric.
+    { id: 'avg_heart_rate',    label: 'Average Heart Rate', unit: 'bpm',  group: 'heart', icon: 'monitor_heart',  fmt: v => Math.round(v), sources: ['fitbit','garmin'], hideIfEmpty: true, desc: 'Average heart rate across the day from your wearable. Rises with activity, stress, and elevated body temperature; useful for spotting an unusually high or low day at a glance.' },
     { id: 'spo2_avg',          label: 'SpO2',               unit: '%',    group: 'heart', icon: 'water_drop',     fmt: v => v.toFixed(1),  sources: ['fitbit','garmin'], desc: 'Blood oxygen saturation measured overnight. Healthy range is typically 95–100%. Dips below 90% may indicate sleep apnea.' },
     { id: 'respiratory_rate',  label: 'Respiratory Rate',   unit: 'brpm', group: 'heart', icon: 'air',            fmt: v => v.toFixed(1),  sources: ['fitbit','garmin'], desc: 'Average breaths per minute during sleep. Normal adult range is 12–20 breaths/min. Elevated values may signal illness or stress.' },
     { id: 'hrv_daily_rmssd',   label: 'HRV (RMSSD)',        unit: 'ms',   group: 'heart', icon: 'monitor_heart',  fmt: v => v.toFixed(1),  sources: ['fitbit','garmin'], desc: 'Heart rate variability — the variation between heartbeats. Higher values indicate better recovery and autonomic nervous system balance.' },
@@ -1987,7 +1995,7 @@
           <!-- ── Heart tab ── -->
           {:else if activeTab === 'heart'}
             <div class="metric-grid">
-              {#each ALL_METRICS.filter(m => m.group === 'heart' && isVisible(m.id) && isSourceEnabled(m)) as m}
+              {#each ALL_METRICS.filter(m => m.group === 'heart' && isVisible(m.id) && isSourceEnabled(m) && !(m.hideIfEmpty && displayData[m.id] == null)) as m}
                 {@const fmt = fmtMetric(m, displayData[m.id])}
                 {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
                 {@const _statsKey = _statsMetricFor(m.id)}

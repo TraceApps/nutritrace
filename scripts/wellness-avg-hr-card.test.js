@@ -45,3 +45,23 @@ test('#205: avg_heart_rate declares a source so isSourceEnabled can gate it', ()
   assert.match(block[0], /sources:\s*\[[^\]]*['"]fitbit['"]/,
     'avg_heart_rate must include the fitbit source (covers Health Connect)');
 });
+
+test('#205: avg_heart_rate carries hideIfEmpty so Fitbit-only users do not see an empty card', () => {
+  // Only Health Connect populates avg_heart_rate in wellness_data today.
+  // Fitbit / Garmin cloud syncs write avg_hr per WORKOUT, not a daily
+  // aggregate. Without hideIfEmpty, a Fitbit-only user would see a
+  // permanent no-data card every day.
+  const block = wellness.match(/\{\s*id:\s*['"]avg_heart_rate['"][^}]*\}/);
+  assert.ok(block, 'avg_heart_rate entry not found');
+  assert.match(block[0], /hideIfEmpty:\s*true/,
+    'avg_heart_rate must set hideIfEmpty until Fitbit/Garmin write daily HR');
+});
+
+test('#205: Heart tab filter honors hideIfEmpty', () => {
+  // The tab render filter is what actually hides the card. Guard against
+  // someone dropping the hideIfEmpty clause from the filter without
+  // realising it makes the Fitbit-only regression reappear.
+  assert.match(wellness,
+    /m\.group === ['"]heart['"][^}]*hideIfEmpty[^}]*displayData/,
+    'Heart tab filter must gate on hideIfEmpty + displayData');
+});
