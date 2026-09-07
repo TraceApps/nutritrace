@@ -321,6 +321,32 @@ async function _applySchema(db) {
     console.debug('[db-native] wellness_data.sync_status migration skipped:', e?.message);
   }
 
+  // One-shot heal: prune Health Connect body-composition rows that were
+  // saved as literal 0 by pre-#206 code. The old readers did
+  // `latest.mass?.inKilograms || 0` on records the plugin returned as
+  // Kotlin toString() strings, so real measurements landed as 0 in
+  // wellness_data and rendered as "0.0 kg" in the Wellness cards.
+  // Cleaning them here is safe: none of these metrics have a legitimate
+  // zero reading (0 kg lean mass or 0 kcal BMR is nonsense), and the
+  // next sync from Health Connect will re-write the correct value now
+  // that the parsers handle the string form. Runs once per launch; a
+  // no-op after the first run since the write path now omits the key.
+  try {
+    const badMetrics = ['bone_mass_kg', 'lean_mass_kg', 'basal_metabolic_rate',
+                        'body_fat_pct', 'body_temperature', 'vo2_max',
+                        'respiratory_rate', 'spo2_avg'];
+    const placeholders = badMetrics.map(() => '?').join(',');
+    await db.execute(
+      `DELETE FROM wellness_data
+        WHERE source = 'health_connect'
+          AND value = 0
+          AND metric_type IN (${placeholders})`,
+      badMetrics
+    );
+  } catch (e) {
+    console.debug('[db-native] wellness_data zero-value prune skipped:', e?.message);
+  }
+
   // One-shot heal: clear `sync_status='pending'` on any row that was
   // already server-synced (has a server_id). An earlier version of
   // `dbBumpFoodUsage` / `dbBumpMealUsage` (pre-ee1e7b8) marked rows

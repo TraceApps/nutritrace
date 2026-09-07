@@ -28,6 +28,14 @@ const _dlog = _viteEnv && _viteEnv.DEV
 
 import { isNative } from './platform.js';
 import { HealthConnect } from '@devmaxime/capacitor-health-connect';
+import {
+  parseMassKg,
+  parsePercent,
+  parseBmrKcalPerDay,
+  parseTemperatureC,
+  parseRespiratoryRate,
+  parseVo2Max,
+} from './health-connect-parsers.js';
 
 function _getPlugin() {
   if (!isNative) return null;
@@ -411,54 +419,42 @@ export async function readTodayData() {
     }
   } catch (e) { _dlog(`[health-connect] BloodPressure read failed: ${e?.message}`); }
 
-  // Oxygen saturation (SpO2)
+  // Oxygen saturation (SpO2). #206: use the shared percent parser so the
+  // Kotlin toString() path can't drop us to zero when the plugin doesn't
+  // custom-convert the record type.
   try {
     const { records } = await hc.readRecords({
       start: todayStart, end: todayEnd,
       type: 'OxygenSaturation',
     });
     if (records.length > 0) {
-      const latest = records[records.length - 1];
-      if (typeof latest === 'string') {
-        const match = latest.match(/percentage=([\d.]+)%/);
-        if (match) metrics.spo2_avg = parseFloat(match[1]);
-      } else {
-        metrics.spo2_avg = latest.percentage?.value || latest.percentage || latest.value;
-      }
+      const pct = parsePercent(records[records.length - 1]);
+      if (pct != null) metrics.spo2_avg = +pct.toFixed(1);
     }
   } catch (e) { _dlog(`[health-connect] OxygenSaturation read failed: ${e?.message}`); }
 
-  // Body fat percentage
+  // Body fat percentage. #206: previously logged 0 when object-path lookup
+  // missed on a Kotlin toString() record.
   try {
     const { records } = await hc.readRecords({
       start: todayStart, end: todayEnd,
       type: 'BodyFat',
     });
     if (records.length > 0) {
-      const latest = records[records.length - 1];
-      _dlog('[health-connect] BodyFat record:', JSON.stringify(latest).slice(0, 300));
-      let pct = 0;
-      if (typeof latest === 'string') {
-        // Plugin returns raw Kotlin toString() — parse percentage from it
-        const match = latest.match(/percentage=([\d.]+)%/);
-        if (match) pct = parseFloat(match[1]);
-      } else {
-        pct = latest.percentage?.value ?? latest.percentage ?? latest.value ?? 0;
-        if (typeof pct === 'object') pct = 0;
-      }
-      if (pct > 0) metrics.body_fat_pct = +pct.toFixed(1);
+      const pct = parsePercent(records[records.length - 1]);
+      if (pct != null) metrics.body_fat_pct = +pct.toFixed(1);
     }
   } catch (e) { console.warn('[health-connect] BodyFat error:', e.message); }
 
-  // Respiratory rate
+  // Respiratory rate. #206: omit key on parse failure instead of storing 0.
   try {
     const { records } = await hc.readRecords({
       start: todayStart, end: todayEnd,
       type: 'RespiratoryRate',
     });
     if (records.length > 0) {
-      const latest = records[records.length - 1];
-      metrics.respiratory_rate = +(latest.rate || latest.value || 0).toFixed(1);
+      const rate = parseRespiratoryRate(records[records.length - 1]);
+      if (rate != null) metrics.respiratory_rate = +rate.toFixed(1);
     }
   } catch (e) { _dlog(`[health-connect] RespiratoryRate read failed: ${e?.message}`); }
 
@@ -480,48 +476,53 @@ export async function readTodayData() {
     if (aggregates.length > 0) metrics.water_ml = Math.round(aggregates[0].value * 1000); // liters to ml
   } catch (e) { _dlog(`[health-connect] Hydration read failed: ${e?.message}`); }
 
-  // Bone mass
+  // Bone mass. #206: parseMassKg handles both object and Kotlin toString()
+  // shapes and returns null on failure so we OMIT the key rather than
+  // writing 0 for a real measurement.
   try {
     const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'BoneMass' });
     if (records.length > 0) {
-      const latest = records[records.length - 1];
-      metrics.bone_mass_kg = +(latest.mass?.inKilograms || latest.value || 0).toFixed(2);
+      const kg = parseMassKg(records[records.length - 1]);
+      if (kg != null) metrics.bone_mass_kg = +kg.toFixed(2);
     }
   } catch (e) { _dlog(`[health-connect] BoneMass read failed: ${e?.message}`); }
 
-  // Lean body mass
+  // Lean body mass. #206. Note: do NOT map to muscle_mass_kg; Health Connect
+  // does not expose muscle mass through the standard record types.
   try {
     const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'LeanBodyMass' });
     if (records.length > 0) {
-      const latest = records[records.length - 1];
-      metrics.lean_mass_kg = +(latest.mass?.inKilograms || latest.value || 0).toFixed(1);
+      const kg = parseMassKg(records[records.length - 1]);
+      if (kg != null) metrics.lean_mass_kg = +kg.toFixed(1);
     }
   } catch (e) { _dlog(`[health-connect] LeanBodyMass read failed: ${e?.message}`); }
 
-  // Body temperature
+  // Body temperature. #206.
   try {
     const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'BodyTemperature' });
     if (records.length > 0) {
-      const latest = records[records.length - 1];
-      metrics.body_temperature = +(latest.temperature?.inCelsius || latest.value || 0).toFixed(1);
+      const c = parseTemperatureC(records[records.length - 1]);
+      if (c != null) metrics.body_temperature = +c.toFixed(1);
     }
   } catch (e) { _dlog(`[health-connect] BodyTemperature read failed: ${e?.message}`); }
 
-  // Basal metabolic rate
+  // Basal metabolic rate. #206: parseBmrKcalPerDay handles the Watts form
+  // returned by the plugin's default converter (1 W ~= 20.65 kcal/day) so
+  // wattage is not silently written as kcal/day.
   try {
     const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'BasalMetabolicRate' });
     if (records.length > 0) {
-      const latest = records[records.length - 1];
-      metrics.basal_metabolic_rate = Math.round(latest.basalMetabolicRate?.inKilocaloriesPerDay || latest.value || 0);
+      const kcalDay = parseBmrKcalPerDay(records[records.length - 1]);
+      if (kcalDay != null) metrics.basal_metabolic_rate = Math.round(kcalDay);
     }
   } catch (e) { _dlog(`[health-connect] BasalMetabolicRate read failed: ${e?.message}`); }
 
-  // VO2 Max
+  // VO2 Max. #206.
   try {
     const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'Vo2Max' });
     if (records.length > 0) {
-      const latest = records[records.length - 1];
-      metrics.vo2_max = +(latest.vo2MillilitersPerMinuteKilogram || latest.value || 0).toFixed(1);
+      const v = parseVo2Max(records[records.length - 1]);
+      if (v != null) metrics.vo2_max = +v.toFixed(1);
     }
   } catch (e) { _dlog(`[health-connect] Vo2Max read failed: ${e?.message}`); }
 
