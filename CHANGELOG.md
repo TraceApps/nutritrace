@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Average Heart Rate card in Wellness** ([#205](https://github.com/TraceApps/nutritrace/issues/205)). Health Connect was already ingesting `avg_heart_rate` into local `wellness_data`, but Wellness had no card definition for it, so the value silently existed on disk without a surface. Now shows as a distinct card in the Heart group alongside Resting Heart Rate. Distinct from Resting HR (fully at rest); this is the day's average from your wearable, useful for spotting an unusually high or low day. Thanks @kgenerozov.
+
 ### Fixed
 
 - **Diary Remaining and Statistics goal line now honor per-weekday calorie / macro targets** ([#203](https://github.com/TraceApps/nutritrace/issues/203)). With "Different target per weekday" enabled, both surfaces were reading the weekly peak instead of the day's actual target: a Sunday=2400 / Tuesday=2700 setup showed 404 kcal Remaining on Sunday after 2296 kcal logged, when it should have been 104. Diary now resolves the target from `days[weekday]` based on the viewed calendar date (parsed as local midnight so it can't flip across time zones), and Statistics uses the seven-day average of `days[]` for its range-based chart line and "vs goal" KPI (peak was misleading for a period summary). Percent-based macros derive from the correct per-day calorie target. Shared (single-target) users see no change. Thanks @kgenerozov for the crisp repro and root-cause trace.
