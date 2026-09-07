@@ -18,10 +18,13 @@
  * When connected to a server, the sync engine pushes it up.
  */
 
-// Gated on dev OR opt-in verbose mode (Settings → Diagnostics → Verbose diagnostic logging).
-const _dlog = import.meta.env.DEV
+// Gated on dev OR opt-in verbose mode (Settings, Diagnostics, Verbose diagnostic logging).
+// import.meta.env is Vite-only; guard so node --test (which imports this
+// module for the pure-helper tests) does not crash on module init.
+const _viteEnv = (() => { try { return import.meta.env; } catch { return null; } })();
+const _dlog = _viteEnv && _viteEnv.DEV
   ? console.log
-  : (...a) => { try { if (localStorage.getItem('nt:verboseLogging') === '1') console.log(...a); } catch {} };
+  : (...a) => { try { if (typeof localStorage !== 'undefined' && localStorage.getItem('nt:verboseLogging') === '1') console.log(...a); } catch {} };
 
 import { isNative } from './platform.js';
 import { HealthConnect } from '@devmaxime/capacitor-health-connect';
@@ -29,6 +32,65 @@ import { HealthConnect } from '@devmaxime/capacitor-health-connect';
 function _getPlugin() {
   if (!isNative) return null;
   return HealthConnect;
+}
+
+/**
+ * Every read permission NutriTrace actually consumes in readTodayData /
+ * readDateRange / readExerciseSessions. The requestPermissions() flow
+ * reconciles this list against what's already granted so newly-added
+ * types (or types the user previously denied) get re-prompted instead
+ * of being silently skipped when *any* other read is already granted.
+ *
+ * #204 bug context: this list used to be a hardcoded literal inside
+ * requestPermissions() that was missing Distance / TotalCaloriesBurned /
+ * ActiveCaloriesBurned / RestingHeartRate. The read code queried them
+ * anyway (line ~140 onwards), so those types silently returned nothing
+ * on every device. The manifest already declares the four missing HC
+ * runtime permissions.
+ */
+export const DESIRED_READS = Object.freeze([
+  'Steps',
+  'Distance',
+  'TotalCaloriesBurned',
+  'ActiveCaloriesBurned',
+  'HeartRate',
+  'RestingHeartRate',
+  'Weight',
+  'SleepSession',
+  'ExerciseSession',
+  'BloodPressure',
+  'OxygenSaturation',
+  'BodyFat',
+  'RespiratoryRate',
+  'FloorsClimbed',
+  'Hydration',
+  'BoneMass',
+  'LeanBodyMass',
+  'BodyTemperature',
+  'BasalMetabolicRate',
+  'Vo2Max',
+]);
+
+/**
+ * Compute which desired read permissions have not yet been granted.
+ * Pure function so it can be unit-tested without the plugin.
+ *
+ * @param {string[]} desired  Desired read permission names.
+ * @param {{read?: string[]}|null|undefined} granted  Plugin grants blob.
+ * @returns {string[]} The subset of desired not present in granted.read.
+ */
+export function computeMissingReads(desired, granted) {
+  const have = new Set(Array.isArray(granted?.read) ? granted.read : []);
+  const seen = new Set();
+  const out = [];
+  for (const name of Array.isArray(desired) ? desired : []) {
+    if (!name || typeof name !== 'string') continue;
+    if (have.has(name)) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
 }
 
 /**
@@ -47,40 +109,58 @@ export async function checkAvailability() {
 }
 
 /**
- * Request read/write permissions from Health Connect.
+ * Request the read permissions in DESIRED_READS that the user has not yet
+ * granted. Falls back to per-name requests when the batch call is rejected
+ * (the @devmaxime plugin refuses the whole batch if any name is missing
+ * from its RECORDS_TYPE_NAME_MAP), so one bad name never blocks the rest.
+ *
+ * Returns the authoritative grants blob as of after the dialog, not the
+ * plugin's return value from requestPermissions() (which can be stale
+ * relative to what the user just tapped through). #204.
  */
 export async function requestPermissions() {
   const hc = _getPlugin();
   if (!hc) return { read: [], write: [] };
   try {
-    // First check if permissions are already granted (avoids triggering crash-prone dialog)
     const existing = await getGrantedPermissions();
-    if (existing.read?.length > 0) return existing;
+    const missing = computeMissingReads(DESIRED_READS, existing);
+    if (missing.length === 0) return existing;
 
-    // Request permissions via Health Connect dialog
-    let result;
+    // Try the whole missing batch first (single system dialog is nicest
+    // for the user). If the plugin rejects it (usually because one of
+    // the names is not in the plugin's record-type map), fall back to
+    // per-name requests so the unrelated names still get requested.
+    let batchOk = false;
     try {
-      result = await hc.requestPermissions({
-        read: ['Steps', 'Weight', 'SleepSession', 'HeartRate', 'ExerciseSession', 'BloodPressure', 'OxygenSaturation', 'BodyFat', 'RespiratoryRate', 'FloorsClimbed', 'Hydration', 'BoneMass', 'LeanBodyMass', 'BodyTemperature', 'BasalMetabolicRate', 'Vo2Max'],
-        write: [],
-      });
+      await hc.requestPermissions({ read: missing, write: [] });
+      batchOk = true;
     } catch (e) {
-      console.warn('[health-connect] Permission dialog failed:', e.message);
-      result = { read: [], write: [] };
+      console.warn('[health-connect] Batch permission request rejected, falling back per name:', e?.message);
     }
-    // Check if permissions were actually granted (singleTask launch mode can cause
-    // the permission dialog to close immediately without user interaction)
-    if (result.read?.length === 0) {
-      // Fallback: open Health Connect app so user can grant permissions manually
-      console.warn('[health-connect] Permission dialog failed — opening Health Connect app');
+    if (!batchOk) {
+      for (const name of missing) {
+        try {
+          await hc.requestPermissions({ read: [name], write: [] });
+        } catch (e) {
+          _dlog(`[health-connect] Skipping unsupported read permission "${name}": ${e?.message}`);
+        }
+      }
+    }
+
+    // Re-query grants so callers see what the OS actually has now (the
+    // plugin's requestPermissions return value can lag behind singleTask
+    // launch-mode dialog dismissal).
+    const after = await getGrantedPermissions();
+    if (!after.read || after.read.length === 0) {
+      // No reads at all: probably the dialog was dismissed. Push the
+      // user to Health Connect so they can grant manually.
+      console.warn('[health-connect] No read permissions granted after dialog, opening Health Connect');
       try {
-        const { App: CapApp } = await import('@capacitor/app');
-        // Open Health Connect's permission management for our app
         window.open('market://details?id=com.google.android.apps.healthdata', '_system');
       } catch {}
       return { read: [], write: [] };
     }
-    return result;
+    return after;
   } catch (e) {
     console.error('[health-connect] Permission request failed:', e);
     return { read: [], write: [] };
