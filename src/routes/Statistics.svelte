@@ -11,6 +11,7 @@
   import { currentDate } from '../stores/diary.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
+  import { resolveRangeGoal } from '../lib/goal-resolver.js';
   import { goals, energyUnit, weightUnit, lengthUnit, statsChartType, statsYZero,
            statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday, statsShowEmptyDays,
            statsMetricOrder, statsHiddenMetrics,
@@ -462,17 +463,24 @@
       });
     }
 
-    // Goal value — computed up-front whether or not the Goal line itself is
+    // Goal value: computed up-front whether or not the Goal line itself is
     // visible, so the y-axis auto-fit below can extend bounds to include it
     // (so weight charts read as "progress toward goal" rather than scatter
     // around current data when the goal is outside the range). #67 follow-up.
+    //
+    // #203 companion: for goals with per-weekday split (sharedGoal === false),
+    // fold the seven `days[]` values into a single representative target for
+    // the whole range. Average is the honest choice for a range chart:
+    // Statistics summarises a period, and a mixed-target user comparing to
+    // the weekly PEAK reads their under-target days as "on target" when they
+    // are not. Shared (single-target) goals are unchanged.
     let _goalVal = null;
     {
       const g = $goals && $goals[metric];
-      _goalVal = g ? (g.max ?? g.min ?? null) : null;
+      _goalVal = resolveRangeGoal(g);
       if (_goalVal != null && g?.isPercent) {
         const density = {fat:9,'saturated-fat':9,carbohydrates:4,sugars:4,proteins:4}[metric];
-        const calGoal = $goals.calories?.max ?? $goals.calories?.min ?? 2000;
+        const calGoal = resolveRangeGoal($goals.calories) ?? 2000;
         if (density) _goalVal = Math.round(calGoal * _goalVal / 100 / density);
       }
       if (_goalVal != null && metric === 'calories' && $energyUnit === 'kJ') _goalVal = Math.round(Nutrition.kcalToKj(_goalVal));
@@ -657,13 +665,14 @@
   // Goal value + delta for the right-rail KPI stack. Mirrors the goal
   // computation inside renderChart() (lines ~436-446); kept reactive here
   // so the "vs goal" chip stays in sync with metric / energyUnit changes
-  // without re-running the chart pipeline.
+  // without re-running the chart pipeline. resolveRangeGoal lives in
+  // src/lib/goal-resolver.js; see the file header for the #203 rationale.
   $: _goalValReactive = (() => {
     const g = $goals && $goals[metric];
-    let gv = g ? (g.max ?? g.min ?? null) : null;
+    let gv = resolveRangeGoal(g);
     if (gv != null && g?.isPercent) {
       const density = {fat:9,'saturated-fat':9,carbohydrates:4,sugars:4,proteins:4}[metric];
-      const calGoal = $goals.calories?.max ?? $goals.calories?.min ?? 2000;
+      const calGoal = resolveRangeGoal($goals.calories) ?? 2000;
       if (density) gv = Math.round(calGoal * gv / 100 / density);
     }
     if (gv != null && metric === 'calories' && $energyUnit === 'kJ') gv = Math.round(Nutrition.kcalToKj(gv));
