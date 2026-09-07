@@ -422,6 +422,30 @@ if (!columnExists('wellness_data', 'device_model')) {
   db.exec(`ALTER TABLE wellness_data ADD COLUMN device_model TEXT DEFAULT NULL`);
 }
 
+// #206: prune Health Connect body-composition rows written as literal 0
+// by the pre-fix client. Same cleanup runs on the Android side (see
+// src/lib/db-native.js) so the local DB is clean; this pass handles
+// rows that were already pushed up to the server before the fix. None
+// of these metrics has a legitimate zero reading (0 kg lean mass or
+// 0 kcal BMR is nonsense), so the DELETE is safe. Runs once per boot
+// because the new client omits the key rather than writing zero, so
+// after the first run the DELETE is a no-op. If anyone opens a
+// stored-0 defence issue for a different metric, add it to this list.
+try {
+  db.prepare(`
+    DELETE FROM wellness_data
+     WHERE source = 'health_connect'
+       AND value  = 0
+       AND metric_type IN (
+         'bone_mass_kg', 'lean_mass_kg', 'basal_metabolic_rate',
+         'body_fat_pct', 'body_temperature', 'vo2_max',
+         'respiratory_rate', 'spo2_avg'
+       )
+  `).run();
+} catch (e) {
+  console.warn('[db] wellness_data zero-value prune skipped:', e?.message || e);
+}
+
 if (!columnExists('diary', 'user_id')) {
   db.exec(`
     ALTER TABLE diary ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
