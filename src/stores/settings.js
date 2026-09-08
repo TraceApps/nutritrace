@@ -31,6 +31,7 @@ export const USER_PREFS = new Set([
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
   'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes','warnUnitMismatch','showUnitMetadata',
+  'diaryShowMealCompletion',
   'diaryShowActivity','manualActivityPolicy','activityAutoEstimate','calorieAdjustFromActivity',
   'showQuickCalories','quickCaloriesDisplay',
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
@@ -520,6 +521,12 @@ export const diaryShowPortionSize   = createSettingStore('diaryShowPortionSize',
 export const showQuickCalories      = createSettingStore('showQuickCalories',       true);
 export const quickCaloriesDisplay   = createSettingStore('quickCaloriesDisplay',    'summed');
 export const diaryShowNotes         = createSettingStore('diaryShowNotes',          true);
+// #207 companion: opt-in per-meal completion checkboxes. Off by default
+// so casual users see no new UI on their meal cards. When on: each meal
+// card header carries a check toggle, and the day-completion toggle in
+// the date bar shows a pre-close confirm when any meal slot is empty
+// and not explicitly marked as skipped.
+export const diaryShowMealCompletion = createSettingStore('diaryShowMealCompletion', false);
 
 // Desktop diary redesign — right-rail widget visibility. Each widget
 // can be independently hidden by the user. Defaults show everything so

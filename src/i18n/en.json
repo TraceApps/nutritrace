@@ -579,7 +579,11 @@
       "marked_toast":          "Day marked complete",
       "unmarked_toast":        "Day mark cleared",
       "error_toast":           "Could not update day mark",
-      "meal_reminders_hint":   "Tip: turn on meal reminders in Settings, Notifications so you don't forget a meal before end of day."
+      "meal_reminders_hint":   "Tip: turn on meal reminders in Settings, Notifications so you don't forget a meal before end of day.",
+      "confirm_empty_title":   "Close day with empty meals?",
+      "confirm_empty_msg":     "These meals have no items and haven't been marked as skipped: {names}. Close anyway? The empty slots will be marked as intentionally skipped so you're not asked again on this day.",
+      "confirm_empty_ok":      "Close Anyway",
+      "confirm_empty_cancel":  "Keep Open"
     },
     "toast": {
       "body_stats_saved": "Body stats saved",
@@ -905,6 +909,8 @@
     "show_portion_desc":        "Display \"150g\" / \"1 cup\" etc. on each diary item",
     "show_daily_notes":         "Show Daily Notes",
     "show_daily_notes_desc":    "Free-text notes section at the bottom of each day's diary",
+    "show_meal_completion":     "Show Meal Completion",
+    "show_meal_completion_desc":"Adds a check toggle to each meal card and warns about empty meals when you mark the day complete. Off by default; day-level completion still works either way.",
     "show_quick_cals":          "Show Quick Calories Button",
     "show_quick_cals_desc":     "Adds a bolt icon on each meal section for fast calorie-only entry (no food, no portion). Useful when you know the calories but don't want to model the food, or when you're coming from Fitbit-style \"quick calories\".",
     "quick_cals_display":       "Quick Calories Display",

@@ -12,7 +12,7 @@
 import {
   dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood, dbBumpFoodUsage,
   dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal, dbBumpMealUsage,
-  dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary, dbSetDiaryCompletion,
+  dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary, dbSetDiaryCompletion, dbSetMealCompletion,
 } from './db-native.js';
 import { getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
 import { schedulePush } from './sync.js';
@@ -278,6 +278,14 @@ export const NtApiCached = {
     _serverFetch('PUT', `/api/diary/${date}/completion`, { completed: !!completed })
       .catch(() => schedulePush());
     return { ok: true, date, completed_at: completedAt };
+  },
+
+  // #207 (per-meal): local-first mark/unmark a meal slot. Same shape.
+  async setDiaryMealCompletion(date, slot, completed) {
+    const arr = await dbSetMealCompletion(date, Number(slot), !!completed);
+    _serverFetch('PUT', `/api/diary/${date}/meal-completion`, { slot: Number(slot), completed: !!completed })
+      .catch(() => schedulePush());
+    return { ok: true, date, completed_meals: arr };
   },
 
   // ── Wellness ──────────────────────────────────────────────────────────

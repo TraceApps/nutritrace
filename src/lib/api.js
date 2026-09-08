@@ -864,6 +864,10 @@ const _NtApiHttp = {
   // #207: mark or unmark a day as fully logged. Purely a visual affordance
   // (week strip + date picker badges); no diary math depends on it.
   setDiaryCompletion(date, completed) { return this.put(`/api/diary/${date}/completion`, { completed: !!completed }); },
+  // #207 (per-meal companion): mark or unmark a single meal slot on the day.
+  setDiaryMealCompletion(date, slot, completed) {
+    return this.put(`/api/diary/${date}/meal-completion`, { slot: Number(slot), completed: !!completed });
+  },
 
   // Latest wellness_data row across all sources for a metric — used by
   // AddActivitySheet for MET auto-estimate weight lookup (#99). Returns

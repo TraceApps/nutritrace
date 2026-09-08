@@ -48,7 +48,7 @@ router.get('/:date', wrap((req, res) => {
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND deleted_at IS NULL').get(req.params.date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(req.params.date, u);
   const tombstones = _loadTombstones(u, req.params.date);
-  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [], notes: '', completed_at: null, tombstones });
+  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [], notes: '', completed_at: null, completed_meals: [], tombstones });
   res.json({ ...parse(row), tombstones });
 }));
 
@@ -244,6 +244,61 @@ router.put('/:date/completion', wrap((req, res) => {
   res.json({ ok: true, date, completed_at: row?.completed_at || null });
 }));
 
+/**
+ * PUT /api/diary/:date/meal-completion
+ * Body: { slot: number, completed: boolean }
+ *
+ * #207 companion: per-meal completion mark. Stored as a JSON array of
+ * slot indexes on diary.completed_meals. Adding or removing a slot
+ * respects the same "create row if missing" pattern as the day-level
+ * endpoint above, so a user can close individual meals on an
+ * intentionally empty day. Purely visual, gated on the client behind
+ * the diaryShowMealCompletion setting.
+ */
+router.put('/:date/meal-completion', wrap((req, res) => {
+  const u = uid(req);
+  const date = String(req.params.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'invalid date' });
+  }
+  const slot = Number(req.body?.slot);
+  if (!Number.isInteger(slot) || slot < 0 || slot > 31) {
+    return res.status(400).json({ error: 'slot must be an integer in [0, 31]' });
+  }
+  const completed = req.body?.completed !== false;
+
+  const existing = u == null
+    ? db.prepare('SELECT id, completed_meals FROM diary WHERE date = ? AND user_id IS NULL').get(date)
+    : db.prepare('SELECT id, completed_meals FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+
+  const current = _parseSlotArray(existing?.completed_meals);
+  const set = new Set(current);
+  if (completed) set.add(slot); else set.delete(slot);
+  const next = Array.from(set).sort((a, b) => a - b);
+  const nextJson = next.length ? JSON.stringify(next) : null;
+
+  if (existing) {
+    db.prepare("UPDATE diary SET completed_meals = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(nextJson, existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO diary (user_id, date, completed_meals, updated_at)
+       VALUES (?, ?, ?, datetime('now'))`
+    ).run(u, date, nextJson);
+  }
+
+  res.json({ ok: true, date, completed_meals: next });
+}));
+
+function _parseSlotArray(raw) {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
+  } catch { return []; }
+}
+
 // Fix any Capacitor cached paths that leaked into diary items
 function fixCachedPaths(items) {
   if (!Array.isArray(items)) return items;
@@ -284,12 +339,25 @@ function fixCachedPaths(items) {
 // untouched. Single batch query, scales fine for typical diary days.
 function parse(row) {
   const items = JSON.parse(row.items || '[]');
+  // #207 (per-meal): completed_meals is a JSON string on disk, array on
+  // the wire. Parse defensively so a malformed value renders as no
+  // marked meals instead of crashing the whole GET.
+  let completedMeals = [];
+  if (row.completed_meals) {
+    try {
+      const arr = JSON.parse(row.completed_meals);
+      if (Array.isArray(arr)) {
+        completedMeals = arr.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
+      }
+    } catch { completedMeals = []; }
+  }
   return {
     ...row,
-    items:      freshenItemImages(hydrateItems(fixCachedPaths(items))),
-    body_stats: JSON.parse(row.body_stats || '{}'),
-    water:      JSON.parse(row.water      || '[]'),
-    notes:      row.notes || '',
+    items:            freshenItemImages(hydrateItems(fixCachedPaths(items))),
+    body_stats:       JSON.parse(row.body_stats || '{}'),
+    water:            JSON.parse(row.water      || '[]'),
+    notes:            row.notes || '',
+    completed_meals:  completedMeals,
   };
 }
 

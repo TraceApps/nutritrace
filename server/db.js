@@ -579,6 +579,16 @@ if (!columnExists('diary', 'notes')) {
 if (!columnExists('diary', 'completed_at')) {
   db.exec(`ALTER TABLE diary ADD COLUMN completed_at TEXT DEFAULT NULL`);
 }
+// #207 (per-meal companion): opt-in per-meal completion marks. JSON
+// array of meal slot indexes the user has explicitly marked complete
+// (e.g. [0, 2] means Breakfast + Dinner are closed). NULL when the
+// user has never touched a per-meal mark on this day. Gated on the
+// client side by the diaryShowMealCompletion setting; the column is
+// always present so a device with the setting on can sync to one that
+// has it off without schema drift.
+if (!columnExists('diary', 'completed_meals')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN completed_meals TEXT DEFAULT NULL`);
+}
 if (!columnExists('user_settings', 'deleted_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN deleted_at TEXT DEFAULT NULL`);
 }

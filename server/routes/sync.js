@@ -349,27 +349,50 @@ router.post('/push', wrap(async (req, res) => {
         const incomingCompletedAt = (typeof d.completed_at === 'string' && d.completed_at) ? d.completed_at : null;
         const completedAt = incomingCompletedAt || (existingRow?.completed_at || null);
 
+        // #207 (per-meal): union-merge the meal completion sets across
+        // the two sides. A slot marked on either device stays marked,
+        // so an offline client pushing an older empty array cannot wipe
+        // marks the other device just set. Explicit un-mark of a slot
+        // still works via PUT /api/diary/:date/meal-completion with
+        // completed=false, which writes the array directly.
+        const _pickIntArray = v => {
+          if (!Array.isArray(v)) return [];
+          return v.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
+        };
+        const incomingMeals = _pickIntArray(d.completed_meals);
+        let existingMeals = [];
+        if (existingRow?.completed_meals) {
+          try {
+            const arr = JSON.parse(existingRow.completed_meals);
+            existingMeals = _pickIntArray(arr);
+          } catch {}
+        }
+        const mealSet = new Set([...existingMeals, ...incomingMeals]);
+        const mergedMeals = Array.from(mealSet).sort((a, b) => a - b);
+        const completedMealsJson = mergedMeals.length ? JSON.stringify(mergedMeals) : null;
+
         if (u == null) {
           // Single-user mode: NULL user_id never collides under SQLite UNIQUE
           // (see diary.js PUT for the same workaround, issue #37).
           const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(d.date);
           if (existing) {
-            db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, completed_at=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
-              .run(itemsJson, bsJson, waterJson, dNotes, completedAt, existing.id);
+            db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, completed_at=?, completed_meals=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
+              .run(itemsJson, bsJson, waterJson, dNotes, completedAt, completedMealsJson, existing.id);
           } else {
-            db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, completed_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`)
-              .run(d.date, itemsJson, bsJson, waterJson, dNotes, completedAt);
+            db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, completed_at, completed_meals, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+              .run(d.date, itemsJson, bsJson, waterJson, dNotes, completedAt, completedMealsJson);
           }
         } else {
           db.prepare(
-            `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
              ON CONFLICT(date, user_id) DO UPDATE SET
                items = excluded.items, body_stats = excluded.body_stats, water = excluded.water,
                notes = excluded.notes,
                completed_at = excluded.completed_at,
+               completed_meals = excluded.completed_meals,
                updated_at = datetime('now'), deleted_at = NULL`
-          ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes, completedAt);
+          ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes, completedAt, completedMealsJson);
         }
 
         // Persist new tombstones idempotently.

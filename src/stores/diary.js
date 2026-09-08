@@ -383,6 +383,43 @@ export async function setDayCompletion(dateStr, completed) {
   }
 }
 
+/**
+ * #207 (per-meal companion): mark or unmark a single meal slot on the
+ * viewed date. Optimistic flip on currentEntry.completed_meals so the
+ * meal-card check reflects instantly. Rolls back on API failure so the
+ * UI stays honest.
+ */
+export async function setMealCompletion(dateStr, slot, completed) {
+  if (!dateStr || !Number.isInteger(slot)) return null;
+  let entry = null;
+  currentEntry.subscribe(v => entry = v)();
+  const prior = Array.isArray(entry?.completed_meals) ? entry.completed_meals : [];
+  const optimistic = (() => {
+    const s = new Set(prior);
+    if (completed) s.add(slot); else s.delete(slot);
+    return Array.from(s).sort((a, b) => a - b);
+  })();
+  if (entry && entry.date === dateStr) {
+    currentEntry.set({ ...entry, completed_meals: optimistic });
+  }
+  try {
+    const result = await NtApi.setDiaryMealCompletion(dateStr, slot, !!completed);
+    let latest = null;
+    currentEntry.subscribe(v => latest = v)();
+    if (latest && latest.date === dateStr) {
+      currentEntry.set({ ...latest, completed_meals: Array.isArray(result?.completed_meals) ? result.completed_meals : optimistic });
+    }
+    return result?.completed_meals ?? optimistic;
+  } catch (e) {
+    let latest = null;
+    currentEntry.subscribe(v => latest = v)();
+    if (latest && latest.date === dateStr) {
+      currentEntry.set({ ...latest, completed_meals: prior });
+    }
+    throw e;
+  }
+}
+
 export async function removeDiaryItem(index) {
   let entry = null;
   currentEntry.subscribe(v => entry = v)();

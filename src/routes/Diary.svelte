@@ -27,12 +27,13 @@
   import TimePicker   from '../components/ui/TimePicker.svelte';
   import { scaleFactor as _unitScaleFactor, amountAndUnit } from '../lib/units.js';
   import { showSuccess, showError, showInfo } from '../stores/toast.js';
+  import { confirmDialog } from '../stores/confirmDialog.js';
   import {
     currentDate, currentEntry, diaryTotals, macroPercents,
     prevDay, nextDay, loadEntry, removeDiaryItem, updateDiaryItem, saveBodyStats,
     addWaterLog,
     copyMealItems, moveMealItems, clearMealItems, copyMealToDate, saveDiaryNote,
-    setDayCompletion,
+    setDayCompletion, setMealCompletion,
     splitRecipeItem, removeSplitChild, updateSplitChild,
     diaryShowNutritionSummary, diaryShowBodyStats, diaryLoadError,
     buildDiaryWritePayload,
@@ -50,6 +51,7 @@
            fastingEnabled,
            wellnessEnabled,
            notifMealReminders,
+           diaryShowMealCompletion,
            diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
            diaryRailShowActivity as diaryRailShowActivityWidget,
            diaryRailShowNotes,
@@ -916,13 +918,39 @@
   async function _toggleDayCompletion() {
     const date = $currentDate;
     const nextState = !_dayIsComplete;
+    // #207 (per-meal companion): when the per-meal opt-in is on and the
+    // user is CLOSING the day, warn about any meal slot that is both
+    // empty AND not explicitly marked as skipped. Confirming the close
+    // records the intent by marking those slots complete, so tomorrow
+    // an equivalent skip pattern (e.g. fasters skipping breakfast) does
+    // not re-prompt if they keep the marks. Cancel bails without
+    // touching state.
+    let emptyUnmarked = [];
+    if (nextState && $diaryShowMealCompletion && entry?.items) {
+      const marked = new Set(Array.isArray(entry.completed_meals) ? entry.completed_meals : []);
+      const perMealItems = meals.map((_, i) => (entry.items || []).filter(it => (it.meal ?? 0) === i));
+      emptyUnmarked = meals
+        .map((name, i) => ({ i, name, empty: perMealItems[i].length === 0 }))
+        .filter(m => m.empty && !marked.has(m.i));
+    }
+    if (emptyUnmarked.length) {
+      const names = emptyUnmarked.map(m => m.name).join(', ');
+      const ok = await confirmDialog({
+        title: $_('diary.day_complete.confirm_empty_title'),
+        message: $_('diary.day_complete.confirm_empty_msg', { values: { names } }),
+        confirmText: $_('diary.day_complete.confirm_empty_ok'),
+        cancelText:  $_('diary.day_complete.confirm_empty_cancel'),
+      }).catch(() => false);
+      if (!ok) return;
+      // Mark the empty slots first so the pattern persists.
+      for (const m of emptyUnmarked) {
+        try { await setMealCompletion(date, m.i, true); } catch {}
+      }
+    }
     try {
       await setDayCompletion(date, nextState);
       if (nextState) {
         showSuccess($_('diary.day_complete.marked_toast'));
-        // Discoverability nudge (once per install): if the user just
-        // marked a day complete without meal reminders on, hint that
-        // reminders exist. Not a nag: dismissed forever after one show.
         const shown = localStorage.getItem('nt:dayCompletionMealTipShown') === '1';
         if (!shown && !$notifMealReminders) {
           showInfo($_('diary.day_complete.meal_reminders_hint'));
@@ -931,6 +959,18 @@
       } else {
         showInfo($_('diary.day_complete.unmarked_toast'));
       }
+    } catch (e) {
+      showError(e?.message || $_('diary.day_complete.error_toast'));
+    }
+  }
+
+  // #207 (per-meal): store-backed toggle wrapper. Best-effort UI
+  // feedback; the store already handles optimistic flip + rollback.
+  async function _toggleMealCompletion(mealIdx) {
+    const date = $currentDate;
+    const cur = Array.isArray(entry?.completed_meals) && entry.completed_meals.includes(mealIdx);
+    try {
+      await setMealCompletion(date, mealIdx, !cur);
     } catch (e) {
       showError(e?.message || $_('diary.day_complete.error_toast'));
     }
@@ -1868,6 +1908,19 @@
         <div class="meal-header" style="--meal-color:{mealColor(mealIdx)}">
           <span class="meal-type-icon material-symbols-rounded">{mealIcon(meal)}</span>
           <span class="meal-name">{meal}</span>
+          {#if $diaryShowMealCompletion}
+            {@const _mealDone = Array.isArray(entry?.completed_meals) && entry.completed_meals.includes(mealIdx)}
+            <!-- #207 per-meal (opt-in via Settings > Diary > Show meal completion):
+                 quick check toggle. Tap to mark this slot done; tap again to
+                 unmark. Records the user's intent so day-close can skip the
+                 empty-slot confirm on slots the user has explicitly closed. -->
+            <button class="btn-icon meal-complete-btn" class:meal-done={_mealDone}
+              on:click|stopPropagation={() => _toggleMealCompletion(mealIdx)}
+              aria-label={_mealDone ? `Unmark ${meal} complete` : `Mark ${meal} complete`}
+              title={_mealDone ? `Unmark ${meal} complete` : `Mark ${meal} complete`}>
+              <span class="material-symbols-rounded">{_mealDone ? 'task_alt' : 'radio_button_unchecked'}</span>
+            </button>
+          {/if}
           {#if items.length > 0 && !$diaryShowMacroSummary}
             {@const _mealKcal = items.reduce((s,it) => s + formatKcal(it), 0)}
             {@const _mealEnergy = Nutrition.displayEnergy(_mealKcal, $energyUnit)}
@@ -3104,6 +3157,21 @@
     color: var(--success, #10b981);
     vertical-align: middle;
     margin-left: 4px;
+  }
+  /* #207 per-meal: tiny check toggle on each meal card header. Muted
+     when unchecked so it recedes into the header; green when checked
+     to match the day-level badge idiom. */
+  :global(.meal-header .meal-complete-btn) {
+    color: var(--text-3);
+    opacity: 0.7;
+  }
+  :global(.meal-header .meal-complete-btn:hover) {
+    color: var(--text-1);
+    opacity: 1;
+  }
+  :global(.meal-header .meal-complete-btn.meal-done) {
+    color: var(--success, #10b981);
+    opacity: 1;
   }
 
   /* H1 height/alignment now lives in base.css .page-header h1 (uniform 40px). */

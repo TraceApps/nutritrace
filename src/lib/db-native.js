@@ -80,9 +80,10 @@ const SCHEMA = `
     items       TEXT DEFAULT '[]',
     body_stats  TEXT DEFAULT '{}',
     water       TEXT DEFAULT '[]',
-    notes        TEXT DEFAULT NULL,
-    completed_at TEXT DEFAULT NULL,
-    updated_at   TEXT DEFAULT (datetime('now')),
+    notes           TEXT DEFAULT NULL,
+    completed_at    TEXT DEFAULT NULL,
+    completed_meals TEXT DEFAULT NULL,
+    updated_at      TEXT DEFAULT (datetime('now')),
     deleted_at   TEXT DEFAULT NULL,
     sync_status  TEXT DEFAULT 'synced'
     , UNIQUE(date, user_id)
@@ -243,6 +244,10 @@ async function _applySchema(db) {
     // #207: per-day completion mark.
     if (!cols.includes('completed_at')) {
       await db.execute(`ALTER TABLE diary ADD COLUMN completed_at TEXT DEFAULT NULL`);
+    }
+    // #207 (per-meal companion): JSON array of slot indexes.
+    if (!cols.includes('completed_meals')) {
+      await db.execute(`ALTER TABLE diary ADD COLUMN completed_meals TEXT DEFAULT NULL`);
     }
   } catch (e) {
     console.debug('[db-native] diary.notes/completed_at migration skipped:', e?.message);
@@ -997,9 +1002,10 @@ export async function dbGetDiaryDate(date) {
   return {
     ...row,
     items,
-    body_stats: _parseJson(row.body_stats, {}),
-    water:      _parseJson(row.water, []),
-    notes:      row.notes || '',
+    body_stats:      _parseJson(row.body_stats, {}),
+    water:           _parseJson(row.water, []),
+    notes:           row.notes || '',
+    completed_meals: _parseSlotArrayLocal(row.completed_meals),
   };
 }
 
@@ -1009,22 +1015,31 @@ export async function dbSaveDiaryDate(date, data) {
   const body_stats = JSON.stringify(data.body_stats || {});
   const water      = JSON.stringify(data.water || []);
   const notes      = (typeof data.notes === 'string' && data.notes.trim()) ? data.notes : null;
-  // #207: preserve completed_at if the caller doesn't send it (same
-  // shape as the server's preserve-if-null pattern). An in-app save
-  // that doesn't touch the completion mark shouldn't clear it.
+  // #207: preserve completed_at and completed_meals if the caller
+  // doesn't send them (same shape as the server's preserve-if-null
+  // pattern). An in-app save that doesn't touch the completion state
+  // shouldn't clear it. Per-meal set union-merges when the caller
+  // sends an explicit array so the two devices' marks don't collide.
   const existing = _row(await db.query(
-    `SELECT completed_at FROM diary WHERE date = ? AND user_id = ?`,
+    `SELECT completed_at, completed_meals FROM diary WHERE date = ? AND user_id = ?`,
     [date, LOCAL_USER_ID]
   ));
   const incomingCompleted = (typeof data.completed_at === 'string' && data.completed_at) ? data.completed_at : null;
   const completedAt = incomingCompleted || (existing?.completed_at || null);
+  const existingMeals = _parseSlotArrayLocal(existing?.completed_meals);
+  const incomingMeals = Array.isArray(data.completed_meals)
+    ? data.completed_meals.filter(n => Number.isInteger(n) && n >= 0 && n <= 31)
+    : [];
+  const mergedMeals = Array.from(new Set([...existingMeals, ...incomingMeals])).sort((a, b) => a - b);
+  const completedMealsJson = mergedMeals.length ? JSON.stringify(mergedMeals) : null;
   await db.run(
-    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
      ON CONFLICT(date, user_id) DO UPDATE SET
        items=excluded.items, body_stats=excluded.body_stats, water=excluded.water,
-       notes=excluded.notes, completed_at=excluded.completed_at, updated_at=excluded.updated_at, sync_status='pending'`,
-    [LOCAL_USER_ID, date, items, body_stats, water, notes, completedAt, _now()]
+       notes=excluded.notes, completed_at=excluded.completed_at, completed_meals=excluded.completed_meals,
+       updated_at=excluded.updated_at, sync_status='pending'`,
+    [LOCAL_USER_ID, date, items, body_stats, water, notes, completedAt, completedMealsJson, _now()]
   );
   // Option C: persist per-uuid deletions locally as pending tombstones so
   // an offline delete survives an app restart and gets pushed on the next
@@ -1083,6 +1098,49 @@ export async function dbSetDiaryCompletion(date, completed) {
     [LOCAL_USER_ID, date, completedAt, nowTs]
   );
   return completedAt;
+}
+
+/**
+ * #207 (per-meal companion): local-first meal-slot completion toggle.
+ * Reads the current JSON array from diary.completed_meals, adds or
+ * removes the slot idempotently, writes back, marks the row pending
+ * so the sync engine carries it up on the next push. Creates a bare
+ * row when the day has no other data (matches the day-level behavior).
+ */
+export async function dbSetMealCompletion(date, slot, completed) {
+  const db = await getDb();
+  const nowTs = _now();
+  const existing = _row(await db.query(
+    `SELECT id, completed_meals FROM diary WHERE date = ? AND user_id = ?`,
+    [date, LOCAL_USER_ID]
+  ));
+  const arr = _parseSlotArrayLocal(existing?.completed_meals);
+  const set = new Set(arr);
+  if (completed) set.add(Number(slot)); else set.delete(Number(slot));
+  const next = Array.from(set).sort((a, b) => a - b);
+  const nextJson = next.length ? JSON.stringify(next) : null;
+  if (existing) {
+    await db.run(
+      `UPDATE diary SET completed_meals = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
+      [nextJson, nowTs, existing.id]
+    );
+  } else {
+    await db.run(
+      `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_meals, updated_at, sync_status)
+       VALUES (?, ?, '[]', '{}', '[]', NULL, ?, ?, 'pending')`,
+      [LOCAL_USER_ID, date, nextJson, nowTs]
+    );
+  }
+  return next;
+}
+
+function _parseSlotArrayLocal(raw) {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
+  } catch { return []; }
 }
 
 /**
