@@ -1038,8 +1038,25 @@
   // Date picker — calendar UI lives in src/components/ui/DatePicker.svelte
   let showDatePicker = false;
   let pickerDate = '';
+  // #207: completed-days set for the DatePicker badge. Populated lazily
+  // when the user opens the calendar; refreshed on each open so a mark
+  // change (topbar toggle) surfaces immediately the next time the
+  // picker is shown. Filled by calling getAllDiary and folding rows
+  // with completed_at into a Set of ISO date strings.
+  let pickerCompletedDays = new Set();
+  async function _refreshPickerCompletedDays() {
+    try {
+      const all = await NtApi.getAllDiary().catch(() => []);
+      const s = new Set();
+      for (const e of all || []) {
+        if (e?.date && e.completed_at) s.add(e.date);
+      }
+      pickerCompletedDays = s;
+    } catch { pickerCompletedDays = new Set(); }
+  }
   function openDatePicker() {
     pickerDate = $currentDate;
+    _refreshPickerCompletedDays();
     _lockAndOpen(() => showDatePicker = true);
   }
   function goToDate() {
@@ -2791,7 +2808,7 @@
     on:click={() => { if (!_sheetLock) showDatePicker = false; }} on:keydown={() => {}}>
     <div class="bs-sheet dp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
-      <DatePicker bind:value={pickerDate} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
+      <DatePicker bind:value={pickerDate} completedDays={pickerCompletedDays} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
     </div>
   </div>
 {/if}

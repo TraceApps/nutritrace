@@ -72,6 +72,15 @@
   let data   = [];    // [{ date, val }]
   let loading = false;
   let summary = null; // { avg, min, max, total, daysWithData }
+  // #207: independent of `summary` because completion is a per-day
+  // property of the diary row itself, not of the currently viewed
+  // metric. Populated at the end of loadData() so it stays in sync
+  // with the range the user is looking at.
+  let completionStats = null; // { marked: N, total: M, pct: 0-100 }
+  // Per-date completion Set for the x-axis tick marks. Populated
+  // alongside completionStats so the chart plugin has a cheap has()
+  // lookup keyed on the ISO date strings the chart labels use.
+  let completedDatesSet = new Set();
   let _loadVer = 0;   // cancel stale concurrent loadData calls
   // Desktop-only rail + timeline UI state. All gated by the same
   // :global(html:not(.force-mobile-layout)) block below in <style>, so
@@ -188,6 +197,11 @@
     const now = new Date();
     let dates = [];
     let fromStr = '', toStr = localDateStr();
+    // #207: hoisted so the completion tally at the end of loadData can
+    // reuse it without re-fetching for diary-shaped metrics; remains
+    // null for pure-wellness metrics (which skip the diary lookup) and
+    // the tally then does its own getAllDiary().
+    let entryMap = null;
 
     const isWellness   = metric.startsWith('wl_');
     // Withings + Health Connect both report weight + body fat; Withings is
@@ -300,7 +314,7 @@
 
       if (ver !== _loadVer) { loading = false; return; }
       const allEntries = await NtApi.getAllDiary();
-      const entryMap = Object.fromEntries(allEntries.map(e => [e.date, e]));
+      entryMap = Object.fromEntries(allEntries.map(e => [e.date, e]));
 
       for (const date of dates) {
         if (ver !== _loadVer) { loading = false; return; }
@@ -390,6 +404,37 @@
       };
     } else {
       summary = null;
+    }
+
+    // #207: completion tally across the viewed range. `entryMap` is
+    // built in every non-body-device branch above from
+    // NtApi.getAllDiary(), but body-device metrics take an early exit
+    // that skips it; fall back to a lightweight second lookup so the
+    // rail KPI shows on weight / body-fat charts too. Cheap: the
+    // getAllDiary call is already cached client-side.
+    try {
+      let map = entryMap;
+      if (!map) {
+        const all = await NtApi.getAllDiary().catch(() => []);
+        map = Object.fromEntries((all || []).map(e => [e.date, e]));
+      }
+      const set = new Set();
+      let marked = 0;
+      for (const date of dates) {
+        const entry = map[date];
+        if (entry?.completed_at) {
+          set.add(date);
+          marked++;
+        }
+      }
+      const totalDays = dates.length;
+      completionStats = totalDays > 0
+        ? { marked, total: totalDays, pct: Math.round((marked / totalDays) * 100) }
+        : null;
+      completedDatesSet = set;
+    } catch {
+      completionStats = null;
+      completedDatesSet = new Set();
     }
 
     loading = false;
@@ -527,12 +572,44 @@
       }
     }
 
+    // #207: x-axis completion tick-marker plugin. Renders a small green
+    // dot below each x-axis label that maps to a date the user marked
+    // complete. Sits below the axis line so it never competes with the
+    // data. No-op when completedDatesSet is empty.
+    const completionMarkerPlugin = {
+      id: 'completionMarkers',
+      afterDatasetsDraw(chartInstance) {
+        if (!completedDatesSet || completedDatesSet.size === 0) return;
+        const ctx = chartInstance.ctx;
+        const xScale = chartInstance.scales?.x;
+        if (!ctx || !xScale) return;
+        const y = xScale.bottom + 12;
+        ctx.save();
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.85)'; // green-500 at 85% for both themes
+        for (let i = 0; i < displayData.length; i++) {
+          const row = displayData[i];
+          if (!row?.date || !completedDatesSet.has(row.date)) continue;
+          const x = xScale.getPixelForValue(i);
+          ctx.beginPath();
+          ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      },
+    };
+
     chart = new Chart(canvasEl, {
       type: isBar ? 'bar' : 'line',
       data: { labels, datasets },
+      plugins: [completionMarkerPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        // #207: reserve a strip below the x-axis so the completion
+        // marker dots have room without clipping. Cheap; no visible
+        // gap when the set is empty because Chart.js still uses the
+        // padding for the axis label area.
+        layout: { padding: { bottom: (completedDatesSet && completedDatesSet.size) ? 12 : 0 } },
         interaction: { mode: 'index', intersect: false },
         // Chart click drill-through (#3). Labels array is display-format
         // (Aug 9) so we can't parse an ISO date back out of it —
@@ -1135,6 +1212,18 @@
         <span class="stats-rail-kpi-lbl">{$_('statistics_page.summary.logged')}</span>
         <span class="stats-rail-kpi-val">{summary.daysWithData.toLocaleString()} <span class="stats-rail-kpi-unit">{$_('statistics_page.summary.days_unit')}</span></span>
       </div>
+      {#if completionStats && completionStats.total > 0}
+        <!-- #207: adherence pulse; independent of the selected metric. -->
+        <div class="stats-rail-kpi">
+          <span class="stats-rail-kpi-lbl" title="Days marked complete over the viewed range. Purely how consistently you closed the day, not whether goals were hit.">Marked complete</span>
+          <span class="stats-rail-kpi-val">
+            {completionStats.marked} / {completionStats.total}
+            <span class="stats-rail-delta" class:good={completionStats.pct >= 70} class:neutral={completionStats.pct < 70}>
+              {completionStats.pct}%
+            </span>
+          </span>
+        </div>
+      {/if}
       {#if _trendDelta != null}
         <!-- #6 7-vs-previous-7-day trend. Hidden for <14-day ranges.
              Direction goodness mirrors _goalDelta's convention: floor

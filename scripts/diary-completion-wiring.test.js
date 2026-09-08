@@ -89,6 +89,51 @@ test('#207: meal-reminder discoverability hint gated behind localStorage flag', 
   assert.match(diaryRoute2, /notifMealReminders/);
 });
 
+// ── Companion surfaces (DatePicker badge, bedtime action, weekly summary,
+//    Statistics KPI + tick marks) ──────────────────────────────────────────
+
+test('#207: DatePicker accepts a completedDays Set and paints a badge', () => {
+  const dp = readFileSync(new URL('../src/components/ui/DatePicker.svelte', import.meta.url), 'utf8');
+  assert.match(dp, /export let completedDays/);
+  assert.match(dp, /class:dp-complete=\{completedDays/);
+  assert.match(dp, /\.dp-day\.dp-complete::after/);
+});
+
+test('#207: Diary passes completedDays into the DatePicker', () => {
+  const diary = readFileSync(new URL('../src/routes/Diary.svelte', import.meta.url), 'utf8');
+  assert.match(diary, /_refreshPickerCompletedDays/);
+  assert.match(diary, /completedDays=\{pickerCompletedDays\}/);
+});
+
+test('#207: bedtime notification carries the Close today action + receiver exists', () => {
+  const worker  = readFileSync(new URL('../android/app/src/main/java/com/nutritrace/app/ReminderWorker.java', import.meta.url), 'utf8');
+  const receiver = readFileSync(new URL('../android/app/src/main/java/com/nutritrace/app/DiaryCompletionReceiver.java', import.meta.url), 'utf8');
+  const manifest = readFileSync(new URL('../android/app/src/main/AndroidManifest.xml', import.meta.url), 'utf8');
+  assert.match(worker,  /postBedtimeNotification/);
+  assert.match(worker,  /isTodayCompleted/);
+  assert.match(worker,  /DiaryCompletionReceiver\.ACTION_CLOSE_TODAY/);
+  assert.match(receiver,/ACTION_CLOSE_TODAY/);
+  assert.match(receiver,/UPDATE.*diary/i);
+  assert.match(manifest,/DiaryCompletionReceiver/);
+});
+
+test('#207: weekly summary push + email include a completion line', () => {
+  const push  = readFileSync(new URL('../server/lib/push-notify.js', import.meta.url), 'utf8');
+  const email = readFileSync(new URL('../server/email.js', import.meta.url), 'utf8');
+  assert.match(push,  /Marked complete/);
+  assert.match(push,  /completed_at IS NOT NULL/);
+  assert.match(email, /daysCompleted/);
+  assert.match(email, /Days Marked Complete/);
+});
+
+test('#207: Statistics computes completionStats and renders the KPI', () => {
+  const stats = readFileSync(new URL('../src/routes/Statistics.svelte', import.meta.url), 'utf8');
+  assert.match(stats, /let completionStats/);
+  assert.match(stats, /completedDatesSet/);
+  assert.match(stats, /Marked complete/);
+  assert.match(stats, /completionMarkerPlugin/);
+});
+
 test('#207: en.json carries the new day_complete strings + action labels', () => {
   const parsed = JSON.parse(en);
   const actions = parsed?.diary?.actions || {};

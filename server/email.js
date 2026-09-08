@@ -393,7 +393,7 @@ export async function sendWeeklySummaryEmail(userId, origin) {
     ).all(userId, fromStr, toStr);
 
     let totalCal = 0, totalProt = 0, totalCarb = 0, totalFat = 0, totalWater = 0;
-    let daysLogged = 0, goalsHitCount = 0, daysWithGoal = 0;
+    let daysLogged = 0, goalsHitCount = 0, daysWithGoal = 0, daysCompleted = 0;
 
     // Get user's calorie goal
     const goalRow = db.prepare(`SELECT value FROM user_settings WHERE user_id=? AND key='goals'`).get(userId);
@@ -444,6 +444,18 @@ export async function sendWeeklySummaryEmail(userId, origin) {
     const avgWaterL = daysLogged > 0 ? (totalWater / daysLogged / 1000).toFixed(1) : null;
     const goalHitPct = daysWithGoal > 0 ? Math.round(goalsHitCount / daysWithGoal * 100) : null;
 
+    // #207: days-marked-complete count over the same window. Independent
+    // of daysLogged (a day can be logged but not marked, or marked but
+    // empty, e.g. a fast day the user still closed out).
+    try {
+      const cRow = db.prepare(
+        `SELECT COUNT(*) AS n FROM diary
+          WHERE user_id = ? AND completed_at IS NOT NULL
+            AND date >= ? AND date <= ? AND deleted_at IS NULL`
+      ).get(userId, fromStr, toStr);
+      daysCompleted = Number(cRow?.n || 0);
+    } catch { /* migration edge: skip */ }
+
     // ── Wellness averages (fitbit + garmin merged) ────────────────────────
     const wRows = db.prepare(
       `SELECT metric_type, AVG(value) as avg FROM wellness_data
@@ -493,6 +505,7 @@ export async function sendWeeklySummaryEmail(userId, origin) {
         ${_statRow('Avg Carbs', avgCarb, 'g')}
         ${_statRow('Avg Fat', avgFat, 'g')}
         ${_statRow('Avg Water', avgWaterL, 'L')}
+        ${daysCompleted > 0 ? _statRow('Days Marked Complete', `${daysCompleted} / 7`) : ''}
       </table>` : '';
 
     const avgSteps = w.steps ? Math.round(w.steps).toLocaleString() : null;

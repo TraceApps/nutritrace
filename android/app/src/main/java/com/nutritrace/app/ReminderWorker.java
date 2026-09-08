@@ -367,9 +367,14 @@ public class ReminderWorker extends Worker {
                 }
             }
 
-            // Main bedtime reminder
+            // Main bedtime reminder. #207: bedtime is the natural touchpoint
+            // to close today, so the notification carries a "Close today"
+            // quick action when the user has not already marked today
+            // complete. Checking the DB avoids offering the action
+            // redundantly to users who already closed the day from the app.
             if (currentMin >= bedtimeMin && currentMin < bedtimeMin + 15) {
-                postNotification(5000, "🌙 Bedtime Reminder", msg);
+                boolean offerClose = !isTodayCompleted(db, today);
+                postBedtimeNotification(5000, "🌙 Bedtime Reminder", msg, offerClose);
             }
 
             // Wind-down pre-reminder
@@ -468,6 +473,56 @@ public class ReminderWorker extends Worker {
             NotificationManagerCompat.from(ctx).notify(id, builder.build());
         } catch (SecurityException e) {
             Log.w(TAG, "notify denied: " + e.getMessage());
+        }
+    }
+
+    /**
+     * #207: bedtime variant with an optional "Close today" quick action.
+     * Kept separate from postNotification so no other reminder site
+     * accidentally gains the action.
+     */
+    private void postBedtimeNotification(int id, String title, String body, boolean offerCloseAction) {
+        Context ctx = getApplicationContext();
+        ensureChannel(ctx);
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(_buildLaunchIntent(ctx, id));
+        if (offerCloseAction) {
+            Intent closeIntent = new Intent(ctx, DiaryCompletionReceiver.class);
+            closeIntent.setAction(DiaryCompletionReceiver.ACTION_CLOSE_TODAY);
+            closeIntent.putExtra(DiaryCompletionReceiver.EXTRA_NOTIFICATION_ID, id);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+            PendingIntent closePi = PendingIntent.getBroadcast(ctx, id + 100000, closeIntent, flags);
+            builder.addAction(android.R.drawable.checkbox_on_background, "Close today", closePi);
+        }
+        try {
+            NotificationManagerCompat.from(ctx).notify(id, builder.build());
+        } catch (SecurityException e) {
+            Log.w(TAG, "notify denied: " + e.getMessage());
+        }
+    }
+
+    /** #207: skip the Close-today action when the day is already marked. */
+    private boolean isTodayCompleted(SQLiteDatabase db, String today) {
+        Cursor c = null;
+        try {
+            c = db.rawQuery(
+                "SELECT completed_at FROM diary WHERE date = ? AND user_id = 1 LIMIT 1",
+                new String[]{today}
+            );
+            if (c.moveToFirst() && !c.isNull(0)) {
+                String v = c.getString(0);
+                return v != null && !v.isEmpty();
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (c != null) c.close();
         }
     }
 
