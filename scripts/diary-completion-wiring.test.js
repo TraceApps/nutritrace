@@ -136,10 +136,10 @@ test('#207: Statistics computes completionStats and renders the KPI', () => {
 
 // ── Per-meal companion (gated by diaryShowMealCompletion) ────────────────
 
-test('#207 per-meal: diaryShowMealCompletion is registered and defaults off', () => {
+test('#207: master diaryShowCompletion toggle is registered and defaults off', () => {
   const settings = readFileSync(new URL('../src/stores/settings.js', import.meta.url), 'utf8');
-  assert.match(settings, /'diaryShowMealCompletion'/);
-  assert.match(settings, /createSettingStore\('diaryShowMealCompletion',\s*false\)/);
+  assert.match(settings, /'diaryShowCompletion'/);
+  assert.match(settings, /createSettingStore\('diaryShowCompletion',\s*false\)/);
 });
 
 test('#207 per-meal: server schema adds completed_meals column', () => {
@@ -163,13 +163,60 @@ test('#207 per-meal: sync-push union-merges the meal-completion sets', () => {
   assert.match(syncRoute, /completed_meals\s*=\s*excluded\.completed_meals/);
 });
 
+test('#207: auto-day-complete fires when all populated meal slots are marked', () => {
+  assert.match(diaryRoute2, /allSlotsMarked/);
+  assert.match(diaryRoute2, /auto_marked_toast/);
+});
+
+test('#207: WeekStrip badge is master-gated via showCompletion prop', () => {
+  assert.match(weekStrip, /export let showCompletion/);
+  assert.match(weekStrip, /showCompletion && day\.completed/);
+});
+
+test('#207: Statistics KPI + tick plugin gated on diaryShowCompletion', () => {
+  const stats = readFileSync(new URL('../src/routes/Statistics.svelte', import.meta.url), 'utf8');
+  assert.match(stats, /\$diaryShowCompletion && completionStats/);
+  assert.match(stats, /if \(!\$diaryShowCompletion\)/);
+});
+
+test('#207: bedtime notification action gated on diaryShowCompletion', () => {
+  const worker = readFileSync(new URL('../android/app/src/main/java/com/nutritrace/app/ReminderWorker.java', import.meta.url), 'utf8');
+  assert.match(worker, /getBoolSetting\(db, "diaryShowCompletion"\)/);
+});
+
+test('#207: weekly summary push gated on diaryShowCompletion', () => {
+  assert.match(readFileSync(new URL('../server/lib/push-notify.js', import.meta.url), 'utf8'),
+    /_isEnabled\(userId, 'diaryShowCompletion'\)/);
+});
+
+// ── Backup coverage (this session's additions) ────────────────────────────
+
+test('backups: full-backup import carries meals federation source columns', () => {
+  const fb = readFileSync(new URL('../server/routes/full-backup.js', import.meta.url), 'utf8');
+  assert.match(fb, /source_app,\s*source_external_id,\s*source_url,\s*import_warnings/);
+});
+
+test('backups: full-backup import carries diary completed_at + completed_meals', () => {
+  const fb = readFileSync(new URL('../server/routes/full-backup.js', import.meta.url), 'utf8');
+  assert.match(fb, /completed_at,\s*completed_meals/);
+});
+
+test('backups: native dbUpsertFromServer meals path carries federation source columns', () => {
+  assert.match(nativeDb, /source_app=\?, source_external_id=\?, source_url=\?, import_warnings=\?/);
+  assert.match(nativeDb, /source_app,\s*source_external_id,\s*source_url,\s*import_warnings/);
+});
+
+test('backups: native dbUpsertDiaryFromServer carries completed_at + completed_meals', () => {
+  assert.match(nativeDb, /completed_at=excluded\.completed_at,\s*completed_meals=excluded\.completed_meals/);
+});
+
 test('#207 per-meal: store exports setMealCompletion', () => {
   assert.match(diaryStore, /export async function setMealCompletion/);
   assert.match(diaryStore, /NtApi\.setDiaryMealCompletion/);
 });
 
 test('#207 per-meal: Diary meal card wires the gated checkbox', () => {
-  assert.match(diaryRoute2, /diaryShowMealCompletion/);
+  assert.match(diaryRoute2, /diaryShowCompletion/);
   assert.match(diaryRoute2, /_toggleMealCompletion/);
   assert.match(diaryRoute2, /meal-complete-btn/);
 });
@@ -179,10 +226,10 @@ test('#207 per-meal: day-complete confirm prompts on empty unmarked slots', () =
   assert.match(diaryRoute2, /emptyUnmarked/);
 });
 
-test('#207 per-meal: Settings > Diary exposes the toggle', () => {
+test('#207: Settings > Diary exposes the master completion toggle', () => {
   const settingsDiary = readFileSync(new URL('../src/routes/settings/Diary.svelte', import.meta.url), 'utf8');
-  assert.match(settingsDiary, /diaryShowMealCompletion/);
-  assert.match(settingsDiary, /show_meal_completion/);
+  assert.match(settingsDiary, /diaryShowCompletion/);
+  assert.match(settingsDiary, /show_completion/);
 });
 
 test('#207: en.json carries the new day_complete strings + action labels', () => {
@@ -198,6 +245,7 @@ test('#207: en.json carries the new day_complete strings + action labels', () =>
   assert.ok(dc.confirm_empty_title,      'diary.day_complete.confirm_empty_title missing');
   assert.ok(dc.confirm_empty_msg,        'diary.day_complete.confirm_empty_msg missing');
   const settingsDiaryLabels = parsed?.settings_diary || {};
-  assert.ok(settingsDiaryLabels.show_meal_completion,      'settings_diary.show_meal_completion missing');
-  assert.ok(settingsDiaryLabels.show_meal_completion_desc, 'settings_diary.show_meal_completion_desc missing');
+  assert.ok(settingsDiaryLabels.show_completion,      'settings_diary.show_completion missing');
+  assert.ok(settingsDiaryLabels.show_completion_desc, 'settings_diary.show_completion_desc missing');
+  assert.ok(dc.auto_marked_toast,                     'diary.day_complete.auto_marked_toast missing');
 });

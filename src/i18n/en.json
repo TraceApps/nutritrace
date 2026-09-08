@@ -577,6 +577,7 @@
     },
     "day_complete": {
       "marked_toast":          "Day marked complete",
+      "auto_marked_toast":     "All meals marked; day closed automatically",
       "unmarked_toast":        "Day mark cleared",
       "error_toast":           "Could not update day mark",
       "meal_reminders_hint":   "Tip: turn on meal reminders in Settings, Notifications so you don't forget a meal before end of day.",
@@ -909,8 +910,8 @@
     "show_portion_desc":        "Display \"150g\" / \"1 cup\" etc. on each diary item",
     "show_daily_notes":         "Show Daily Notes",
     "show_daily_notes_desc":    "Free-text notes section at the bottom of each day's diary",
-    "show_meal_completion":     "Show Meal Completion",
-    "show_meal_completion_desc":"Adds a check toggle to each meal card and warns about empty meals when you mark the day complete. Off by default; day-level completion still works either way.",
+    "show_completion":          "Show Day Completion",
+    "show_completion_desc":     "Adds a check toggle to the diary date bar so you can close each day when everything's logged. Marked days show a green check on the week strip, date picker, and statistics. Also adds a per-meal check on each meal card and confirms empty meals before closing the day. Off by default: no completion UI anywhere.",
     "show_quick_cals":          "Show Quick Calories Button",
     "show_quick_cals_desc":     "Adds a bolt icon on each meal section for fast calorie-only entry (no food, no portion). Useful when you know the calories but don't want to model the food, or when you're coming from Fitbit-style \"quick calories\".",
     "quick_cals_display":       "Quick Calories Display",

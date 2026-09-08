@@ -18,7 +18,8 @@
            hiddenBodyStats, dateFormat, pageBanners, bannerStyle,
            fitbitEnabled, garminEnabled, withingsEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, wellnessMetrics,
            calorieGoalMode,
-           fastingEnabled } from '../stores/settings.js';
+           fastingEnabled,
+           diaryShowCompletion } from '../stores/settings.js';
   import FastingInsights from '../components/diary/FastingInsights.svelte';
   import { isNative } from '../lib/platform.js';
   let _waterShowInStats = DB.getSetting('waterShowInStats', true);
@@ -406,13 +407,17 @@
       summary = null;
     }
 
-    // #207: completion tally across the viewed range. `entryMap` is
-    // built in every non-body-device branch above from
+    // #207: completion tally across the viewed range. Master-gated so
+    // users who never enabled the feature don't pay the extra lookup.
+    // `entryMap` is built in every non-body-device branch above from
     // NtApi.getAllDiary(), but body-device metrics take an early exit
     // that skips it; fall back to a lightweight second lookup so the
     // rail KPI shows on weight / body-fat charts too. Cheap: the
     // getAllDiary call is already cached client-side.
-    try {
+    if (!$diaryShowCompletion) {
+      completionStats = null;
+      completedDatesSet = new Set();
+    } else try {
       let map = entryMap;
       if (!map) {
         const all = await NtApi.getAllDiary().catch(() => []);
@@ -579,6 +584,9 @@
     const completionMarkerPlugin = {
       id: 'completionMarkers',
       afterDatasetsDraw(chartInstance) {
+        // #207: master gate. When completion is off, skip the whole
+        // plugin so no dots and no padding reservation happen.
+        if (!$diaryShowCompletion) return;
         if (!completedDatesSet || completedDatesSet.size === 0) return;
         const ctx = chartInstance.ctx;
         const xScale = chartInstance.scales?.x;
@@ -608,8 +616,8 @@
         // #207: reserve a strip below the x-axis so the completion
         // marker dots have room without clipping. Cheap; no visible
         // gap when the set is empty because Chart.js still uses the
-        // padding for the axis label area.
-        layout: { padding: { bottom: (completedDatesSet && completedDatesSet.size) ? 12 : 0 } },
+        // padding for the axis label area. Gated on the master setting.
+        layout: { padding: { bottom: ($diaryShowCompletion && completedDatesSet && completedDatesSet.size) ? 12 : 0 } },
         interaction: { mode: 'index', intersect: false },
         // Chart click drill-through (#3). Labels array is display-format
         // (Aug 9) so we can't parse an ISO date back out of it —
@@ -1212,7 +1220,7 @@
         <span class="stats-rail-kpi-lbl">{$_('statistics_page.summary.logged')}</span>
         <span class="stats-rail-kpi-val">{summary.daysWithData.toLocaleString()} <span class="stats-rail-kpi-unit">{$_('statistics_page.summary.days_unit')}</span></span>
       </div>
-      {#if completionStats && completionStats.total > 0}
+      {#if $diaryShowCompletion && completionStats && completionStats.total > 0}
         <!-- #207: adherence pulse; independent of the selected metric. -->
         <div class="stats-rail-kpi">
           <span class="stats-rail-kpi-lbl" title="Days marked complete over the viewed range. Purely how consistently you closed the day, not whether goals were hit.">Marked complete</span>

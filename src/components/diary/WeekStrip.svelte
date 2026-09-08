@@ -55,6 +55,10 @@
   export let activityPolicy  = 'wearable_wins';    // manual/wearable combination policy for per-day effective active kcal
   export let onSelectDate    = (_iso) => {};
   export let onDropMeal      = (_iso, _mealIdx) => {};   // Phase 7 drag-copy
+  // #207: master gate for the day-complete badge on each strip cell.
+  // Passed in from Diary.svelte's $diaryShowCompletion setting store.
+  // When false, the strip renders exactly as it did pre-#207.
+  export let showCompletion  = false;
 
   // Drag/drop state — highlight the day currently being hovered
   let dragOverIso = null;
@@ -291,7 +295,7 @@
       <span class="ws-dow">{day.dow}</span>
       <span class="ws-dnum">
         {day.dnum}
-        {#if day.completed}
+        {#if showCompletion && day.completed}
           <span class="ws-complete-mark material-symbols-rounded" title="Day marked complete" aria-label="Day marked complete">check_circle</span>
         {/if}
       </span>

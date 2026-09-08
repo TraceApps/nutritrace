@@ -213,20 +213,21 @@ export async function sendWeeklySummary(userId) {
     parts.push(`Avg sleep: ${h}h ${min}m`);
   }
 
-  // #207: adherence line, counts days the user marked complete over the
-  // same 7-day window. Uses the diary row itself so single-user (NULL)
-  // and multi-user (user_id) instances both work; only counts rows the
-  // window includes (LIMIT is implicit via the date filter).
+  // #207: adherence line, counts days the user marked complete over
+  // the same 7-day window. Master-gated on diaryShowCompletion so
+  // users who never enabled the feature don't see the line appear.
   try {
-    const doneRow = db.prepare(
-      `SELECT COUNT(*) AS n FROM diary
-        WHERE user_id = ? AND completed_at IS NOT NULL
-          AND date >= date('now','-7 days') AND date <= date('now')
-          AND deleted_at IS NULL`
-    ).get(userId);
-    const done = Number(doneRow?.n || 0);
-    if (done > 0) {
-      parts.push(`Marked complete: ${done} of 7 days`);
+    if (_isEnabled(userId, 'diaryShowCompletion')) {
+      const doneRow = db.prepare(
+        `SELECT COUNT(*) AS n FROM diary
+          WHERE user_id = ? AND completed_at IS NOT NULL
+            AND date >= date('now','-7 days') AND date <= date('now')
+            AND deleted_at IS NULL`
+      ).get(userId);
+      const done = Number(doneRow?.n || 0);
+      if (done > 0) {
+        parts.push(`Marked complete: ${done} of 7 days`);
+      }
     }
   } catch { /* diary missing / migration edge: skip the line */ }
 

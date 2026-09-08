@@ -370,10 +370,12 @@ public class ReminderWorker extends Worker {
             // Main bedtime reminder. #207: bedtime is the natural touchpoint
             // to close today, so the notification carries a "Close today"
             // quick action when the user has not already marked today
-            // complete. Checking the DB avoids offering the action
-            // redundantly to users who already closed the day from the app.
+            // complete. Master-gated on diaryShowCompletion so users who
+            // never enabled the feature don't see the action; also skipped
+            // when today is already closed so it's not offered redundantly.
             if (currentMin >= bedtimeMin && currentMin < bedtimeMin + 15) {
-                boolean offerClose = !isTodayCompleted(db, today);
+                boolean completionEnabled = getBoolSetting(db, "diaryShowCompletion");
+                boolean offerClose = completionEnabled && !isTodayCompleted(db, today);
                 postBedtimeNotification(5000, "🌙 Bedtime Reminder", msg, offerClose);
             }
 

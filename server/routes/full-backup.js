@@ -224,11 +224,19 @@ function restoreFromZip(zip) {
     `);
     for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, nutrition_basis: null, alt_units: null, density_g_ml: null, updated_at: null, deleted_at: null, ...f });
 
+    // Federation source columns (source_app / source_external_id / source_url /
+    // import_warnings, added for the CookTrace pull flow) are part of the
+    // meals row now. Restoring without them silently drops the "From
+    // CookTrace" badge and the deep-link back to the source on restore.
     const insMeal = db.prepare(`
-      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at)
+      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, created_at, updated_at, deleted_at)
+      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @source_app, @source_external_id, @source_url, @import_warnings, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at)
     `);
-    for (const m of data.meals || []) insMeal.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, updated_at: null, deleted_at: null, servings: null, ...m });
+    for (const m of data.meals || []) insMeal.run({
+      visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null,
+      source_app: null, source_external_id: null, source_url: null, import_warnings: null,
+      updated_at: null, deleted_at: null, servings: null, ...m,
+    });
 
     const insFoodShare = db.prepare(`INSERT OR IGNORE INTO food_shares (food_id, user_id) VALUES (@food_id, @user_id)`);
     for (const fs of data.food_shares || []) insFoodShare.run(fs);
@@ -239,11 +247,16 @@ function restoreFromZip(zip) {
     // COALESCE updated_at to NOW so pre-#39 rows without the column don't
     // restore as NULL — same rule as foods/meals. NULL updated_at is silently
     // skipped by the Android delta sync's `WHERE updated_at >= ?` filter.
+    // #207: completed_at + completed_meals ride along so day-completion
+    // state survives a full-backup restore.
     const insDiary = db.prepare(`
-      INSERT OR IGNORE INTO diary (id, user_id, date, items, body_stats, water, notes, updated_at, deleted_at)
-      VALUES (@id, @user_id, @date, @items, @body_stats, @water, @notes, COALESCE(@updated_at, datetime('now')), @deleted_at)
+      INSERT OR IGNORE INTO diary (id, user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at, deleted_at)
+      VALUES (@id, @user_id, @date, @items, @body_stats, @water, @notes, @completed_at, @completed_meals, COALESCE(@updated_at, datetime('now')), @deleted_at)
     `);
-    for (const d of data.diary || []) insDiary.run({ notes: null, updated_at: null, deleted_at: null, ...d });
+    for (const d of data.diary || []) insDiary.run({
+      notes: null, completed_at: null, completed_meals: null,
+      updated_at: null, deleted_at: null, ...d,
+    });
 
     const insSettings = db.prepare(`
       INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at, deleted_at) VALUES (@user_id, @key, @value, COALESCE(@updated_at, datetime('now')), @deleted_at)

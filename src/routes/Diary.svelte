@@ -51,7 +51,7 @@
            fastingEnabled,
            wellnessEnabled,
            notifMealReminders,
-           diaryShowMealCompletion,
+           diaryShowCompletion,
            diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
            diaryRailShowActivity as diaryRailShowActivityWidget,
            diaryRailShowNotes,
@@ -926,7 +926,7 @@
     // not re-prompt if they keep the marks. Cancel bails without
     // touching state.
     let emptyUnmarked = [];
-    if (nextState && $diaryShowMealCompletion && entry?.items) {
+    if (nextState && $diaryShowCompletion && entry?.items) {
       const marked = new Set(Array.isArray(entry.completed_meals) ? entry.completed_meals : []);
       const perMealItems = meals.map((_, i) => (entry.items || []).filter(it => (it.meal ?? 0) === i));
       emptyUnmarked = meals
@@ -966,11 +966,31 @@
 
   // #207 (per-meal): store-backed toggle wrapper. Best-effort UI
   // feedback; the store already handles optimistic flip + rollback.
+  // After a successful mark, if every populated meal slot is now
+  // marked AND the day isn't already closed, auto-close the day.
+  // Auto-uncomplete on unmark is intentionally NOT done: the user
+  // explicitly closed the day and unmarking a single meal shouldn't
+  // silently reverse that decision. They can uncheck the day toggle
+  // themselves if they want to reopen it.
   async function _toggleMealCompletion(mealIdx) {
     const date = $currentDate;
     const cur = Array.isArray(entry?.completed_meals) && entry.completed_meals.includes(mealIdx);
+    const nextState = !cur;
     try {
-      await setMealCompletion(date, mealIdx, !cur);
+      await setMealCompletion(date, mealIdx, nextState);
+      if (nextState && !_dayIsComplete) {
+        // Read fresh state (setMealCompletion already updated currentEntry).
+        let latest = null;
+        currentEntry.subscribe(v => latest = v)();
+        const marked = new Set(Array.isArray(latest?.completed_meals) ? latest.completed_meals : []);
+        const allSlotsMarked = meals.every((_, i) => marked.has(i));
+        if (allSlotsMarked) {
+          try {
+            await setDayCompletion(date, true);
+            showSuccess($_('diary.day_complete.auto_marked_toast'));
+          } catch { /* store handles its own rollback */ }
+        }
+      }
     } catch (e) {
       showError(e?.message || $_('diary.day_complete.error_toast'));
     }
@@ -1096,7 +1116,10 @@
   }
   function openDatePicker() {
     pickerDate = $currentDate;
-    _refreshPickerCompletedDays();
+    // #207: skip the load when completion is off so we don't pay the
+    // getAllDiary round-trip for a feature the user never activated.
+    if ($diaryShowCompletion) _refreshPickerCompletedDays();
+    else pickerCompletedDays = new Set();
     _lockAndOpen(() => showDatePicker = true);
   }
   function goToDate() {
@@ -1808,22 +1831,23 @@
         {#if $diaryShowNotes && (entry?.notes || '').trim()}
           <span class="material-symbols-rounded date-note-indicator" title="Has notes">edit_note</span>
         {/if}
-        {#if _dayIsComplete}
+        {#if $diaryShowCompletion && _dayIsComplete}
           <span class="material-symbols-rounded date-complete-indicator" title="Day marked complete" aria-label="Day marked complete">task_alt</span>
         {/if}
       </span>
       <span class="date-sub">{formatDateSub($currentDate, $dateFormat)}</span>
     </button>
-    <!-- #207: day-completion toggle. Lives in the date bar so it shows
-         on both mobile and desktop (the topbar-actions row is hidden at
-         wider breakpoints). Reads and writes the currently viewed
-         date's completed_at via setDayCompletion. -->
-    <button class="btn-icon" class:accent={!_dayIsComplete} class:day-complete-on={_dayIsComplete}
-      on:click={_toggleDayCompletion}
-      aria-label={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}
-      title={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}>
-      <span class="material-symbols-rounded">{_dayIsComplete ? 'task_alt' : 'radio_button_unchecked'}</span>
-    </button>
+    {#if $diaryShowCompletion}
+      <!-- #207: day-completion toggle. Only rendered when the master
+           completion setting is on so users who never turn it on see
+           the same date bar they've always had. -->
+      <button class="btn-icon" class:accent={!_dayIsComplete} class:day-complete-on={_dayIsComplete}
+        on:click={_toggleDayCompletion}
+        aria-label={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}
+        title={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}>
+        <span class="material-symbols-rounded">{_dayIsComplete ? 'task_alt' : 'radio_button_unchecked'}</span>
+      </button>
+    {/if}
     <button class="btn-icon accent" on:click={nextDay} aria-label={$_('diary.nav.next_day')} title={$_('diary.nav.next_day')}>
       <span class="material-symbols-rounded">chevron_right</span>
     </button>
@@ -1849,6 +1873,7 @@
       refreshKey={_weekStripRefreshKey}
       onSelectDate={(iso) => _loadEntryTracked(iso)}
       onDropMeal={_onDropMealOnWeekDay}
+      showCompletion={$diaryShowCompletion}
     />
   </div>
 
@@ -1908,7 +1933,7 @@
         <div class="meal-header" style="--meal-color:{mealColor(mealIdx)}">
           <span class="meal-type-icon material-symbols-rounded">{mealIcon(meal)}</span>
           <span class="meal-name">{meal}</span>
-          {#if $diaryShowMealCompletion}
+          {#if $diaryShowCompletion}
             {@const _mealDone = Array.isArray(entry?.completed_meals) && entry.completed_meals.includes(mealIdx)}
             <!-- #207 per-meal (opt-in via Settings > Diary > Show meal completion):
                  quick check toggle. Tap to mark this slot done; tap again to

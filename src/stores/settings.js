@@ -31,7 +31,7 @@ export const USER_PREFS = new Set([
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
   'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes','warnUnitMismatch','showUnitMetadata',
-  'diaryShowMealCompletion',
+  'diaryShowCompletion',
   'diaryShowActivity','manualActivityPolicy','activityAutoEstimate','calorieAdjustFromActivity',
   'showQuickCalories','quickCaloriesDisplay',
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
@@ -521,12 +521,14 @@ export const diaryShowPortionSize   = createSettingStore('diaryShowPortionSize',
 export const showQuickCalories      = createSettingStore('showQuickCalories',       true);
 export const quickCaloriesDisplay   = createSettingStore('quickCaloriesDisplay',    'summed');
 export const diaryShowNotes         = createSettingStore('diaryShowNotes',          true);
-// #207 companion: opt-in per-meal completion checkboxes. Off by default
-// so casual users see no new UI on their meal cards. When on: each meal
-// card header carries a check toggle, and the day-completion toggle in
-// the date bar shows a pre-close confirm when any meal slot is empty
-// and not explicitly marked as skipped.
-export const diaryShowMealCompletion = createSettingStore('diaryShowMealCompletion', false);
+// #207: master toggle for every completion surface (day + per-meal).
+// Off by default. When on: the day-completion toggle appears in the
+// date bar, WeekStrip + DatePicker badges render, Statistics gains a
+// completion KPI + x-axis tick dots, meal cards get per-meal checks,
+// day-close confirms empty-and-unmarked meals, and the bedtime + weekly
+// summary hooks activate on the server / native side too. Off: every
+// surface reverts to what NT looked like before #207 landed.
+export const diaryShowCompletion = createSettingStore('diaryShowCompletion', false);
 
 // Desktop diary redesign — right-rail widget visibility. Each widget
 // can be independently hidden by the user. Defaults show everything so

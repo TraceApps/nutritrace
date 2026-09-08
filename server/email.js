@@ -444,16 +444,23 @@ export async function sendWeeklySummaryEmail(userId, origin) {
     const avgWaterL = daysLogged > 0 ? (totalWater / daysLogged / 1000).toFixed(1) : null;
     const goalHitPct = daysWithGoal > 0 ? Math.round(goalsHitCount / daysWithGoal * 100) : null;
 
-    // #207: days-marked-complete count over the same window. Independent
-    // of daysLogged (a day can be logged but not marked, or marked but
-    // empty, e.g. a fast day the user still closed out).
+    // #207: days-marked-complete count over the same window. Master-
+    // gated on diaryShowCompletion so users who never enabled the
+    // feature don't get the line surprise-appearing in their summary.
     try {
       const cRow = db.prepare(
-        `SELECT COUNT(*) AS n FROM diary
-          WHERE user_id = ? AND completed_at IS NOT NULL
-            AND date >= ? AND date <= ? AND deleted_at IS NULL`
-      ).get(userId, fromStr, toStr);
-      daysCompleted = Number(cRow?.n || 0);
+        `SELECT value FROM user_settings WHERE user_id = ? AND key = 'diaryShowCompletion'`
+      ).get(userId);
+      let completionEnabled = false;
+      try { completionEnabled = JSON.parse(cRow?.value || 'false') === true; } catch {}
+      if (completionEnabled) {
+        const dRow = db.prepare(
+          `SELECT COUNT(*) AS n FROM diary
+            WHERE user_id = ? AND completed_at IS NOT NULL
+              AND date >= ? AND date <= ? AND deleted_at IS NULL`
+        ).get(userId, fromStr, toStr);
+        daysCompleted = Number(dRow?.n || 0);
+      }
     } catch { /* migration edge: skip */ }
 
     // ── Wellness averages (fitbit + garmin merged) ────────────────────────
