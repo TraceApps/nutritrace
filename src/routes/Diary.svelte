@@ -1739,14 +1739,6 @@
           <span class="material-symbols-rounded">water_drop</span>
         </button>
       {/if}
-      <!-- #207: mark the current viewed day as fully logged. Purely a
-           visual affordance surfaced on the week strip; no math depends on it. -->
-      <button class="btn-icon" class:accent={!_dayIsComplete} class:day-complete-on={_dayIsComplete}
-        on:click={_toggleDayCompletion}
-        aria-label={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}
-        title={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}>
-        <span class="material-symbols-rounded">{_dayIsComplete ? 'task_alt' : 'radio_button_unchecked'}</span>
-      </button>
       <button class="btn-icon accent" on:click={() => diaryShowNutritionSummary.set(true)} aria-label={$_('diary.actions.nutrition_summary')} title={$_('diary.actions.nutrition_summary_long')}>
         <span class="material-symbols-rounded">monitoring</span>
       </button>
@@ -1776,8 +1768,21 @@
         {#if $diaryShowNotes && (entry?.notes || '').trim()}
           <span class="material-symbols-rounded date-note-indicator" title="Has notes">edit_note</span>
         {/if}
+        {#if _dayIsComplete}
+          <span class="material-symbols-rounded date-complete-indicator" title="Day marked complete" aria-label="Day marked complete">task_alt</span>
+        {/if}
       </span>
       <span class="date-sub">{formatDateSub($currentDate, $dateFormat)}</span>
+    </button>
+    <!-- #207: day-completion toggle. Lives in the date bar so it shows
+         on both mobile and desktop (the topbar-actions row is hidden at
+         wider breakpoints). Reads and writes the currently viewed
+         date's completed_at via setDayCompletion. -->
+    <button class="btn-icon" class:accent={!_dayIsComplete} class:day-complete-on={_dayIsComplete}
+      on:click={_toggleDayCompletion}
+      aria-label={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}
+      title={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}>
+      <span class="material-symbols-rounded">{_dayIsComplete ? 'task_alt' : 'radio_button_unchecked'}</span>
     </button>
     <button class="btn-icon accent" on:click={nextDay} aria-label={$_('diary.nav.next_day')} title={$_('diary.nav.next_day')}>
       <span class="material-symbols-rounded">chevron_right</span>
@@ -3084,9 +3089,21 @@
     pointer-events: all;
   }
   /* #207: toggle button's on-state colours the check the same green as the
-     WeekStrip completion badge so the two surfaces read as one signal. */
-  :global(.diary-topbar-actions .btn-icon.day-complete-on) {
+     WeekStrip completion badge so the two surfaces read as one signal.
+     Lives on the date bar (works on mobile + desktop) so scope covers
+     both the topbar-actions layout and the date-bar itself. */
+  :global(.btn-icon.day-complete-on) {
     color: var(--success, #10b981);
+  }
+  /* #207: matching check next to the date label so the current viewed
+     day carries its state visually without relying on the toggle icon
+     alone (helps the mark read clearly on wide screens with lots of
+     white space in the date bar). */
+  .date-complete-indicator {
+    font-size: 16px;
+    color: var(--success, #10b981);
+    vertical-align: middle;
+    margin-left: 4px;
   }
 
   /* H1 height/alignment now lives in base.css .page-header h1 (uniform 40px). */
