@@ -570,8 +570,16 @@
       "log_water_long":        "Water — log your water intake",
       "nutrition_summary":     "Nutrition Summary",
       "nutrition_summary_long": "Nutrition Summary — full breakdown of today's nutrients",
+      "mark_day_complete":     "Mark Day Complete",
+      "unmark_day_complete":   "Unmark Day Complete",
       "body_stats":            "Body Stats",
       "body_stats_long":       "Body Stats — log weight, body fat, and measurements"
+    },
+    "day_complete": {
+      "marked_toast":          "Day marked complete",
+      "unmarked_toast":        "Day mark cleared",
+      "error_toast":           "Could not update day mark",
+      "meal_reminders_hint":   "Tip: turn on meal reminders in Settings, Notifications so you don't forget a meal before end of day."
     },
     "toast": {
       "body_stats_saved": "Body stats saved",

@@ -340,26 +340,36 @@ router.post('/push', wrap(async (req, res) => {
         const itemsJson = JSON.stringify(mergedItems);
         const waterJson = JSON.stringify(mergedWater);
 
+        // #207: completion mark. Preserve-if-incoming-null semantics
+        // (same shape as the notes/body_stats empty guard): an offline
+        // client that syncs before receiving another device's mark must
+        // not clobber the mark by pushing its stale null. Explicit
+        // unmarking still works via PUT /api/diary/:date/completion,
+        // which sets completed_at=NULL directly.
+        const incomingCompletedAt = (typeof d.completed_at === 'string' && d.completed_at) ? d.completed_at : null;
+        const completedAt = incomingCompletedAt || (existingRow?.completed_at || null);
+
         if (u == null) {
           // Single-user mode: NULL user_id never collides under SQLite UNIQUE
           // (see diary.js PUT for the same workaround, issue #37).
           const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(d.date);
           if (existing) {
-            db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
-              .run(itemsJson, bsJson, waterJson, dNotes, existing.id);
+            db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, completed_at=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
+              .run(itemsJson, bsJson, waterJson, dNotes, completedAt, existing.id);
           } else {
-            db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`)
-              .run(d.date, itemsJson, bsJson, waterJson, dNotes);
+            db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, completed_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`)
+              .run(d.date, itemsJson, bsJson, waterJson, dNotes, completedAt);
           }
         } else {
           db.prepare(
-            `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
              ON CONFLICT(date, user_id) DO UPDATE SET
                items = excluded.items, body_stats = excluded.body_stats, water = excluded.water,
                notes = excluded.notes,
+               completed_at = excluded.completed_at,
                updated_at = datetime('now'), deleted_at = NULL`
-          ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes);
+          ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes, completedAt);
         }
 
         // Persist new tombstones idempotently.

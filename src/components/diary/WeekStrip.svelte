@@ -146,6 +146,8 @@
         // them out and skip the fill bar rendering downstream via
         // status === 'future' in the button markup.
         isFuture: iso > today,
+        // #207: badge when the user has marked the day fully logged.
+        completed: !!stats?.completed,
         // Goal-hit status colour for the dot:
         //  - green:  ±10% of goal (on-track)
         //  - amber:  <90% (under-eaten)
@@ -187,6 +189,9 @@
           fat: Math.round(totals.fat || 0),
           water_ml,
           item_count: items.length,
+          // #207: per-day completion badge. Reflects the user's manual
+          // "close the day" mark; null when unmarked, ISO string when marked.
+          completed: !!entry.completed_at,
         });
       }
       byDate = map;
@@ -284,7 +289,12 @@
       title="Switch diary to {day.iso}"
     >
       <span class="ws-dow">{day.dow}</span>
-      <span class="ws-dnum">{day.dnum}</span>
+      <span class="ws-dnum">
+        {day.dnum}
+        {#if day.completed}
+          <span class="ws-complete-mark material-symbols-rounded" title="Day marked complete" aria-label="Day marked complete">check_circle</span>
+        {/if}
+      </span>
       <span class="ws-kcal">
         {#if day.hasData}{day.kcal.toLocaleString()}{:else}—{/if}
       </span>
@@ -379,6 +389,18 @@
     line-height: 1;
     letter-spacing: -0.02em;
     color: var(--text-1);
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  /* #207: small filled check pinned to the day number when the user has
+     marked the day complete. Green so it reads as "done" without
+     competing with the goal-hit bar colour. */
+  .ws-complete-mark {
+    font-size: 12px;
+    line-height: 1;
+    color: var(--success, #10b981);
   }
   .ws-kcal {
     font-size: 10px;

@@ -80,10 +80,11 @@ const SCHEMA = `
     items       TEXT DEFAULT '[]',
     body_stats  TEXT DEFAULT '{}',
     water       TEXT DEFAULT '[]',
-    notes       TEXT DEFAULT NULL,
-    updated_at  TEXT DEFAULT (datetime('now')),
-    deleted_at  TEXT DEFAULT NULL,
-    sync_status TEXT DEFAULT 'synced'
+    notes        TEXT DEFAULT NULL,
+    completed_at TEXT DEFAULT NULL,
+    updated_at   TEXT DEFAULT (datetime('now')),
+    deleted_at   TEXT DEFAULT NULL,
+    sync_status  TEXT DEFAULT 'synced'
     , UNIQUE(date, user_id)
   );
 
@@ -239,8 +240,12 @@ async function _applySchema(db) {
     if (!cols.includes('notes')) {
       await db.execute(`ALTER TABLE diary ADD COLUMN notes TEXT DEFAULT NULL`);
     }
+    // #207: per-day completion mark.
+    if (!cols.includes('completed_at')) {
+      await db.execute(`ALTER TABLE diary ADD COLUMN completed_at TEXT DEFAULT NULL`);
+    }
   } catch (e) {
-    console.debug('[db-native] diary.notes migration skipped:', e?.message);
+    console.debug('[db-native] diary.notes/completed_at migration skipped:', e?.message);
   }
 
   // Favorites + usage tracking — mirror of the server-side migration.
@@ -1004,13 +1009,22 @@ export async function dbSaveDiaryDate(date, data) {
   const body_stats = JSON.stringify(data.body_stats || {});
   const water      = JSON.stringify(data.water || []);
   const notes      = (typeof data.notes === 'string' && data.notes.trim()) ? data.notes : null;
+  // #207: preserve completed_at if the caller doesn't send it (same
+  // shape as the server's preserve-if-null pattern). An in-app save
+  // that doesn't touch the completion mark shouldn't clear it.
+  const existing = _row(await db.query(
+    `SELECT completed_at FROM diary WHERE date = ? AND user_id = ?`,
+    [date, LOCAL_USER_ID]
+  ));
+  const incomingCompleted = (typeof data.completed_at === 'string' && data.completed_at) ? data.completed_at : null;
+  const completedAt = incomingCompleted || (existing?.completed_at || null);
   await db.run(
-    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
      ON CONFLICT(date, user_id) DO UPDATE SET
        items=excluded.items, body_stats=excluded.body_stats, water=excluded.water,
-       notes=excluded.notes, updated_at=excluded.updated_at, sync_status='pending'`,
-    [LOCAL_USER_ID, date, items, body_stats, water, notes, _now()]
+       notes=excluded.notes, completed_at=excluded.completed_at, updated_at=excluded.updated_at, sync_status='pending'`,
+    [LOCAL_USER_ID, date, items, body_stats, water, notes, completedAt, _now()]
   );
   // Option C: persist per-uuid deletions locally as pending tombstones so
   // an offline delete survives an app restart and gets pushed on the next
@@ -1035,6 +1049,40 @@ export async function dbSaveDiaryDate(date, data) {
     }
   }
   return dbGetDiaryDate(date);
+}
+
+/**
+ * #207: set or clear the per-day completion mark locally, mark the row
+ * sync_status='pending' so the next push carries the change to the
+ * server. Creates a bare diary row if none exists (a user can close an
+ * intentionally empty day, e.g. a fast). Returns the resulting
+ * completed_at value (ISO string when set, null when cleared).
+ */
+export async function dbSetDiaryCompletion(date, completed) {
+  const db = await getDb();
+  const nowTs = _now();
+  const completedAt = completed ? nowTs : null;
+  const existing = _row(await db.query(
+    `SELECT id, completed_at FROM diary WHERE date = ? AND user_id = ?`,
+    [date, LOCAL_USER_ID]
+  ));
+  if (existing) {
+    // Preserve first-mark timestamp so repeated PUT-true does not shift it.
+    const nextCompletedAt = completed
+      ? (existing.completed_at || completedAt)
+      : null;
+    await db.run(
+      `UPDATE diary SET completed_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
+      [nextCompletedAt, nowTs, existing.id]
+    );
+    return nextCompletedAt;
+  }
+  await db.run(
+    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, updated_at, sync_status)
+     VALUES (?, ?, '[]', '{}', '[]', NULL, ?, ?, 'pending')`,
+    [LOCAL_USER_ID, date, completedAt, nowTs]
+  );
+  return completedAt;
 }
 
 /**

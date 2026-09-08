@@ -48,7 +48,7 @@ router.get('/:date', wrap((req, res) => {
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND deleted_at IS NULL').get(req.params.date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(req.params.date, u);
   const tombstones = _loadTombstones(u, req.params.date);
-  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [], notes: '', tombstones });
+  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [], notes: '', completed_at: null, tombstones });
   res.json({ ...parse(row), tombstones });
 }));
 
@@ -193,6 +193,55 @@ router.delete('/:date', wrap((req, res) => {
     db.prepare("UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE date = ? AND user_id = ? AND deleted_at IS NULL").run(req.params.date, u);
   }
   res.json({ ok: true });
+}));
+
+/**
+ * PUT /api/diary/:date/completion
+ * Body: { completed: boolean }
+ *
+ * #207: mark the day as "fully logged" (or clear the mark). Purely a
+ * user-facing visual affordance; no diary math depends on completed_at.
+ *
+ * Creates the diary row if the user marks a day complete without having
+ * logged anything (still valid: someone might close an intentionally
+ * empty day, e.g. a fast). Idempotent: PUT-true twice is the same as
+ * once, and the completed_at stamp is preserved on the first mark so a
+ * subsequent PUT-true does not shift the timestamp.
+ */
+router.put('/:date/completion', wrap((req, res) => {
+  const u = uid(req);
+  const date = String(req.params.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'invalid date' });
+  }
+  const completed = req.body?.completed !== false;
+
+  const existing = u == null
+    ? db.prepare('SELECT id, completed_at FROM diary WHERE date = ? AND user_id IS NULL').get(date)
+    : db.prepare('SELECT id, completed_at FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+
+  if (completed) {
+    if (existing) {
+      // Preserve first-mark timestamp so a repeat PUT does not overwrite it.
+      if (!existing.completed_at) {
+        db.prepare("UPDATE diary SET completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+          .run(existing.id);
+      }
+    } else {
+      db.prepare(
+        `INSERT INTO diary (user_id, date, completed_at, updated_at)
+         VALUES (?, ?, datetime('now'), datetime('now'))`
+      ).run(u, date);
+    }
+  } else if (existing) {
+    db.prepare("UPDATE diary SET completed_at = NULL, updated_at = datetime('now') WHERE id = ?")
+      .run(existing.id);
+  }
+
+  const row = u == null
+    ? db.prepare('SELECT date, completed_at FROM diary WHERE date = ? AND user_id IS NULL').get(date)
+    : db.prepare('SELECT date, completed_at FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+  res.json({ ok: true, date, completed_at: row?.completed_at || null });
 }));
 
 // Fix any Capacitor cached paths that leaked into diary items

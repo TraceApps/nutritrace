@@ -572,6 +572,13 @@ if (!columnExists('diary', 'deleted_at')) {
 if (!columnExists('diary', 'notes')) {
   db.exec(`ALTER TABLE diary ADD COLUMN notes TEXT DEFAULT NULL`);
 }
+// #207: per-day completion mark. NULL means unmarked; a timestamp means
+// the user explicitly closed the day (all meals + snacks logged). Purely
+// a visual affordance on the week strip and date picker, no calculations
+// depend on it.
+if (!columnExists('diary', 'completed_at')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN completed_at TEXT DEFAULT NULL`);
+}
 if (!columnExists('user_settings', 'deleted_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN deleted_at TEXT DEFAULT NULL`);
 }

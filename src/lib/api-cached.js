@@ -12,7 +12,7 @@
 import {
   dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood, dbBumpFoodUsage,
   dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal, dbBumpMealUsage,
-  dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary,
+  dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary, dbSetDiaryCompletion,
 } from './db-native.js';
 import { getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
 import { schedulePush } from './sync.js';
@@ -268,6 +268,16 @@ export const NtApiCached = {
 
   async getAllDiary() {
     return await dbGetAllDiary().catch(() => []);
+  },
+
+  // #207: local-first mark/unmark a day complete. Best-effort push to
+  // the server; if offline, the row goes to the sync queue via
+  // sync_status='pending' and schedulePush covers it.
+  async setDiaryCompletion(date, completed) {
+    const completedAt = await dbSetDiaryCompletion(date, !!completed);
+    _serverFetch('PUT', `/api/diary/${date}/completion`, { completed: !!completed })
+      .catch(() => schedulePush());
+    return { ok: true, date, completed_at: completedAt };
   },
 
   // ── Wellness ──────────────────────────────────────────────────────────

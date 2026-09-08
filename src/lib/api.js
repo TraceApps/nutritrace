@@ -861,6 +861,9 @@ const _NtApiHttp = {
   getDiaryDate(date)        { return this.get(`/api/diary/${date}`); },
   saveDiaryDate(date, data) { return this.put(`/api/diary/${date}`, data); },
   getAllDiary()              { return this.get('/api/diary'); },
+  // #207: mark or unmark a day as fully logged. Purely a visual affordance
+  // (week strip + date picker badges); no diary math depends on it.
+  setDiaryCompletion(date, completed) { return this.put(`/api/diary/${date}/completion`, { completed: !!completed }); },
 
   // Latest wellness_data row across all sources for a metric — used by
   // AddActivitySheet for MET auto-estimate weight lookup (#99). Returns

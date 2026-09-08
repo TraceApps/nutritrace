@@ -32,6 +32,7 @@
     prevDay, nextDay, loadEntry, removeDiaryItem, updateDiaryItem, saveBodyStats,
     addWaterLog,
     copyMealItems, moveMealItems, clearMealItems, copyMealToDate, saveDiaryNote,
+    setDayCompletion,
     splitRecipeItem, removeSplitChild, updateSplitChild,
     diaryShowNutritionSummary, diaryShowBodyStats, diaryLoadError,
     buildDiaryWritePayload,
@@ -48,6 +49,7 @@
            diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
            fastingEnabled,
            wellnessEnabled,
+           notifMealReminders,
            diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
            diaryRailShowActivity as diaryRailShowActivityWidget,
            diaryRailShowNotes,
@@ -905,6 +907,35 @@
     _lockAndOpen(() => showMealAction = true);
   }
 
+  // #207: viewed-day completion toggle. Reflects the mark that lives on
+  // the diary row's completed_at column; the WeekStrip badge reads the
+  // same source of truth. Optimistic in the store so the icon flips
+  // instantly and rolls back on API failure.
+  $: _dayIsComplete = !!$currentEntry?.completed_at;
+
+  async function _toggleDayCompletion() {
+    const date = $currentDate;
+    const nextState = !_dayIsComplete;
+    try {
+      await setDayCompletion(date, nextState);
+      if (nextState) {
+        showSuccess($_('diary.day_complete.marked_toast'));
+        // Discoverability nudge (once per install): if the user just
+        // marked a day complete without meal reminders on, hint that
+        // reminders exist. Not a nag: dismissed forever after one show.
+        const shown = localStorage.getItem('nt:dayCompletionMealTipShown') === '1';
+        if (!shown && !$notifMealReminders) {
+          showInfo($_('diary.day_complete.meal_reminders_hint'));
+          try { localStorage.setItem('nt:dayCompletionMealTipShown', '1'); } catch {}
+        }
+      } else {
+        showInfo($_('diary.day_complete.unmarked_toast'));
+      }
+    } catch (e) {
+      showError(e?.message || $_('diary.day_complete.error_toast'));
+    }
+  }
+
   function onMealAction(e) {
     const val = e.detail?.value;
     if (val === 'move') { mealActionMode = 'move'; _lockAndOpen(() => showMealTargetPicker = true); }
@@ -1691,6 +1722,14 @@
           <span class="material-symbols-rounded">water_drop</span>
         </button>
       {/if}
+      <!-- #207: mark the current viewed day as fully logged. Purely a
+           visual affordance surfaced on the week strip; no math depends on it. -->
+      <button class="btn-icon" class:accent={!_dayIsComplete} class:day-complete-on={_dayIsComplete}
+        on:click={_toggleDayCompletion}
+        aria-label={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}
+        title={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}>
+        <span class="material-symbols-rounded">{_dayIsComplete ? 'task_alt' : 'radio_button_unchecked'}</span>
+      </button>
       <button class="btn-icon accent" on:click={() => diaryShowNutritionSummary.set(true)} aria-label={$_('diary.actions.nutrition_summary')} title={$_('diary.actions.nutrition_summary_long')}>
         <span class="material-symbols-rounded">monitoring</span>
       </button>
@@ -3026,6 +3065,11 @@
     align-items: center;
     gap: 2px;
     pointer-events: all;
+  }
+  /* #207: toggle button's on-state colours the check the same green as the
+     WeekStrip completion badge so the two surfaces read as one signal. */
+  :global(.diary-topbar-actions .btn-icon.day-complete-on) {
+    color: var(--success, #10b981);
   }
 
   /* H1 height/alignment now lives in base.css .page-header h1 (uniform 40px). */

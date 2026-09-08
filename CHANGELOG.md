@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Mark diary days as complete** ([#207](https://github.com/TraceApps/nutritrace/issues/207)). Tap the check toggle in the Diary top bar to close the day when everything's logged. Marked days show a small green check on the week strip so you can see at a glance which days you fully logged and which you might have missed a late snack on. Purely a visual affordance, no diary math depends on it. Syncs across devices with an offline-safe rule (a stale device pushing null cannot clear a mark the other device set). First time you mark a day complete without meal reminders enabled, a one-time tip points at Settings, Notifications so you can catch the miss before end of day instead of after.
 - **Average Heart Rate card in Wellness** ([#205](https://github.com/TraceApps/nutritrace/issues/205)). Health Connect was already ingesting `avg_heart_rate` into local `wellness_data`, but Wellness had no card definition for it, so the value silently existed on disk without a surface. Now shows as a distinct card in the Heart group alongside Resting Heart Rate. Distinct from Resting HR (fully at rest); this is the day's average from your wearable, useful for spotting an unusually high or low day. Thanks @kgenerozov.
 
 ### Fixed
