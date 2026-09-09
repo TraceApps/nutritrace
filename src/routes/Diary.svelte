@@ -1926,7 +1926,7 @@
         </span>
         <button class="btn btn-primary btn-sm dds-cta" on:click={_toggleDayCompletion}
           aria-label={$_('diary.actions.mark_day_complete')}>
-          <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle;margin-right:4px">check_circle</span>
+          <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;margin-right:3px">check_circle</span>
           {$_('diary.day_complete.status.mark_complete')}
         </button>
       {/if}
@@ -3299,9 +3299,15 @@
     font-size: 12px;
   }
   .diary-day-status .dds-cta {
+    /* Override .btn's height:44px + font:15px so the CTA sits INSIDE
+       the slim status bar. Without these the bar's own padding gets
+       pushed out to 44px by the button, which is what made the button
+       look like it was floating above / below the visible sticky area. */
     flex-shrink: 0;
-    padding: 2px 10px;
+    height: auto;
+    padding: 3px 10px;
     font-size: 12px;
+    font-weight: 600;
     min-height: 0;
     line-height: 1.15;
     white-space: nowrap;
