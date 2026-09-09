@@ -590,7 +590,7 @@
         "yesterday":          "Yesterday",
         "progress":           "{done} of {total} meals logged",
         "mark_complete":      "Mark Day Complete",
-        "closed_headline":    "Day complete",
+        "closed_headline":    "Day Complete",
         "closed_at":          "Closed at {time}",
         "reopen":             "Reopen"
       }

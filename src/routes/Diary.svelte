@@ -3255,13 +3255,13 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 12px;
-    margin: 6px 12px 0;
-    border-radius: 999px;
+    padding: 3px 12px;
+    margin: 4px 12px 0;
+    border-radius: 8px;
     background: color-mix(in srgb, var(--accent) 8%, var(--surface-1));
     border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
-    font-size: 13px;
-    line-height: 1.2;
+    font-size: 12px;
+    line-height: 1.1;
     color: var(--text-1);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -3272,7 +3272,7 @@
     border-color: color-mix(in srgb, var(--success, #10b981) 22%, transparent);
   }
   .diary-day-status .dds-icon {
-    font-size: 16px;
+    font-size: 14px;
     flex-shrink: 0;
     color: var(--accent);
   }
@@ -3292,19 +3292,20 @@
   }
   .diary-day-status .dds-headline {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 12px;
   }
   .diary-day-status .dds-sub {
     color: var(--text-3);
-    font-size: 12px;
+    font-size: 11px;
   }
   .diary-day-status .dds-cta {
     flex-shrink: 0;
-    padding: 3px 10px;
-    font-size: 12px;
-    min-height: 26px;
+    padding: 2px 10px;
+    font-size: 11px;
+    min-height: 22px;
+    line-height: 1.1;
     white-space: nowrap;
-    border-radius: 999px;
+    border-radius: 6px;
   }
   .diary-day-status.complete .dds-cta {
     /* Reopen is a subdued affordance; keep it secondary regardless of
@@ -3325,13 +3326,13 @@
   }
   @media (max-width: 480px) {
     .diary-day-status {
-      margin: 6px 8px 0;
-      padding: 4px 10px;
+      margin: 4px 8px 0;
+      padding: 2px 10px;
     }
     .diary-day-status .dds-cta {
-      padding: 3px 8px;
+      padding: 2px 8px;
       font-size: 11px;
-      min-height: 24px;
+      min-height: 20px;
     }
   }
   /* #207 per-meal: tiny check toggle on each meal card header. Muted
