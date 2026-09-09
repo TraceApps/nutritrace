@@ -1899,7 +1899,8 @@
       } catch {}
       return formatDate($currentDate);
     })()}
-    <div class="diary-day-status" class:complete={_dayIsComplete}>
+    <div use:portal class="diary-day-status" class:complete={_dayIsComplete}
+      style="--sidebar-w-offset: var(--sidebar-w, 0px);">
       {#if _dayIsComplete}
         <span class="dds-icon material-symbols-rounded">task_alt</span>
         <span class="dds-text">
@@ -3256,20 +3257,16 @@
      swaps to a green completed state after the day is closed. Uses
      token colors + color-mix so both themes look right without a second
      rule set. */
-  /* Fixed instead of sticky. .page-transition (the scroll container) uses
-     will-change: transform, which creates a containing block for fixed
-     descendants, so this bar stays put relative to .page-transition
-     (i.e. the viewport minus the sidebar rail) rather than scrolling
-     with the diary content. Sticky was flaky on desktop when the week
-     strip's actual height didn't match the calc; fixed sidesteps the
-     whole height-chase and stays put period, which is what the user
-     asked for. Left/right span the scroll container's width. */
-  .diary-day-status {
+  /* Fixed and portaled to <body> so it's unambiguously viewport-relative
+     with no ancestor containing-block gotchas. left accounts for the
+     desktop sidebar rail via --sidebar-w. Stays put period regardless
+     of what happens in .page-transition. */
+  :global(body > .diary-day-status) {
     position: fixed;
     top: calc(var(--page-top, var(--safe-top)) + 108px + var(--hamburger-row, 0px));
-    left: 12px;
+    left: calc(var(--sidebar-w, 0px) + 12px);
     right: 12px;
-    z-index: 8;
+    z-index: 40;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3294,19 +3291,19 @@
   :global(body.has-day-status) .diary-content {
     padding-top: 40px;
   }
-  .diary-day-status.complete {
+  :global(.diary-day-status.complete) {
     background: color-mix(in srgb, var(--success, #10b981) 10%, var(--surface-1));
     border-color: color-mix(in srgb, var(--success, #10b981) 22%, transparent);
   }
-  .diary-day-status .dds-icon {
+  :global(.diary-day-status .dds-icon) {
     font-size: 15px;
     flex-shrink: 0;
     color: var(--accent);
   }
-  .diary-day-status.complete .dds-icon {
+  :global(.diary-day-status.complete .dds-icon) {
     color: var(--success, #10b981);
   }
-  .diary-day-status .dds-text {
+  :global(.diary-day-status .dds-text) {
     flex: 1;
     min-width: 0;
     display: flex;
@@ -3317,15 +3314,15 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .diary-day-status .dds-headline {
+  :global(.diary-day-status .dds-headline) {
     font-weight: 600;
     font-size: 13px;
   }
-  .diary-day-status .dds-sub {
+  :global(.diary-day-status .dds-sub) {
     color: var(--text-3);
     font-size: 12px;
   }
-  .diary-day-status .dds-cta {
+  :global(.diary-day-status .dds-cta) {
     /* Override .btn's height:44px + font:15px so the CTA sits INSIDE
        the slim status bar. Without these the bar's own padding gets
        pushed out to 44px by the button, which is what made the button
@@ -3340,14 +3337,14 @@
     white-space: nowrap;
     border-radius: 6px;
   }
-  .diary-day-status.complete .dds-cta {
+  :global(.diary-day-status.complete .dds-cta) {
     /* Reopen is a subdued affordance; keep it secondary regardless of
        the theme's primary/secondary defaults. */
     background: transparent;
     color: var(--text-2);
     border: 1px solid var(--border);
   }
-  .diary-day-status.complete .dds-cta:hover {
+  :global(.diary-day-status.complete .dds-cta:hover) {
     background: color-mix(in srgb, var(--text-1) 6%, transparent);
     color: var(--text-1);
   }
@@ -3356,7 +3353,7 @@
      bar is a descendant of it, so left/right are already relative to
      the sidebar-offset viewport (no manual sidebar math needed). */
   @media (min-width: 1280px) {
-    :global(html:not(.force-mobile-layout)) .diary-day-status {
+    :global(html:not(.force-mobile-layout) body > .diary-day-status) {
       top: calc(var(--page-top, var(--safe-top)) + 200px + var(--hamburger-row, 0px));
     }
   }
@@ -3365,7 +3362,7 @@
       margin: 4px 8px 0;
       padding: 2px 10px;
     }
-    .diary-day-status .dds-cta {
+    :global(.diary-day-status .dds-cta) {
       padding: 2px 8px;
       font-size: 12px;
     }
