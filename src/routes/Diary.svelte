@@ -964,6 +964,17 @@
     }
   }
 
+  // #207: the fixed status bar reserves top space via body.has-day-status
+  // so the first meal card is not covered on load. Toggled here (not in
+  // the template) so the class comes off cleanly when the user leaves the
+  // Diary route or turns the setting off.
+  $: if (typeof document !== 'undefined') {
+    document.body.classList.toggle('has-day-status', !!$diaryShowCompletion);
+  }
+  onDestroy(() => {
+    if (typeof document !== 'undefined') document.body.classList.remove('has-day-status');
+  });
+
   // #207 (per-meal): store-backed toggle wrapper. Best-effort UI
   // feedback; the store already handles optimistic flip + rollback.
   // After a successful mark, if every populated meal slot is now
@@ -3245,27 +3256,43 @@
      swaps to a green completed state after the day is closed. Uses
      token colors + color-mix so both themes look right without a second
      rule set. */
+  /* Fixed instead of sticky. .page-transition (the scroll container) uses
+     will-change: transform, which creates a containing block for fixed
+     descendants, so this bar stays put relative to .page-transition
+     (i.e. the viewport minus the sidebar rail) rather than scrolling
+     with the diary content. Sticky was flaky on desktop when the week
+     strip's actual height didn't match the calc; fixed sidesteps the
+     whole height-chase and stays put period, which is what the user
+     asked for. Left/right span the scroll container's width. */
   .diary-day-status {
-    position: sticky;
-    /* Mobile: date-bar sits at top (~60 + hamburger) and is ~48px tall,
-       so pin the status bar directly below it. Desktop overrides in the
-       ≥1280px block below account for the week-strip sitting between. */
+    position: fixed;
     top: calc(var(--page-top, var(--safe-top)) + 108px + var(--hamburger-row, 0px));
-    z-index: 7;
+    left: 12px;
+    right: 12px;
+    z-index: 8;
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 2px 12px;
-    margin: 4px 12px 0;
+    margin: 0;
     border-radius: 8px;
-    background: color-mix(in srgb, var(--accent) 8%, var(--surface-1));
-    border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    box-shadow: 0 2px 8px color-mix(in srgb, #000 12%, transparent);
     font-size: 13px;
     line-height: 1.15;
     color: var(--text-1);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     transition: background 200ms, border-color 200ms;
+  }
+  /* Content beneath the fixed bar needs top padding equal to the bar's
+     own height so the first meal card is not covered on the initial
+     render. Applied via body-level class toggle instead of hard-coding
+     into .diary-content because the bar only exists when the setting
+     is on. */
+  :global(body.has-day-status) .diary-content {
+    padding-top: 40px;
   }
   .diary-day-status.complete {
     background: color-mix(in srgb, var(--success, #10b981) 10%, var(--surface-1));
@@ -3324,10 +3351,13 @@
     background: color-mix(in srgb, var(--text-1) 6%, transparent);
     color: var(--text-1);
   }
-  /* Desktop: sit under the week-strip when the strip is visible. */
+  /* Desktop: sit under the week-strip when the strip is visible.
+     .page-transition offsets by --sidebar-w on the left, and the fixed
+     bar is a descendant of it, so left/right are already relative to
+     the sidebar-offset viewport (no manual sidebar math needed). */
   @media (min-width: 1280px) {
     :global(html:not(.force-mobile-layout)) .diary-day-status {
-      top: calc(var(--page-top, var(--safe-top)) + 186px + var(--hamburger-row, 0px));
+      top: calc(var(--page-top, var(--safe-top)) + 200px + var(--hamburger-row, 0px));
     }
   }
   @media (max-width: 480px) {
