@@ -1894,7 +1894,21 @@
         <span class="dds-text">
           <span class="dds-headline">{$_('diary.day_complete.status.closed_headline')}</span>
           {#if entry?.completed_at}
-            {@const _ts = (() => { try { return new Date(entry.completed_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } })()}
+            {@const _ts = (() => {
+              try {
+                // SQLite datetime('now') stores UTC as "YYYY-MM-DD HH:MM:SS"
+                // with no timezone marker; JS Date() parses that string as
+                // LOCAL time and would show wall-clock at the server's clock,
+                // not the user's. Normalize to ISO with 'Z' so the parse is
+                // unambiguous UTC and toLocaleTimeString renders in the
+                // viewer's own zone. Absolute ISO (already has 'T' + tz) is
+                // passed through unchanged.
+                const raw = String(entry.completed_at);
+                const iso = raw.includes('T') ? raw
+                  : raw.replace(' ', 'T') + (raw.endsWith('Z') ? '' : 'Z');
+                return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+              } catch { return ''; }
+            })()}
             {#if _ts}<span class="dds-sub">· {$_('diary.day_complete.status.closed_at', { values: { time: _ts } })}</span>{/if}
           {/if}
         </span>
@@ -3225,22 +3239,32 @@
     vertical-align: middle;
     margin-left: 4px;
   }
-  /* #207: day-completion status bar. Slim one-line band under the week
-     strip that reads "Today · N of M meals logged" plus a CTA button.
-     Swaps to a green completed state after the day is closed. Uses
-     token colors so both themes look right; the completed state gets a
-     tinted accent background to read as a resolved / successful state. */
+  /* #207: day-completion status bar. Slim one-line band that pins
+     below the sticky date bar / week strip so it stays put as the diary
+     scrolls. Reads "Today · N of M meals logged" plus a compact CTA;
+     swaps to a green completed state after the day is closed. Uses
+     token colors + color-mix so both themes look right without a second
+     rule set. */
   .diary-day-status {
+    position: sticky;
+    /* Mobile: date-bar sits at top (~60 + hamburger) and is ~48px tall,
+       so pin the status bar directly below it. Desktop overrides in the
+       ≥1280px block below account for the week-strip sitting between. */
+    top: calc(var(--page-top, var(--safe-top)) + 108px + var(--hamburger-row, 0px));
+    z-index: 7;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
-    margin: 8px 12px 0;
-    border-radius: 12px;
+    gap: 8px;
+    padding: 5px 12px;
+    margin: 6px 12px 0;
+    border-radius: 999px;
     background: color-mix(in srgb, var(--accent) 8%, var(--surface-1));
     border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 1.2;
     color: var(--text-1);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
     transition: background 200ms, border-color 200ms;
   }
   .diary-day-status.complete {
@@ -3248,8 +3272,9 @@
     border-color: color-mix(in srgb, var(--success, #10b981) 22%, transparent);
   }
   .diary-day-status .dds-icon {
-    font-size: 20px;
+    font-size: 16px;
     flex-shrink: 0;
+    color: var(--accent);
   }
   .diary-day-status.complete .dds-icon {
     color: var(--success, #10b981);
@@ -3259,21 +3284,27 @@
     min-width: 0;
     display: flex;
     align-items: baseline;
-    gap: 6px;
-    flex-wrap: wrap;
+    gap: 5px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .diary-day-status .dds-headline {
     font-weight: 600;
+    font-size: 13px;
   }
   .diary-day-status .dds-sub {
     color: var(--text-3);
-    font-size: 13px;
+    font-size: 12px;
   }
   .diary-day-status .dds-cta {
     flex-shrink: 0;
-    padding: 6px 12px;
-    font-size: 13px;
+    padding: 3px 10px;
+    font-size: 12px;
+    min-height: 26px;
     white-space: nowrap;
+    border-radius: 999px;
   }
   .diary-day-status.complete .dds-cta {
     /* Reopen is a subdued affordance; keep it secondary regardless of
@@ -3286,15 +3317,21 @@
     background: color-mix(in srgb, var(--text-1) 6%, transparent);
     color: var(--text-1);
   }
+  /* Desktop: sit under the week-strip when the strip is visible. */
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout)) .diary-day-status {
+      top: calc(var(--page-top, var(--safe-top)) + 186px + var(--hamburger-row, 0px));
+    }
+  }
   @media (max-width: 480px) {
     .diary-day-status {
-      padding: 8px 12px;
-      margin: 8px 8px 0;
-      font-size: 13px;
+      margin: 6px 8px 0;
+      padding: 4px 10px;
     }
     .diary-day-status .dds-cta {
-      padding: 5px 10px;
-      font-size: 12px;
+      padding: 3px 8px;
+      font-size: 11px;
+      min-height: 24px;
     }
   }
   /* #207 per-meal: tiny check toggle on each meal card header. Muted
