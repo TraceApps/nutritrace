@@ -72,10 +72,14 @@ test('#207: WeekStrip renders a completion badge on completed days', () => {
   assert.match(weekStrip, /ws-complete-mark/);
 });
 
-test('#207: Diary topbar-actions include a completion toggle button', () => {
+test('#207: day-completion status bar renders with progress + CTA', () => {
   assert.match(diaryRoute2, /_toggleDayCompletion/);
-  assert.match(diaryRoute2, /day-complete-on/);
-  assert.match(diaryRoute2, /task_alt/);
+  assert.match(diaryRoute2, /diary-day-status/);
+  assert.match(diaryRoute2, /dds-headline/);
+  assert.match(diaryRoute2, /dds-cta/);
+  assert.match(diaryRoute2, /_mealsLogged/);
+  assert.match(diaryRoute2, /day_complete\.status\.mark_complete/);
+  assert.match(diaryRoute2, /day_complete\.status\.reopen/);
 });
 
 test('#207: Diary imports setDayCompletion from the store', () => {
@@ -248,4 +252,10 @@ test('#207: en.json carries the new day_complete strings + action labels', () =>
   assert.ok(settingsDiaryLabels.show_completion,      'settings_diary.show_completion missing');
   assert.ok(settingsDiaryLabels.show_completion_desc, 'settings_diary.show_completion_desc missing');
   assert.ok(dc.auto_marked_toast,                     'diary.day_complete.auto_marked_toast missing');
+  const status = dc.status || {};
+  assert.ok(status.today,           'diary.day_complete.status.today missing');
+  assert.ok(status.progress,        'diary.day_complete.status.progress missing');
+  assert.ok(status.mark_complete,   'diary.day_complete.status.mark_complete missing');
+  assert.ok(status.closed_headline, 'diary.day_complete.status.closed_headline missing');
+  assert.ok(status.reopen,          'diary.day_complete.status.reopen missing');
 });

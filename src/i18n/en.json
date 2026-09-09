@@ -584,7 +584,16 @@
       "confirm_empty_title":   "Close day with empty meals?",
       "confirm_empty_msg":     "These meals have no items and haven't been marked as skipped: {names}. Close anyway? The empty slots will be marked as intentionally skipped so you're not asked again on this day.",
       "confirm_empty_ok":      "Close Anyway",
-      "confirm_empty_cancel":  "Keep Open"
+      "confirm_empty_cancel":  "Keep Open",
+      "status": {
+        "today":              "Today",
+        "yesterday":          "Yesterday",
+        "progress":           "{done} of {total} meals logged",
+        "mark_complete":      "Mark Day Complete",
+        "closed_headline":    "Day complete",
+        "closed_at":          "Closed at {time}",
+        "reopen":             "Reopen"
+      }
     },
     "toast": {
       "body_stats_saved": "Body stats saved",

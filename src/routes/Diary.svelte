@@ -1837,17 +1837,6 @@
       </span>
       <span class="date-sub">{formatDateSub($currentDate, $dateFormat)}</span>
     </button>
-    {#if $diaryShowCompletion}
-      <!-- #207: day-completion toggle. Only rendered when the master
-           completion setting is on so users who never turn it on see
-           the same date bar they've always had. -->
-      <button class="btn-icon" class:accent={!_dayIsComplete} class:day-complete-on={_dayIsComplete}
-        on:click={_toggleDayCompletion}
-        aria-label={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}
-        title={_dayIsComplete ? $_('diary.actions.unmark_day_complete') : $_('diary.actions.mark_day_complete')}>
-        <span class="material-symbols-rounded">{_dayIsComplete ? 'task_alt' : 'radio_button_unchecked'}</span>
-      </button>
-    {/if}
     <button class="btn-icon accent" on:click={nextDay} aria-label={$_('diary.nav.next_day')} title={$_('diary.nav.next_day')}>
       <span class="material-symbols-rounded">chevron_right</span>
     </button>
@@ -1876,6 +1865,59 @@
       showCompletion={$diaryShowCompletion}
     />
   </div>
+
+  {#if $diaryShowCompletion}
+    <!-- #207: day-completion status bar. Sits between the week strip
+         and the day's content so the mark reads as "state of this day",
+         not a floating action. Combines the progress line and the
+         affordance in one place; swaps to a "Day complete" summary
+         with a Reopen button once the day is closed. -->
+    {@const _mealCounts = (entry?.items || []).reduce((acc, it) => {
+      const s = it.meal ?? 0;
+      acc[s] = (acc[s] || 0) + 1;
+      return acc;
+    }, {})}
+    {@const _mealsLogged = meals.filter((_, i) => (_mealCounts[i] || 0) > 0).length}
+    {@const _mealsTotal  = meals.length}
+    {@const _dayLabelShort = (() => {
+      const today = localDateStr();
+      if ($currentDate === today) return $_('diary.day_complete.status.today');
+      try {
+        const yd = new Date(); yd.setDate(yd.getDate() - 1);
+        if ($currentDate === localDateStr(yd)) return $_('diary.day_complete.status.yesterday');
+      } catch {}
+      return formatDate($currentDate);
+    })()}
+    <div class="diary-day-status" class:complete={_dayIsComplete}>
+      {#if _dayIsComplete}
+        <span class="dds-icon material-symbols-rounded">task_alt</span>
+        <span class="dds-text">
+          <span class="dds-headline">{$_('diary.day_complete.status.closed_headline')}</span>
+          {#if entry?.completed_at}
+            {@const _ts = (() => { try { return new Date(entry.completed_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } })()}
+            {#if _ts}<span class="dds-sub">· {$_('diary.day_complete.status.closed_at', { values: { time: _ts } })}</span>{/if}
+          {/if}
+        </span>
+        <button class="btn btn-secondary btn-sm dds-cta" on:click={_toggleDayCompletion}
+          aria-label={$_('diary.day_complete.status.reopen')}>
+          {$_('diary.day_complete.status.reopen')}
+        </button>
+      {:else}
+        <span class="dds-icon material-symbols-rounded" style="color:var(--accent)">restaurant</span>
+        <span class="dds-text">
+          <span class="dds-headline">{_dayLabelShort}</span>
+          <span class="dds-sub">·
+            {$_('diary.day_complete.status.progress', { values: { done: _mealsLogged, total: _mealsTotal } })}
+          </span>
+        </span>
+        <button class="btn btn-primary btn-sm dds-cta" on:click={_toggleDayCompletion}
+          aria-label={$_('diary.actions.mark_day_complete')}>
+          <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle;margin-right:4px">check_circle</span>
+          {$_('diary.day_complete.status.mark_complete')}
+        </button>
+      {/if}
+    </div>
+  {/if}
 
   <div
     bind:this={_diaryContentEl}
@@ -3182,6 +3224,78 @@
     color: var(--success, #10b981);
     vertical-align: middle;
     margin-left: 4px;
+  }
+  /* #207: day-completion status bar. Slim one-line band under the week
+     strip that reads "Today · N of M meals logged" plus a CTA button.
+     Swaps to a green completed state after the day is closed. Uses
+     token colors so both themes look right; the completed state gets a
+     tinted accent background to read as a resolved / successful state. */
+  .diary-day-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    margin: 8px 12px 0;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
+    font-size: 14px;
+    color: var(--text-1);
+    transition: background 200ms, border-color 200ms;
+  }
+  .diary-day-status.complete {
+    background: color-mix(in srgb, var(--success, #10b981) 10%, var(--surface-1));
+    border-color: color-mix(in srgb, var(--success, #10b981) 22%, transparent);
+  }
+  .diary-day-status .dds-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .diary-day-status.complete .dds-icon {
+    color: var(--success, #10b981);
+  }
+  .diary-day-status .dds-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .diary-day-status .dds-headline {
+    font-weight: 600;
+  }
+  .diary-day-status .dds-sub {
+    color: var(--text-3);
+    font-size: 13px;
+  }
+  .diary-day-status .dds-cta {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .diary-day-status.complete .dds-cta {
+    /* Reopen is a subdued affordance; keep it secondary regardless of
+       the theme's primary/secondary defaults. */
+    background: transparent;
+    color: var(--text-2);
+    border: 1px solid var(--border);
+  }
+  .diary-day-status.complete .dds-cta:hover {
+    background: color-mix(in srgb, var(--text-1) 6%, transparent);
+    color: var(--text-1);
+  }
+  @media (max-width: 480px) {
+    .diary-day-status {
+      padding: 8px 12px;
+      margin: 8px 8px 0;
+      font-size: 13px;
+    }
+    .diary-day-status .dds-cta {
+      padding: 5px 10px;
+      font-size: 12px;
+    }
   }
   /* #207 per-meal: tiny check toggle on each meal card header. Muted
      when unchecked so it recedes into the header; green when checked
