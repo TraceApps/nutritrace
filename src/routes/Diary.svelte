@@ -3255,13 +3255,13 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 3px 12px;
+    padding: 2px 12px;
     margin: 4px 12px 0;
     border-radius: 8px;
     background: color-mix(in srgb, var(--accent) 8%, var(--surface-1));
     border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
-    font-size: 12px;
-    line-height: 1.1;
+    font-size: 13px;
+    line-height: 1.15;
     color: var(--text-1);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -3272,7 +3272,7 @@
     border-color: color-mix(in srgb, var(--success, #10b981) 22%, transparent);
   }
   .diary-day-status .dds-icon {
-    font-size: 14px;
+    font-size: 15px;
     flex-shrink: 0;
     color: var(--accent);
   }
@@ -3292,18 +3292,18 @@
   }
   .diary-day-status .dds-headline {
     font-weight: 600;
-    font-size: 12px;
+    font-size: 13px;
   }
   .diary-day-status .dds-sub {
     color: var(--text-3);
-    font-size: 11px;
+    font-size: 12px;
   }
   .diary-day-status .dds-cta {
     flex-shrink: 0;
     padding: 2px 10px;
-    font-size: 11px;
-    min-height: 22px;
-    line-height: 1.1;
+    font-size: 12px;
+    min-height: 0;
+    line-height: 1.15;
     white-space: nowrap;
     border-radius: 6px;
   }
@@ -3331,8 +3331,7 @@
     }
     .diary-day-status .dds-cta {
       padding: 2px 8px;
-      font-size: 11px;
-      min-height: 20px;
+      font-size: 12px;
     }
   }
   /* #207 per-meal: tiny check toggle on each meal card header. Muted
