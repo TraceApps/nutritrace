@@ -212,6 +212,11 @@
 
   // Detected upstream refresh; the banner reads this to render.
   let _ctUpdateAvailable = null;
+  // Set true when the upstream CT recipe returned a hard 404 (deleted or
+  // read-permission dropped). A separate signal from a plain network
+  // failure so the source-deleted banner does not flash for offline
+  // users. See _checkForCtUpdates below.
+  let _ctSourceDeleted = false;
 
   async function _checkForCtUpdates() {
     if (meal?.source_app !== 'cooktrace' || !meal?.source_external_id) return;
@@ -222,6 +227,13 @@
     try {
       const { CookTrace } = await import('../lib/cooktraceApi.js');
       if (!CookTrace.isConfigured()) return;
+      // Probe first so a 404 lights up the "source deleted" indicator
+      // instead of silently failing the getRecipe below. A non-404
+      // failure (offline, 500, 401) resolves to 'unknown' and stays
+      // quiet, so an offline user does not see "source deleted".
+      const status = await CookTrace.probeRecipeStatus(ctId);
+      if (status === 'deleted') { _ctSourceDeleted = true; return; }
+      if (status !== 'exists') return;
       const fresh = await CookTrace.getRecipe(ctId);
       if (!fresh?.updated_at) return;
       // Server timestamps come back as "YYYY-MM-DD HH:MM:SS" (UTC without
@@ -238,6 +250,41 @@
         _ctUpdateAvailable = fresh;
       }
     } catch { /* CT unreachable / auth issue: quietly skip */ }
+  }
+
+  // Unlink: keep the meal but strip the CT provenance so no future
+  // refresh/probe fires. The row becomes an ordinary NT-authored meal.
+  // Autosaves on the next Save; we do not touch the server here because
+  // the user may want to keep editing before persisting.
+  async function _unlinkCtSource() {
+    if (!meal?.source_app) return;
+    const proceed = window.confirm(
+      "Unlink this recipe from CookTrace?\n\nThe recipe stays in NutriTrace but stops trying to sync with CookTrace. You can safely delete the CookTrace copy after unlinking."
+    );
+    if (!proceed) return;
+    meal = { ...meal, source_app: null, source_external_id: null, source_url: null };
+    _ctSourceDeleted = false;
+    _ctUpdateAvailable = null;
+  }
+
+  // Delete: drop the NT copy too. Used when the user actually wanted the
+  // recipe gone (the CT side is already gone or they just do not want it).
+  // Confirms first because deletion of a recipe with historic diary
+  // references is not obviously reversible.
+  async function _deleteCtLinkedMeal() {
+    if (!meal?.id) return;
+    const proceed = window.confirm(
+      "Delete this recipe from NutriTrace?\n\nThis removes the local copy. Any diary entries referencing it stay logged with their captured nutrition."
+    );
+    if (!proceed) return;
+    try {
+      await NtApi.deleteMeal(meal.id);
+      clearMealEditorState();
+      showSuccess($_('meal_editor.ct_refresh.deleted_toast'));
+      pop();
+    } catch (e) {
+      showError(e?.message || $_('common.errors.failed'));
+    }
   }
 
   async function _applyCtRefresh() {
@@ -764,16 +811,39 @@
         const yields = explicit ? Math.max(1, parseInt(recipeYields) || 1) : 1;
         // Store per-serving values. Adding "1" of this recipe to the diary
         // then naturally means "one serving". When yields=1 (or unset, where
-        // math treats it as 1), totalGrams/1 = totalGrams — identical to the
-        // pre-yields behavior. Explicit null preserves the "unset" state for
-        // legacy recipes so the editor keeps showing a blank field rather
-        // than auto-filling 1 on every reopen-save cycle.
+        // math treats it as 1), totalGrams/1 = totalGrams (identical to the
+        // pre-yields behavior). Explicit null preserves the "unset" state
+        // for legacy recipes so the editor keeps showing a blank field
+        // rather than auto-filling 1 on every reopen-save cycle.
         item.portion = totalGrams / yields;
         item.unit = recipeUnit;
         item.servings = explicit ? yields : null;
-        item.nutrition = Object.fromEntries(
-          Object.entries(totals).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
-        );
+        // #207 companion: for meals imported from an external source
+        // (CookTrace today, others via source_app in the future) with a
+        // pre-computed rollup, trust the source's totals over an
+        // items-derived recompute. Reason: CT's own rollup engine does
+        // density-aware unit conversion (e.g. "2 cups flour" -> grams via
+        // g_per_cup) that MealEditor's Nutrition.sum(items) cannot
+        // replicate here; recomputing would silently drift the totals
+        // every save. Fall back to the recomputed totals when the source
+        // did not carry a rollup, or when the user manually edited
+        // ingredients (touching items.length or item nutrition invalidates
+        // the source rollup).
+        const _hasSourceRollup = meal.source_app
+          && meal.nutrition && typeof meal.nutrition === 'object'
+          && Object.values(meal.nutrition).some(v => Number(v) > 0);
+        const _itemsMatchSourceCount = Array.isArray(meal.items)
+          && Array.isArray(_serverBaseline?.meal?.items)
+          && meal.items.length === _serverBaseline.meal.items.length;
+        if (_hasSourceRollup && _itemsMatchSourceCount) {
+          item.nutrition = Object.fromEntries(
+            Object.entries(meal.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
+          );
+        } else {
+          item.nutrition = Object.fromEntries(
+            Object.entries(totals).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
+          );
+        }
       }
       if (meal.id) await NtApi.updateMeal(meal.id, item);
       else await NtApi.createMeal(item);
@@ -951,7 +1021,7 @@
             </div>
           </div>
         {/if}
-        {#if _ctUpdateAvailable}
+        {#if _ctUpdateAvailable && !_ctSourceDeleted}
           <div class="ct-source-refresh">
             <span class="material-symbols-rounded ct-source-refresh-icon">sync</span>
             <div class="ct-source-refresh-text">
@@ -964,6 +1034,23 @@
               </button>
               <button class="btn btn-primary btn-sm" on:click={_applyCtRefresh}>
                 {$_('meal_editor.ct_refresh.refresh')}
+              </button>
+            </div>
+          </div>
+        {/if}
+        {#if _ctSourceDeleted}
+          <div class="ct-source-refresh ct-source-deleted">
+            <span class="material-symbols-rounded ct-source-refresh-icon">link_off</span>
+            <div class="ct-source-refresh-text">
+              <span class="ct-source-refresh-headline">{$_('meal_editor.ct_deleted.headline')}</span>
+              <span class="ct-source-refresh-sub">{$_('meal_editor.ct_deleted.sub')}</span>
+            </div>
+            <div class="ct-source-refresh-actions">
+              <button class="btn btn-ghost btn-sm" on:click={_unlinkCtSource}>
+                {$_('meal_editor.ct_deleted.unlink')}
+              </button>
+              <button class="btn btn-danger btn-sm" on:click={_deleteCtLinkedMeal}>
+                {$_('meal_editor.ct_deleted.delete')}
               </button>
             </div>
           </div>
@@ -1490,6 +1577,13 @@
     .ct-source-refresh { flex-wrap: wrap; }
     .ct-source-refresh-actions { width: 100%; justify-content: flex-end; }
   }
+  /* Source-deleted variant: same shape as the refresh banner, warning-
+     tinted so it reads as "attention needed" not "friendly update". */
+  .ct-source-deleted {
+    background: color-mix(in srgb, var(--warning, #f59e0b) 12%, var(--surface-1));
+    border-color: color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);
+  }
+  .ct-source-deleted .ct-source-refresh-icon { color: var(--warning, #f59e0b); }
 
   /* Photo */
   .photo-preview-wrap {

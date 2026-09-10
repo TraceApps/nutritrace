@@ -214,7 +214,7 @@ router.post('/push', wrap(async (req, res) => {
             db.prepare(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(f.server_id);
           } else {
             db.prepare(
-              `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=datetime('now') WHERE id=?`
+              `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, source_app=?, source_external_id=?, source_url=?, updated_at=datetime('now') WHERE id=?`
             ).run(f.name, f.brand, JSON.stringify(f.nutrition || {}), f.portion ?? 100, f.unit || 'g',
               f.img_url || null, f.notes || null, f.category || null, f.barcode || null,
               f.favorite ? 1 : 0, f.usage_count || 0, f.last_used_at || null,
@@ -225,20 +225,23 @@ router.post('/push', wrap(async (req, res) => {
               f.density_g_ml != null && Number.isFinite(Number(f.density_g_ml))
                 ? Number(f.density_g_ml)
                 : null,
+              // Federation columns carry the CT pantry provenance across
+              // cross-device pulls.
+              f.source_app || null, f.source_external_id || null, f.source_url || null,
               f.server_id);
           }
         }
         result.foods.push({ client_id: f.client_id, server_id: f.server_id });
       } else if (!f.deleted_at) {
-        // New record (no server_id, OR server_id refs missing row → re-create).
-        // #183 — honor caller's defaultShareVisibility on new inserts,
+        // New record (no server_id, OR server_id refs missing row -> re-create).
+        // #183: honor caller's defaultShareVisibility on new inserts,
         // matching POST /api/foods. The sync path had been relying on
         // the SQLite column default ('private'), which silently made
         // the toggle a no-op for anything created offline first.
         const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
-          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, visibility, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, visibility, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, f.name, f.brand || null, JSON.stringify(f.nutrition || {}), f.portion ?? 100, f.unit || 'g',
           f.img_url || null, f.notes || null, f.category || null, f.barcode || null,
           f.favorite ? 1 : 0, f.usage_count || 0, f.last_used_at || null,
@@ -247,6 +250,7 @@ router.post('/push', wrap(async (req, res) => {
           f.density_g_ml != null && Number.isFinite(Number(f.density_g_ml))
             ? Number(f.density_g_ml)
             : null,
+          f.source_app || null, f.source_external_id || null, f.source_url || null,
           vis);
         result.foods.push({ client_id: f.client_id, server_id: r.lastInsertRowid });
       }

@@ -520,6 +520,24 @@ db.exec(`
     WHERE source_app IS NOT NULL AND source_external_id IS NOT NULL
 `);
 
+// Same federation identity on foods for the CT-pantry-into-NT-foods pull.
+// Only source_external_id namespaces the row on its source (e.g.
+// 'pantry:42'); source_app / source_url mirror the meals-side semantics.
+if (!columnExists('foods', 'source_app')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN source_app TEXT`);
+}
+if (!columnExists('foods', 'source_external_id')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN source_external_id TEXT`);
+}
+if (!columnExists('foods', 'source_url')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN source_url TEXT`);
+}
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_foods_source_ext
+    ON foods(user_id, source_app, source_external_id)
+    WHERE source_app IS NOT NULL AND source_external_id IS NOT NULL
+`);
+
 // ── Sync migrations (Phase 2) ──────────────────────────────────────────────
 // Add updated_at to tables that lack it (needed for differential sync)
 if (!columnExists('foods', 'updated_at')) {

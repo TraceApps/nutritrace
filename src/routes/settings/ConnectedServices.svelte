@@ -245,6 +245,220 @@
     }
   }
 
+  // Bulk-import state. Progress lives on `ctBulkProgress` so the button
+  // can render a live "3 / 42" while the batch runs. Result stays on
+  // `ctBulkLastResult` after the run so the setting shows a summary
+  // without needing a toast that scrolls off.
+  let ctBulkBusy         = false;
+  let ctBulkProgress     = { done: 0, total: 0 };
+  let ctBulkLastResult   = null;
+  let ctPantryBulkBusy   = false;
+  let ctPantryBulkProgress = { done: 0, total: 0 };
+  let ctPantryBulkLastResult = null;
+
+  async function _ctBulkImport() {
+    if (ctBulkBusy) return;
+    const { CookTrace } = await import('../../lib/cooktraceApi.js');
+    if (!CookTrace.isConfigured()) {
+      showError('Configure and save the CookTrace connection first');
+      return;
+    }
+    // Confirm before an ambient long-running job: users with 100+ recipes
+    // won't want this to kick off from a stray tap.
+    const proceed = window.confirm(
+      'Import every recipe from CookTrace into your NutriTrace recipes catalog?\n\nRe-runs update existing imports in place. Any recipe you have edited on NT will still be updated with the CookTrace copy.'
+    );
+    if (!proceed) return;
+    ctBulkBusy = true;
+    ctBulkProgress = { done: 0, total: 0 };
+    ctBulkLastResult = null;
+    let imported = 0, updated = 0, skipped = 0;
+    try {
+      // Grab existing CT-sourced meals up front so we can tell "imported new"
+      // from "updated existing" without a per-item roundtrip. Server-side
+      // upsert already handles dedup on (source_app, source_external_id);
+      // this is only for the summary count.
+      let existingSet = new Set();
+      try {
+        const all = await NtApi.getMeals();
+        for (const m of all) {
+          if (m?.source_app === 'cooktrace' && m?.source_external_id) {
+            existingSet.add(m.source_external_id);
+          }
+        }
+      } catch { /* summary count degrades gracefully */ }
+
+      // Page through CT's list endpoint. 50 per page keeps the response
+      // small and lets us start updating progress after ~one round trip.
+      const PAGE = 50;
+      let offset = 0;
+      const ids = [];
+      while (true) {
+        const meta = await CookTrace.searchWithMeta('', Math.floor(offset / PAGE) + 1, PAGE);
+        const items = meta?.items || [];
+        for (const it of items) if (it?.id != null) ids.push(it.id);
+        if (!meta?.hasMore || items.length === 0) break;
+        offset += items.length;
+        // Safety cap: if the server misreports hasMore, bail after
+        // 20 pages (~1000 recipes) rather than looping.
+        if (offset >= 1000) break;
+      }
+      ctBulkProgress = { done: 0, total: ids.length };
+      if (ids.length === 0) {
+        ctBulkLastResult = { imported: 0, updated: 0, skipped: 0 };
+        showSuccess('No CookTrace recipes found to import');
+        return;
+      }
+
+      let firstErrorR = null;
+      for (const id of ids) {
+        try {
+          const full = await CookTrace.getRecipe(id);
+          if (!full) { skipped++; if (!firstErrorR) firstErrorR = `Recipe ${id} could not be fetched from CookTrace`; continue; }
+          const mapped = CookTrace.mapRecipe(full);
+          if (!mapped) { skipped++; continue; }
+          const wasExisting = existingSet.has(mapped.source_external_id);
+
+          // Mirror MealEditor.save()'s recipe branch: stamp is_recipe,
+          // pick a totalGrams from the item portions, and store nutrition
+          // per-serving (yields defaults to servings when set, else 1).
+          const totalGrams = Math.round((mapped.items || []).reduce((s, it) => {
+            const p = Number(it.portion) || 0;
+            const u = (it.unit || '').toLowerCase();
+            // Only sum weight-typed units to avoid pretending 1 tsp = 1 g.
+            // Countables and volume rows fall through as 0; the recipe still
+            // saves, just with a smaller inferred total. Users can Recompute
+            // inside NT once density data is added.
+            if (u === 'g' || u === 'gram' || u === 'grams') return s + p;
+            if (u === 'kg') return s + p * 1000;
+            if (u === 'oz') return s + p * 28.3495;
+            if (u === 'lb') return s + p * 453.592;
+            return s;
+          }, 0)) || 100;
+          const yields = Math.max(1, Number(mapped.servings) || 1);
+          const perServing = Object.fromEntries(
+            Object.entries(mapped.nutrition || {}).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
+          );
+          const item = {
+            ...mapped,
+            is_recipe: 1,
+            portion: totalGrams / yields,
+            unit: mapped.unit || 'g',
+            servings: yields,
+            nutrition: perServing,
+          };
+          await NtApi.createMeal(item);
+          if (wasExisting) updated++;
+          else imported++;
+        } catch (e) {
+          skipped++;
+          const em = e?.message || String(e);
+          if (!firstErrorR) firstErrorR = em;
+          console.warn('[CookTrace bulk] recipe', id, 'failed:', em);
+        }
+        ctBulkProgress = { ...ctBulkProgress, done: ctBulkProgress.done + 1 };
+      }
+      ctBulkLastResult = { imported, updated, skipped };
+      const summary = `Imported ${imported}, updated ${updated}` + (skipped ? `, ${skipped} skipped` : '');
+      if (skipped && !(imported || updated)) {
+        showError(`${summary}${firstErrorR ? `. First error: ${firstErrorR}` : ''}`);
+      } else {
+        showSuccess(summary);
+      }
+    } catch (e) {
+      showError(`CookTrace bulk import failed: ${e?.message || 'unknown error'}`);
+    } finally {
+      ctBulkBusy = false;
+    }
+  }
+
+  // Bulk-import CT pantry items into NT's Foods library. Skips generics
+  // that have variants (their children carry the real nutrition), pulls
+  // leaves and standalone rows only. Dedup on (source_app, source_external_id)
+  // mirrors the recipe path: server does the upsert on foodList so re-runs
+  // are safe. Requires the `read:pantry` scope on the CT token; a scope-
+  // missing failure surfaces as a clear error instead of a silent no-op.
+  async function _ctBulkImportPantry() {
+    if (ctPantryBulkBusy) return;
+    const { CookTrace } = await import('../../lib/cooktraceApi.js');
+    if (!CookTrace.isConfigured()) {
+      showError('Configure and save the CookTrace connection first');
+      return;
+    }
+    const proceed = window.confirm(
+      "Import CookTrace pantry items into your NutriTrace foods library?\n\nStandalone items and variants come across. Generic parents (like 'Flour' with a Bread-flour variant) are skipped: their children carry the real nutrition. Safe to re-run."
+    );
+    if (!proceed) return;
+    ctPantryBulkBusy = true;
+    ctPantryBulkProgress = { done: 0, total: 0 };
+    ctPantryBulkLastResult = null;
+    let imported = 0, updated = 0, skipped = 0;
+    try {
+      const list = await CookTrace.listPantry();
+      if (!list.ok) {
+        if (list.reason === 'not_configured') {
+          showError('Configure and save the CookTrace connection first');
+        } else if (list.reason === 'scope') {
+          showError('CookTrace token is missing the read:pantry scope. Mint a new token on CookTrace, tick read:pantry, and paste it here.');
+        } else if (list.reason === 'not_found') {
+          showError('This CookTrace server is on an older version that does not expose /api/v1/pantry. Update CookTrace, then retry.');
+        } else if (list.reason === 'auth') {
+          showError('CookTrace token was rejected. Re-mint it and paste the new value.');
+        } else {
+          showError(`CookTrace pantry request failed (HTTP ${list.status || 'unknown'}). Check the CookTrace server log.`);
+        }
+        return;
+      }
+      const items = list.items;
+      // Dedup targets on the NT side. foodList has the same partial unique
+      // index shape as meals; we use its source columns for the count only.
+      let existingSet = new Set();
+      try {
+        const foods = await NtApi.getFoods();
+        for (const f of foods) {
+          if (f?.source_app === 'cooktrace' && f?.source_external_id) {
+            existingSet.add(f.source_external_id);
+          }
+        }
+      } catch { /* count degrades gracefully */ }
+
+      ctPantryBulkProgress = { done: 0, total: items.length };
+      if (items.length === 0) {
+        ctPantryBulkLastResult = { imported: 0, updated: 0, skipped: 0 };
+        showSuccess('No importable CookTrace pantry items found');
+        return;
+      }
+      let firstError = null;
+      for (const it of items) {
+        try {
+          const wasExisting = existingSet.has(it.source_external_id);
+          await NtApi.createFood(it);
+          if (wasExisting) updated++;
+          else imported++;
+        } catch (e) {
+          skipped++;
+          const msg = e?.message || String(e);
+          if (!firstError) firstError = msg;
+          console.warn('[CookTrace pantry bulk] item', it?.source_external_id, 'failed:', msg);
+        }
+        ctPantryBulkProgress = { ...ctPantryBulkProgress, done: ctPantryBulkProgress.done + 1 };
+      }
+      ctPantryBulkLastResult = { imported, updated, skipped };
+      const summary = `Imported ${imported}, updated ${updated}` + (skipped ? `, ${skipped} skipped` : '');
+      // Systemic failure (every item errored the same way): surface the first
+      // error verbatim so the user can see WHY, not just a "N skipped" count.
+      if (skipped && !(imported || updated)) {
+        showError(`${summary}${firstError ? `. First error: ${firstError}` : ''}`);
+      } else {
+        showSuccess(summary);
+      }
+    } catch (e) {
+      showError(`CookTrace pantry import failed: ${e?.message || 'unknown error'}`);
+    } finally {
+      ctPantryBulkBusy = false;
+    }
+  }
+
   // ── OFF Local mirror status ────────────────────────────────────────────
   let offMirrorStatus = null;
   let offMirrorPoll = null;
@@ -632,6 +846,67 @@
           Mint on CookTrace: Settings, API Tokens, New Token, tick <code>read:recipes</code>. Copy the token immediately: it is shown once.
         </p>
       </div>
+      <!-- Bulk import: onboarding shortcut for someone with a lot of CT
+           recipes. Uses the same pull path as the Foods > Recipes chip
+           (same upsert semantics via source_app + source_external_id),
+           just looped over every recipe from CT with progress + skip
+           handling so partial failures do not abort the batch. Only
+           surfaced when the connection is healthy. -->
+      {#if cooktraceBaseUrl && cooktraceApiToken && cooktraceTestStatus !== 'fail'}
+        <div class="setting-divider"></div>
+        <div class="form-group" style="padding:10px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="min-width:0;flex:1">
+              <span class="setting-label">Import All Recipes</span>
+              <div class="setting-desc">One-tap onboarding shortcut. Pulls every CookTrace recipe into your NutriTrace catalog and stamps each one with its CookTrace source so future edits sync via the recipe's own refresh banner. Safe to re-run: existing imports update in place instead of duplicating.</div>
+            </div>
+            <button class="btn btn-primary btn-sm" on:click={_ctBulkImport} disabled={ctBulkBusy} style="flex-shrink:0">
+              {#if ctBulkBusy}
+                <span class="material-symbols-rounded ct-spin" style="font-size:16px;vertical-align:middle">refresh</span>
+                {ctBulkProgress.done}/{ctBulkProgress.total}
+              {:else}
+                <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle;margin-right:4px">download</span>
+                Import All
+              {/if}
+            </button>
+          </div>
+          {#if !ctBulkBusy && ctBulkLastResult}
+            <p class="setting-desc" style="margin-top:8px;color:var(--text-2)">
+              Last run: {ctBulkLastResult.imported} imported, {ctBulkLastResult.updated} updated, {ctBulkLastResult.skipped} skipped.
+            </p>
+          {/if}
+        </div>
+        <div class="form-group" style="padding:10px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="min-width:0;flex:1">
+              <span class="setting-label">Import Pantry Items</span>
+              <div class="setting-desc">Bring your CookTrace pantry into NutriTrace's Foods library. Individual items and variants come across; generic parents (like "Flour" with a Bread-flour variant) are skipped because their variants already carry the real nutrition. Needs the <code>read:pantry</code> scope on your CookTrace token.</div>
+            </div>
+            <button class="btn btn-primary btn-sm" on:click={_ctBulkImportPantry} disabled={ctPantryBulkBusy} style="flex-shrink:0">
+              {#if ctPantryBulkBusy}
+                <span class="material-symbols-rounded ct-spin" style="font-size:16px;vertical-align:middle">refresh</span>
+                {ctPantryBulkProgress.done}/{ctPantryBulkProgress.total}
+              {:else}
+                <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle;margin-right:4px">kitchen</span>
+                Import Pantry
+              {/if}
+            </button>
+          </div>
+          {#if !ctPantryBulkBusy && ctPantryBulkLastResult}
+            <p class="setting-desc" style="margin-top:8px;color:var(--text-2)">
+              Last run: {ctPantryBulkLastResult.imported} imported, {ctPantryBulkLastResult.updated} updated, {ctPantryBulkLastResult.skipped} skipped.
+            </p>
+          {/if}
+        </div>
+      {/if}
     {/if}
   </div>
 </div>
+
+<style>
+  /* Local spin keyframes for the CT bulk-import buttons while a batch is
+     running. Scoped by our .ct-spin class name (not the generic .spin
+     used by other Settings sub-components) so styles do not collide. */
+  @keyframes ct-spin-rot { to { transform: rotate(360deg); } }
+  .ct-spin { animation: ct-spin-rot 1s linear infinite; display: inline-block; }
+</style>

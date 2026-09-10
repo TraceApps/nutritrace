@@ -79,7 +79,7 @@ async function _hostnameResolvesPrivate(hostname) {
  * Returns the (possibly updated) img_url. On any failure, returns the
  * original — never throws.
  */
-export async function localizeImage(img_url) {
+export async function localizeImage(img_url, opts = {}) {
   if (!img_url) return img_url;
   if (img_url.startsWith('data:')) return await _localizeDataUrl(img_url);
   if (!img_url.startsWith('http')) return img_url; // Already local
@@ -91,7 +91,7 @@ export async function localizeImage(img_url) {
     // If it's a proxy URL on our server, extract the original
     if (parsedUrl.pathname === '/api/proxy') {
       const originalUrl = parsedUrl.searchParams.get('url');
-      if (originalUrl) return localizeImage(originalUrl);
+      if (originalUrl) return localizeImage(originalUrl, opts);
     }
   } catch {
     return img_url;
@@ -101,8 +101,20 @@ export async function localizeImage(img_url) {
     logger.warn(`[image-localizer] Refusing non-http(s) URL: ${img_url.substring(0, 80)}`);
     return img_url;
   }
-  // SSRF guard — refuse private/loopback/link-local hosts (incl. cloud metadata 169.254.169.254)
-  if (await _hostnameResolvesPrivate(parsedUrl.hostname)) {
+  // SSRF guard: refuse private/loopback/link-local hosts (incl. cloud
+  // metadata 169.254.169.254). Exception: callers can pass a trustedOrigins
+  // list of origins the current user has explicitly configured in Settings
+  // (their saved CookTrace / Mealie base URL, etc). The user has proven
+  // they can reach that host on their own network, so an image pull from
+  // it is not an SSRF vector; without this bypass, LAN federation setups
+  // silently store the raw private-IP URL and every downstream viewer
+  // sees an empty image slot.
+  const trusted = Array.isArray(opts.trustedOrigins)
+    ? opts.trustedOrigins.map(o => _originOf(o)).filter(Boolean)
+    : [];
+  const thisOrigin = `${parsedUrl.protocol}//${parsedUrl.host}`;
+  const isTrusted = trusted.includes(thisOrigin);
+  if (!isTrusted && await _hostnameResolvesPrivate(parsedUrl.hostname)) {
     logger.warn(`[image-localizer] Refusing private/loopback URL: ${img_url.substring(0, 80)}`);
     return img_url;
   }
@@ -221,6 +233,22 @@ function _guessExtension(url) {
  *   - http(s) URL that does not already point at /uploads/
  * Local /uploads/ paths, relative paths, and null/empty are passed through.
  */
+/**
+ * Normalize a base URL string to a bare origin ("https://host:port").
+ * Returns null when the input can't be parsed. Used by localizeImage's
+ * trustedOrigins bypass so a saved integration base URL like
+ * "https://cooktrace.lan/" or "https://cooktrace.lan/api" both collapse
+ * to the same origin key.
+ */
+function _originOf(u) {
+  if (!u) return null;
+  try {
+    const p = new URL(u);
+    if (p.protocol !== 'http:' && p.protocol !== 'https:') return null;
+    return `${p.protocol}//${p.host}`;
+  } catch { return null; }
+}
+
 export function isExternalUrl(url) {
   if (!url) return false;
   if (url.startsWith('data:image/')) return true;

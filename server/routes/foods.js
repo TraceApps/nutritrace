@@ -16,6 +16,27 @@ const uid = req => userMgmtActive() ? req.user.id : null;
 
 const canRead = (food, u) => _canRead(food, u, 'food_shares', 'food_id');
 
+/**
+ * For federation-sourced imports (source_app === 'cooktrace' today), let
+ * localizeImage pull from the user's own configured integration base URL
+ * even when it resolves to a private/LAN IP. Without this the SSRF guard
+ * silently leaves the raw private-IP URL in the food row and the image
+ * slot renders empty on any client whose network can't reach that IP.
+ * Only integration URLs the user themselves saved in Settings qualify.
+ */
+function _trustedOriginsForSource(userId, sourceApp) {
+  if (!sourceApp) return [];
+  const key = sourceApp === 'cooktrace' ? 'cooktraceBaseUrl'
+            : sourceApp === 'mealie'    ? 'mealieBaseUrl'
+            : null;
+  if (!key) return [];
+  const row = userId == null
+    ? db.prepare(`SELECT value FROM user_settings WHERE key = ? AND deleted_at IS NULL LIMIT 1`).get(key)
+    : db.prepare(`SELECT value FROM user_settings WHERE user_id = ? AND key = ? AND deleted_at IS NULL`).get(userId, key);
+  const v = (row?.value || '').replace(/^"|"$/g, '');
+  return v ? [v] : [];
+}
+
 // ── GET / — own foods + shared foods from others ──────────────────────────
 router.get('/', wrap((req, res) => {
   const u = uid(req);
@@ -81,12 +102,52 @@ function _normalizeDensity(v) {
 // ── POST / ────────────────────────────────────────────────────────────────
 router.post('/', wrap(async (req, res) => {
   const { name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id,
-    nutrition_basis, alt_units, density_g_ml } = req.body;
+    nutrition_basis, alt_units, density_g_ml,
+    source_app, source_external_id, source_url } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
-  // #183 — when the client omits visibility, honor the caller's
+  // #183: when the client omits visibility, honor the caller's
   // defaultShareVisibility setting instead of hard-coding 'private'.
   const vis = visibility || resolveNewItemVisibility(u);
+  const cleanSourceApp   = source_app         ? String(source_app).slice(0, 40)          : null;
+  const cleanSourceExtId = source_external_id ? String(source_external_id).slice(0, 128) : null;
+
+  // Upsert on re-import. A food carrying (source_app, source_external_id)
+  // that already exists for this user gets updated in place instead of
+  // duplicated, backing the CT pantry bulk-import. Uses the partial unique
+  // index idx_foods_source_ext.
+  if (cleanSourceApp && cleanSourceExtId) {
+    const found = u == null
+      ? db.prepare(`SELECT * FROM foods WHERE user_id IS NULL AND source_app = ? AND source_external_id = ? AND deleted_at IS NULL`).get(cleanSourceApp, cleanSourceExtId)
+      : db.prepare(`SELECT * FROM foods WHERE user_id = ?    AND source_app = ? AND source_external_id = ? AND deleted_at IS NULL`).get(u, cleanSourceApp, cleanSourceExtId);
+    if (found) {
+      const trusted = _trustedOriginsForSource(u, cleanSourceApp);
+      // Federation-sourced URLs frequently point at the source's /uploads/
+      // path (e.g. "https://cooktrace.lan/uploads/xyz.png"). isExternalUrl
+      // rejects any URL containing "/uploads/" as "already local", so for
+      // source-stamped imports we override that check and always attempt
+      // to self-host from the trusted origin.
+      const _shouldLocalize = img_url && (cleanSourceApp
+        ? (img_url.startsWith('http') || img_url.startsWith('data:'))
+        : isExternalUrl(img_url));
+      const localImg2 = img_url === undefined
+        ? found.img_url
+        : (_shouldLocalize ? await localizeImage(img_url, { trustedOrigins: trusted }) : (img_url || null));
+      db.prepare(
+        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, nutrition_basis=?, alt_units=?, density_g_ml=?, source_url=?, updated_at=datetime('now') WHERE id=?`
+      ).run(name ?? found.name, brand ?? found.brand,
+        JSON.stringify(nutrition ?? JSON.parse(found.nutrition || '{}')),
+        portion ?? found.portion, unit ?? found.unit, localImg2,
+        notes ?? found.notes, category ?? found.category, barcode ?? found.barcode,
+        nutrition_basis === undefined ? found.nutrition_basis : (nutrition_basis || null),
+        alt_units === undefined ? found.alt_units : _serializeAltUnitsForFood(alt_units),
+        density_g_ml === undefined ? found.density_g_ml : _normalizeDensity(density_g_ml),
+        source_url === undefined ? found.source_url : (source_url || null),
+        found.id);
+      return res.status(200).json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(found.id)));
+    }
+  }
+
   // Dedup by barcode within the user's library. The client-side scan handler
   // also looks up local matches before POSTing, but a fast second scan can
   // race the foods-list refresh and reach this endpoint with a barcode that
@@ -100,16 +161,25 @@ router.post('/', wrap(async (req, res) => {
     ).get(...args);
     if (existing) return res.status(200).json(parse(existing));
   }
-  // Download external images to /uploads/ for self-hosting
-  const localImg = isExternalUrl(img_url) ? await localizeImage(img_url) : (img_url || null);
+  // Download external images to /uploads/ for self-hosting. For federation
+  // imports, trust the user's own saved integration base URL so LAN setups
+  // aren't blocked by the SSRF guard, and override isExternalUrl's
+  // "/uploads/ means already local" heuristic so a CT-side upload URL
+  // gets pulled instead of stored as a raw cross-origin link.
+  const trustedNew = _trustedOriginsForSource(u, cleanSourceApp);
+  const _shouldLocalizeNew = img_url && (cleanSourceApp
+    ? (img_url.startsWith('http') || img_url.startsWith('data:'))
+    : isExternalUrl(img_url));
+  const localImg = _shouldLocalizeNew ? await localizeImage(img_url, { trustedOrigins: trustedNew }) : (img_url || null);
   const result = db.prepare(
-    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, nutrition_basis, alt_units, density_g_ml, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(u, name, brand || null, JSON.stringify(nutrition || {}), portion ?? 100, unit || 'g',
     localImg, notes || null, category || null, barcode || null, vis, source_id || null,
     nutrition_basis || null,
     _serializeAltUnitsForFood(alt_units),
-    _normalizeDensity(density_g_ml));
+    _normalizeDensity(density_g_ml),
+    cleanSourceApp, cleanSourceExtId, source_url || null);
   res.status(201).json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(result.lastInsertRowid)));
 }));
 

@@ -1290,7 +1290,14 @@
       "refresh":         "Refresh",
       "dismiss":         "Dismiss",
       "refreshed_toast": "Recipe refreshed from CookTrace",
-      "error_toast":     "Could not refresh from CookTrace"
+      "error_toast":     "Could not refresh from CookTrace",
+      "deleted_toast":   "Recipe deleted"
+    },
+    "ct_deleted": {
+      "headline":        "CookTrace source no longer available",
+      "sub":             "The original recipe on CookTrace was deleted or is no longer readable with this token.",
+      "unlink":          "Unlink",
+      "delete":          "Delete"
     },
     "use_this_crop":           "Use This Crop",
     "back":                    "Back",

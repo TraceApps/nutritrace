@@ -219,10 +219,10 @@ function restoreFromZip(zip) {
     // round-trip these values as NULL, silently losing every user's serving
     // units (slice / cookie / bottle) + per-ml-vs-per-g basis + density.
     const insFood = db.prepare(`
-      INSERT OR IGNORE INTO foods (id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @nutrition_basis, @alt_units, @density_g_ml, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at)
+      INSERT OR IGNORE INTO foods (id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, created_at, updated_at, deleted_at)
+      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @nutrition_basis, @alt_units, @density_g_ml, @source_app, @source_external_id, @source_url, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at)
     `);
-    for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, nutrition_basis: null, alt_units: null, density_g_ml: null, updated_at: null, deleted_at: null, ...f });
+    for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, nutrition_basis: null, alt_units: null, density_g_ml: null, source_app: null, source_external_id: null, source_url: null, updated_at: null, deleted_at: null, ...f });
 
     // Federation source columns (source_app / source_external_id / source_url /
     // import_warnings, added for the CookTrace pull flow) are part of the

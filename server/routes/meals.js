@@ -64,13 +64,35 @@ router.post('/', wrap(async (req, res) => {
   // #183: honor the caller's defaultShareVisibility when the client
   // omits an explicit value. Same rule applies to recipes (is_recipe=1).
   const vis = visibility || resolveNewItemVisibility(u);
-  const localImg = isExternalUrl(img_url) ? await localizeImage(img_url) : (img_url || null);
-  const warningsCol = Array.isArray(import_warnings) && import_warnings.length
-    ? JSON.stringify(import_warnings.map(w => String(w || '').slice(0, 400)).filter(Boolean).slice(0, 20))
-    : null;
   const cleanSourceApp = source_app ? String(source_app).slice(0, 40) : null;
   const cleanSourceExtId = source_external_id ? String(source_external_id).slice(0, 128) : null;
   const cleanSourceUrl = source_url ? String(source_url).slice(0, 2048) : null;
+  // For federation imports, trust the user's own saved integration base
+  // URL for image fetches so a LAN CT/Mealie origin does not get blocked
+  // by the SSRF guard (and the "From CookTrace" recipe silently ends up
+  // with no thumbnail).
+  const _trustedImgOrigins = (() => {
+    if (!cleanSourceApp) return [];
+    const key = cleanSourceApp === 'cooktrace' ? 'cooktraceBaseUrl'
+              : cleanSourceApp === 'mealie'    ? 'mealieBaseUrl'
+              : null;
+    if (!key) return [];
+    const row = u == null
+      ? db.prepare(`SELECT value FROM user_settings WHERE key = ? AND deleted_at IS NULL LIMIT 1`).get(key)
+      : db.prepare(`SELECT value FROM user_settings WHERE user_id = ? AND key = ? AND deleted_at IS NULL`).get(u, key);
+    const v = (row?.value || '').replace(/^"|"$/g, '');
+    return v ? [v] : [];
+  })();
+  // isExternalUrl treats any URL containing "/uploads/" as already-local;
+  // for federation-sourced meals the CT origin's own /uploads/ path would
+  // pass through unlocalized. Override that for source-stamped imports.
+  const _shouldLocalizeImg = img_url && (cleanSourceApp
+    ? (img_url.startsWith('http') || img_url.startsWith('data:'))
+    : isExternalUrl(img_url));
+  const localImg = _shouldLocalizeImg ? await localizeImage(img_url, { trustedOrigins: _trustedImgOrigins }) : (img_url || null);
+  const warningsCol = Array.isArray(import_warnings) && import_warnings.length
+    ? JSON.stringify(import_warnings.map(w => String(w || '').slice(0, 400)).filter(Boolean).slice(0, 20))
+    : null;
 
   // Upsert on re-import: a save with the same (user, source_app, source_external_id)
   // as an existing row updates that row in place. This is how the CookTrace pull

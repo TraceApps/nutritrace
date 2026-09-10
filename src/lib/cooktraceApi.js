@@ -20,6 +20,16 @@ function _cfg() {
 }
 
 async function _proxy(path, method = 'GET') {
+  const raw = await _proxyRaw(path, method);
+  return raw?.ok ? raw.body : null;
+}
+
+// Raw proxy for callers that need to distinguish 404 (upstream row was
+// deleted) from transient network / auth errors (503, timeouts, etc).
+// Returns { ok, status, body } or null when the connection is not
+// configured. status mirrors the upstream CT status code so a 404 lets
+// the MealEditor's "source deleted" indicator light up.
+async function _proxyRaw(path, method = 'GET') {
   const { baseUrl, token } = _cfg();
   if (!baseUrl || !token) return null;
   const csrf = !isNative ? localStorage.getItem('nt:csrf') : null;
@@ -33,8 +43,9 @@ async function _proxy(path, method = 'GET') {
     },
     body: JSON.stringify({ baseUrl, token, path, method }),
   });
-  if (!res.ok) return null;
-  return res.json();
+  let body = null;
+  try { body = await res.json(); } catch { body = null; }
+  return { ok: res.ok, status: res.status, body };
 }
 
 const CookTrace = {
@@ -92,6 +103,59 @@ const CookTrace = {
   },
 
   /**
+   * Probe a CT recipe's existence without returning the full body. Used
+   * by the MealEditor's "source deleted" indicator to distinguish an
+   * upstream 404 (recipe was deleted or user lost read access) from a
+   * transient network / auth blip. Returns:
+   *   'exists'  - HTTP 200
+   *   'deleted' - HTTP 404
+   *   'unknown' - anything else (offline, 401, 500, etc)
+   */
+  async probeRecipeStatus(id) {
+    if (id == null) return 'unknown';
+    try {
+      const raw = await _proxyRaw(`/api/v1/recipes/${encodeURIComponent(id)}`);
+      if (!raw) return 'unknown';
+      if (raw.ok) return 'exists';
+      if (raw.status === 404) return 'deleted';
+      return 'unknown';
+    } catch { return 'unknown'; }
+  },
+
+  /**
+   * List all pantry items on the CT side, shaped for direct POST to
+   * NutriTrace's /api/foods endpoint. Skips generic parents that have
+   * variants (only leaves ship). Returns:
+   *   { ok: true, items: [...] }              (success, may be empty)
+   *   { ok: false, reason: 'not_configured' } (no URL/token saved)
+   *   { ok: false, reason: 'scope' }          (token lacks read:pantry)
+   *   { ok: false, reason: 'not_found' }      (CT server has no /api/v1/pantry: not upgraded)
+   *   { ok: false, reason: 'auth' }           (token invalid)
+   *   { ok: false, reason: 'network', status } (anything else)
+   * Distinguishing these lets the caller show a specific error instead
+   * of the misleading "no pantry items found" success toast.
+   */
+  async listPantry() {
+    const { baseUrl, token } = _cfg();
+    if (!baseUrl || !token) return { ok: false, reason: 'not_configured' };
+    try {
+      const raw = await _proxyRaw('/api/v1/pantry');
+      if (!raw) return { ok: false, reason: 'not_configured' };
+      if (raw.ok) {
+        const items = Array.isArray(raw.body?.items) ? raw.body.items : [];
+        return { ok: true, items };
+      }
+      if (raw.status === 403) return { ok: false, reason: 'scope' };
+      if (raw.status === 404) return { ok: false, reason: 'not_found' };
+      if (raw.status === 401) return { ok: false, reason: 'auth' };
+      return { ok: false, reason: 'network', status: raw.status };
+    } catch (e) {
+      console.error('[CookTrace] listPantry failed:', e);
+      return { ok: false, reason: 'network', status: 0 };
+    }
+  },
+
+  /**
    * Server-verified connection test. Hits /api/v1/me so it validates the
    * bearer token AND the URL in one round trip, and echoes back the
    * signed-in username so the Settings UI can show "Connected as X".
@@ -137,16 +201,25 @@ const CookTrace = {
       ...(it?.barcode ? { barcode: String(it.barcode) } : {}),
     })) : [];
 
-    const totals = (recipe.nutrition && typeof recipe.nutrition === 'object')
+    // CT stores recipe.nutrition as PER-SERVING values (that's what its
+    // own Recompute engine writes). NT's MealEditor expects meal.nutrition
+    // to be WHOLE-RECIPE totals and divides by servings on save. Multiply
+    // through here so the shape matches NT's convention; the editor's own
+    // per-serving math then produces the same numbers CT showed.
+    const servingsN = Number.isFinite(Number(recipe.servings)) ? Number(recipe.servings) : 1;
+    const perServing = (recipe.nutrition && typeof recipe.nutrition === 'object')
       ? Nutrition.deriveSodiumSalt(recipe.nutrition)
       : {};
+    const totals = Object.fromEntries(
+      Object.entries(perServing).map(([k, v]) => [k, (parseFloat(v) || 0) * servingsN])
+    );
 
     return {
       name: recipe.name || 'Recipe',
       imgUrl: recipe.img_url || '',
       items,
       nutrition: totals,
-      servings: Number.isFinite(Number(recipe.servings)) ? Number(recipe.servings) : 1,
+      servings: servingsN,
       portion: Number.isFinite(Number(recipe.portion)) ? Number(recipe.portion) : null,
       unit: recipe.unit || 'g',
       source_app: 'cooktrace',

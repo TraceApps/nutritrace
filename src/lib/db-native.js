@@ -42,6 +42,10 @@ const SCHEMA = `
     nutrition_basis TEXT DEFAULT NULL,
     alt_units       TEXT DEFAULT NULL,
     density_g_ml    REAL DEFAULT NULL,
+    -- Federation source columns for the CT pantry bulk-import.
+    source_app          TEXT DEFAULT NULL,
+    source_external_id  TEXT DEFAULT NULL,
+    source_url          TEXT DEFAULT NULL,
     created_at      TEXT DEFAULT (datetime('now')),
     updated_at      TEXT DEFAULT (datetime('now')),
     deleted_at      TEXT DEFAULT NULL,
@@ -312,6 +316,16 @@ async function _applySchema(db) {
     }
     if (!cols.includes('density_g_ml')) {
       await db.execute(`ALTER TABLE foods ADD COLUMN density_g_ml REAL DEFAULT NULL`);
+    }
+    // CT pantry pull federation columns.
+    if (!cols.includes('source_app')) {
+      await db.execute(`ALTER TABLE foods ADD COLUMN source_app TEXT DEFAULT NULL`);
+    }
+    if (!cols.includes('source_external_id')) {
+      await db.execute(`ALTER TABLE foods ADD COLUMN source_external_id TEXT DEFAULT NULL`);
+    }
+    if (!cols.includes('source_url')) {
+      await db.execute(`ALTER TABLE foods ADD COLUMN source_url TEXT DEFAULT NULL`);
     }
   } catch (e) {
     console.debug('[db-native] foods OFF-units migration skipped:', e?.message);
@@ -1436,8 +1450,10 @@ export async function dbUpsertFromServer(table, serverRecord) {
     // into local sort keys, and "Most Used" / "Recently Used" on Android
     // rank by stale local-only counters.
     if (table === 'foods') {
+      // Federation source columns carry the CT-pantry provenance across
+      // cross-device pulls, mirroring the meals path below.
       await db.run(
-        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
+        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, source_app=?, source_external_id=?, source_url=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
         [data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
@@ -1446,6 +1462,7 @@ export async function dbUpsertFromServer(table, serverRecord) {
          data.density_g_ml != null && Number.isFinite(Number(data.density_g_ml))
            ? Number(data.density_g_ml)
            : null,
+         data.source_app || null, data.source_external_id || null, data.source_url || null,
          data.updated_at, serverId]
       );
     } else if (table === 'meals') {
@@ -1471,8 +1488,8 @@ export async function dbUpsertFromServer(table, serverRecord) {
     // New from server, insert locally.
     if (table === 'foods') {
       await db.run(
-        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
@@ -1481,6 +1498,7 @@ export async function dbUpsertFromServer(table, serverRecord) {
          data.density_g_ml != null && Number.isFinite(Number(data.density_g_ml))
            ? Number(data.density_g_ml)
            : null,
+         data.source_app || null, data.source_external_id || null, data.source_url || null,
          data.updated_at]
       );
     } else if (table === 'meals') {
