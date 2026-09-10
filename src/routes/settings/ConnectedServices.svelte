@@ -392,7 +392,7 @@
     ctPantryBulkBusy = true;
     ctPantryBulkProgress = { done: 0, total: 0 };
     ctPantryBulkLastResult = null;
-    let imported = 0, updated = 0, skipped = 0;
+    let imported = 0, updated = 0, skipped = 0, collided = 0;
     try {
       const list = await CookTrace.listPantry();
       if (!list.ok) {
@@ -424,7 +424,7 @@
 
       ctPantryBulkProgress = { done: 0, total: items.length };
       if (items.length === 0) {
-        ctPantryBulkLastResult = { imported: 0, updated: 0, skipped: 0 };
+        ctPantryBulkLastResult = { imported: 0, updated: 0, skipped: 0, collided: 0 };
         showSuccess('No importable CookTrace pantry items found');
         return;
       }
@@ -432,9 +432,22 @@
       for (const it of items) {
         try {
           const wasExisting = existingSet.has(it.source_external_id);
-          await NtApi.createFood(it);
-          if (wasExisting) updated++;
-          else imported++;
+          const saved = await NtApi.createFood(it);
+          // POST /api/foods has a barcode dedup gate that fires BEFORE the
+          // insert and returns the pre-existing row untouched. When that
+          // happens the CookTrace data is deliberately not applied, so
+          // counting it as "imported" would report work that never
+          // occurred. The returned row tells us which branch ran: our own
+          // insert and the federation upsert both echo back the
+          // source_external_id we sent, while the barcode gate returns
+          // somebody else's row (null, or a different pantry id).
+          if (saved && saved.source_external_id !== it.source_external_id) {
+            collided++;
+          } else if (wasExisting) {
+            updated++;
+          } else {
+            imported++;
+          }
         } catch (e) {
           skipped++;
           const msg = e?.message || String(e);
@@ -443,11 +456,16 @@
         }
         ctPantryBulkProgress = { ...ctPantryBulkProgress, done: ctPantryBulkProgress.done + 1 };
       }
-      ctPantryBulkLastResult = { imported, updated, skipped };
-      const summary = `Imported ${imported}, updated ${updated}` + (skipped ? `, ${skipped} skipped` : '');
+      ctPantryBulkLastResult = { imported, updated, skipped, collided };
+      const summary = [
+        `Imported ${imported}`,
+        `updated ${updated}`,
+        ...(collided ? [`${collided} already in your library (matched by barcode)`] : []),
+        ...(skipped ? [`${skipped} skipped`] : []),
+      ].join(', ');
       // Systemic failure (every item errored the same way): surface the first
       // error verbatim so the user can see WHY, not just a "N skipped" count.
-      if (skipped && !(imported || updated)) {
+      if (skipped && !(imported || updated || collided)) {
         showError(`${summary}${firstError ? `. First error: ${firstError}` : ''}`);
       } else {
         showSuccess(summary);
@@ -895,6 +913,9 @@
           {#if !ctPantryBulkBusy && ctPantryBulkLastResult}
             <p class="setting-desc" style="margin-top:8px;color:var(--text-2)">
               Last run: {ctPantryBulkLastResult.imported} imported, {ctPantryBulkLastResult.updated} updated, {ctPantryBulkLastResult.skipped} skipped.
+              {#if ctPantryBulkLastResult.collided}
+                <br />{ctPantryBulkLastResult.collided} already in your library (matched by barcode), left as-is.
+              {/if}
             </p>
           {/if}
         </div>
