@@ -135,6 +135,29 @@ const CookTrace = {
    * Distinguishing these lets the caller show a specific error instead
    * of the misleading "no pantry items found" success toast.
    */
+  /**
+   * Paginated pantry search for the Foods-tab CookTrace source chip.
+   * Same envelope shape Foods.svelte expects from OFF / USDA / Mealie so
+   * it drops into the existing search plumbing unchanged. Returns leaves
+   * only (generic parents with variants are filtered server-side), and
+   * CT matches against the composed "Parent, Child" name so a variant
+   * stays findable by its generic's word.
+   */
+  async searchPantryWithMeta(query, page = 1, perPage = 10) {
+    if (!query) return { items: [], totalHits: 0, page, hasMore: false };
+    try {
+      const offset = Math.max(0, (page - 1) * perPage);
+      const p = `/api/v1/pantry?q=${encodeURIComponent(query)}&limit=${perPage}&offset=${offset}`;
+      const data = await _proxy(p);
+      const items = data?.items || [];
+      const totalHits = typeof data?.total === 'number' ? data.total : items.length;
+      return { items, totalHits, page, hasMore: offset + items.length < totalHits };
+    } catch (e) {
+      console.error('[CookTrace] pantry search failed:', e);
+      return { items: [], totalHits: 0, page, hasMore: false };
+    }
+  },
+
   async listPantry() {
     const { baseUrl, token } = _cfg();
     if (!baseUrl || !token) return { ok: false, reason: 'not_configured' };
