@@ -2484,6 +2484,7 @@
         {#if ctPantryResults.length > 0}
           <ul class="food-list">
             {#each ctPantryResults as row, i (row.source_external_id ?? i)}
+              {@const _ctEnergy = Nutrition.displayEnergy(row.nutrition?.calories || 0, $energyUnit)}
               <li class="food-item card">
                 <button class="food-item-btn" on:click={() => pickCtPantryItem(row)}>
                   {#if row.img_url}
@@ -2501,7 +2502,7 @@
                     {/if}
                   </div>
                   <span class="food-kcal text-sm">
-                    {Nutrition.displayEnergy(row.nutrition?.calories || 0, $energyUnit)}
+                    {_ctEnergy.value.toLocaleString()} {_ctEnergy.unit}
                   </span>
                 </button>
               </li>
