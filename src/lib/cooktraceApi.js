@@ -199,6 +199,10 @@ const CookTrace = {
       quantity: Number.isFinite(Number(it?.quantity)) ? Number(it.quantity) : 1,
       nutrition: (it?.nutrition && typeof it.nutrition === 'object') ? Nutrition.deriveSodiumSalt(it.nutrition) : {},
       ...(it?.barcode ? { barcode: String(it.barcode) } : {}),
+      // MealEditor's ingredient rows render `item.imgUrl`; CT ships the
+      // linked pantry row's photo as `img_url`. Without this mapping every
+      // imported ingredient falls back to the grey placeholder icon.
+      ...(it?.img_url ? { imgUrl: String(it.img_url) } : {}),
     })) : [];
 
     // CT stores recipe.nutrition as PER-SERVING values (that's what its

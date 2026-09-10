@@ -221,6 +221,12 @@
   async function _checkForCtUpdates() {
     if (meal?.source_app !== 'cooktrace' || !meal?.source_external_id) return;
     if (!DB.getSetting('cooktraceEnabled', false)) return;
+    // A recipe that has never been saved was just pulled from CookTrace,
+    // so it IS the current source content and there is nothing to refresh
+    // against. Without this guard the comparison below reads a missing
+    // meal.updated_at as epoch 0, which every real CT timestamp beats, so
+    // the banner fired on every fresh import.
+    if (!meal.id || !meal.updated_at) return;
     const m = String(meal.source_external_id).match(/^recipe:(\d+)$/);
     if (!m) return;
     const ctId = Number(m[1]);
@@ -1546,6 +1552,9 @@
     border-radius: 10px;
     background: color-mix(in srgb, var(--accent) 12%, var(--surface-1));
     border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    /* Always allowed to wrap: this card lives in the narrow left sidebar
+       on desktop as well as full width on mobile. */
+    flex-wrap: wrap;
   }
   .ct-source-refresh-icon {
     color: var(--accent);
@@ -1553,17 +1562,28 @@
     font-size: 20px;
   }
   .ct-source-refresh-text {
-    flex: 1;
+    /* flex-basis forces a wrap once the text has less than ~150px to work
+       with, which is what happens inside the desktop editor's narrow left
+       sidebar. Basing this on the container's own space rather than the
+       viewport matters: the old max-width:480px media query never fired on
+       a wide screen, so the two action buttons stayed on the same line as
+       the text and overlapped each other. */
+    flex: 1 1 150px;
     display: flex;
     flex-direction: column;
     min-width: 0;
   }
+  .ct-source-refresh-headline,
+  .ct-source-refresh-sub { overflow-wrap: anywhere; }
   .ct-source-refresh-headline { font-weight: 600; font-size: 13px; color: var(--text-1); }
   .ct-source-refresh-sub { font-size: 12px; color: var(--text-3); }
   .ct-source-refresh-actions {
     display: flex;
     gap: 8px;
     flex-shrink: 0;
+    /* Right-align whether the actions share the text's line or wrap onto
+       their own. */
+    margin-left: auto;
   }
   .ct-source-refresh-actions .btn {
     height: auto;
@@ -1574,7 +1594,6 @@
     border-radius: 6px;
   }
   @media (max-width: 480px) {
-    .ct-source-refresh { flex-wrap: wrap; }
     .ct-source-refresh-actions { width: 100%; justify-content: flex-end; }
   }
   /* Source-deleted variant: same shape as the refresh banner, warning-
