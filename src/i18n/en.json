@@ -1284,6 +1284,14 @@
     "card_nutrition_totals":   "Nutrition Totals",
     "add_ingredient":          "Add Ingredient",
     "save_changes":            "Save Changes",
+    "ct_refresh": {
+      "headline":        "CookTrace has newer content",
+      "sub":             "Refresh to pull the latest name, ingredients, and totals.",
+      "refresh":         "Refresh",
+      "dismiss":         "Dismiss",
+      "refreshed_toast": "Recipe refreshed from CookTrace",
+      "error_toast":     "Could not refresh from CookTrace"
+    },
     "use_this_crop":           "Use This Crop",
     "back":                    "Back",
     "search_placeholder":      "Search…",

@@ -201,7 +201,73 @@
       if (meal.unit) recipeUnit = meal.unit;
     }
 
+    // #207 companion: if this meal came from a CT federation pull,
+    // background-check whether the CT source has been edited since our
+    // last save. Non-blocking: silent on any failure, only shows a
+    // banner when CT is confirmed newer AND the setting is on. User
+    // consents to overwrite via the banner's Refresh button; no forced
+    // sync.
+    _checkForCtUpdates();
   });
+
+  // Detected upstream refresh; the banner reads this to render.
+  let _ctUpdateAvailable = null;
+
+  async function _checkForCtUpdates() {
+    if (meal?.source_app !== 'cooktrace' || !meal?.source_external_id) return;
+    if (!DB.getSetting('cooktraceEnabled', false)) return;
+    const m = String(meal.source_external_id).match(/^recipe:(\d+)$/);
+    if (!m) return;
+    const ctId = Number(m[1]);
+    try {
+      const { CookTrace } = await import('../lib/cooktraceApi.js');
+      if (!CookTrace.isConfigured()) return;
+      const fresh = await CookTrace.getRecipe(ctId);
+      if (!fresh?.updated_at) return;
+      // Server timestamps come back as "YYYY-MM-DD HH:MM:SS" (UTC without
+      // a Z). Normalize to ISO before parsing so both sides land in the
+      // same zone.
+      const _iso = s => {
+        const raw = String(s || '');
+        if (!raw) return null;
+        return raw.includes('T') ? raw : raw.replace(' ', 'T') + (raw.endsWith('Z') ? '' : 'Z');
+      };
+      const remoteTs = new Date(_iso(fresh.updated_at)).getTime();
+      const localTs  = new Date(_iso(meal.updated_at) || 0).getTime();
+      if (Number.isFinite(remoteTs) && Number.isFinite(localTs) && remoteTs > localTs) {
+        _ctUpdateAvailable = fresh;
+      }
+    } catch { /* CT unreachable / auth issue: quietly skip */ }
+  }
+
+  async function _applyCtRefresh() {
+    if (!_ctUpdateAvailable) return;
+    try {
+      const { CookTrace } = await import('../lib/cooktraceApi.js');
+      const mapped = CookTrace.mapRecipe(_ctUpdateAvailable);
+      // Overlay refreshed fields onto the current meal; keep id + local
+      // draft state untouched so the save flow lands on the same row.
+      meal = {
+        ...meal,
+        name:         mapped.name || meal.name,
+        items:        mapped.items || meal.items,
+        imgUrl:       mapped.imgUrl || meal.imgUrl,
+        servings:     mapped.servings ?? meal.servings,
+        nutrition:    mapped.nutrition || meal.nutrition,
+        source_url:   mapped.source_url || meal.source_url,
+      };
+      if (mapped.imgUrl) photoPreviewUrl = mapped.imgUrl;
+      if (mapped.servings) recipeYields = mapped.servings;
+      _ctUpdateAvailable = null;
+      showSuccess($_('meal_editor.ct_refresh.refreshed_toast'));
+    } catch (e) {
+      showError(e?.message || $_('meal_editor.ct_refresh.error_toast'));
+    }
+  }
+
+  function _dismissCtRefresh() {
+    _ctUpdateAvailable = null;
+  }
 
   // Discard restored draft (#157 followup, Wildenhaus). Resets each
   // tracked field to what the server actually loaded (or empty for the
@@ -885,6 +951,23 @@
             </div>
           </div>
         {/if}
+        {#if _ctUpdateAvailable}
+          <div class="ct-source-refresh">
+            <span class="material-symbols-rounded ct-source-refresh-icon">sync</span>
+            <div class="ct-source-refresh-text">
+              <span class="ct-source-refresh-headline">{$_('meal_editor.ct_refresh.headline')}</span>
+              <span class="ct-source-refresh-sub">{$_('meal_editor.ct_refresh.sub')}</span>
+            </div>
+            <div class="ct-source-refresh-actions">
+              <button class="btn btn-ghost btn-sm" on:click={_dismissCtRefresh}>
+                {$_('meal_editor.ct_refresh.dismiss')}
+              </button>
+              <button class="btn btn-primary btn-sm" on:click={_applyCtRefresh}>
+                {$_('meal_editor.ct_refresh.refresh')}
+              </button>
+            </div>
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -1365,6 +1448,48 @@
   .ct-source-warn-icon { color: var(--warning, #f59e0b); flex-shrink: 0; font-size: 18px; }
   .ct-source-warn-line { margin: 0; }
   .ct-source-warn-line + .ct-source-warn-line { margin-top: 4px; }
+  /* #207 companion: refresh banner shown when the CT source recipe has
+     a newer updated_at than the local NT copy. Tinted accent so it
+     reads as an actionable prompt, not a warning. */
+  .ct-source-refresh {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .ct-source-refresh-icon {
+    color: var(--accent);
+    flex-shrink: 0;
+    font-size: 20px;
+  }
+  .ct-source-refresh-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .ct-source-refresh-headline { font-weight: 600; font-size: 13px; color: var(--text-1); }
+  .ct-source-refresh-sub { font-size: 12px; color: var(--text-3); }
+  .ct-source-refresh-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .ct-source-refresh-actions .btn {
+    height: auto;
+    padding: 4px 10px;
+    font-size: 12px;
+    min-height: 0;
+    line-height: 1.2;
+    border-radius: 6px;
+  }
+  @media (max-width: 480px) {
+    .ct-source-refresh { flex-wrap: wrap; }
+    .ct-source-refresh-actions { width: 100%; justify-content: flex-end; }
+  }
 
   /* Photo */
   .photo-preview-wrap {

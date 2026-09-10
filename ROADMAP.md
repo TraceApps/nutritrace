@@ -861,6 +861,9 @@ how home users actually reach for a recipe (many times per week,
 from the logging surface), where push would push once at authoring
 time and then never sync again. See [CT nt-federation docs](https://traceapps.github.io/docs/cooktrace/nt-federation/).
 
+**Backlog / future enhancements:**
+- **Save ingredients to Foods library on import (opt-in checkbox).** Today the CT recipe pull stores an inline `items[]` snapshot on the meals row and never touches NT's `foods` table. That matches how NT recipes work in general, but users may want their pantry-linked CT ingredients to become reusable NT foods in the process. Add a checkbox to the CT recipe pick sheet ("Also add ingredients to my Foods library"), off by default. On confirm, upsert each ingredient into `foods` keyed by `(user_id, source_app='cooktrace', source_external_id='pantry:<ct_pantry_id>')` so re-imports do not duplicate. Skip ingredients with no nutrition (nothing useful to save). No sync-back the other way (CT-side pantry edits do not propagate to already-created NT foods).
+
 ---
 
 ## Engagement / Achievements (maybe-never)
