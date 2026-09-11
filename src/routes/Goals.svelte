@@ -629,9 +629,9 @@
     const fG = Math.round(kcal * preset.f / 100 / 9);
     goals.update(g => ({
       ...g,
-      proteins:      { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.proteins      || {}), max: pG, min: undefined, days: Array(7).fill(pG) },
-      carbohydrates: { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.carbohydrates || {}), max: cG, min: undefined, days: Array(7).fill(cG) },
-      fat:           { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.fat           || {}), max: fG, min: undefined, days: Array(7).fill(fG) },
+      proteins:      { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.proteins      || {}), isPercent: false, max: pG, min: undefined, days: Array(7).fill(pG) },
+      carbohydrates: { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.carbohydrates || {}), isPercent: false, max: cG, min: undefined, days: Array(7).fill(cG) },
+      fat:           { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.fat           || {}), isPercent: false, max: fG, min: undefined, days: Array(7).fill(fG) },
     }));
     showSuccess('Macros set');
   }
