@@ -1,5 +1,6 @@
 /**
- * Cronometer "Servings" CSV adapter.
+ * Cronometer "Food & Recipe Entries" CSV adapter (downloads as servings.csv;
+ * Cronometer's export menu used to call it "Servings").
  *
  * Header (verbatim, header-driven; column order may shift across versions):
  *   Day, Time, Group, Food Name, Amount, Energy (kcal), Caffeine (mg),
@@ -16,20 +17,37 @@
  *   - Both µ (U+00B5) and µ (U+03BC) appear in micronutrient column names across versions.
  *   - Energy is fixed kcal (Cronometer never exports kJ even when user prefs kJ).
  *   - `Group` is the meal name; user-renamable, defaults to Breakfast/Lunch/Dinner/Snacks.
+ *   - `Time` is 12-hour with AM/PM and no leading zero ("8:33 AM", "1:00 PM").
+ *   - `Energy` is blank, not 0, for zero-calorie entries (supplements, most
+ *     spices). Those rows still carry micronutrients, so they are kept.
  */
 import { parseCsv, getField, parseDate, parseNumber, splitAmount } from './common.js';
 
 export function parseCronometer(text) {
-  const { header, rows } = parseCsv(text);
+  const { header, headerRaw, rows } = parseCsv(text);
   if (!header.length) throw new Error('Empty file');
 
-  // Sanity: Cronometer headers always include "Day" + "Food Name" + "Energy (kcal)"
+  const hasFoodName = _hasH(header, 'food name') || _hasH(header, 'food');
+
+  // Cronometer's Daily Nutrition export (dailysummary.csv) holds only totals:
+  // Date, an optional Group column for per-meal totals, the nutrients, and
+  // Completed. With no individual foods there is nothing to turn into diary
+  // entries, and it is the export people most often grab by mistake, so name
+  // it and point to the right one. Detected from the columns, never the
+  // file name, so a renamed file gets the same help.
+  if (!hasFoodName && _hasH(header, 'date') &&
+      (_hasH(header, 'energy (kcal)') || _hasH(header, 'completed'))) {
+    throw new Error("This is Cronometer's Daily Nutrition export, which only has daily totals. " +
+      'NutriTrace imports your individual foods: in Cronometer, open Export Data and choose Export Food & Recipe Entries.');
+  }
+
   const hasCore =
-    _hasH(header, 'day') &&
-    (_hasH(header, 'food name') || _hasH(header, 'food')) &&
+    _hasH(header, 'day') && hasFoodName &&
     (_hasH(header, 'energy (kcal)') || _hasH(header, 'energy'));
   if (!hasCore) {
-    throw new Error('Does not look like a Cronometer Servings export — expected Day + Food Name + Energy (kcal) columns');
+    const seen = headerRaw.filter(Boolean).slice(0, 6).join(', ');
+    throw new Error("This doesn't look like Cronometer's Food & Recipe Entries export. " +
+      `Expected Day, Food Name and Energy (kcal) columns, but found: ${seen}${headerRaw.length > 6 ? ', ...' : ''}.`);
   }
 
   const out = [];
@@ -38,8 +56,8 @@ export function parseCronometer(text) {
     if (!dateStr) continue;
     const name = getField(row, 'food name', 'food');
     if (!name) continue;
-    const calories = parseNumber(getField(row, 'energy (kcal)', 'energy'));
-    if (calories == null) continue;
+    // Blank energy means a zero-calorie entry, not a broken row (see header).
+    const calories = parseNumber(getField(row, 'energy (kcal)', 'energy')) ?? 0;
 
     // Cronometer's "Amount" field is the consumed amount ("750.00 g",
     // "1 cup"); the row's nutrition is the TOTAL for that consumption, not
@@ -112,9 +130,17 @@ function _norm(target, outKey, row, ...sourceKeys) {
   }
 }
 
+// Accepts "8:33 AM", "1:00 PM", "12:05 AM", "8:33am", "8:33 a.m." and 24-hour
+// "20:15". AM/PM is applied only to 1-12 o'clock, so an already-24-hour value
+// that also carries a marker ("20:15 PM") is left as 20:15.
 function _normTime(s) {
   if (!s) return null;
-  const m = String(s).match(/^(\d{1,2}):(\d{2})/);
+  const m = String(s).trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(?:([AaPp])\.?[Mm]\.?)?$/);
   if (!m) return null;
-  return `${m[1].padStart(2, '0')}:${m[2]}`;
+  let h = Number(m[1]);
+  const min = Number(m[2]);
+  const meridiem = m[3] ? m[3].toLowerCase() : null;
+  if (meridiem && h >= 1 && h <= 12) h = (h % 12) + (meridiem === 'p' ? 12 : 0);
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, '0')}:${m[2]}`;
 }

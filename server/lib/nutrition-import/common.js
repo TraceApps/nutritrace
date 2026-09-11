@@ -62,8 +62,23 @@ export function detectDelimiter(headerLine) {
 }
 
 /**
+ * True when the bytes start with a ZIP signature (a normal archive, an empty
+ * one, or a spanned one). Decided by content rather than file name, so a
+ * CSV renamed to .zip, or a ZIP renamed to .csv, is still read correctly.
+ * The full four-byte check matters: a CSV whose first column happens to
+ * start with "PK" must not be mistaken for an archive.
+ */
+export function isZipBuffer(buf) {
+  if (!buf || buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4B) return false;
+  return (buf[2] === 0x03 && buf[3] === 0x04)
+      || (buf[2] === 0x05 && buf[3] === 0x06)
+      || (buf[2] === 0x07 && buf[3] === 0x08);
+}
+
+/**
  * Parse CSV text with auto-detected delimiter. Header row required.
- * Returns { header (lowercased trimmed), rows: array of objects keyed by header }.
+ * Returns { header (lowercased trimmed), headerRaw (as written, for messages),
+ * rows: array of objects keyed by header }.
  * Strips UTF-8 BOM if present.
  */
 export function parseCsv(text) {
@@ -80,7 +95,7 @@ export function parseCsv(text) {
     for (let i = 0; i < header.length; i++) row[header[i]] = cols[i] ?? '';
     return row;
   });
-  return { header, rows, delim };
+  return { header, headerRaw, rows, delim };
 }
 
 /**

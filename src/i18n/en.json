@@ -1613,7 +1613,7 @@
       "spreadsheet_label":       "Generic Spreadsheet",
       "spreadsheet_hint":        "Any CSV with at least Date, Name, and Calories columns. Use our template for the easiest path.",
       "cronometer_label":        "Cronometer",
-      "cronometer_hint":         "Profile → Account → Export Data → Servings (CSV). Free tier supported.",
+      "cronometer_hint":         "Account → Account Data → Export Data → Export Food & Recipe Entries (not Daily Nutrition). Free tier supported.",
       "loseit_label":            "Lose It!",
       "loseit_hint":             "loseit.com → Insights → Weekly → Export to Spreadsheet. One CSV per week, concatenate first if importing multiple weeks.",
       "mfp_label":               "MyFitnessPal",

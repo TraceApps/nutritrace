@@ -15,7 +15,7 @@ import AdmZip from 'adm-zip';
 import db from '../db.js';
 import { wrap, logger } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
-import { mapMeal } from '../lib/nutrition-import/common.js';
+import { mapMeal, isZipBuffer } from '../lib/nutrition-import/common.js';
 import { parseSpreadsheet } from '../lib/nutrition-import/spreadsheet.js';
 import { parseCronometer }  from '../lib/nutrition-import/cronometer.js';
 import { parseLoseit }      from '../lib/nutrition-import/loseit.js';
@@ -41,9 +41,9 @@ const SUPPORTED_SOURCES = ['spreadsheet', 'cronometer', 'loseit', 'mfp'];
  * CSV out of it. Other adapters expect plain CSV text.
  */
 function _extractText(source, file) {
-  const filename = (file.originalname || '').toLowerCase();
-  const isZip = filename.endsWith('.zip') ||
-    (file.buffer.length > 4 && file.buffer[0] === 0x50 && file.buffer[1] === 0x4B);
+  // Decide from the bytes, not the file name: a renamed file must behave the
+  // same as the original. See isZipBuffer for why all four bytes are checked.
+  const isZip = isZipBuffer(file.buffer);
 
   if (source === 'mfp' && isZip) {
     let zip;
