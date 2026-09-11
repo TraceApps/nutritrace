@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Macro goals set "As percent" now show and convert correctly** ([#209](https://github.com/TraceApps/nutritrace/issues/209), [#210](https://github.com/TraceApps/nutritrace/pull/210)). Applying a macro preset kept a stale "As percent" flag, so the preset's gram target was read as a percentage and Diary and Statistics showed it hugely inflated (a 137 g protein target became 626 g). Presets now clear the flag. Separately, the Goals page's Macros card, preview ring and preset chip read a percent goal as grams (30% showed as "30 g"), and ticking "As percent" only changed the label instead of converting the value. Both now convert, so Goals, Diary and Statistics agree. If you already hit the preset bug, re-applying your preset once clears it. Thanks @drunkenpeleg for the report and the fix.
+
 ---
 
 ## [1.3.0-dev01] - 2026-09-10 (pre-release)
