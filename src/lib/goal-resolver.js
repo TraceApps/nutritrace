@@ -74,3 +74,52 @@ export function resolveRangeGoal(g) {
   }
   return g.max ?? g.min ?? null;
 }
+
+/**
+ * Macro goals flagged `isPercent` store a percentage of the calorie goal,
+ * not grams. These helpers do that conversion in one place so every
+ * surface shows the same number.
+ *
+ * percentGoalToGrams matches the formula Diary, Statistics and the Goals
+ * list already use, rounded to whole grams. gramsGoalToPercent returns
+ * a percentage that converts back to exactly the same grams.
+ * Both return null when the inputs cannot produce a meaningful value,
+ * so callers can leave the original number alone.
+ */
+export function percentGoalToGrams(pct, calGoal, density) {
+  const p = Number(pct), c = Number(calGoal), d = Number(density);
+  if (!Number.isFinite(p) || !Number.isFinite(c) || !(d > 0)) return null;
+  return Math.round(c * p / 100 / d);
+}
+
+export function gramsGoalToPercent(grams, calGoal, density) {
+  const g = Number(grams), c = Number(calGoal), d = Number(density);
+  if (!Number.isFinite(g) || !(c > 0) || !(d > 0)) return null;
+  // Use the fewest decimals (0 to 2) that still convert back to the same
+  // whole grams, so 137 g at 1828 kcal reads as a clean 30 and switching
+  // the unit on and off never drifts the target.
+  const exact = g * d / c * 100;
+  const wanted = Math.round(g);
+  for (const places of [0, 1, 2]) {
+    const f = 10 ** places;
+    const pct = Math.round(exact * f) / f;
+    if (percentGoalToGrams(pct, c, d) === wanted) return pct;
+  }
+  return Math.round(exact * 100) / 100;
+}
+
+/**
+ * A macro goal's target in grams, whether it was saved as grams or as a
+ * percentage of calories. Returns the stored value unchanged for gram
+ * goals and for any stat without a calorie density.
+ *
+ * @param {object|null|undefined} g  Goal entry from the goals store.
+ * @param {number} calGoal           Calorie goal to convert against.
+ * @param {number|undefined} density kcal per gram (4 or 9).
+ * @returns {number|null}
+ */
+export function macroGoalGrams(g, calGoal, density) {
+  const raw = g?.max ?? g?.min ?? null;
+  if (raw == null || !g.isPercent || !density) return raw;
+  return percentGoalToGrams(raw, calGoal, density) ?? raw;
+}

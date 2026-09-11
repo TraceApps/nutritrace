@@ -10,6 +10,7 @@
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
+  import { macroGoalGrams, percentGoalToGrams, gramsGoalToPercent } from '../lib/goal-resolver.js';
   import { loadEntry } from '../stores/diary.js';
   import { showSuccess } from '../stores/toast.js';
   import MacroRing from '../components/diary/MacroRing.svelte';
@@ -447,6 +448,28 @@
     return stat && (stat.id in MACRO_DENSITY);
   }
 
+  // Toggling "As percent" converts the typed value into the new unit so the
+  // target keeps its meaning. Without it the number would just be read
+  // in the new unit: 137 g would become 137% of calories. Only the user's
+  // click lands here; openEdit sets editIsPercent directly, so an existing
+  // goal is never converted on open. Empty or unparseable fields are left
+  // as typed.
+  function _onPercentToggle(e) {
+    const density = MACRO_DENSITY[editStat?.id];
+    if (!density) return;
+    const toPercent = e.currentTarget.checked;
+    const convert = (str) => {
+      const n = parseDecimal(str);
+      if (!Number.isFinite(n)) return str;
+      const out = toPercent
+        ? gramsGoalToPercent(n, _effectiveCalGoal, density)
+        : percentGoalToGrams(n, _effectiveCalGoal, density);
+      return out == null ? str : String(out);
+    };
+    editVal0 = convert(editVal0);
+    editDayVals = editDayVals.map(convert);
+  }
+
   function getTodayValue(stat, totals, bodyStats, wellness, recent) {
     const t = totals    ?? todayTotals;
     const b = bodyStats ?? todayBodyStats;
@@ -531,9 +554,13 @@
   // Grams goals for macros (protein/carbs/fat) drive both the ring segments
   // and the stacked bar. Null when the goal isn't set — the preview then
   // renders an empty ring / warning that macros are incomplete.
-  $: _proteinGoalG = $goals.proteins?.max      ?? $goals.proteins?.min      ?? null;
-  $: _carbsGoalG   = $goals.carbohydrates?.max ?? $goals.carbohydrates?.min ?? null;
-  $: _fatGoalG     = $goals.fat?.max           ?? $goals.fat?.min           ?? null;
+  // Macros saved "As percent" hold a percentage, so convert them to grams
+  // here. Everything below (card, ring, stacked bar, preset chip, macro
+  // kcal warning) treats these as grams. _effectiveCalGoal is the same
+  // calorie basis Diary converts with, so this preview matches Diary.
+  $: _proteinGoalG = macroGoalGrams($goals.proteins,      _effectiveCalGoal, MACRO_DENSITY.proteins);
+  $: _carbsGoalG   = macroGoalGrams($goals.carbohydrates, _effectiveCalGoal, MACRO_DENSITY.carbohydrates);
+  $: _fatGoalG     = macroGoalGrams($goals.fat,           _effectiveCalGoal, MACRO_DENSITY.fat);
   $: _macroKcalSum =
        (_proteinGoalG || 0) * 4 +
        (_carbsGoalG   || 0) * 4 +
@@ -1285,7 +1312,7 @@
               <span class="toggle-hint">{$_('goals_page.editor.as_percent_hint')}</span>
             </div>
             <label class="toggle-switch">
-              <input type="checkbox" bind:checked={editIsPercent} />
+              <input type="checkbox" bind:checked={editIsPercent} on:change={_onPercentToggle} />
               <span class="toggle-track"></span>
             </label>
           </div>

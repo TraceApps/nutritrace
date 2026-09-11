@@ -5,7 +5,10 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveGoalFor, resolveRangeGoal } from '../src/lib/goal-resolver.js';
+import {
+  resolveGoalFor, resolveRangeGoal,
+  percentGoalToGrams, gramsGoalToPercent, macroGoalGrams,
+} from '../src/lib/goal-resolver.js';
 
 // 2026-09-06 is a Sunday. Chosen deliberately: the bug report uses
 // Sunday=2400 / Tuesday=2700 as the reproduction, and Sunday=0 is what
@@ -165,3 +168,72 @@ test('#203: bug scenario matches expected Diary target for each weekday', () => 
   // Old (buggy) behavior would give 2700 - 2296 = 404.
   assert.notEqual((calories.max ?? calories.min) - 2296, 104);
 });
+
+// ── Macro goals saved "As percent" ─────────────────────────────────────
+// Goals' right-rail preview read percent goals as grams ("30 g" for 30%),
+// and the editor's As Percent toggle relabelled the value without
+// converting it. These helpers are the single conversion both now use.
+
+test('percentGoalToGrams matches the formula Diary, Statistics and the Goals list use', () => {
+  const legacy = (cal, raw, d) => Math.round(cal * raw / 100 / d);
+  for (const cal of [1200, 1828, 2000, 2450, 3100]) {
+    for (const pct of [0, 5, 12.5, 25, 30, 33.3, 40, 70]) {
+      for (const d of [4, 9]) assert.equal(percentGoalToGrams(pct, cal, d), legacy(cal, pct, d));
+    }
+  }
+});
+
+test('grams to percent and back returns the exact same grams, across realistic goals', () => {
+  for (let cal = 800; cal <= 6000; cal += 7) {
+    for (const d of [4, 9]) {
+      for (let g = 0; g <= 500; g++) {
+        const pct = gramsGoalToPercent(g, cal, d);
+        assert.equal(percentGoalToGrams(pct, cal, d), g, `cal=${cal} d=${d} g=${g} pct=${pct}`);
+      }
+    }
+  }
+});
+
+test('Balanced preset grams convert to clean whole percentages', () => {
+  // 1828 kcal Balanced 30/40/30 = 137 g protein, 183 g carbs, 61 g fat (#209 numbers)
+  assert.equal(gramsGoalToPercent(137, 1828, 4), 30);
+  assert.equal(gramsGoalToPercent(183, 1828, 4), 40);
+  assert.equal(gramsGoalToPercent(61, 1828, 9), 30);
+});
+
+test('a percentage that needs a decimal keeps it', () => {
+  const g = percentGoalToGrams(33.3, 1828, 4);          // 152 g
+  assert.equal(gramsGoalToPercent(g, 1828, 4), 33.3);
+});
+
+test('conversion helpers refuse inputs they cannot convert', () => {
+  assert.equal(gramsGoalToPercent(137, 0, 4), null);
+  assert.equal(gramsGoalToPercent(137, NaN, 4), null);
+  assert.equal(gramsGoalToPercent(NaN, 2000, 4), null);
+  assert.equal(gramsGoalToPercent(137, 2000, 0), null);
+  assert.equal(percentGoalToGrams(30, 2000, undefined), null);
+  assert.equal(percentGoalToGrams('x', 2000, 4), null);
+});
+
+test('macroGoalGrams: percent goals become grams (rail showed "30 g" for 30%)', () => {
+  assert.equal(macroGoalGrams({ max: 30, isPercent: true, sharedGoal: true }, 1828, 4), 137);
+  assert.equal(macroGoalGrams({ max: 30, isPercent: true, sharedGoal: true }, 1828, 9), 61);
+  assert.equal(macroGoalGrams({ min: 25, isMin: true, isPercent: true }, 2000, 4), 125);
+});
+
+test('macroGoalGrams: everything that is not a percent goal is returned exactly as before', () => {
+  // Previous rail expression was `g?.max ?? g?.min ?? null`. Must be identical here.
+  const before = (g) => g?.max ?? g?.min ?? null;
+  const cases = [
+    null, undefined, {},
+    { max: 150, sharedGoal: true },
+    { max: 150, isPercent: false },
+    { min: 120, isMin: true },
+    { max: 140, sharedGoal: false, days: [100, 120, 120, 120, 120, 120, 140] },
+    { max: 0 },
+  ];
+  for (const g of cases) assert.equal(macroGoalGrams(g, 1828, 4), before(g), JSON.stringify(g));
+  // isPercent on a stat with no calorie density (e.g. fiber) is left alone.
+  assert.equal(macroGoalGrams({ max: 30, isPercent: true }, 1828, undefined), 30);
+});
+
