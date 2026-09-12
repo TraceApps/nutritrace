@@ -34,6 +34,7 @@ import syncRoutes       from './routes/sync.js';
 import oidcRoutes       from './routes/oidc.js';
 import oidcAdminRoutes  from './routes/oidc-admin.js';
 import apiTokensRoutes  from './routes/api-tokens.js';
+import webhooksRoutes   from './routes/webhooks.js';
 import apiV1Routes      from './routes/api/v1/index.js';
 import mcpRoutes        from './routes/mcp.js';
 import nutritionImportRoutes from './routes/nutrition-import.js';
@@ -185,6 +186,12 @@ router.use('/api/admin/oidc', oidcAdminRoutes);
 // Federation API token management (the Settings UI, not the federation
 // clients themselves). Admin-only.
 router.use('/api/admin/api-tokens', apiTokensRoutes);
+// Outgoing webhook management (the Settings UI, not the delivery path
+// itself, that's dispatchWebhookEvent in server/lib/webhooks.js).
+// Admin-only. Feature-gated at delivery time by WEBHOOKS_ENABLED, not
+// at this route, an admin can configure webhooks even before enabling
+// the flag.
+router.use('/api/admin/webhooks', webhooksRoutes);
 // Federation API itself — Bearer-token auth, scope-gated. Mounted at
 // /api/v1 so the version is part of the contract URL. See
 // docs/federation.md for the wire format.

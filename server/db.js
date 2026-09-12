@@ -129,6 +129,23 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
   CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+
+  -- Outgoing webhooks. secret_encrypted is AES-256-GCM (token-crypto.js),
+  -- not hashed like api_tokens.token_hash, because the server needs the
+  -- plaintext back later to compute each delivery's HMAC.
+  CREATE TABLE IF NOT EXISTS webhooks (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    url                  TEXT NOT NULL,
+    secret_encrypted     TEXT NOT NULL,
+    events               TEXT NOT NULL DEFAULT '[]',  -- JSON array of event names
+    enabled              INTEGER NOT NULL DEFAULT 1,
+    last_delivery_at     TEXT,
+    last_delivery_status TEXT,                        -- 'success' | 'failed' | NULL
+    last_delivery_error  TEXT,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
 `);
 
 // ── Wellness tables ────────────────────────────────────────────────────────

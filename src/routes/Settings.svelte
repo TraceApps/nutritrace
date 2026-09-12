@@ -46,6 +46,7 @@
   import Authentication    from './settings/Authentication.svelte';
   import Email             from './settings/Email.svelte';
   import ApiTokens         from './settings/ApiTokens.svelte';
+  import Webhooks          from './settings/Webhooks.svelte';
   import About             from './settings/About.svelte';
   import Profile           from './Profile.svelte';
 
@@ -179,6 +180,7 @@
     authentication:    { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
     email:             { titleKey: 'settings.email.section',             icon: 'mail' },
     apiTokens:         { titleKey: 'settings.api_tokens.section',        icon: 'key' },
+    webhooks:          { titleKey: 'settings.webhooks.section',          icon: 'webhook' },
     about:             { titleKey: 'settings.about.section',             icon: 'info' },
     profile:           { titleKey: 'profile.title',                      icon: 'person' },
   };
@@ -211,6 +213,7 @@
     authentication:    Authentication,
     email:             Email,
     apiTokens:         ApiTokens,
+    webhooks:          Webhooks,
     about:             About,
     profile:           Profile,
   };
@@ -244,6 +247,7 @@
     profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','avatar','log out','logout','sign out','password','change password','biometric','fingerprint','face unlock','face id'],
     users:             ['users','user management','accounts','login','admin','register','invite','revoke','pending invite','session','session duration','password policy','strong password','strong passwords','require strong','zxcvbn'],
     apiTokens:         ['api','api tokens','token','federation','cooktrace','lifttrace','bearer','integration','integrations','external','third-party','third party'],
+    webhooks:          ['webhooks','webhook','automation','n8n','home assistant','ifttt','push','event','integration','integrations','http post','callback url','signature','hmac','secret'],
     helpImprove:       ['diagnostics','logs','verbose','calibration','export','bug','report','troubleshoot'],
     updates:           ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose'],
     about:             ['about','version','nutritrace'],
@@ -563,6 +567,11 @@
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
         <span class="material-symbols-rounded si">key</span>
         <span>{$_('settings.api_tokens.section')}</span>
+        <span class="material-symbols-rounded chevron">expand_more</span>
+      </button>
+      <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'webhooks')} class:active={currentSection === 'webhooks'} aria-current={currentSection === 'webhooks' ? 'page' : undefined} on:click={() => toggleSection('webhooks')}>
+        <span class="material-symbols-rounded si">webhook</span>
+        <span>{$_('settings.webhooks.section')}</span>
         <span class="material-symbols-rounded chevron">expand_more</span>
       </button>
     {/if}

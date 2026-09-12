@@ -12,6 +12,86 @@ import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, safeJson, todayLocal, toolResult, toolError } from '../_util.js';
 import { mutateDiaryDay, DiaryTombstonedError } from '../_diary-write.js';
+import { dispatchWebhookEvent } from '../../webhooks.js';
+import { checkNutritionGoalCrossing } from '../../goal-webhook.js';
+import { getGoalsCore } from './goals.js';
+import { dailyTotalsCore } from './daily-totals.js';
+
+/**
+ * Core write, shared by the MCP tool below and the public REST API at
+ * POST /api/v1/diary/:date/meal. Throws a plain Error on bad input.
+ */
+export function logMealCore(userId, { meal_id, date, meal } = {}) {
+  const day = date || todayLocal();
+  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+
+  const savedMeal = db.prepare(
+    `SELECT id, name, items, is_recipe
+       FROM meals
+      WHERE user_id = ? AND id = ? AND deleted_at IS NULL`
+  ).get(userId, meal_id);
+  if (!savedMeal) throw new Error(`meal_id ${meal_id} not found in your catalog.`);
+  if (savedMeal.is_recipe) {
+    throw new Error(
+      `meal_id ${meal_id} is a recipe. Log its component foods with log_food, ` +
+      'or use the app UI to log a recipe portion.'
+    );
+  }
+
+  const sourceItems = safeJson(savedMeal.items, []);
+  if (!Array.isArray(sourceItems) || sourceItems.length === 0) {
+    throw new Error(`Meal '${savedMeal.name}' has no items to log.`);
+  }
+
+  const now = new Date().toISOString();
+  const override = Number.isInteger(meal) ? meal : null;
+  const cloned = sourceItems.map((it, i) => ({
+    ...it,
+    meal: override ?? (Number.isInteger(it.meal) ? it.meal : 0),
+    addedAt: new Date(Date.parse(now) + i).toISOString(),
+    source: it.source || 'mcp:meal',
+    source_meal_id: savedMeal.id,
+  }));
+
+  // Snapshot pre-write totals for the goal.achieved webhook, before the
+  // mutation below changes them. Never let this block the actual write.
+  let beforeTotals = null, goals = null;
+  try {
+    beforeTotals = dailyTotalsCore(userId, { date: day }).totals;
+    ({ goals } = getGoalsCore(userId));
+  } catch (e) { /* never let a webhook failure block the save */ }
+
+  let next;
+  try {
+    next = mutateDiaryDay(userId, day, cur => ({
+      ...cur,
+      items: [...cur.items, ...cloned],
+    }));
+  } catch (e) {
+    if (e instanceof DiaryTombstonedError) throw new Error(e.message);
+    throw e;
+  }
+
+  try {
+    dispatchWebhookEvent(userId, 'meal.logged', { date: day, items: cloned });
+    if (beforeTotals && goals) {
+      const after = dailyTotalsCore(userId, { date: day });
+      checkNutritionGoalCrossing(userId, day, goals, beforeTotals, after.totals);
+    }
+  } catch (e) { /* never let a webhook failure block the save */ }
+
+  return {
+    ok: true,
+    date: day,
+    logged: {
+      meal_id: savedMeal.id,
+      name: savedMeal.name,
+      slot_override: override,
+      item_count: cloned.length,
+    },
+    total_items_on_day: next.items.length,
+  };
+}
 
 export function registerLogMeal(server, { userId }) {
   server.registerTool(
@@ -30,68 +110,11 @@ export function registerLogMeal(server, { userId }) {
       },
     },
     async ({ meal_id, date, meal }) => {
-      const day = date || todayLocal();
-      if (!DATE_RE.test(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
-
-      const savedMeal = db.prepare(
-        `SELECT id, name, items, is_recipe
-           FROM meals
-          WHERE user_id = ? AND id = ? AND deleted_at IS NULL`
-      ).get(userId, meal_id);
-      if (!savedMeal) return toolError(`meal_id ${meal_id} not found in your catalog.`);
-      if (savedMeal.is_recipe) {
-        return toolError(
-          `meal_id ${meal_id} is a recipe. Log its component foods with log_food, ` +
-          'or use the app UI to log a recipe portion.'
-        );
-      }
-
-      const sourceItems = safeJson(savedMeal.items, []);
-      if (!Array.isArray(sourceItems) || sourceItems.length === 0) {
-        return toolError(`Meal '${savedMeal.name}' has no items to log.`);
-      }
-
-      const now = new Date().toISOString();
-      // When caller supplies a `meal` slot, ALL items land in that slot
-      // (explicit override). When omitted, preserve each item's own meal
-      // assignment from the saved meal so a multi-meal prep pack stays
-      // segmented in the diary. Fall back to 0 for items with no slot.
-      const override = Number.isInteger(meal) ? meal : null;
-      const cloned = sourceItems.map((it, i) => ({
-        ...it,
-        meal: override ?? (Number.isInteger(it.meal) ? it.meal : 0),
-        // Stagger addedAt by 1ms per item so diary sort keeps composition order.
-        addedAt: new Date(Date.parse(now) + i).toISOString(),
-        // Preserve the item's original `source` (e.g. 'mfp_import',
-        // 'off') so the diary provenance UI stays accurate. Only stamp
-        // source_meal_id (the saved-meal ancestry, which is genuinely
-        // new information for this diary entry).
-        source: it.source || 'mcp:meal',
-        source_meal_id: savedMeal.id,
-      }));
-
-      let next;
       try {
-        next = mutateDiaryDay(userId, day, cur => ({
-          ...cur,
-          items: [...cur.items, ...cloned],
-        }));
+        return toolResult(logMealCore(userId, { meal_id, date, meal }));
       } catch (e) {
-        if (e instanceof DiaryTombstonedError) return toolError(e.message);
-        throw e;
+        return toolError(e.message);
       }
-
-      return toolResult({
-        ok: true,
-        date: day,
-        logged: {
-          meal_id: savedMeal.id,
-          name: savedMeal.name,
-          slot_override: override,
-          item_count: cloned.length,
-        },
-        total_items_on_day: next.items.length,
-      });
     }
   );
 }

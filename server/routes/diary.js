@@ -4,6 +4,11 @@ import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
 import { mergeEntries, ensureUuids } from '../lib/diary-merge.js';
+import { dispatchWebhookEvent } from '../lib/webhooks.js';
+import { getGoalsCore } from '../lib/mcp/tools/goals.js';
+import { dailyTotalsCore } from '../lib/mcp/tools/daily-totals.js';
+import { checkNutritionGoalCrossing, checkWaterGoalCrossing } from '../lib/goal-webhook.js';
+import { Nutrition } from '../../src/lib/nutrition.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -182,6 +187,53 @@ router.put('/:date', wrap((req, res) => {
   const row = u == null
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(date, u);
+
+  // Outgoing webhooks. Webhooks require a real account (webhooks.user_id
+  // is NOT NULL), so this is naturally a no-op in single-user mode where
+  // u is null. Every dispatch is wrapped so a webhook failure can never
+  // block or delay the save above, which has already committed.
+  if (u != null) {
+    try {
+      const newItems = mergedItems.filter(it => it.uuid && !serverItems.some(s => s.uuid === it.uuid));
+      if (newItems.length) dispatchWebhookEvent(u, 'meal.logged', { date, items: newItems });
+    } catch (e) { /* never let a webhook failure block the save */ }
+
+    try {
+      const newWaterEntries = mergedWater.filter(w => w.uuid && !serverWater.some(s => s.uuid === w.uuid));
+      if (newWaterEntries.length) {
+        const water_ml = mergedWater.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+        dispatchWebhookEvent(u, 'water.logged', { date, water_ml, added: newWaterEntries });
+      }
+    } catch (e) { /* never let a webhook failure block the save */ }
+
+    try {
+      if (bsJson !== (existingRow?.body_stats ?? null)) {
+        dispatchWebhookEvent(u, 'body_stat.logged', { date, stats: JSON.parse(bsJson) });
+      }
+    } catch (e) { /* never let a webhook failure block the save */ }
+
+    // goal.achieved: per-metric, fires once when a metric crosses from
+    // under-target to at-or-above-target THIS save. Pre-save totals come
+    // from the items/water this handler already loaded before the merge;
+    // post-save totals are read back via dailyTotalsCore so the webhook's
+    // notion of "today's totals" matches GET /api/v1/diary/:date/totals
+    // exactly. If the existing row was soft-deleted, treat the "before"
+    // state as empty rather than the erased day's stale contents, a
+    // fresh log into a previously-deleted day should not compare against
+    // phantom pre-deletion totals.
+    try {
+      const { goals, water_goal_ml } = getGoalsCore(u);
+      const priorItems = (existingRow && !existingRow.deleted_at) ? serverItems : [];
+      const priorWater = (existingRow && !existingRow.deleted_at) ? serverWater : [];
+      const beforeTotals = Nutrition.sum(priorItems.map(i => Nutrition.calculate(i)));
+      const beforeWaterMl = priorWater.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+      const after = dailyTotalsCore(u, { date });
+
+      checkNutritionGoalCrossing(u, date, goals, beforeTotals, after.totals);
+      checkWaterGoalCrossing(u, date, water_goal_ml, beforeWaterMl, after.water_ml);
+    } catch (e) { /* never let a webhook failure block the save */ }
+  }
+
   res.json({ ...parse(row), tombstones: _loadTombstones(u, date) });
 }));
 

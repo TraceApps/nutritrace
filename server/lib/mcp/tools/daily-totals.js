@@ -18,6 +18,29 @@ import db from '../../../db.js';
 import { Nutrition } from '../../../../src/lib/nutrition.js';
 import { DATE_RE, safeJson, todayLocal, toolResult, toolError } from '../_util.js';
 
+/**
+ * Core lookup, shared by the MCP tool below, the public REST API at
+ * GET /api/v1/diary/:date/totals, and the goal.achieved webhook's
+ * before/after comparison in routes/diary.js. Throws a plain Error on
+ * bad input.
+ */
+export function dailyTotalsCore(userId, { date } = {}) {
+  const day = date || todayLocal();
+  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+
+  const row = db.prepare(
+    `SELECT items, water FROM diary
+      WHERE user_id = ? AND date = ? AND deleted_at IS NULL`
+  ).get(userId, day);
+  const items = row?.items ? safeJson(row.items, []) : [];
+  const waterLogs = row?.water ? safeJson(row.water, []) : [];
+  const totals = Nutrition.sum(items.map(i => Nutrition.calculate(i)));
+  // Round to 1 decimal place, matches how the diary top-bar renders.
+  for (const k of Object.keys(totals)) totals[k] = Math.round(totals[k] * 10) / 10;
+  const water_ml = waterLogs.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  return { date: day, totals, water_ml, item_count: items.length };
+}
+
 export function registerDailyTotals(server, { userId }) {
   server.registerTool(
     'get_daily_totals',
@@ -34,21 +57,11 @@ export function registerDailyTotals(server, { userId }) {
       },
     },
     async ({ date }) => {
-      const day = date || todayLocal();
-      if (!DATE_RE.test(day)) {
-        return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+      try {
+        return toolResult(dailyTotalsCore(userId, { date }));
+      } catch (e) {
+        return toolError(e.message);
       }
-      const row = db.prepare(
-        `SELECT items, water FROM diary
-          WHERE user_id = ? AND date = ? AND deleted_at IS NULL`
-      ).get(userId, day);
-      const items = row?.items ? safeJson(row.items, []) : [];
-      const waterLogs = row?.water ? safeJson(row.water, []) : [];
-      const totals = Nutrition.sum(items.map(i => Nutrition.calculate(i)));
-      // Round to 1 decimal place — matches how the diary top-bar renders.
-      for (const k of Object.keys(totals)) totals[k] = Math.round(totals[k] * 10) / 10;
-      const water_ml = waterLogs.reduce((s, l) => s + (Number(l.amount) || 0), 0);
-      return toolResult({ date: day, totals, water_ml, item_count: items.length });
     }
   );
 }

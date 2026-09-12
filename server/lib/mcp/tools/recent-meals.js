@@ -17,6 +17,39 @@ import { safeJson, toolResult } from '../_util.js';
 const MAX_LIMIT = 30;
 const DEFAULT_LIMIT = 10;
 
+/**
+ * Core lookup, shared by the MCP tool below and the public REST API at
+ * GET /api/v1/meals/recent.
+ */
+export function recentMealsCore(userId, { limit, include_recipes } = {}) {
+  const cap = Math.min(MAX_LIMIT, Math.max(1, Number(limit) || DEFAULT_LIMIT));
+  const recipeClause = include_recipes ? '' : 'AND is_recipe = 0';
+  const rows = db.prepare(
+    `SELECT id, name, is_recipe, servings, portion, unit, nutrition,
+            favorite, usage_count, last_used_at
+       FROM meals
+      WHERE user_id = ?
+        AND deleted_at IS NULL
+        AND last_used_at IS NOT NULL
+        ${recipeClause}
+      ORDER BY last_used_at DESC, usage_count DESC, name COLLATE NOCASE ASC
+      LIMIT ?`
+  ).all(userId, cap);
+  const items = rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    is_recipe: !!r.is_recipe,
+    servings: Number.isFinite(Number(r.servings)) ? Number(r.servings) : null,
+    portion: Number.isFinite(Number(r.portion)) ? Number(r.portion) : null,
+    unit: r.unit || null,
+    nutrition: safeJson(r.nutrition, {}),
+    favorite: !!r.favorite,
+    usage_count: Number(r.usage_count) || 0,
+    last_used_at: r.last_used_at || null,
+  }));
+  return { count: items.length, limit: cap, items };
+}
+
 export function registerRecentMeals(server, { userId }) {
   server.registerTool(
     'get_recent_meals',
@@ -33,32 +66,7 @@ export function registerRecentMeals(server, { userId }) {
       },
     },
     async ({ limit, include_recipes }) => {
-      const cap = Math.min(MAX_LIMIT, Math.max(1, Number(limit) || DEFAULT_LIMIT));
-      const recipeClause = include_recipes ? '' : 'AND is_recipe = 0';
-      const rows = db.prepare(
-        `SELECT id, name, is_recipe, servings, portion, unit, nutrition,
-                favorite, usage_count, last_used_at
-           FROM meals
-          WHERE user_id = ?
-            AND deleted_at IS NULL
-            AND last_used_at IS NOT NULL
-            ${recipeClause}
-          ORDER BY last_used_at DESC, usage_count DESC, name COLLATE NOCASE ASC
-          LIMIT ?`
-      ).all(userId, cap);
-      const items = rows.map(r => ({
-        id: r.id,
-        name: r.name,
-        is_recipe: !!r.is_recipe,
-        servings: Number.isFinite(Number(r.servings)) ? Number(r.servings) : null,
-        portion: Number.isFinite(Number(r.portion)) ? Number(r.portion) : null,
-        unit: r.unit || null,
-        nutrition: safeJson(r.nutrition, {}),
-        favorite: !!r.favorite,
-        usage_count: Number(r.usage_count) || 0,
-        last_used_at: r.last_used_at || null,
-      }));
-      return toolResult({ count: items.length, limit: cap, items });
+      return toolResult(recentMealsCore(userId, { limit, include_recipes }));
     }
   );
 }

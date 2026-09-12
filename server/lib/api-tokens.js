@@ -32,8 +32,8 @@ export const SCOPE_DESCRIPTIONS = {
   'read:foods':      "Read the token owner's foods library. Used by CookTrace federation.",
   'write:workouts':  "Post workouts into the token owner's wellness history. Used by LiftTrace federation.",
   'write:activity':  "Log manual activity entries into the diary Activity section. Used by external trackers and headless integrations (issue #154).",
-  'mcp:read':        'MCP: read the diary, goals, daily totals, and foods catalog (5 tools).',
-  'mcp:write':       'MCP: log food / water / meals / body stats (4 additive tools). Requires MCP_WRITE_ENABLED=1 on the server.',
+  'mcp:read':        'MCP: read the diary, goals, daily totals, and foods catalog (5 tools). Also unlocks the equivalent /api/v1 read routes when PUBLIC_API_ENABLED=1.',
+  'mcp:write':       'MCP: log food / water / meals / body stats (4 additive tools). Requires MCP_WRITE_ENABLED=1 on the server. Also unlocks the equivalent /api/v1 write routes when PUBLIC_API_WRITE_ENABLED=1.',
   'mcp:destroy':     'MCP: delete or edit diary entries, create catalog foods (3 tools). Requires MCP_DESTROY_ENABLED=1 AND every call to include confirm=true.',
 };
 

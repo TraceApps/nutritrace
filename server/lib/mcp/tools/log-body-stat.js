@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
 import { mutateDiaryDay, DiaryTombstonedError } from '../_diary-write.js';
+import { dispatchWebhookEvent } from '../../webhooks.js';
 
 const LENGTH_KEYS = ['waist', 'hips', 'neck', 'chest', 'thighs', 'biceps', 'calves'];
 
@@ -46,6 +47,98 @@ const STAT_RANGES = {
 };
 const ALLOWED_STATS = new Set(Object.keys(STAT_RANGES));
 
+/**
+ * Core write, shared by the MCP tool below and the public REST API at
+ * PUT /api/v1/diary/:date/body-stat. Throws a plain Error on bad input,
+ * an untagged legacy row, or a tombstoned day.
+ */
+export function logBodyStatCore(userId, { stats, date } = {}) {
+  const day = date || todayLocal();
+  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+
+  const clean = {};
+  const rejected = [];
+  let hasWeightWrite = false;
+  let hasLengthWrite = false;
+  for (const [k, v] of Object.entries(stats || {})) {
+    if (!ALLOWED_STATS.has(k)) { rejected.push(`${k} (unknown key; allowed: ${[...ALLOWED_STATS].join(', ')})`); continue; }
+    if (!Number.isFinite(v))   { rejected.push(`${k} (not a number)`); continue; }
+    const { min, max, kind } = STAT_RANGES[k];
+    if (v < min || v > max)    { rejected.push(`${k} (${v} outside ${min}-${max})`); continue; }
+    clean[k] = Math.round(v * 100) / 100;
+    if (kind === 'weight') hasWeightWrite = true;
+    if (kind === 'length') hasLengthWrite = true;
+  }
+  if (Object.keys(clean).length === 0) {
+    throw new Error(
+      `No valid stats. Allowed keys: ${[...ALLOWED_STATS].join(', ')}. ` +
+      `Rejected: ${rejected.join('; ')}`
+    );
+  }
+
+  let next;
+  try {
+    next = mutateDiaryDay(userId, day, cur => {
+      const merged = { ...cur.bodyStats, ...clean };
+      const bs = cur.bodyStats || {};
+
+      if (hasWeightWrite) {
+        const tagged = !!bs.weight_unit;
+        const hasLegacy = !tagged && bs.weight != null;
+        if (hasLegacy) {
+          throw new LegacyBodyStatsError(
+            `Day ${day} has an untagged legacy weight value; cannot safely tag it as ` +
+            'kg or lb from MCP. Open the day in the app and re-save the weight once ' +
+            '(this attaches the unit tag), then MCP writes will merge correctly.'
+          );
+        }
+        const effectiveUnit = tagged ? bs.weight_unit : 'kg';
+        if (effectiveUnit === 'lb') {
+          merged.weight = Math.round(clean.weight * 2.20462 * 10) / 10;
+        }
+        merged.weight_unit = effectiveUnit;
+      }
+
+      if (hasLengthWrite) {
+        const tagged = !!bs.lengths_unit;
+        const anyLegacy = !tagged && LENGTH_KEYS.some(k => bs[k] != null);
+        if (anyLegacy) {
+          throw new LegacyBodyStatsError(
+            `Day ${day} has untagged legacy length values; cannot safely tag them as ` +
+            'cm or in from MCP. Open the day in the app and re-save any length once ' +
+            '(this attaches the unit tag), then MCP writes will merge correctly.'
+          );
+        }
+        const effectiveUnit = tagged ? bs.lengths_unit : 'cm';
+        if (effectiveUnit === 'in') {
+          for (const k of LENGTH_KEYS) {
+            if (k in clean) merged[k] = Math.round((clean[k] / 2.54) * 10) / 10;
+          }
+        }
+        merged.lengths_unit = effectiveUnit;
+      }
+
+      return { ...cur, bodyStats: merged };
+    });
+  } catch (e) {
+    if (e instanceof DiaryTombstonedError)    throw new Error(e.message);
+    if (e instanceof LegacyBodyStatsError)    throw new Error(e.message);
+    throw e;
+  }
+
+  try {
+    dispatchWebhookEvent(userId, 'body_stat.logged', { date: day, stats: next.bodyStats });
+  } catch (e) { /* never let a webhook failure block the save */ }
+
+  return {
+    ok: true,
+    date: day,
+    set: clean,
+    rejected: rejected.length ? rejected : undefined,
+    current_stats: next.bodyStats,
+  };
+}
+
 export function registerLogBodyStat(server, { userId }) {
   server.registerTool(
     'log_body_stat',
@@ -68,97 +161,11 @@ export function registerLogBodyStat(server, { userId }) {
       },
     },
     async ({ stats, date }) => {
-      const day = date || todayLocal();
-      if (!DATE_RE.test(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
-
-      const clean = {};
-      const rejected = [];
-      let hasWeightWrite = false;
-      let hasLengthWrite = false;
-      for (const [k, v] of Object.entries(stats || {})) {
-        if (!ALLOWED_STATS.has(k)) { rejected.push(`${k} (unknown key; allowed: ${[...ALLOWED_STATS].join(', ')})`); continue; }
-        if (!Number.isFinite(v))   { rejected.push(`${k} (not a number)`); continue; }
-        const { min, max, kind } = STAT_RANGES[k];
-        if (v < min || v > max)    { rejected.push(`${k} (${v} outside ${min}-${max})`); continue; }
-        clean[k] = Math.round(v * 100) / 100;   // 2-decimal cap
-        if (kind === 'weight') hasWeightWrite = true;
-        if (kind === 'length') hasLengthWrite = true;
-      }
-      if (Object.keys(clean).length === 0) {
-        return toolError(
-          `No valid stats. Allowed keys: ${[...ALLOWED_STATS].join(', ')}. ` +
-          `Rejected: ${rejected.join('; ')}`
-        );
-      }
-      // Unit tag handling is safety-critical because the tag is SHARED
-      // across all fields of its kind (7 length metrics share lengths_unit).
-      //
-      //  a) Row already tagged: convert canonical kg/cm into the row's
-      //     stored unit so the tag stays consistent.
-      //  b) Row has same-kind values but NO tag (legacy pre-tagging
-      //     row): REFUSE. Guessing the historical unit from the user's
-      //     CURRENT display preference is unsafe — users switch units
-      //     over time. Ask them to edit the day once in the app to
-      //     attach unit tags, then MCP writes will preserve them.
-      //  c) Row has no values of that kind: stamp 'kg'/'cm' and write
-      //     canonical values directly.
-      let next;
       try {
-        next = mutateDiaryDay(userId, day, cur => {
-          const merged = { ...cur.bodyStats, ...clean };
-          const bs = cur.bodyStats || {};
-
-          if (hasWeightWrite) {
-            const tagged = !!bs.weight_unit;
-            const hasLegacy = !tagged && bs.weight != null;
-            if (hasLegacy) {
-              throw new LegacyBodyStatsError(
-                `Day ${day} has an untagged legacy weight value; cannot safely tag it as ` +
-                'kg or lb from MCP. Open the day in the app and re-save the weight once ' +
-                '(this attaches the unit tag), then MCP writes will merge correctly.'
-              );
-            }
-            const effectiveUnit = tagged ? bs.weight_unit : 'kg';       // (a) or (c)
-            if (effectiveUnit === 'lb') {
-              merged.weight = Math.round(clean.weight * 2.20462 * 10) / 10;
-            }
-            merged.weight_unit = effectiveUnit;
-          }
-
-          if (hasLengthWrite) {
-            const tagged = !!bs.lengths_unit;
-            const anyLegacy = !tagged && LENGTH_KEYS.some(k => bs[k] != null);
-            if (anyLegacy) {
-              throw new LegacyBodyStatsError(
-                `Day ${day} has untagged legacy length values; cannot safely tag them as ` +
-                'cm or in from MCP. Open the day in the app and re-save any length once ' +
-                '(this attaches the unit tag), then MCP writes will merge correctly.'
-              );
-            }
-            const effectiveUnit = tagged ? bs.lengths_unit : 'cm';      // (a) or (c)
-            if (effectiveUnit === 'in') {
-              for (const k of LENGTH_KEYS) {
-                if (k in clean) merged[k] = Math.round((clean[k] / 2.54) * 10) / 10;
-              }
-            }
-            merged.lengths_unit = effectiveUnit;
-          }
-
-          return { ...cur, bodyStats: merged };
-        });
+        return toolResult(logBodyStatCore(userId, { stats, date }));
       } catch (e) {
-        if (e instanceof DiaryTombstonedError)    return toolError(e.message);
-        if (e instanceof LegacyBodyStatsError)    return toolError(e.message);
-        throw e;
+        return toolError(e.message);
       }
-
-      return toolResult({
-        ok: true,
-        date: day,
-        set: clean,
-        rejected: rejected.length ? rejected : undefined,
-        current_stats: next.bodyStats,
-      });
     }
   );
 }

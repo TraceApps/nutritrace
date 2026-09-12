@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **General-purpose public REST API** at `/api/v1/diary`, `/api/v1/goals`, and `/api/v1/meals`, for your own scripts and automations rather than the sister-app federation contract the rest of `/api/v1` documents. Off by default (`PUBLIC_API_ENABLED=1`; `PUBLIC_API_WRITE_ENABLED=1` additionally unlocks logging a food, water, a meal, or a body stat). Reuses the `mcp:read`/`mcp:write` token scopes MCP already defines, one token works for both interfaces. See `docs/public-api.md`.
+- **Outgoing webhooks.** Configure a target URL in Settings, Webhooks and NutriTrace fires a signed HTTP POST the instant a food is logged, water is logged, a body stat is logged, or a daily nutrition goal is reached. Off by default (`WEBHOOKS_ENABLED=1`). HMAC-SHA256 signed, 3 delivery attempts with backoff, a "send test event" button to verify a target without waiting for a real event. Target URLs are validated against a shared SSRF guard (blocks loopback/private/link-local/cloud-metadata addresses unless `ALLOW_PRIVATE_WEBHOOK_URLS=1`). See `docs/webhooks.md`.
+
 ### Fixed
 
 - **Macro goals set "As percent" now show and convert correctly** ([#209](https://github.com/TraceApps/nutritrace/issues/209), [#210](https://github.com/TraceApps/nutritrace/pull/210)). Applying a macro preset kept a stale "As percent" flag, so the preset's gram target was read as a percentage and Diary and Statistics showed it hugely inflated (a 137 g protein target became 626 g). Presets now clear the flag. Separately, the Goals page's Macros card, preview ring and preset chip read a percent goal as grams (30% showed as "30 g"), and ticking "As percent" only changed the label instead of converting the value. Both now convert, so Goals, Diary and Statistics agree. If you already hit the preset bug, re-applying your preset once clears it. Thanks @drunkenpeleg for the report and the fix.

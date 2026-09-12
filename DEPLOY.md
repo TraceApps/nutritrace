@@ -148,6 +148,11 @@ services:
 | `MCP_DESTROY_ENABLED` | No | `0` | Set to `1` to allow MCP destructive tools (`delete_diary_entry`, `edit_diary_entry`, `create_food`). Also requires the token to hold `mcp:destroy` AND every call to include `confirm: true`. |
 | `ALLOWED_ORIGINS` | No | — | Comma-separated list of Origins that browser-based MCP clients may use. Server-to-server clients (no Origin header) always pass. Leave empty unless you're specifically using the MCP Inspector in a browser. `*` is refused (DNS-rebinding defense). |
 
+| `PUBLIC_API_ENABLED` | No | `0` | Set to `1` to expose the general-purpose REST routes at `/api/v1/diary`, `/api/v1/goals`, and `/api/v1/meals` for your own scripts and automations. Off by default. Reuses the same `mcp:read`/`mcp:write` token scopes as MCP. Does not affect the sister-app federation routes (`/api/v1/foods`, `/api/v1/workouts`, etc.), which are always on. |
+| `PUBLIC_API_WRITE_ENABLED` | No | `0` | Set to `1` to allow the public API's write routes (logging food, water, a meal, or a body stat). Also requires the calling token to hold `mcp:write`. |
+| `WEBHOOKS_ENABLED` | No | `0` | Set to `1` to let configured outgoing webhooks actually fire. A webhook can be created in Settings before this is set; it just will not deliver until it is. |
+| `ALLOW_PRIVATE_WEBHOOK_URLS` | No | `0` | Set to `1` to allow a webhook target on a private or loopback address (a same-Docker-network Home Assistant instance, for example). Off by default; public-internet-facing installs should leave this off. |
+
 > **Note:** SMTP and AI settings can also be configured in **Settings → Email** / **Settings → AI Assistant** (admin only). Environment variables take priority over the UI and lock the corresponding fields when set.
 
 ---

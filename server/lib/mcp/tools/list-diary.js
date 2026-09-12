@@ -16,6 +16,23 @@ import { z } from 'zod';
 import db from '../../../db.js';
 import { DATE_RE, safeJson, todayLocal, toolResult, toolError } from '../_util.js';
 
+/**
+ * Core lookup, shared by the MCP tool below and the public REST API at
+ * GET /api/v1/diary/:date. Throws a plain Error on bad input so callers
+ * on either side can decide how to surface it.
+ */
+export function listDiaryCore(userId, { date } = {}) {
+  const day = date || todayLocal();
+  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+
+  const row = db.prepare(
+    `SELECT items FROM diary
+      WHERE user_id = ? AND date = ? AND deleted_at IS NULL`
+  ).get(userId, day);
+  const items = row?.items ? safeJson(row.items, []) : [];
+  return { date: day, items, count: items.length };
+}
+
 export function registerListDiary(server, { userId }) {
   server.registerTool(
     'list_diary_entries',
@@ -30,16 +47,11 @@ export function registerListDiary(server, { userId }) {
       },
     },
     async ({ date }) => {
-      const day = date || todayLocal();
-      if (!DATE_RE.test(day)) {
-        return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+      try {
+        return toolResult(listDiaryCore(userId, { date }));
+      } catch (e) {
+        return toolError(e.message);
       }
-      const row = db.prepare(
-        `SELECT items FROM diary
-          WHERE user_id = ? AND date = ? AND deleted_at IS NULL`
-      ).get(userId, day);
-      const items = row?.items ? safeJson(row.items, []) : [];
-      return toolResult({ date: day, items, count: items.length });
     }
   );
 }

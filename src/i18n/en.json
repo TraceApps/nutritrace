@@ -257,6 +257,7 @@
     "diagnostics":        { "section": "Diagnostics" },
     "updates":            { "section": "Updates" },
     "api_tokens":         { "section": "API Tokens" },
+    "webhooks":           { "section": "Webhooks" },
     "about":              { "section": "About" }
   },
   "updates": {
@@ -1613,7 +1614,7 @@
       "spreadsheet_label":       "Generic Spreadsheet",
       "spreadsheet_hint":        "Any CSV with at least Date, Name, and Calories columns. Use our template for the easiest path.",
       "cronometer_label":        "Cronometer",
-      "cronometer_hint":         "Account → Account Data → Export Data → Export Food & Recipe Entries (not Daily Nutrition). Free tier supported.",
+      "cronometer_hint":         "Account → Export Data → Food & Recipe Entries for your individual foods. Cronometer leaves the nutrition out of that file on some accounts; if yours has no calorie columns, use Daily Nutrition with \"Include diary group rows\" ticked to bring in your totals per meal.",
       "loseit_label":            "Lose It!",
       "loseit_hint":             "loseit.com → Insights → Weekly → Export to Spreadsheet. One CSV per week, concatenate first if importing multiple weeks.",
       "mfp_label":               "MyFitnessPal",
@@ -1721,6 +1722,62 @@
       "revoke_title":     "Revoke \"{name}\"?",
       "revoke_msg":       "Apps using this token will immediately stop working. This cannot be undone, you would need to mint a new token and update each connected app.",
       "revoke_confirm":   "Revoke"
+    }
+  },
+  "settings_webhooks": {
+    "intro": "Outgoing webhooks notify another service the instant something happens in NutriTrace: a food logged, water logged, a body stat logged, or a nutrition goal reached. Each webhook fires a signed HTTP POST to a URL you provide.",
+    "disabled_notice": "Webhooks are not enabled on this server. A webhook can still be created, but it won't fire until WEBHOOKS_ENABLED=1 is set.",
+    "just_created": {
+      "title": "Webhook created:",
+      "warn": "Copy this secret now. It will not be shown again, and you'll need it to verify the signature on deliveries.",
+      "copy": "Copy",
+      "saved": "I've saved it"
+    },
+    "empty": {
+      "title": "No webhooks yet",
+      "desc": "Create one to notify another service when something happens."
+    },
+    "row": {
+      "last_delivery": "last delivery {when}",
+      "never": "never",
+      "just_now": "just now",
+      "min_ago": "{n}m ago",
+      "hr_ago": "{n}h ago",
+      "day_ago": "{n}d ago",
+      "status_success": "delivered",
+      "status_failed": "failed",
+      "test_title": "Send a test event",
+      "enabled_title": "Enabled",
+      "delete_title": "Delete webhook"
+    },
+    "form": {
+      "new_webhook": "New Webhook",
+      "url": "Target URL *",
+      "url_ph": "https://example.com/webhook",
+      "events": "Events *",
+      "secret_label": "Secret (Optional)",
+      "secret_ph": "Leave empty to generate one",
+      "cancel": "Cancel",
+      "create": "Create Webhook",
+      "creating": "Creating…"
+    },
+    "confirm": {
+      "delete_title": "Delete this webhook?",
+      "delete_msg": "This cannot be undone. The target will stop receiving events immediately.",
+      "delete_confirm": "Delete"
+    },
+    "toast": {
+      "load_failed": "Could not load webhooks",
+      "url_required": "Enter a target URL",
+      "event_required": "Select at least one event",
+      "create_failed": "Could not create webhook",
+      "update_failed": "Could not update webhook",
+      "delete_failed": "Could not delete webhook",
+      "deleted": "Webhook deleted",
+      "test_failed": "Test delivery failed",
+      "test_delivered": "Test event delivered",
+      "copied": "Copied to clipboard",
+      "copy_failed": "Could not copy, select the text manually"
     }
   },
   "settings_import_export": {
