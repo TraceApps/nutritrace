@@ -490,7 +490,6 @@
   $: caloriesGoalAdjusted = caloriesGoal + _effectiveActive;
 
   $: _hasBottomNav = $navStyle === 'bottom' || $navStyle === 'both';
-  $: barBottom     = _hasBottomNav ? 'calc(var(--nav-h) + env(safe-area-inset-bottom, 0px))' : 'env(safe-area-inset-bottom, 0px)';
 
   let barExpanded = false;
   let showWaterQuickAdd = false;
@@ -2415,7 +2414,7 @@
 {/if}
 
 <!-- Persistent bottom nutrition bar -->
-<div use:portal class="diary-bottom-bar" style="bottom:{barBottom}">
+<div use:portal={'#bottom-dock-slot'} class="diary-bottom-bar">
   <!-- Calorie progress strip -->
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div class="dbb-progress" on:click={() => barExpanded = !barExpanded}
@@ -4525,9 +4524,8 @@
 
   /* ── Persistent bottom nutrition bar ─────────────────────────── */
   .diary-bottom-bar {
-    position: fixed;
-    left: 0; right: 0;
-    z-index: 90;
+    /* Lives in App's bottom dock, stacked directly on the tab bar. */
+    position: relative;
     background: var(--glass-surface);
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);

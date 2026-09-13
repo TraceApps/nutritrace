@@ -91,7 +91,7 @@
     // Listen at window level because the fixed top bar and portalled offline
     // banner both sit outside <main>. Dialogs, sheets, sidebars and bottom
     // navigation retain their own touch handling.
-    if (event.target.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav')) return;
+    if (event.target.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav, .bottom-dock')) return;
     if (event.touches.length !== 1) return;
     // Walk up from the touch target to the nearest scrolling ancestor.
     // Editor pages have their own overflow container that sits on top of
@@ -215,6 +215,7 @@
 
   const NAV_HIDDEN = ['/wizard', '/foods/edit', '/meal-editor', '/profile'];
   $: showNav       = !NAV_HIDDEN.some(p => $location.startsWith(p));
+  $: _bottomNavVisible = showNav && ($navStyle === 'bottom' || $navStyle === 'both');
   const EDITOR_ROUTES = ['/foods/edit', '/meal-editor', '/profile', '/wizard'];
   $: _isEditorRoute = EDITOR_ROUTES.some(r => $location.startsWith(r));
   $: isEditor      = NAV_HIDDEN.some(p => $location.startsWith(p));
@@ -809,6 +810,16 @@
      server-update banner lives inside Settings → Updates admin panel). -->
 {#if !needsLogin}<UpdateBanner />{/if}
 
+<!-- Bottom dock: the tab bar plus any page bar that has to sit directly on
+     it (Diary's summary bar portals into the slot). One fixed container, so
+     the two cannot drift apart when a platform moves or resizes fixed
+     elements (#208). It renders before <main> so the slot already exists
+     when a page mounts and portals into it. -->
+<div class="bottom-dock" class:no-nav={!_bottomNavVisible}>
+  <div id="bottom-dock-slot"></div>
+  {#if _bottomNavVisible}<BottomNav />{/if}
+</div>
+
 <!-- Page content -->
 <!-- Key on the top-level path segment (/settings, /foods, /goals, …)
      instead of the full $location. Otherwise inner nav within a
@@ -828,10 +839,6 @@
     <Router {routes} />
   </main>
 {/key}
-
-{#if showNav && ($navStyle === 'bottom' || $navStyle === 'both')}
-  <BottomNav />
-{/if}
 
 <Toast />
 <Trace />
@@ -895,14 +902,25 @@
     overflow-y: auto;
     transition: left 0.25s ease;
   }
-  :global(.bottom-nav) {
-    left: var(--sidebar-w, 0px) !important;
-    transition: left 0.25s ease !important;
+  /* Bottom dock (see the markup). One column anchored to the bottom and
+     offset past a pinned sidebar. The dock ignores pointer events so its
+     empty safe-area padding never blocks taps on the page; its children
+     take them back. */
+  .bottom-dock {
+    position: fixed;
+    left: var(--sidebar-w, 0px);
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+    transition: left 0.25s ease;
   }
-  :global(.diary-bottom-bar) {
-    left: var(--sidebar-w, 0px) !important;
-    transition: left 0.25s ease !important;
-  }
+  .bottom-dock > :global(*) { pointer-events: auto; }
+  /* Without the tab bar, the bottom page bar has to clear the home
+     indicator itself. */
+  .bottom-dock.no-nav { padding-bottom: var(--safe-bottom); }
 
   /* ── Connection badge on hamburger ── */
   .conn-badge {
