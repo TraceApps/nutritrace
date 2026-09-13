@@ -19,6 +19,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+### Security
+
+- **Backup archives are no longer reachable from the public uploads directory.** `BACKUPS_PATH` defaults to a directory inside `UPLOADS_PATH`, and `/uploads` is served ahead of the auth middleware so an Android WebView `<img>` can load images without an `Authorization` header. A full-backup ZIP sitting in that directory was therefore fetchable by URL, while every `/api/full-backup` route is admin-only. It now returns 404 like anything else outside the served set. Scheduled backups are off by default, so an install that never enabled them and never created one by hand had nothing there to reach; there is no directory listing either, so a filename had to be known or guessed. The archive holds a full database dump, so if yours has been internet-facing with backups enabled, a look through your access log for `/uploads/backups/` will settle it either way. The exclusion tests the resolved filesystem path rather than the request URL, since `express.static` percent-decodes a path before opening the file while a route prefix matches the raw one, and the two disagree on exactly the inputs an attacker would pick.
+
+
 ## [1.3.0-dev01] - 2026-09-10 (pre-release)
 
 Minor release. Big themes: two-way catalog federation with CookTrace, opt-in diary day completion, a cluster of Open Food Facts local-mirror search fixes, and correctness fixes for Health Connect body composition and per-weekday calorie targets.

@@ -58,6 +58,7 @@ import { APP_VERSION } from './routes/version-source.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
+import { isPrivateUploadPath } from './lib/upload-paths.js';
 
 // Seed config from env vars if provided (env vars take priority over UI)
 seedSmtpFromEnv();
@@ -140,6 +141,22 @@ router.use((req, res, next) => {
 // Serve uploaded images BEFORE auth — images are public (needed for Android WebView
 // which can't send Authorization headers on <img src> requests)
 const uploadsPath = process.env.UPLOADS_PATH || './uploads';
+// Backup archives are NOT public. BACKUPS_PATH defaults to a directory
+// inside UPLOADS_PATH, so without this the whole database dump was
+// downloadable by anyone who could reach the server, even though every
+// /api/full-backup route is admin-only.
+//
+// The guard tests the RESOLVED path rather than the URL text. A prefix
+// route on '/uploads/backups' looks equivalent and is not: express.static
+// percent-decodes before opening the file while the router matches the raw
+// path, so /uploads/%62ackups/x.zip and /uploads//backups/x.zip read
+// straight through it. A flat 404 rather than a 401, so the response says
+// nothing about whether a given filename exists.
+router.use('/uploads', (req, res, next) => {
+  if (isPrivateUploadPath(req.path)) return res.status(404).json({ error: 'Not found' });
+  next();
+});
+
 router.use('/uploads', express.static(uploadsPath, {
   setHeaders(res) { res.set('Cache-Control', 'public, max-age=3600'); }
 }));
