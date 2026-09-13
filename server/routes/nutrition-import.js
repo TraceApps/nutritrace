@@ -97,7 +97,11 @@ function _decodeMealNames(row) {
  * Matches what addDiaryItem() in src/stores/diary.js produces.
  */
 function _toDiaryItem(canonical, mealNames) {
-  const meal = mapMeal(canonical.mealLabel, mealNames);
+  // A row can name its meal ("Breakfast") or state the slot outright, which
+  // Cronometer's whole-day totals do since they belong to no single meal.
+  const meal = canonical.mealIndex != null
+    ? { index: Math.min(Math.max(0, canonical.mealIndex), mealNames.length - 1), matched: true }
+    : mapMeal(canonical.mealLabel, mealNames);
   return {
     name:       canonical.name,
     brand:      canonical.brand || undefined,
@@ -146,7 +150,7 @@ router.post('/preview', upload.single('file'), wrap((req, res) => {
   for (const c of canonical) {
     if (!byDate.has(c.date)) byDate.set(c.date, 0);
     byDate.set(c.date, byDate.get(c.date) + 1);
-    const m = mapMeal(c.mealLabel, mealNames);
+    const m = c.mealIndex != null ? { matched: true } : mapMeal(c.mealLabel, mealNames);
     if (!m.matched && c.mealLabel) {
       unmappedLabels.set(c.mealLabel, (unmappedLabels.get(c.mealLabel) || 0) + 1);
     }

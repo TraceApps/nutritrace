@@ -97,21 +97,120 @@ const DAILY = 'Date,Group,Energy (kcal),Alcohol (g),Caffeine (mg),Oxalate (mg),P
   `B1 (Thiamine) (mg),B12 (Cobalamin) (${MICRO}g),Folate (${MICRO}g),Vitamin A (${MICRO}g),Calcium (mg),Iron (mg),` +
   'Net Carbs (g),Carbs (g),Fiber (g),Sugars (g),Fat (g),Protein (g),Completed';
 
-test('the Daily Nutrition export gets a message naming the right export', () => {
-  for (const header of [DAILY, DAILY.replace('Date,Group,', 'Date,')]) {
-    const text = `${header}\n2026-09-08,Breakfast,512.3,0,95,0,0,410,0.4,2.1,120,300,210,6.1,50,48,12,20,31,false\n`;
-    assert.throws(() => parseCronometer(text), (e) =>
-      /Daily Nutrition export/.test(e.message) && /Export Food & Recipe Entries/.test(e.message));
-  }
+test('the real Daily Nutrition column set imports, micronutrients included', () => {
+  // DAILY is the header a user pasted from their own export. Values follow
+  // its column order; Oxalate, Phytate and Completed have no NutriTrace
+  // equivalent and are ignored rather than misfiled.
+  const row = (group, kcal) => `9/4/2026,${group},${kcal},0,95,12,5,410,0.4,2.1,120,300,210,6.1,45,50,5,20,15,25,false`;
+  const out = parseCronometer([DAILY, row('Breakfast', '400'), row('Total', '400')].join('\n'));
+  assert.equal(out.length, 1, 'the Total row is dropped');
+  const n = out[0].nutrition;
+  assert.equal(out[0].mealLabel, 'Breakfast');
+  assert.equal(n.calories, 400);
+  assert.equal(n.b12, 2.1);
+  assert.equal(n.b9, 120);
+  assert.equal(n['vitamin-a'], 300);
+  assert.equal(n.calcium, 210);
+  assert.equal(n.iron, 6.1);
+  assert.equal(n.carbohydrates, 50);
+  assert.equal(n.caffeine, 95);
+  assert.equal(n.proteins, 25);
+  assert.equal(n.completed, undefined);
+});
+
+// Real structure from a user's "Export Daily Nutrition" with "Include diary
+// group rows" ticked: dates in M/D/YYYY, one row per meal, a per-day Total
+// row last, and an Uncategorized group for food logged outside a meal.
+const DAILY_COLS = 'Date,Group,Energy (kcal),Carbs (g),Fat (g),Protein (g),Sodium (mg),Completed';
+const dailyRow = (date, group, kcal, extra = '50,20,30,900,false') => `${date},${group},${kcal},${extra}`;
+const DAILY_GROUPED = [
+  DAILY_COLS,
+  dailyRow('9/4/2026', 'Breakfast', '400'),
+  dailyRow('9/4/2026', 'Lunch', '600'),
+  dailyRow('9/4/2026', 'Dinner', '700'),
+  dailyRow('9/4/2026', 'Snacks', '164'),
+  dailyRow('9/4/2026', 'Total', '1864'),
+  dailyRow('9/5/2026', 'Uncategorized', '250'),
+  dailyRow('9/5/2026', 'Breakfast', '350'),
+  dailyRow('9/5/2026', 'Total', '600'),
+].join('\n') + '\n';
+
+test('Daily Nutrition with group rows imports one entry per meal', () => {
+  const out = parseCronometer(DAILY_GROUPED);
+  assert.equal(out.length, 6, 'four meals on the 4th, two on the 5th, no Total rows');
+  assert.deepEqual(out.map(o => o.date), ['2026-09-04', '2026-09-04', '2026-09-04', '2026-09-04', '2026-09-05', '2026-09-05']);
+  assert.deepEqual(out.slice(0, 4).map(o => o.mealLabel), ['Breakfast', 'Lunch', 'Dinner', 'Snacks']);
+  assert.equal(out[0].name, 'Cronometer total');
+  assert.equal(out[0].unit, 'meal');
+  assert.equal(out[0].nutrition.calories, 400);
+  assert.equal(out[0].nutrition.proteins, 30);
+  assert.equal(out[4].mealLabel, 'Uncategorized');
+});
+
+test('the day Total row is dropped so calories are not counted twice', () => {
+  const out = parseCronometer(DAILY_GROUPED);
+  const sep4 = out.filter(o => o.date === '2026-09-04').reduce((t, o) => t + o.nutrition.calories, 0);
+  assert.equal(sep4, 1864, 'meals must add up to the day Total, not double it');
+  assert.ok(!out.some(o => o.mealLabel.toLowerCase() === 'total'));
+});
+
+test('a total row is still found when it is not called "Total"', () => {
+  // Same numbers, non-English label. The sum gives it away.
+  const csv = DAILY_GROUPED.replace(/,Total,/g, ',Gesamt,');
+  const out = parseCronometer(csv);
+  assert.equal(out.length, 6);
+  assert.ok(!out.some(o => /gesamt/i.test(o.mealLabel)), 'translated total must not be imported');
+});
+
+test('a single meal plus its total keeps the meal, not the total', () => {
+  const csv = [DAILY_COLS, dailyRow('9/6/2026', 'Dinner', '800'), dailyRow('9/6/2026', 'Total', '800')].join('\n');
+  const out = parseCronometer(csv);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].mealLabel, 'Dinner');
+});
+
+test('Daily Nutrition without group rows imports one entry per day, in the first meal', () => {
+  const csv = [
+    'Date,Energy (kcal),Carbs (g),Fat (g),Protein (g),Completed',
+    '9/4/2026,1864,200,60,120,true',
+    '9/5/2026,600,50,20,30,false',
+  ].join('\n');
+  const out = parseCronometer(csv);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].name, 'Cronometer daily total');
+  assert.equal(out[0].mealIndex, 0, 'no Group column means the row is the whole day');
+  assert.equal(out[0].unit, 'day');
+  assert.equal(out[0].date, '2026-09-04');
+  assert.equal(out[0].nutrition.calories, 1864);
+});
+
+test('day-first dates are detected rather than assumed to be month-first', () => {
+  const csv = [
+    DAILY_COLS,
+    dailyRow('13/4/2026', 'Breakfast', '400'),   // 13 can only be a day
+    dailyRow('13/4/2026', 'Total', '400'),
+    dailyRow('9/4/2026', 'Breakfast', '500'),
+    dailyRow('9/4/2026', 'Total', '500'),
+  ].join('\n');
+  const dates = parseCronometer(csv).map(o => o.date);
+  assert.deepEqual(dates, ['2026-04-13', '2026-04-09'], 'one unambiguous row settles the whole file');
+});
+
+test('a Food & Recipe Entries export with no nutrition says which export to use', () => {
+  const csv = 'Day,Time,Group,Food Name,Amount,Category\n' +
+    '2026-09-10,12:46 PM,Lunch,"Gomez, Buffalo Chicken Turtle with Ranch",1.00 serving,Custom\n';
+  assert.throws(() => parseCronometer(csv), (e) =>
+    /no nutrition columns/.test(e.message) && /Daily Nutrition/.test(e.message) && /diary group rows/.test(e.message));
 });
 
 test('an unrelated CSV lists the columns it actually found', () => {
   assert.throws(() => parseCronometer('Weight,Body Fat,Waist\n80,20,85\n'), (e) =>
-    /Food & Recipe Entries/.test(e.message) && /found: Weight, Body Fat, Waist/.test(e.message));
+    /Food & Recipe Entries/.test(e.message) && /Daily Nutrition/.test(e.message) &&
+    /found: Weight, Body Fat, Waist/.test(e.message));
 });
 
 test('error messages shown to users contain no em-dashes', () => {
-  for (const text of [`${DAILY}\n`, 'A,B\n1,2\n']) {
+  for (const text of ['Day,Food Name,Amount\n2026-09-10,Rice,1 cup\n', 'A,B\n1,2\n']) {
     try { parseCronometer(text); assert.fail('should throw'); }
     catch (e) { assert.ok(!e.message.includes(EM_DASH), e.message); }
   }
@@ -126,6 +225,11 @@ test('ZIP detection reads the bytes, not the file name', () => {
   assert.equal(isZipBuffer(Buffer.from('PK')), false);
   assert.equal(isZipBuffer(Buffer.alloc(0)), false);
   assert.equal(isZipBuffer(undefined), false);
+});
+
+test('the route can place a row in an explicit meal slot', () => {
+  const route = readFileSync(new URL('../server/routes/nutrition-import.js', import.meta.url), 'utf8');
+  assert.match(route, /canonical\.mealIndex != null/);
 });
 
 test('the upload route no longer looks at the file name', () => {
