@@ -5,6 +5,8 @@ import { APP_VERSION } from './lib/version.js';
 import { installRequestIdFetch } from './lib/request-id-fetch.js';
 setAppVersion(APP_VERSION);
 installRequestIdFetch();
+import { startViewportProbe } from './lib/viewport-probe.js';
+startViewportProbe();
 // Exposed for iconUrl() in platform.js: appended to every icon <img>
 // src as ?v=<version> so a shipped icon fix isn't hidden behind the
 // browser's aggressive PNG cache on the next boot.

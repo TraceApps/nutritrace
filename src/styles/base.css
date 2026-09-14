@@ -28,6 +28,12 @@ body {
   min-height: 100dvh;
   position: relative;
 }
+/* iPhone home-screen apps can open with the window shorter than the screen by
+   the status bar height, leaving a black strip along the bottom until the page
+   is scrolled (#208). 100vh keeps the full screen height in that state, so the
+   page starts out taller than the window, which makes iOS re-measure it without
+   waiting for a scroll. Once it has, 100vh and the window agree again. */
+html.ios-home-screen #app { min-height: 100vh; }
 
 a { color: var(--accent); text-decoration: none; }
 button { font-family: inherit; cursor: pointer; border: none; background: none; }

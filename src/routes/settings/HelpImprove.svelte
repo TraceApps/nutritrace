@@ -216,7 +216,7 @@
     <div class="setting-row">
       <div>
         <span class="setting-label">{$_('settings_diagnostics.diag_mode')}</span>
-        <div class="setting-desc">Enables detailed app-internal logs (sync, settings, notifications, Health Connect) and{isNative ? ' writes them to a daily log file on disk so they survive crashes and reloads.' : ' enables verbose console output.'} Off by default — turn on while reproducing a bug, then export below.</div>
+        <div class="setting-desc">Enables detailed app-internal logs (sync, settings, notifications, Health Connect) and{isNative ? ' writes them to a daily log file on disk so they survive crashes and reloads.' : ' enables verbose console output.'} Also records screen sizes and positions (never what you type) to help with display problems on specific devices. Off by default. Turn on while reproducing a bug, then export below.</div>
       </div>
       <Toggle checked={_verboseLogging} on:change={e => _toggleVerbose(e.detail)} />
     </div>

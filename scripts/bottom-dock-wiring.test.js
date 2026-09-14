@@ -55,6 +55,13 @@ test('neither bar positions itself any more', () => {
   assert.doesNotMatch(diary, /barBottom/, 'the old bottom-offset arithmetic is gone');
 });
 
+test('without the tab bar, the bar itself covers the home indicator strip', () => {
+  // Padding on the transparent dock left a see-through strip under the bar
+  // on iPhones using the menu button instead of the tab bar (#208).
+  assert.doesNotMatch(app, /\.bottom-dock\.no-nav\s*\{[^}]*padding/);
+  assert.match(app, /\.bottom-dock\.no-nav #bottom-dock-slot > :global\(:last-child\)\s*\{\s*padding-bottom:\s*var\(--safe-bottom\)/);
+});
+
 test('the summary bar mounts into the dock slot, not <body>', () => {
   assert.match(diary, /use:portal=\{'#bottom-dock-slot'\} class="diary-bottom-bar"/);
 });
@@ -84,4 +91,17 @@ test('portal mounts into the target, falls back to body, and cleans up', () => {
   } finally {
     delete globalThis.document;
   }
+});
+
+test('the iPhone home-screen height workaround is scoped to home-screen launches', () => {
+  // iOS can open a home-screen app with the window shorter than the screen,
+  // leaving a black strip along the bottom until something scrolls (#208).
+  const html = read('../index.html');
+  const css = read('../src/styles/base.css');
+  assert.match(html, /if \(window\.navigator\.standalone === true\) document\.documentElement\.classList\.add\('ios-home-screen'\);/);
+  // Set in <head> before the stylesheet loads, so the first layout already has it.
+  assert.ok(html.indexOf("classList.add('ios-home-screen')") < html.indexOf('<body'));
+  assert.match(css, /html\.ios-home-screen #app \{ min-height: 100vh; \}/);
+  // Everywhere else keeps the dynamic height, which follows Safari's toolbar.
+  assert.match(cssBlock(css, '#app'), /min-height: 100dvh/);
 });

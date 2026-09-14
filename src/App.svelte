@@ -903,9 +903,9 @@
     transition: left 0.25s ease;
   }
   /* Bottom dock (see the markup). One column anchored to the bottom and
-     offset past a pinned sidebar. The dock ignores pointer events so its
-     empty safe-area padding never blocks taps on the page; its children
-     take them back. */
+     offset past a pinned sidebar. The dock ignores pointer events so it
+     never blocks taps on the page around its bars; its children take
+     them back. */
   .bottom-dock {
     position: fixed;
     left: var(--sidebar-w, 0px);
@@ -918,9 +918,10 @@
     transition: left 0.25s ease;
   }
   .bottom-dock > :global(*) { pointer-events: auto; }
-  /* Without the tab bar, the bottom page bar has to clear the home
-     indicator itself. */
-  .bottom-dock.no-nav { padding-bottom: var(--safe-bottom); }
+  /* Without the tab bar, the page bar reaches the screen edge and clears
+     the home indicator with its own padding, so its background fills that
+     strip. Padding on the dock instead left it see-through (#208). */
+  .bottom-dock.no-nav #bottom-dock-slot > :global(:last-child) { padding-bottom: var(--safe-bottom); }
 
   /* ── Connection badge on hamburger ── */
   .conn-badge {
