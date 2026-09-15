@@ -1,1 +1,52 @@
-{}
+{
+  "nav": {
+    "diary": "Tagebuch",
+    "foods": "Lebensmitteln",
+    "wellness": "Gesundheit",
+    "statistics": "Statistiken",
+    "goals": "Ziele",
+    "settings": "Einstellungen"
+  },
+  "routes": {
+    "diary": {
+      "title": "Tagebuch"
+    },
+    "foods": {
+      "title": "Lebensmittel"
+    },
+    "wellness": {
+      "title": "Gesundheit"
+    },
+    "statistics": {
+      "title": "Statistiken"
+    },
+    "goals": {
+      "title": "Ziele"
+    },
+    "settings": {
+      "title": "Einstellungen"
+    }
+  },
+  "common": {
+    "sign_out": "Abmelden",
+    "log_out": "Abmelden",
+    "signing_out": "Wird abgemeldet…",
+    "experimental": "Experimentell",
+    "hide": "Verbergen",
+    "save": "Speichern",
+    "saving": "Speichern…",
+    "cancel": "Abbrechen",
+    "back": "Zurück",
+    "close": "Schließen",
+    "delete": "Entfernen",
+    "signed_in": "Angemeldet",
+    "signed_out": "Abgemeldet",
+    "linked": "Verbunden",
+    "unlinked": "Getrennt",
+    "admin": "Admin",
+    "errors": {
+      "cant_reach_server": "Server konnte nicht erreicht werden",
+      "failed": "Fehlgeschlagen"
+    }
+  }
+}
