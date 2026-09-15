@@ -1,0 +1,75 @@
+name: Feature Request
+description: Suggest something new for NutriTrace, or a change to how something works.
+title: '[Feature] '
+labels:
+- enhancement
+body:
+- type: markdown
+  attributes:
+    value: |
+      Thanks for the idea. Describing the problem you want solved helps more than describing a specific button or screen, since there's often a way to solve it that fits the rest of the app better. It's also worth a quick look at the [roadmap](https://github.com/TraceApps/nutritrace/blob/main/ROADMAP.md) and [existing issues](https://github.com/TraceApps/nutritrace/issues?q=is%3Aissue) first.
+- type: textarea
+  id: problem
+  attributes:
+    label: The Problem
+    description: What are you trying to do, and what gets in the way today?
+    placeholder: e.g. I want to track X, but today I have to do Y.
+  validations:
+    required: true
+- type: textarea
+  id: solution
+  attributes:
+    label: Your Idea
+    description: How would you like it to work?
+  validations:
+    required: true
+- type: dropdown
+  id: platforms
+  attributes:
+    label: Platforms
+    description: Where would you use it? Choose all that apply.
+    multiple: true
+    options:
+    - Web app
+    - Android app
+    - iPhone or iPad (web app)
+    - Server or self-hosting
+  validations:
+    required: false
+- type: dropdown
+  id: area
+  attributes:
+    label: Area
+    options:
+    - Diary and meal logging
+    - Foods, meals, and recipes
+    - Food search, barcodes, or Open Food Facts
+    - USDA lookups
+    - Goals and Adaptive TDEE
+    - Wellness integrations
+    - Activity and intermittent fasting
+    - Trace AI
+    - Importing from another app
+    - Sync between devices
+    - Reminders and notifications
+    - Sign-in, accounts, or OIDC
+    - Backups and export
+    - Settings
+    - Installing or updating
+    - Something else
+  validations:
+    required: false
+- type: textarea
+  id: alternatives
+  attributes:
+    label: Other Apps or Workarounds
+    description: Does another app do this well? Is there anything you do today to get around it?
+  validations:
+    required: false
+- type: textarea
+  id: extra
+  attributes:
+    label: Anything Else
+    description: Mockups, screenshots, or links. Drag files into this box.
+  validations:
+    required: false

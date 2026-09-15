@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+- name: Question or Help
+  url: https://github.com/TraceApps/nutritrace/discussions/categories/q-a
+  about: Not sure it's a bug, or need help setting something up? Ask in Discussions.
+- name: Documentation
+  url: https://traceapps.github.io/docs/nutritrace/
+  about: Setup, every feature, and self-hosting guides.
+- name: Troubleshooting
+  url: https://traceapps.github.io/docs/reference/troubleshooting/
+  about: Common self-hosting problems and how to fix them.
