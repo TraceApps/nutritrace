@@ -1,6 +1,7 @@
 /**
  * api.js - External API calls (Open Food Facts)
  */
+import { rankOFFResults } from './off-rank.js';
 
 // In native mode, call external APIs directly (no CORS in WebView).
 // In web mode, go through the server proxy to avoid CORS.
@@ -123,43 +124,8 @@ function _getOffSearchLanguage() {
   } catch { return 'en'; }
 }
 
-// Re-rank OFF search results within the fetched page so higher-quality
-// entries surface first. OFF's server-side relevance is name-match based
-// and doesn't consider how complete the entry is, so a search for
-// "yogurt" returns entries with 3 nutriment fields set alongside entries
-// with 40 filled in, in essentially random order. This helper keeps OFF's
-// relevance for the initial page selection but re-orders within the
-// batch. Signals used (in priority order):
-//   1. has an image (users pick with their eyes)
-//   2. completeness score (0-1, OFF's own "how filled in" metric)
-//   3. Nutri-Score present (means enough data to compute one)
-// Missing fields degrade to 0 so entries without signals sink but aren't
-// hidden.
-// #192 (@systems-monitor): photos-first is a defensible signal on the
-// public OFF dataset (photographed products skew toward verified real
-// items) but works against self-hosters running a local mirror
-// (OFF_LOCAL_DB) whose curated entries are typically imageless. The
-// image tier silently buried their catalog under any photographed
-// public product. Auto-adapt per response envelope: mirror hits
-// (data.hits) drop the image tier and let completeness / nutriscore
-// order the page; public OFF hits (data.products) keep the existing
-// photos-first behavior. Zero settings surface, no user action needed.
-function _rankOFFResults(items, { fromMirror = false } = {}) {
-  if (!Array.isArray(items) || items.length < 2) return items;
-  return items.slice().sort((a, b) => {
-    if (!fromMirror) {
-      const aImg = a.imgUrl ? 1 : 0;
-      const bImg = b.imgUrl ? 1 : 0;
-      if (aImg !== bImg) return bImg - aImg;
-    }
-    const aComp = a.completeness ?? 0;
-    const bComp = b.completeness ?? 0;
-    if (aComp !== bComp) return bComp - aComp;
-    const aNs = a.nutriscore ? 1 : 0;
-    const bNs = b.nutriscore ? 1 : 0;
-    return bNs - aNs;
-  });
-}
+// Search result ordering (OFF relevance groups, then photos, completeness
+// and Nutri-Score) lives in off-rank.js. #192, #213.
 
 // Accept every "product was found" flavor OFF returns across API generations
 // and mirror paths:
@@ -251,6 +217,15 @@ const API = {
     }
   },
 
+  // Map a name-search response to { food, score } pairs for rankOFFResults.
+  // #213: public OFF hits carry a relevance `_score`; it rides beside the
+  // food rather than on it so it never gets copied into a diary entry.
+  _offSearchEntries(data) {
+    return (data.hits || data.products || [])
+      .map(p => ({ food: this._mapOFFProduct(p), score: p ? p._score : undefined }))
+      .filter(e => e.food);
+  },
+
   async searchByName(query, page) {
     page = page || 1;
     try {
@@ -267,8 +242,7 @@ const API = {
       // populates `data.products`. Feed the source hint into the
       // ranker so mirror pages don't get the photos-first tier.
       const fromMirror = Array.isArray(data.hits);
-      const items = (data.hits || data.products || []).map(p => this._mapOFFProduct(p)).filter(Boolean);
-      return _rankOFFResults(items, { fromMirror });
+      return rankOFFResults(this._offSearchEntries(data), { fromMirror });
     } catch(e) {
       console.error('Search failed:', e);
       return [];
@@ -292,12 +266,12 @@ const API = {
       // API fall-through when the mirror is off or misses). v1.1.0 shipped
       // reading `hits` only, which silently returned empty for the majority
       // of self-hosters who don't run the mirror. #133 (@JacosVerksted).
-      // #192: same source hint as searchByName. See _rankOFFResults comment.
+      // #192, #213: same source hint and scores as searchByName. See off-rank.js.
       const fromMirror = Array.isArray(data.hits);
-      const items = (data.hits || data.products || []).map(p => this._mapOFFProduct(p)).filter(Boolean);
-      const totalHits = typeof data.count === 'number' ? data.count : items.length;
+      const entries = this._offSearchEntries(data);
+      const totalHits = typeof data.count === 'number' ? data.count : entries.length;
       const hasMore = page * pageSize < totalHits;
-      return { items: _rankOFFResults(items, { fromMirror }), totalHits, page, hasMore };
+      return { items: rankOFFResults(entries, { fromMirror }), totalHits, page, hasMore };
     } catch(e) {
       console.error('Search failed:', e);
       return { items: [], totalHits: 0, page, hasMore: false };
