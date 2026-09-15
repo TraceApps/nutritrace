@@ -74,3 +74,23 @@ test('the guard runs before express.static, or it never fires', { skip: !mod }, 
   // Specifically NOT a prefix route, which is bypassable.
   assert.doesNotMatch(src, /router\.use\('\/uploads\/backups'/);
 });
+
+test('uploads are stored under a safe extension, never the uploader\'s choice', { skip: !mod }, () => {
+  const { safeUploadExtension } = mod;
+  assert.equal(safeUploadExtension('audio/webm', 'voice.webm'), '.webm');
+  assert.equal(safeUploadExtension('audio/webm', 'evil.html'), '.webm');
+  assert.equal(safeUploadExtension('image/png', 'photo.svg'), '.png');
+  assert.equal(safeUploadExtension('image/png', 'pic.PNG'), '.png');
+  assert.equal(safeUploadExtension('audio/3gpp', 'memo.3gp'), '.3gp');
+  assert.equal(safeUploadExtension('video/mp4', 'clip.mov'), '.mov');
+  assert.equal(safeUploadExtension('audio/x-unknown', 'x.js'), '.bin');
+  assert.equal(safeUploadExtension('image/svg+xml', 'logo.svg'), '.bin');
+});
+
+test('uploads are served with no sniffing and a sandboxing policy', { skip: !mod }, () => {
+  const { UPLOAD_RESPONSE_HEADERS } = mod;
+  assert.equal(UPLOAD_RESPONSE_HEADERS['X-Content-Type-Options'], 'nosniff');
+  assert.match(UPLOAD_RESPONSE_HEADERS['Content-Security-Policy'], /sandbox/);
+  const src = fs.readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');
+  assert.match(src, /res\.set\(UPLOAD_RESPONSE_HEADERS\)/);
+});
