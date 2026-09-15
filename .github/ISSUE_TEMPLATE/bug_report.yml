@@ -1,0 +1,119 @@
+name: Bug Report
+description: Something in NutriTrace is broken or not working the way it should.
+title: '[Bug] '
+labels:
+- bug
+body:
+- type: markdown
+  attributes:
+    value: |
+      Thanks for taking the time to report this. Only a few fields are required, but the more you fill in, the faster it gets fixed.
+
+      **The most useful thing you can add is a log.** In NutriTrace, open **Settings > Diagnostics**, turn on **Diagnostic Mode**, make the problem happen, then open **View Diagnostic Logs** and paste it below. Self-hosting questions may already be answered in the [troubleshooting guide](https://traceapps.github.io/docs/reference/troubleshooting/).
+- type: dropdown
+  id: platform
+  attributes:
+    label: Platform
+    description: Where does the problem happen?
+    options:
+    - Web browser
+    - Installed web app (home screen)
+    - Android app
+    - iPhone or iPad (web app)
+    - Server or Docker setup
+  validations:
+    required: true
+- type: input
+  id: version
+  attributes:
+    label: NutriTrace Version
+    description: Shown in **Settings > About**.
+    placeholder: e.g. v1.2.0
+  validations:
+    required: true
+- type: textarea
+  id: what-happened
+  attributes:
+    label: What Happened
+    description: What went wrong, and what did you expect to happen instead? Include any error message exactly as shown.
+  validations:
+    required: true
+- type: textarea
+  id: steps
+  attributes:
+    label: Steps to Reproduce
+    description: How to make it happen, if you know.
+    placeholder: |
+      1. Open the Diary
+      2. Tap Add
+      3. ...
+  validations:
+    required: false
+- type: textarea
+  id: logs
+  attributes:
+    label: Logs
+    description: |
+      **App log:** in NutriTrace, open **Settings > Diagnostics**, turn on **Diagnostic Mode**, make the problem happen, then open **View Diagnostic Logs** and copy it.
+
+      **Server log:** `docker logs <container name> --tail 200`
+
+      Remove anything private before posting: weight, heart rate, HRV, sleep, calorie, and other health values, email addresses, auth tokens, AI API keys, OIDC client secrets, and your server's address.
+    render: text
+  validations:
+    required: false
+- type: dropdown
+  id: android-mode
+  attributes:
+    label: Android App Mode
+    description: Only for the Android app.
+    options:
+    - Local mode (on this device only)
+    - Connected to a server
+  validations:
+    required: false
+- type: input
+  id: device
+  attributes:
+    label: Device, OS, and Browser
+    placeholder: e.g. Pixel 9 on Android 16 / Firefox 141 on Windows 11 / Safari on iOS 19
+  validations:
+    required: false
+- type: input
+  id: setup
+  attributes:
+    label: Server Setup
+    description: 'For self-hosting problems: how it''s deployed and what sits in front of it.'
+    placeholder: e.g. Docker Compose on Unraid behind Nginx Proxy Manager, Authentik for sign-in
+  validations:
+    required: false
+- type: dropdown
+  id: area
+  attributes:
+    label: Area
+    options:
+    - Diary and meal logging
+    - Foods, meals, and recipes
+    - Food search, barcodes, or Open Food Facts
+    - USDA lookups
+    - Goals and Adaptive TDEE
+    - Wellness integrations
+    - Activity and intermittent fasting
+    - Trace AI
+    - Importing from another app
+    - Sync between devices
+    - Reminders and notifications
+    - Sign-in, accounts, or OIDC
+    - Backups and export
+    - Settings
+    - Installing or updating
+    - Something else
+  validations:
+    required: false
+- type: textarea
+  id: screenshots
+  attributes:
+    label: Screenshots or Video
+    description: Often the fastest way to show a visual problem. Drag files into this box.
+  validations:
+    required: false

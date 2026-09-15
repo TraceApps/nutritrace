@@ -1,0 +1,97 @@
+name: Integration Test Report
+description: Try a wearable, smart scale, or import with your own data and report what worked.
+title: '[Integration Test] '
+body:
+- type: markdown
+  attributes:
+    value: |
+      NutriTrace is tested against a small set of devices and exports, so a report from any other wearable, smart scale, Health Connect setup, or import is extremely valuable. Reports of things that work are just as useful as reports of things that don't.
+- type: dropdown
+  id: integration
+  attributes:
+    label: Integration
+    options:
+    - Fitbit (through Google Health)
+    - Withings
+    - Garmin
+    - Health Connect
+    - Open Food Facts mirror
+    - USDA
+    - Mealie recipe import
+    - Import from MyFitnessPal
+    - Import from Lose It
+    - Import from Cronometer
+    - Import from Waistline
+    - Sign-in with an OIDC provider
+    - Something else
+  validations:
+    required: true
+- type: input
+  id: version
+  attributes:
+    label: NutriTrace Version
+    description: Shown in **Settings > About**.
+    placeholder: e.g. v1.2.0
+  validations:
+    required: true
+- type: input
+  id: source
+  attributes:
+    label: Device, App, or Server Version
+    placeholder: e.g. Garmin Forerunner 265 / Withings Body Smart / Health Connect on a Galaxy Watch 7 / Cronometer export
+  validations:
+    required: false
+- type: textarea
+  id: worked
+  attributes:
+    label: What Worked
+    value: |
+      Mark each with a check, a cross, or n/a (your device doesn't track it).
+
+      - Steps:
+      - Distance:
+      - Active minutes:
+      - Calories burned:
+      - Resting heart rate:
+      - HRV:
+      - Sleep duration:
+      - Sleep stages:
+      - SpO2:
+      - Weight and body composition:
+      - For an import: foods, meals, dates, and nutrients:
+  validations:
+    required: false
+- type: textarea
+  id: broken
+  attributes:
+    label: What Didn't Work
+    description: Specific entries, wrong values, error messages. Write "Everything worked" if it did.
+  validations:
+    required: true
+- type: textarea
+  id: sample
+  attributes:
+    label: Sample File or Address
+    description: For an import, a small sample export with personal entries removed helps reproduce the problem.
+  validations:
+    required: false
+- type: textarea
+  id: logs
+  attributes:
+    label: Logs
+    description: |
+      **App log:** in NutriTrace, open **Settings > Diagnostics**, turn on **Diagnostic Mode**, make the problem happen, then open **View Diagnostic Logs** and copy it.
+
+      **Server log:** `docker logs <container name> --tail 200`
+
+      Remove anything private before posting: weight, heart rate, HRV, sleep, calorie, and other health values, email addresses, auth tokens, AI API keys, OIDC client secrets, and your server's address.
+    render: text
+  validations:
+    required: false
+- type: textarea
+  id: screenshots
+  attributes:
+    label: Screenshots
+    description: Drag files into this box.
+  validations:
+    required: false
