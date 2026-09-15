@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '../../lib/clipboard.js';
   import { _ } from 'svelte-i18n';
   import Toggle from '../../components/settings/Toggle.svelte';
   import Sheet from '../../components/ui/Sheet.svelte';
@@ -27,11 +28,11 @@
   }
   async function _copyLogs() {
     try {
-      await navigator.clipboard.writeText(_logsText);
+      await copyText(_logsText);
       _logsCopied = true;
       setTimeout(() => _logsCopied = false, 2000);
     } catch (e) {
-      showError('Copy failed — select the text manually');
+      showError('Copy failed. Select the text manually.');
     }
   }
   async function _shareLogs() {
@@ -202,11 +203,11 @@
 
   async function _copyCalibExport() {
     try {
-      await navigator.clipboard.writeText(_calibExportJson);
+      await copyText(_calibExportJson);
       _calibCopied = true;
       setTimeout(() => _calibCopied = false, 2000);
     } catch (e) {
-      showError('Copy failed — select the text manually');
+      showError('Copy failed. Select the text manually.');
     }
   }
 </script>

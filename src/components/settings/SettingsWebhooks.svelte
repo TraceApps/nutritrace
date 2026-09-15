@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '../../lib/clipboard.js';
   /**
    * SettingsWebhooks.svelte
    *
@@ -162,7 +163,7 @@
 
   async function copySecret() {
     try {
-      await navigator.clipboard.writeText(justCreatedSecret);
+      await copyText(justCreatedSecret);
       showSuccess($_('settings_webhooks.toast.copied'));
     } catch {
       showError($_('settings_webhooks.toast.copy_failed'));

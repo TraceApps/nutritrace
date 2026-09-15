@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '../../lib/clipboard.js';
   import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { slide } from 'svelte/transition';
@@ -497,7 +498,7 @@
   }
 
   function copyRedirectUri() {
-    navigator.clipboard.writeText(fitbitRedirectUri || fitbitRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')));
+    copyText(fitbitRedirectUri || fitbitRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')), () => showError($_('settings_wellness.common.copy_failed')));
   }
 
   async function disconnectGarminFromSettings() {
@@ -541,7 +542,7 @@
   }
 
   function copyGarminRedirectUri() {
-    navigator.clipboard.writeText(garminRedirectUri || garminRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')));
+    copyText(garminRedirectUri || garminRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')), () => showError($_('settings_wellness.common.copy_failed')));
   }
 
   async function saveWithingsConfig() {
@@ -559,7 +560,7 @@
   }
 
   function copyWithingsRedirectUri() {
-    navigator.clipboard.writeText(withingsRedirectUri || withingsRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')));
+    copyText(withingsRedirectUri || withingsRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')), () => showError($_('settings_wellness.common.copy_failed')));
   }
 </script>
 

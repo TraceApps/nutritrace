@@ -1363,6 +1363,7 @@
       "copy_uri":             "Copy URI",
       "visible_metrics":      "Visible Metrics",
       "copied":               "Copied",
+      "copy_failed":          "Could not copy. Select the text manually.",
       "experimental":         "Experimental",
       "save_failed_prefix":   "Failed to save: ",
       "sync_failed":          "Sync failed: {error}",
