@@ -32,13 +32,21 @@ export function dailyTotalsCore(userId, { date } = {}) {
     `SELECT items, water FROM diary
       WHERE user_id = ? AND date = ? AND deleted_at IS NULL`
   ).get(userId, day);
+  return diaryRowTotals(day, row);
+}
+
+/**
+ * Totals for one diary row (or a missing row, which totals to zero). Shared
+ * with get_daily_totals_range so both tools calculate a day identically.
+ */
+export function diaryRowTotals(date, row) {
   const items = row?.items ? safeJson(row.items, []) : [];
   const waterLogs = row?.water ? safeJson(row.water, []) : [];
   const totals = Nutrition.sum(items.map(i => Nutrition.calculate(i)));
   // Round to 1 decimal place, matches how the diary top-bar renders.
   for (const k of Object.keys(totals)) totals[k] = Math.round(totals[k] * 10) / 10;
   const water_ml = waterLogs.reduce((s, l) => s + (Number(l.amount) || 0), 0);
-  return { date: day, totals, water_ml, item_count: items.length };
+  return { date, totals, water_ml, item_count: items.length };
 }
 
 export function registerDailyTotals(server, { userId }) {

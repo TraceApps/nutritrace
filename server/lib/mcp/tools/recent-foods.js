@@ -14,7 +14,14 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { daysAgoLocal, safeJson, toolResult } from '../_util.js';
+import {
+  DATE_RE,
+  daysAgoLocal,
+  validateDateRange,
+  safeJson,
+  toolResult,
+  toolError,
+} from '../_util.js';
 
 const MAX_LIMIT = 30;
 const DEFAULT_LIMIT = 10;
@@ -27,19 +34,37 @@ export function registerRecentFoods(server, { userId }) {
       title: 'Get Recent Foods',
       description:
         "Return the user's most-recently-used foods from their local catalog, ordered " +
-        `by last diary appearance in the past ${LOOKBACK_DAYS} days. Default limit 10, max ${MAX_LIMIT}.`,
+        `by last diary appearance in the past ${LOOKBACK_DAYS} days. Default limit 10, max ${MAX_LIMIT}. ` +
+        'Optional inclusive start/end YYYY-MM-DD bounds replace the default lookback; ' +
+        'there is no maximum range.',
       inputSchema: {
         limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+        start: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
+        end: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
       },
     },
-    async ({ limit }) => {
+    async ({ limit, start, end }) => {
       const cap = Math.min(MAX_LIMIT, Math.max(1, Number(limit) || DEFAULT_LIMIT));
-      const since = daysAgoLocal(LOOKBACK_DAYS);
+      const hasExplicitRange = start != null || end != null;
+      const since = hasExplicitRange ? start || null : daysAgoLocal(LOOKBACK_DAYS);
+      const until = hasExplicitRange ? end || null : null;
+      const rangeError = validateDateRange(since, until);
+      if (rangeError) return toolError(rangeError);
+      const conditions = ['user_id = ?', 'deleted_at IS NULL'];
+      const params = [userId];
+      if (since) {
+        conditions.push('date >= ?');
+        params.push(since);
+      }
+      if (until) {
+        conditions.push('date <= ?');
+        params.push(until);
+      }
       const rows = db.prepare(
         `SELECT items, date FROM diary
-          WHERE user_id = ? AND date >= ? AND deleted_at IS NULL
+          WHERE ${conditions.join(' AND ')}
           ORDER BY date DESC`
-      ).all(userId, since);
+      ).all(...params);
       const lastSeen = new Map();
       for (const r of rows) {
         const items = safeJson(r.items, []);
@@ -105,4 +130,3 @@ export function registerRecentFoods(server, { userId }) {
     }
   );
 }
-
