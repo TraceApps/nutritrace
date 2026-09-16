@@ -167,7 +167,7 @@
     categories:        { titleKey: 'settings.categories.section',        icon: 'category' },
     customUnits:       { titleKey: 'settings_stats.custom_units',        icon: 'straighten' },
     connectedServices: { titleKey: 'settings.connected_services.section',icon: 'link' },
-    ai:                { titleKey: 'settings.ai.section',                icon: 'bolt' },
+    ai:                { titleKey: 'settings.ai.section',                icon: 'smart_toy' },
     wellness:          { titleKey: 'settings.wellness.section',          icon: 'favorite' },
     serverConnection:  { titleKey: 'settings.server.section',            icon: 'cloud' },
     notifications:     { titleKey: 'settings.notifications.section',     icon: 'notifications' },
@@ -491,7 +491,7 @@
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'ai')} class:active={currentSection === 'ai'} aria-current={currentSection === 'ai' ? 'page' : undefined} on:click={() => toggleSection('ai')}>
-    <span class="material-symbols-rounded si">bolt</span>
+    <span class="material-symbols-rounded si">smart_toy</span>
     <span>{$_('settings.ai.section')}</span>
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
