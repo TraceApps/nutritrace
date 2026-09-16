@@ -85,7 +85,9 @@ test('All Phase 1 read tools are registered', () => {
   const expected = [
     'registerGetGoals',
     'registerListDiary',
+    'registerListDiaryRange',
     'registerDailyTotals',
+    'registerDailyTotalsRange',
     'registerSearchFoods',
     'registerRecentFoods',
   ];
@@ -150,6 +152,8 @@ test('MCP tool DB queries scope on user_id — no cross-user access', () => {
     'goals.js',
     'list-diary.js',
     'daily-totals.js',
+    'list-diary-range.js',
+    'daily-totals-range.js',
     'search-foods.js',
     'recent-foods.js',
     'log-food.js',

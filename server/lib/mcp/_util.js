@@ -68,6 +68,36 @@ export function toolResult(payload) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+function isCalendarDate(value) {
+  if (!DATE_RE.test(value)) return false;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const daysInMonth = [
+    31,
+    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28,
+    31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+  ];
+  return day >= 1 && day <= daysInMonth[month - 1];
+}
+
+export function validateDateRange(start, end) {
+  if ((start != null && !isCalendarDate(start)) || (end != null && !isCalendarDate(end))) {
+    return 'Invalid start/end date; expected YYYY-MM-DD.';
+  }
+  if (start != null && end != null && start > end) {
+    return 'Invalid date range; start must be on or before end.';
+  }
+  return null;
+}
+
+export function resolveDateRange(start, end, defaultDays = 90) {
+  return {
+    start: start ?? (end == null ? daysAgoLocal(defaultDays) : null),
+    end: end ?? todayLocal(),
+  };
+}
+
 /**
  * Validate a YYYY-MM-DD string; return the string when valid, or
  * `null` when invalid. Empty / undefined is a caller error and should

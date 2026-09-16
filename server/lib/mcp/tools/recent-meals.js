@@ -12,7 +12,7 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { safeJson, toolResult } from '../_util.js';
+import { DATE_RE, safeJson, toolResult, toolError, validateDateRange } from '../_util.js';
 
 const MAX_LIMIT = 30;
 const DEFAULT_LIMIT = 10;
@@ -21,9 +21,21 @@ const DEFAULT_LIMIT = 10;
  * Core lookup, shared by the MCP tool below and the public REST API at
  * GET /api/v1/meals/recent.
  */
-export function recentMealsCore(userId, { limit, include_recipes } = {}) {
+export function recentMealsCore(userId, { limit, include_recipes, start, end } = {}) {
   const cap = Math.min(MAX_LIMIT, Math.max(1, Number(limit) || DEFAULT_LIMIT));
   const recipeClause = include_recipes ? '' : 'AND is_recipe = 0';
+  const rangeError = validateDateRange(start, end);
+  if (rangeError) return { error: rangeError };
+  const dateConditions = [];
+  const dateParams = [];
+  if (start != null) {
+    dateConditions.push('date(last_used_at) >= date(?)');
+    dateParams.push(start);
+  }
+  if (end != null) {
+    dateConditions.push('date(last_used_at) <= date(?)');
+    dateParams.push(end);
+  }
   const rows = db.prepare(
     `SELECT id, name, is_recipe, servings, portion, unit, nutrition,
             favorite, usage_count, last_used_at
@@ -31,10 +43,11 @@ export function recentMealsCore(userId, { limit, include_recipes } = {}) {
       WHERE user_id = ?
         AND deleted_at IS NULL
         AND last_used_at IS NOT NULL
+        ${dateConditions.length ? `AND ${dateConditions.join(' AND ')}` : ''}
         ${recipeClause}
       ORDER BY last_used_at DESC, usage_count DESC, name COLLATE NOCASE ASC
       LIMIT ?`
-  ).all(userId, cap);
+  ).all(userId, ...dateParams, cap);
   const items = rows.map(r => ({
     id: r.id,
     name: r.name,
@@ -59,14 +72,19 @@ export function registerRecentMeals(server, { userId }) {
         "Return the user's most-recently-used saved meals, ordered by " +
         'last_used_at descending (then usage_count, then name). Recipes ' +
         '(is_recipe=1) are excluded by default. Same shape as search_meals ' +
-        'results. Default limit 10, max 30.',
+        'results. Default limit 10, max 30. Optional inclusive start/end ' +
+        'YYYY-MM-DD bounds filter last_used_at; omitted bounds are open.',
       inputSchema: {
         limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
         include_recipes: z.boolean().optional(),
+        start: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
+        end: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
       },
     },
-    async ({ limit, include_recipes }) => {
-      return toolResult(recentMealsCore(userId, { limit, include_recipes }));
+    async ({ limit, include_recipes, start, end }) => {
+      const result = recentMealsCore(userId, { limit, include_recipes, start, end });
+      if (result.error) return toolError(result.error);
+      return toolResult(result);
     }
   );
 }
