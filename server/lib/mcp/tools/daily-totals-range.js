@@ -6,24 +6,14 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { Nutrition } from '../../../../src/lib/nutrition.js';
+import { diaryRowTotals } from './daily-totals.js';
 import {
   DATE_RE,
-  safeJson,
   resolveDateRange,
   toolResult,
   toolError,
   validateDateRange,
 } from '../_util.js';
-
-function totalsFor(row) {
-  const items = safeJson(row.items, []);
-  const waterLogs = safeJson(row.water, []);
-  const totals = Nutrition.sum(items.map(i => Nutrition.calculate(i)));
-  for (const key of Object.keys(totals)) totals[key] = Math.round(totals[key] * 10) / 10;
-  const water_ml = waterLogs.reduce((sum, log) => sum + (Number(log.amount) || 0), 0);
-  return { date: row.date, totals, water_ml, item_count: items.length };
-}
 
 export function registerDailyTotalsRange(server, { userId }) {
   server.registerTool(
@@ -60,7 +50,7 @@ export function registerDailyTotalsRange(server, { userId }) {
           WHERE user_id = ? AND ${conditions.join(' AND ')}
           ORDER BY date ASC`
       ).all(...params);
-      const totals = rows.map(totalsFor);
+      const totals = rows.map(row => diaryRowTotals(row.date, row));
       return toolResult({ start: rangeStart, end: rangeEnd, totals, count: totals.length });
     }
   );

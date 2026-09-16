@@ -91,11 +91,14 @@ export function validateDateRange(start, end) {
   return null;
 }
 
+// Both bounds omitted: the last `defaultDays` days ending today. One bound
+// supplied: the other side is open (null), so a start-only range still
+// reaches future-dated diary rows and an end-only range reaches the oldest.
 export function resolveDateRange(start, end, defaultDays = 90) {
-  return {
-    start: start ?? (end == null ? daysAgoLocal(defaultDays) : null),
-    end: end ?? todayLocal(),
-  };
+  if (start == null && end == null) {
+    return { start: daysAgoLocal(defaultDays), end: todayLocal() };
+  }
+  return { start: start ?? null, end: end ?? null };
 }
 
 /**

@@ -119,3 +119,66 @@ test('range validation rejects impossible calendar dates', async () => {
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /YYYY-MM-DD/i);
 });
+
+test('a start-only range stays open-ended and reaches future-dated rows', async () => {
+  db.prepare(
+    `INSERT INTO diary (user_id, date, items, body_stats, water)
+     VALUES (?, '2099-06-01', ?, '{}', '[]')`
+  ).run(userId, JSON.stringify([{ name: 'Planned Oats', nutrition: { calories: 150 } }]));
+
+  const fromStart = json(await server.call('list_diary_entries_range', { start: '2020-01-01' }));
+  assert.equal(fromStart.end, null, 'the end is left open, not set to today');
+  assert.deepEqual(fromStart.entries.map(e => e.date), ['2020-01-02', '2099-06-01']);
+
+  const totals = json(await server.call('get_daily_totals_range', { start: '2099-01-01' }));
+  assert.equal(totals.end, null);
+  assert.deepEqual(totals.totals.map(t => t.date), ['2099-06-01']);
+
+  const throughEnd = json(await server.call('list_diary_entries_range', { end: '2020-12-31' }));
+  assert.equal(throughEnd.start, null, 'the start is left open');
+  assert.deepEqual(throughEnd.entries.map(e => e.date), ['2020-01-02']);
+
+  // With neither bound, the default window still ends today.
+  const defaults = json(await server.call('get_daily_totals_range'));
+  assert.match(defaults.start, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(defaults.end, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(defaults.count, 0, 'future-dated rows are outside the default window');
+});
+
+test('range totals match the single-day tool for each day', async () => {
+  const range = json(await server.call('get_daily_totals_range', { start: '2020-01-01' }));
+  assert.ok(range.count >= 2);
+  for (const day of range.totals) {
+    const single = json(await server.call('get_daily_totals', { date: day.date }));
+    assert.deepEqual(day, single, day.date);
+  }
+});
+
+test('list_diary_entries_range refuses more logged days than the cap, totals still work', async () => {
+  const { MAX_RANGE_DAYS } = await import('../server/lib/mcp/tools/list-diary-range.js');
+  const bigUser = db.prepare(
+    "INSERT INTO users (username, password_hash, role) VALUES ('mcp-range-big', 'x', 'user')"
+  ).run().lastInsertRowid;
+  const insert = db.prepare(
+    `INSERT INTO diary (user_id, date, items, body_stats, water) VALUES (?, ?, ?, '{}', '[]')`
+  );
+  const day = new Date(Date.UTC(2021, 0, 1));
+  db.transaction(() => {
+    for (let i = 0; i <= MAX_RANGE_DAYS; i++) {
+      insert.run(bigUser, day.toISOString().slice(0, 10), JSON.stringify([{ name: 'Toast', nutrition: { calories: 80 } }]));
+      day.setUTCDate(day.getUTCDate() + 1);
+    }
+  })();
+  const big = new MockServer();
+  registerReadTools(big, { userId: bigUser });
+
+  const tooMany = await big.call('list_diary_entries_range', { start: '2021-01-01' });
+  assert.equal(tooMany.isError, true);
+  assert.match(tooMany.content[0].text, new RegExp(`${MAX_RANGE_DAYS + 1} logged days.*limit is ${MAX_RANGE_DAYS}`));
+
+  const atCap = json(await big.call('list_diary_entries_range', { start: '2021-01-02' }));
+  assert.equal(atCap.count, MAX_RANGE_DAYS);
+
+  const totals = json(await big.call('get_daily_totals_range', { start: '2021-01-01' }));
+  assert.equal(totals.count, MAX_RANGE_DAYS + 1);
+});
