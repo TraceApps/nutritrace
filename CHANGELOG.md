@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.0-dev02] - 2026-09-17 (pre-release)
+
+Second dev pre-release of the 1.3.0 minor. Adds MCP date-range reads, outgoing webhooks and a general-purpose REST API, import of Cronometer's Daily Nutrition export, and a round of iPhone fixes, plus security fixes for uploads and five server dependencies.
+
 ### Added
 
 - **MCP date-range reads** ([#215](https://github.com/TraceApps/nutritrace/pull/215)). New `list_diary_entries_range` and `get_daily_totals_range` tools, and optional `start`/`end` dates on `get_recent_foods` and `get_recent_meals`. Bounds are inclusive and either can be left out to leave that side open; with neither, the range tools cover the last 90 days. `list_diary_entries_range` returns at most 366 logged days per call, since full item lists get large; `get_daily_totals_range` has no limit. The existing single-day tools are unchanged. Thanks @kgenerozov.
@@ -31,7 +37,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Security
 
 - **Backup archives are no longer reachable from the public uploads directory.** `BACKUPS_PATH` defaults to a directory inside `UPLOADS_PATH`, and `/uploads` is served ahead of the auth middleware so an Android WebView `<img>` can load images without an `Authorization` header. A full-backup ZIP sitting in that directory was therefore fetchable by URL, while every `/api/full-backup` route is admin-only. It now returns 404 like anything else outside the served set. Scheduled backups are off by default, so an install that never enabled them and never created one by hand had nothing there to reach; there is no directory listing either, so a filename had to be known or guessed. The archive holds a full database dump, so if yours has been internet-facing with backups enabled, a look through your access log for `/uploads/backups/` will settle it either way. The exclusion tests the resolved filesystem path rather than the request URL, since `express.static` percent-decodes a path before opening the file while a route prefix matches the raw one, and the two disagree on exactly the inputs an attacker would pick.
-
+- **Uploaded files can no longer be served as web pages.** Uploads were saved under whatever file extension the uploader sent, and the extension decides what type a file is served as, so a file uploaded as audio but named `.html` would be served as a page from your NutriTrace address. Uploads are now saved under an extension that matches their actual type (anything unrecognised becomes `.bin` and downloads instead of opening), and every file under `/uploads` is served with `X-Content-Type-Options: nosniff` and a sandboxing content security policy, so nothing stored there can run script. Uploaded images still load as before.
+- **Server dependency updates clear five packages with known vulnerabilities.** multer 2.4.0 ([GHSA-wc9g-mqfw-jrwm](https://github.com/advisories/GHSA-wc9g-mqfw-jrwm), [GHSA-qfvm-cv95-jqjf](https://github.com/advisories/GHSA-qfvm-cv95-jqjf), [GHSA-535w-7cp7-47q4](https://github.com/advisories/GHSA-535w-7cp7-47q4), high: denial of service through crafted multipart uploads; [GHSA-qvfw-j98x-7q72](https://github.com/advisories/GHSA-qvfw-j98x-7q72), low), fast-uri 3.1.8 ([GHSA-5jgf-p345-68v8](https://github.com/advisories/GHSA-5jgf-p345-68v8), [GHSA-f65p-4m7j-42xc](https://github.com/advisories/GHSA-f65p-4m7j-42xc), [GHSA-fph4-wmhf-6fwf](https://github.com/advisories/GHSA-fph4-wmhf-6fwf), [GHSA-jqff-g426-hqxp](https://github.com/advisories/GHSA-jqff-g426-hqxp), high: URL host confusion), hono 4.13.8 (three moderate advisories), qs 6.16.0 (two moderate advisories), and adm-zip 0.6.1 ([GHSA-vwc7-r8mq-g2x9](https://github.com/advisories/GHSA-vwc7-r8mq-g2x9), moderate: extraction follows symlinks). All are minor or patch updates; the full test suite passes on them, and uploads were retested against a running server with identical results. `npm audit --omit=dev` now reports 0 vulnerabilities for both the app and the server. Pulling the new image is all that's needed.
 ---
 
 ## [1.3.0-dev01] - 2026-09-10 (pre-release)
