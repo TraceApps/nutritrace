@@ -69,9 +69,9 @@
     "time": {
       "never": "nie",
       "just_now": "gerade eben",
-      "seconds_ago": "vor {count} Sek.",
-      "minutes_ago": "vor {count} Min.",
-      "hours_ago": "vor {count} Std.",
+      "seconds_ago": "vor {count} Sek",
+      "minutes_ago": "vor {count} Min",
+      "hours_ago": "vor {count} Std",
       "days_ago": "vor {count} Tagen"
     },
     "connection": {
@@ -1688,7 +1688,7 @@
       "send_test": "Test-E-Mail senden",
       "no_test": "Bisher wurde kein Test gesendet",
       "sent_to": "Gesendet an {recipient}. Nutze „Test-E-Mail senden“ jederzeit erneut zur Überprüfung.",
-      "sent_generic": "Nutze „Test-E-Mail senden“ jederzeit erneut zur Überprüfung."
+      "sent_generic": "Nutze „Test-E-Mail senden“ jederzeit erneut zur Überprüfung"
     },
     "toast": {
       "test_sent": "SMTP-Test-E-Mail an {recipient} gesendet",
@@ -1760,9 +1760,9 @@
       "scopes_none": "keine",
       "expires": "läuft ab {when}",
       "just_now": "gerade eben",
-      "min_ago": "vor {n} Min.",
-      "hr_ago": "vor {n} Std.",
-      "day_ago": "vor {n} T."
+      "min_ago": "vor {n} Min",
+      "hr_ago": "vor {n} Std",
+      "day_ago": "vor {n} T"
     },
     "form": {
       "scopes": "Berechtigungen (Scopes)",
@@ -1799,9 +1799,9 @@
       "delete_title": "Webhook löschen",
       "last_delivery": "letzte Zustellung {when}",
       "just_now": "gerade eben",
-      "min_ago": "vor {n} Min.",
-      "hr_ago": "vor {n} Std.",
-      "day_ago": "vor {n} T.",
+      "min_ago": "vor {n} Min",
+      "hr_ago": "vor {n} Std",
+      "day_ago": "vor {n} T",
       "status_success": "zugestellt",
       "status_failed": "fehlgeschlagen",
       "test_title": "Test-Ereignis senden",
@@ -1834,7 +1834,7 @@
       "update_failed": "Webhook konnte nicht aktualisiert werden",
       "delete_failed": "Webhook konnte nicht gelöscht werden",
       "test_delivered": "Test-Ereignis zugestellt",
-      "copy_failed": "Kopieren fehlgeschlagen. Bitte markiere den Text manuell."
+      "copy_failed": "Kopieren fehlgeschlagen. Bitte markiere den Text manuell"
     }
   },
   "settings_import_export": {
@@ -1905,7 +1905,7 @@
       "assistant_name": "Name des Assistenten",
       "assistant_name_ph": "Trace",
       "smart_log": "Smart Log",
-      "smart_log_desc": "Assistenten-Button gedrückt halten und einsprechen, was du gegessen hast. Die KI erkennt Lebensmittel und Mahlzeit und bittet vor dem Speichern um Bestätigung.",
+      "smart_log_desc": "Assistenten-Button gedrückt halten und einsprechen, was du gegessen hast. Die KI erkennt Lebensmittel und Mahlzeit und bittet vor dem Speichern um Bestätigung",
       "voice_lang": "Sprache für Spracheingabe",
       "voice_lang_desc": "Sprache, auf die das Mikrofon hört. Verwendet standardmäßig die Gerätesprache; passe dies an, wenn du in einer anderen Sprache sprichst.",
       "trigger_words": "Signalwörter",
@@ -1916,7 +1916,7 @@
       "activity_estimate": "Aktivitäts-Kalorien schätzen",
       "activity_estimate_desc": "Wenn du ein Training ohne Kalorienanzahl einsprichst („Ich bin 10 km gewandert“), schätzt Trace den Verbrauch anhand deines Profils.",
       "goal_insights": "Ziel-Erkenntnisse",
-      "goal_insights_desc": "Der Assistent analysiert deine Ernährungstrends und schlägt proaktiv Zielanpassungen vor, wenn sich feste Muster zeigen."
+      "goal_insights_desc": "Der Assistent analysiert deine Ernährungstrends und schlägt proaktiv Zielanpassungen vor, wenn sich feste Muster zeigen"
     },
     "voice_langs": {
       "auto": "Automatisch (Gerätesprache verwenden)",
@@ -2019,8 +2019,8 @@
       "delete_title": "Löschen",
       "empty_server": "Noch keine Backups auf dem Server vorhanden.",
       "empty_local": "Noch keine lokalen Backups vorhanden.",
-      "min_ago": "vor {count} Min.",
-      "hr_ago": "vor {count} Std.",
+      "min_ago": "vor {count} Min",
+      "hr_ago": "vor {count} Std",
       "days_ago": "vor {n} Tagen"
     },
     "danger": {
@@ -2060,11 +2060,11 @@
     "push": {
       "configured": "Konfiguriert",
       "send_test": "Testnachricht senden",
-      "test_failed_hint": "{provider}-Test fehlgeschlagen. Prüfe URL und Zugangsdaten unten.",
+      "test_failed_hint": "{provider}-Test fehlgeschlagen. Prüfe URL und Zugangsdaten unten",
       "device": "Geräte-Benachrichtigungen",
-      "device_desc": "Benachrichtigungen direkt auf diesem Gerät (nativ auf Android, Browser-Pop-ups auf Desktop/PWA).",
+      "device_desc": "Benachrichtigungen direkt auf diesem Gerät (nativ auf Android, Browser-Pop-ups auf Desktop/PWA)",
       "push_service": "Push-Dienst",
-      "push_service_desc": "Vom Server weitergeleitete Benachrichtigungen via Apprise, Gotify oder ntfy – nützlich für PWA-Nutzer oder Home Assistant.",
+      "push_service_desc": "Vom Server weitergeleitete Benachrichtigungen via Apprise, Gotify oder ntfy – nützlich für PWA-Nutzer oder Home Assistant",
       "option_none": "Keiner",
       "option_apprise": "Apprise",
       "option_gotify": "Gotify",
@@ -2095,15 +2095,15 @@
       "interval_2h": "Alle 2 Stunden",
       "interval_3h": "Alle 3 Stunden",
       "meal": "Erinnerungen zur Mahlzeitenerfassung",
-      "meal_desc": "Tägliche Erinnerung an das Eintragen deiner Mahlzeiten.",
+      "meal_desc": "Tägliche Erinnerung an das Eintragen deiner Mahlzeiten",
       "weighin": "Wiege-Erinnerung",
       "weighin_desc": "Morgendliche Erinnerung, auf die Waage zu steigen",
       "weighin_time": "Wiege-Uhrzeit",
       "bedtime": "Schlafenszeit-Erinnerung",
-      "bedtime_desc": "Erinnert dich daran, dich bettfertig zu machen.",
+      "bedtime_desc": "Erinnert dich daran, dich bettfertig zu machen",
       "bedtime_time": "Schlafenszeit",
       "wind_down": "Entspannungsphase (Wind Down)",
-      "wind_down_desc": "Extra Erinnerung, dich bettfertig zu machen.",
+      "wind_down_desc": "Extra Erinnerung, dich bettfertig zu machen",
       "minutes_before": "Minuten vorher",
       "min_15": "15 Minuten",
       "min_30": "30 Minuten",
@@ -2117,17 +2117,17 @@
       "goals": "Zielerreichung feiern",
       "goals_desc": "Benachrichtigung, wenn du ein Tagesziel erreichst (Kalorien, Eiweiß, Kohlenhydrate, Fett, Wasser, Schritte etc.)",
       "steps": "Schrittziel-Fortschritt",
-      "steps_desc": "Mittägliche Erinnerung, wenn du hinter deinem Schrittziel zurückliegst.",
+      "steps_desc": "Mittägliche Erinnerung, wenn du hinter deinem Schrittziel zurückliegst",
       "wellness": "Gesundheits-Warnungen",
-      "wellness_desc": "Warnt bei stark sinkender HRV, abfallender Schlafqualität oder sprunghaft steigendem Ruhepuls.",
+      "wellness_desc": "Warnt bei stark sinkender HRV, abfallender Schlafqualität oder sprunghaft steigendem Ruhepuls",
       "workouts": "Trainings-Zusammenfassungen",
-      "workouts_desc": "Rückblick nach der Synchronisation eines Trainings (Dauer, Distanz, verbrannte Kalorien).",
+      "workouts_desc": "Rückblick nach der Synchronisation eines Trainings (Dauer, Distanz, verbrannte Kalorien)",
       "weekly": "Wochenrückblick",
       "weekly_desc": "Wöchentliche Zusammenfassung mit durchschnittlichen Kalorien, Eiweiß, Schritten, Schlaf, Zielerreichungsrate und Gewichtsverlauf, zugestellt per Push-Benachrichtigung und E-Mail (falls konfiguriert)",
       "delivery_day": "Zustelltag",
       "delivery_time": "Uhrzeit",
       "sync_failures": "Synchronisations-Fehler",
-      "sync_failures_desc": "Benachrichtigt dich, wenn ein Wearable oder Dienst nicht synchronisiert werden konnte.",
+      "sync_failures_desc": "Benachrichtigt dich, wenn ein Wearable oder Dienst nicht synchronisiert werden konnte",
       "day_sun": "Sonntag",
       "day_mon": "Montag",
       "day_tue": "Dienstag",
@@ -2204,8 +2204,8 @@
     },
     "summary": {
       "average": "Durchschnitt",
-      "min": "Min.",
-      "max": "Max.",
+      "min": "Min",
+      "max": "Max",
       "logged": "Erfasst",
       "days_unit": "Tage"
     },
