@@ -65,6 +65,7 @@
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
   import { readBodyStat, tagBodyStats, LENGTH_KEYS } from '../lib/body-stats-unit.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
+  import { pageScrollTop } from '../lib/scroll-anchor.js';
 
   let addMealIdx = 0;
   let showAddAction = false;
@@ -566,7 +567,8 @@
     // flow. Since we're already position:fixed, we can't read that
     // directly — read the grid's top + its padding-top instead, which
     // is where the aside's cell sits.
-    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    // The page scrolls inside .page-transition, not the window (#217).
+    const scrollY = pageScrollTop(_diaryContentEl);
     const pad = parseFloat(getComputedStyle(_diaryContentEl).paddingTop || '0') || 0;
     const naturalDocTop = gridRect.top + scrollY + pad;
     const rootCS = getComputedStyle(document.documentElement);

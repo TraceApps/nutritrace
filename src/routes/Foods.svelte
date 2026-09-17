@@ -27,6 +27,7 @@
   import { offCountryTagToFlag, offCountryTagToName } from '../lib/off-country-flag.js';
   import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, offSearchCountry, offSearchLanguage, foodsDefaultSource, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
+  import { pageScrollTop, restorePageScroll } from '../lib/scroll-anchor.js';
 
   // Query string params
   function qs() {
@@ -963,7 +964,7 @@
   $: { search; searchSource; $offSearchCountry; $offSearchLanguage; onSearch(); }
 
   function _saveScrollState() {
-    editorState.foodsScrollY   = window.scrollY;
+    editorState.foodsScrollY   = pageScrollTop(_foodsBodyEl);
     editorState.foodsActiveTab = activeTab;
   }
 
@@ -1623,7 +1624,8 @@
   function _measureFoodsRails() {
     if (!_foodsBodyEl) return;
     const rect = _foodsBodyEl.getBoundingClientRect();
-    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    // The page scrolls inside .page-transition, not the window (#217).
+    const scrollY = pageScrollTop(_foodsBodyEl);
     const cs = getComputedStyle(_foodsBodyEl);
     const padTop  = parseFloat(cs.paddingTop  || '0') || 0;
     const padLeft = parseFloat(cs.paddingLeft || '0') || 0;
@@ -1739,7 +1741,7 @@
       const sy = editorState.foodsScrollY;
       editorState.foodsScrollY = null;
       await tick();
-      window.scrollTo(0, sy);
+      restorePageScroll(_foodsBodyEl, sy);
     }
   });
 </script>

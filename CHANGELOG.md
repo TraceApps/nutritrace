@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Foods filter panel and food details no longer cover the header when you scroll** ([#217](https://github.com/TraceApps/nutritrace/issues/217)). On a wide window the Sources panel and the food details panel are pinned in place beside the list, and where they sit is worked out in JavaScript. That calculation read the window's scroll position, which is always zero here because the page scrolls inside its own container, so the numbers were only right while the list sat at the top. As soon as the list changed size lower down, which happens every time more Open Food Facts results load, both panels were re-placed at the very top of the screen, over the header and the search bar. They now measure against the container that actually scrolls and stay put. The same reading also meant returning from the food editor always jumped back to the top of the list instead of where you were, which is fixed too. Thanks @fatman00 for the report.
+
 ---
 
 ## [1.3.0-dev02] - 2026-09-17 (pre-release)
