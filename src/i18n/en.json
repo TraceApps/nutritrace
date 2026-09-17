@@ -1032,6 +1032,7 @@
   },
   "settings_admin_group":     "Admin",
   "settings_about": {
+    "support_note": "NutriTrace is free to self-host, always. The current goal is a Mac and an iPhone so the Trace apps can run properly on iOS.",
     "food_data_from":         "Food data from",
     "food_data_license":      "(ODbL)",
     "server_from":            "Server:",
