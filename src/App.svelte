@@ -21,11 +21,13 @@
   const syncState = writable({ syncing: false, phase: '', progress: '', lastSync: null, error: null, online: true, connectionIssue: null, showErrorBanner: false });
   $: _syncModeActive = isNative && getNativeMode() === 'server';
   $: _serverReachable = $syncState.online && !$syncState.connectionIssue;
+  // The server answers but the sync is failing, as opposed to no network at all.
+  $: _syncFailing = $syncState.online && !!$syncState.connectionIssue;
   $: _connectionCopy = describeConnectionIssue($syncState.connectionIssue, $_, true);
   $: _syncBannerCopy = $syncState.showErrorBanner && _connectionCopy
-    ? { ..._connectionCopy, icon: 'cloud_off' }
+    ? { ..._connectionCopy, icon: _connectionCopy.tone === 'wait' ? 'cloud_off' : 'cloud_alert' }
     : ($syncState.showErrorBanner && $syncState.error
-    ? { title: $_('sync.error_title'), detail: $syncState.error, icon: 'error' }
+    ? { title: $_('sync.error_title'), detail: $syncState.error, icon: 'error', tone: 'bad' }
     : null);
   let _retryingConnection = false;
   const PULL_SYNC_SLOP = 10;
@@ -750,8 +752,10 @@
     >
       <span class="material-symbols-rounded">menu</span>
       {#if _syncModeActive && !_serverReachable}
-        <span class="conn-badge conn-offline">
-          <span class="material-symbols-rounded" style="font-size:10px">cloud_off</span>
+        <!-- Amber while simply offline (nothing lost, it just hasn't gone yet),
+             red when the server is reachable but the sync is failing. -->
+        <span class="conn-badge" class:conn-failing={_syncFailing} class:conn-offline={!_syncFailing}>
+          <span class="material-symbols-rounded" style="font-size:10px">{_syncFailing ? 'cloud_alert' : 'cloud_off'}</span>
         </span>
       {/if}
     </button>
@@ -764,7 +768,7 @@
      the app's compact header instead of covering the clock or hamburger. -->
 {#if _syncModeActive && !needsLogin && _syncBannerCopy}
   <div
-    class="sync-connection-banner"
+    class="sync-connection-banner {_syncBannerCopy.tone || 'bad'}"
     use:portal
     transition:slide={{ duration: $disableAnimations ? 0 : 200 }}
     role="status"
@@ -938,9 +942,22 @@
     transition: background 0.3s;
   }
   .conn-offline {
-    background: var(--error, #ef4444);
+    background: var(--warning);
+    color: #1b1300;
+  }
+  .conn-failing {
+    background: var(--danger);
     color: #fff;
   }
+  /* Same rule as the sidebar and the rest of the app: amber when there is no
+     network, red when the server can't be reached or is answering with errors. */
+  .sync-connection-banner.wait {
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 8%, var(--surface-2));
+    border-color: color-mix(in srgb, var(--warning) 25%, var(--border));
+  }
+  .sync-connection-banner.wait .sync-retry { color: var(--warning); }
+
 
   /* ── Actionable server-connection banner ── */
   .sync-connection-banner {
@@ -953,9 +970,9 @@
     align-items: center;
     gap: 10px;
     padding: 10px 12px;
-    color: var(--error, #f87171);
-    background: color-mix(in srgb, var(--error, #f87171) 8%, var(--surface-2));
-    border: 1px solid color-mix(in srgb, var(--error, #f87171) 25%, var(--border));
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border));
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     font-size: 12px;
@@ -983,7 +1000,7 @@
   .sync-dismiss {
     flex: 0 0 auto;
     border: 0;
-    color: var(--error, #f87171);
+    color: var(--danger);
     background: transparent;
     font: inherit;
     font-weight: 600;

@@ -45,6 +45,10 @@
     }
   },
   "sync": {
+    "synced": "Synced",
+    "sync_offline": "Offline",
+    "sync_failing": "Can't reach the server",
+    "not_synced": "Not synced yet",
     "sync_now": "Sync now",
     "syncing": "Syncing…",
     "retry": "Retry",

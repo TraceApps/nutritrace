@@ -1044,7 +1044,7 @@
   .form-row-2 > .form-group { flex: 1; }
   .form-group { display: flex; flex-direction: column; gap: 4px; }
   .um-error {
-    font-size: 13px; color: var(--error, #ff6b6b);
+    font-size: 13px; color: var(--danger);
     background: rgba(255,107,107,0.1); border-radius: var(--radius-sm);
     padding: 8px 12px;
   }

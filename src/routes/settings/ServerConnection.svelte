@@ -270,7 +270,7 @@
           <span class="setting-label">{_serverReachable ? $_('sync.connected') : $_('sync.server_unavailable')}</span>
           <div class="setting-desc">{getServerUrl()}</div>
         </div>
-        <span class="material-symbols-rounded" style:color={_serverReachable ? 'var(--success, #22c55e)' : 'var(--error, #f87171)'} style="font-size:22px">
+        <span class="material-symbols-rounded" style:color={_serverReachable ? 'var(--success, #22c55e)' : 'var(--danger)'} style="font-size:22px">
           {_serverReachable ? 'cloud_done' : 'cloud_off'}
         </span>
       </div>
@@ -293,7 +293,7 @@
           <span class="material-symbols-rounded" style="font-size:18px">logout</span>
           Log Out
         </button>
-        <button class="btn btn-ghost w-full" style="color:var(--error,#f87171)" on:click={disconnectServer}>
+        <button class="btn btn-ghost w-full" style="color:var(--danger)" on:click={disconnectServer}>
           <span class="material-symbols-rounded" style="font-size:18px">link_off</span>
           Disconnect &amp; Use Locally
         </button>

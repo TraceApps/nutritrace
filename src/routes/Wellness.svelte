@@ -1795,7 +1795,7 @@
                       </span>
                       {#if w.avg_hr}
                         <span class="workout-hr">
-                          <span class="material-symbols-rounded" style="font-size:14px;color:var(--error,#ef4444)">favorite</span>
+                          <span class="material-symbols-rounded" style="font-size:14px;color:var(--danger)">favorite</span>
                           {w.avg_hr} avg{#if w.max_hr} · {w.max_hr} peak{/if} bpm
                         </span>
                       {/if}

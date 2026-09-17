@@ -25,5 +25,7 @@ export function describeConnectionIssue(issue, translate, includeLocalSaveNote =
   if (includeLocalSaveNote) {
     detail += ` ${translate('sync.connection.saved_locally')}`;
   }
-  return { title, detail };
+  // Amber when the device simply has no network (nothing is lost, it waits),
+  // red when the server itself can't be reached or answers with an error.
+  return { title, detail, tone: issue.kind === 'no_network' ? 'wait' : 'bad' };
 }
