@@ -1,7 +1,7 @@
 {
   "nav": {
     "diary": "Tagebuch",
-    "foods": "Lebensmitteln",
+    "foods": "Lebensmittel",
     "wellness": "Gesundheit",
     "statistics": "Statistiken",
     "goals": "Ziele",
@@ -46,7 +46,2195 @@
     "admin": "Admin",
     "errors": {
       "cant_reach_server": "Server konnte nicht erreicht werden",
-      "failed": "Fehlgeschlagen"
+      "failed": "Fehlgeschlagen",
+      "unlink_failed": "Trennen fehlgeschlagen",
+      "save_failed": "Speichern fehlgeschlagen",
+      "delete_failed": "Löschen fehlgeschlagen",
+      "name_required": "Name ist erforderlich",
+      "network_error_upload": "Netzwerkfehler beim Hochladen",
+      "voice_unsupported": "Spracheingabe wird von diesem Browser nicht unterstützt",
+      "cant_start_mic": "Mikrofon konnte nicht gestartet werden"
+    }
+  },
+  "sync": {
+    "sync_now": "Jetzt synchronisieren",
+    "syncing": "Wird synchronisiert…",
+    "retry": "Wiederholen",
+    "retrying": "Wird wiederholt…",
+    "dismiss_message": "Meldung verwerfen",
+    "error_title": "Synchronisierung fehlgeschlagen",
+    "connected": "Verbunden",
+    "server_unavailable": "Server nicht erreichbar",
+    "last_synced": "Zuletzt synchronisiert",
+    "time": {
+      "never": "nie",
+      "just_now": "gerade eben",
+      "seconds_ago": "vor {count} Sek.",
+      "minutes_ago": "vor {count} Min.",
+      "hours_ago": "vor {count} Std.",
+      "days_ago": "vor {count} Tagen"
+    },
+    "connection": {
+      "server_fallback": "Server",
+      "no_network_title": "Keine Netzwerkverbindung",
+      "cant_reach_title": "{host} kann nicht erreicht werden",
+      "reconnect": "Verbindung zum Internet wiederherstellen.",
+      "server_error": "Der Server hat HTTP {status} gemeldet. Bitte versuche es gleich erneut.",
+      "mobile_data": "Du bist über mobile Daten verbunden. Dieser Server erfordert möglicherweise dein Heim-WLAN oder ein VPN.",
+      "check_connection": "Prüfe dein WLAN, dein VPN oder deinen Server.",
+      "saved_locally": "Deine Änderungen sind lokal gespeichert und werden automatisch synchronisiert."
+    }
+  },
+  "settings": {
+    "appearance": {
+      "section": "Erscheinungsbild",
+      "theme": "Design",
+      "accent_color": "Akzentfarbe",
+      "navigation_style": "Navigationsstil"
+    },
+    "regional": {
+      "section": "Region & Einheiten",
+      "language": "Sprache",
+      "date_format": "Datumsformat",
+      "time_format": "Zeitformat",
+      "energy": "Energie",
+      "weight": "Gewicht",
+      "height": "Körpergröße",
+      "circumference": "Umfang",
+      "distance": "Distanz",
+      "temperature": "Temperatur",
+      "time_12h": "12-Stunden (AM/PM)",
+      "time_24h": "24-Stunden"
+    },
+    "diary": {
+      "section": "Tagebuch",
+      "show_quick_calories": "Schaltfläche für schnelle Kalorien anzeigen",
+      "show_quick_calories_desc": "Fügt jeder Mahlzeit ein Blitz-Symbol hinzu, um schnell nur Kalorien einzutragen (ohne Lebensmittel oder Portionsangabe). Nützlich, wenn du die Kalorienmenge kennst, aber das Lebensmittel nicht einzeln erfassen möchtest, oder wenn du schnelle Kalorien wie bei Fitbit gewohnt bist.",
+      "quick_calories_display": "Anzeige der schnellen Kalorien",
+      "quick_calories_display_desc": "Wie mehrere schnelle Kalorieneinträge in derselben Mahlzeit im Tagebuch dargestellt werden. \"Zusammengefasst\" fasst sie in einer Zeile zusammen; \"Getrennt\" zeigt jeden Eintrag in einer eigenen Zeile an.",
+      "quick_calories_summed": "Zusammengefasst",
+      "quick_calories_separate": "Getrennt"
+    },
+    "water": {
+      "section": "Wasser"
+    },
+    "foods": {
+      "section": "Lebensmittel"
+    },
+    "categories": {
+      "section": "Kategorien"
+    },
+    "nutrients": {
+      "section": "Nährstoffe"
+    },
+    "goals": {
+      "section": "Ziele"
+    },
+    "body_stats": {
+      "section": "Körpermaße"
+    },
+    "statistics": {
+      "section": "Statistiken",
+      "categories": "Kategorien",
+      "categories_help": "Ziehe die Metrik-Kacheln, um ihre Reihenfolge auf der Statistikseite zu ändern. Deaktiviere Kategorien, die du nie anschaust."
+    },
+    "connected_services": {
+      "section": "Lebensmittelquellen",
+      "off": {
+        "header": "Open Food Facts",
+        "enable": "Open Food Facts aktivieren",
+        "enable_desc": "Durchsuche beim Hinzufügen von Lebensmitteln die weltweite, offene Lebensmitteldatenbank. Für Suchanfragen ist kein Konto erforderlich; ein Konto wird nur benötigt, um Bearbeitungen hochzuladen.",
+        "search_language": "Suchsprache",
+        "search_country": "Suchland",
+        "upload_country": "Land beim Hochladen",
+        "upload_country_auto": "Automatisch",
+        "import_portion": "Portion importieren als",
+        "import_portion_100g": "Pro 100 g",
+        "import_portion_serving": "Pro Portion",
+        "import_portion_desc": "Wenn das gescannte Produkt Portionsangaben enthält, wird das Lebensmittel mit Werten pro Portion statt pro 100 g vorausgefüllt. Produkte ohne Portionsangaben auf OFF fallen immer auf Werte pro 100 g zurück.",
+        "account_username": "Benutzername des Kontos",
+        "account_password": "Passwort des Kontos",
+        "account_note": "Optional, wird nur zum Hochladen von Bearbeitungen benötigt.",
+        "account_create_link": "Ein OFF-Konto erstellen →",
+        "username_placeholder": "OFF-Benutzername",
+        "password_placeholder": "OFF-Passwort",
+        "auto_refresh": "Automatische Aktualisierung",
+        "auto_refresh_desc": "Wie oft das lokale Abbild von Open Food Facts aktualisiert werden soll. Jede Aktualisierung lädt den vollständigen Datensatz (~4 GB) herunter.",
+        "auto_refresh_off": "Aus",
+        "auto_refresh_daily": "Täglich",
+        "auto_refresh_weekly": "Wöchentlich",
+        "auto_refresh_monthly": "Monatlich"
+      }
+    },
+    "ai": {
+      "section": "KI-Assistent"
+    },
+    "notifications": {
+      "section": "Benachrichtigungen"
+    },
+    "wellness": {
+      "section": "Gesundheit"
+    },
+    "sharing": {
+      "section": "Lebensmittel teilen"
+    },
+    "profile_hero": {
+      "label_fallback": "Mein Profil",
+      "subtitle_empty": "Tippe hier, um deinen Namen und dein Foto hinzuzufügen"
+    },
+    "authentication": {
+      "section": "Authentifizierung"
+    },
+    "users": {
+      "section": "Benutzer",
+      "users_heading": "Benutzer",
+      "add_user": "+ Benutzer hinzufügen",
+      "username": "Benutzername",
+      "username_required": "Benutzername *",
+      "full_name": "Vollständiger Name (optional)",
+      "password_required": "Passwort *",
+      "confirm_required": "Passwort bestätigen *",
+      "role": "Rolle",
+      "role_admin": "Admin",
+      "role_user": "Benutzer",
+      "role_self_suffix": "(du)",
+      "create": "Erstellen",
+      "creating": "Wird erstellt…",
+      "delete_user_title": "{name} löschen?",
+      "delete_user_message": "Alle Daten dieses Benutzers (Lebensmittel, Mahlzeiten, Tagebucheinträge, Einstellungen) werden gelöscht. Dies kann nicht rückgängig gemacht werden.",
+      "delete": "Löschen",
+      "promote_title": "{name} befördern?",
+      "promote_message": "Die Person kann danach Benutzer, Freigaben, E-Mail-Einstellungen und OIDC-Anbieter verwalten.",
+      "promote_confirm": "Befördern",
+      "demote_title": "{name} zurückstufen?",
+      "demote_message": "Die Person verliert den Admin-Zugriff. Du kannst sie später wieder befördern.",
+      "demote_confirm": "Zurückstufen",
+      "reset_password": "Passwort zurücksetzen",
+      "reset_password_prompt": "Neues Passwort für {name} festlegen\n\n(Mindestens 8 Zeichen mit Groß- und Kleinbuchstaben, Zahl und Sonderzeichen.)",
+      "invite_user": "Benutzer einladen",
+      "invite_user_explainer": "Sende einen Registrierungslink, damit die Person ihr eigenes Passwort wählen kann. Gib eine E-Mail-Adresse an, um ihn direkt zu versenden (erfordert SMTP), oder lasse das Feld leer, um einen kopierbaren Link zu erstellen.",
+      "email_optional": "E-Mail (optional)",
+      "send_invite": "Einladung senden",
+      "generate_link": "Einladungslink erstellen",
+      "invite_sent": "Einladung gesendet",
+      "invite_sent_to": "Einladung an {email} gesendet",
+      "user_fallback": "Benutzer",
+      "share_link_intro": "Diesen Link teilen:",
+      "copy": "Kopieren",
+      "copy_link": "Link kopieren",
+      "add_user_show": "Benutzer manuell hinzufügen",
+      "add_user_hide": "Manuelles Hinzufügen ausblenden",
+      "add_user_explainer": "Du legst den Benutzernamen und das Passwort selbst fest und teilst sie der Person mit. Nützlich, wenn kein SMTP eingerichtet ist oder für Offline-Umgebungen.",
+      "create_directly": "Benutzer erstellen",
+      "session_duration": "Sitzungsdauer",
+      "session_never": "Läuft nie ab",
+      "session_8h": "8 Stunden",
+      "session_1d": "1 Tag",
+      "session_7d": "7 Tage",
+      "session_30d": "30 Tage",
+      "session_90d": "90 Tage",
+      "session_1y": "1 Jahr",
+      "save": "Speichern",
+      "disable_um": "Benutzerverwaltung deaktivieren",
+      "disable_um_subtitle": "Entfernt alle Benutzerkonten und kehrt zum Einzelbenutzer-Modus zurück",
+      "disable_um_title": "Benutzerverwaltung deaktivieren?",
+      "disable_um_message": "Dadurch werden alle Benutzerkonten entfernt und deren Daten können nicht wiederhergestellt werden. Die App kehrt in den Einzelbenutzer-Modus zurück.",
+      "disable_um_confirm": "Deaktivieren & alle löschen",
+      "enable_um": "Benutzerverwaltung aktivieren",
+      "enable_um_subtitle": "Mehrere Benutzerkonten mit getrennten Daten & Einstellungen hinzufügen",
+      "create_admin_account": "Admin-Konto erstellen",
+      "create_admin_explainer": "Das erste Konto ist immer Admin. Alle vorhandenen Lebensmittel-, Mahlzeiten- und Tagebuchdaten auf diesem Server werden ihm zugewiesen.",
+      "enable_create": "Aktivieren & Admin erstellen",
+      "enabling": "Wird aktiviert…",
+      "toast_user_created": "Benutzer hinzugefügt",
+      "toast_user_deleted": "Benutzer gelöscht",
+      "toast_password_reset": "Passwort zurückgesetzt",
+      "toast_role_changed": "{name} ist jetzt {role}",
+      "toast_um_enabled": "Benutzerverwaltung aktiviert",
+      "toast_um_disabled": "Benutzerverwaltung deaktiviert",
+      "toast_invite_sent": "Einladung gesendet",
+      "toast_link_copied": "Kopiert!",
+      "err_username_required": "Benutzername ist erforderlich",
+      "err_passwords_mismatch": "Passwörter stimmen nicht überein",
+      "err_username_password_required": "Benutzername und Passwort erforderlich",
+      "err_registration_failed": "Registrierung fehlgeschlagen",
+      "err_failed_to_add": "Benutzer konnte nicht hinzugefügt werden",
+      "err_could_not_change_role": "Rolle konnte nicht geändert werden",
+      "err_could_not_reset_password": "Passwort konnte nicht zurückgesetzt werden",
+      "err_could_not_reach_server": "Server konnte nicht erreicht werden",
+      "revoke_invite_title": "Einladung widerrufen?",
+      "revoke_invite_message": "Der Link wird sofort ungültig. Die empfangende Person kann ihn danach nicht mehr nutzen.",
+      "revoke_confirm": "Widerrufen",
+      "invite_revoked": "Einladung widerrufen",
+      "err_could_not_revoke": "Einladung konnte nicht widerrufen werden",
+      "invite_email_hint": "Gib eine gültige E-Mail-Adresse ein oder leere das Feld, um einen teilbaren Link zu erstellen.",
+      "err_invite_email": "Gib eine gültige E-Mail-Adresse ein oder lasse das Feld leer, um einen teilbaren Link zu erstellen",
+      "err_failed_create_invite": "Einladung konnte nicht erstellt werden",
+      "err_could_not_create_invite": "Einladung konnte nicht erstellt werden",
+      "pending_invites": "Ausstehende Einladungen",
+      "link_only": "Nur Link (keine E-Mail)",
+      "role_admin_display": "Admin",
+      "role_user_display": "Benutzer",
+      "expires_short": "läuft ab am {date}",
+      "revoke_invite_aria": "Einladung widerrufen",
+      "strong_passwords": "Sichere Passwörter erzwingen",
+      "strong_passwords_desc": "Schwache Passwörter ablehnen (zxcvbn-Wert unter 3), zusätzlich zu den Standardregeln (8+ Zeichen, Groß-/Kleinbuchstaben, Zahl, Sonderzeichen). Betrifft neue Registrierungen, Einladungen und Passwortänderungen. Bestehende Passwörter werden nicht erneut geprüft.",
+      "saved_short": "Gespeichert.",
+      "session_desc": "Wie lange Benutzer angemeldet bleiben. Gilt für neue Anmeldungen.",
+      "err_password_policy_prefix": "Passwortrichtlinie konnte nicht gespeichert werden: {msg}. Möglicherweise muss der Server neu gestartet werden.",
+      "err_password_policy": "Passwortrichtlinie konnte nicht gespeichert werden: {msg}",
+      "save_failed_status": "Speichern fehlgeschlagen ({status})",
+      "network_error": "Netzwerkfehler",
+      "hide": "Ausblenden",
+      "show": "Anzeigen"
+    },
+    "email": {
+      "section": "E-Mail (SMTP)"
+    },
+    "backup": {
+      "section": "Sichern & Wiederherstellen"
+    },
+    "importExport": {
+      "section": "Importieren & Exportieren"
+    },
+    "server": {
+      "section": "Serververbindung"
+    },
+    "diagnostics": {
+      "section": "Diagnose"
+    },
+    "updates": {
+      "section": "Updates"
+    },
+    "api_tokens": {
+      "section": "API-Tokens"
+    },
+    "webhooks": {
+      "section": "Webhooks"
+    },
+    "about": {
+      "section": "Über NutriTrace"
+    }
+  },
+  "updates": {
+    "current_version": "Aktuelle Version",
+    "channel": {
+      "label": "Update-Kanal",
+      "stable": "Stable (Stabil)",
+      "dev": "Dev (Entwicklung)",
+      "help": "Stable folgt offiziell freigegebenen Versionen. Dev ist der fortlaufende Entwicklungsstand; es können Fehler auftreten."
+    },
+    "auto_check": "Automatisch nach Updates suchen",
+    "auto_check_desc": "Im Hintergrund nach neuen Versionen suchen.",
+    "interval": {
+      "label": "Suchhäufigkeit",
+      "desc": "Wie oft die geöffnete App nach neuen Versionen sucht. \"Nur manuell\" schaltet alle automatischen Prüfungen ab.",
+      "hourly": "Stündlich",
+      "every_4h": "Alle 4 Stunden",
+      "every_12h": "Alle 12 Stunden",
+      "daily": "Einmal täglich",
+      "manual": "Nur manuell"
+    },
+    "last_checked": "Zuletzt gesucht",
+    "last_checked_never": "Nie",
+    "check_now": "Jetzt prüfen",
+    "checking": "Wird gesucht…",
+    "check_failed": "Update-Prüfung fehlgeschlagen. Bitte gleich erneut versuchen.",
+    "up_to_date": "Du nutzt die neueste Version",
+    "available_headline": "{version} ist verfügbar",
+    "released": "Veröffentlicht {when}",
+    "release_notes_heading": "Neuerungen",
+    "no_release_notes": "Für diese Version wurden keine Versionshinweise veröffentlicht.",
+    "view_on_github": "Auf GitHub ansehen",
+    "download_install": "Herunterladen & installieren",
+    "downloading": "Wird heruntergeladen… {percent}%",
+    "install_starting": "Installationsprogramm wird geöffnet…",
+    "install_failed": "Installation fehlgeschlagen. Bitte erneut versuchen.",
+    "skip_this_version": "Diese Version überspringen",
+    "no_apk_asset": "Dieser Version ist keine APK-Datei angehängt.",
+    "banner_cta": "Tippen, um Neuerungen anzusehen und zu installieren.",
+    "banner_view": "Ansehen",
+    "available_generic": "Eine neue Version ist verfügbar",
+    "banner_reload": "Neu laden",
+    "storage": {
+      "heading": "Zwischengespeicherte Update-APKs",
+      "empty": "Keine zwischengespeicherten APKs. Bereinigung war erfolgreich.",
+      "clear_now": "Jetzt bereinigen",
+      "clearing": "Wird bereinigt…",
+      "cleared": "Cache geleert."
+    },
+    "server": {
+      "heading": "Server",
+      "headline": "Server-Update {latest} verfügbar",
+      "behind_desc": "Update verfügbar: {latest}",
+      "current_desc": "Du nutzt die neueste Version",
+      "versions": "Server läuft auf {current}. Neueste Version: {latest}.",
+      "available_chip": "Update verfügbar",
+      "instructions": "Um den Server zu aktualisieren, führe auf dem Host-Rechner aus:",
+      "copy_command": "Befehl kopieren",
+      "copied": "In die Zwischenablage kopiert.",
+      "copy_failed": "Kopieren fehlgeschlagen. Bitte kopiere den Befehl manuell.",
+      "view_notes": "Versionshinweise ansehen",
+      "channel_note": "Um den Server-Kanal zu wechseln, passe das Image-Tag in deiner docker-compose.yml an (:latest, :1.0, :1, :dev) und führe docker-compose pull && docker-compose up -d aus."
+    }
+  },
+  "login": {
+    "subtitle": "Melde dich bei deinem Konto an",
+    "username": "Benutzername",
+    "username_placeholder": "Benutzername eingeben",
+    "password": "Passwort",
+    "password_placeholder": "Passwort eingeben",
+    "sign_in": "Anmelden",
+    "signing_in": "Wird angemeldet…",
+    "forgot_password": "Passwort vergessen?",
+    "locked_out": "Ausgesperrt?",
+    "sso_sign_in_with": "Mit {provider} anmelden",
+    "sso_or": "oder",
+    "no_signin_methods": "Keine Anmeldemethoden verfügbar. Bitte wende dich an deine Administration.",
+    "biometric": {
+      "sign_in_button": "Biometrische Authentifizierung",
+      "prompt": "Bei NutriTrace anmelden",
+      "no_saved": "Keine Zugangsdaten hinterlegt. Bitte melde dich zuerst einmal mit deinem Passwort an.",
+      "expired": "Deine gespeicherten Anmeldedaten sind abgelaufen. Bitte melde dich mit deinem Passwort an.",
+      "failed": "Biometrische Authentifizierung fehlgeschlagen. Bitte verwende stattdessen dein Passwort."
+    },
+    "errors": {
+      "failed": "Anmeldung fehlgeschlagen"
+    },
+    "recovery": {
+      "confirm": "Dadurch werden alle Benutzerkonten gelöscht. Deine Lebensmittel- und Tagebuchdaten bleiben erhalten. Fortfahren?",
+      "explainer": "Wenn du Benutzerkonten nie bewusst eingerichtet hast, kannst du die Benutzerverwaltung deaktivieren. <strong>Dadurch werden alle Benutzerkonten gelöscht.</strong> Deine Lebensmittel- und Tagebuchdaten bleiben erhalten.",
+      "token_prompt": "Gib das <code>RECOVERY_TOKEN</code> aus deiner Server-Umgebung ein:",
+      "token_placeholder": "Wiederherstellungs-Token",
+      "action": "Benutzerverwaltung deaktivieren & zurücksetzen",
+      "disabling": "Wird deaktiviert…",
+      "failed": "Wiederherstellung fehlgeschlagen",
+      "success": "Benutzerverwaltung deaktiviert – du bist jetzt im Einzelbenutzer-Modus",
+      "done": "Die Benutzerverwaltung wurde deaktiviert.<br>Weiterleitung…"
+    }
+  },
+  "forgot_password": {
+    "title": "Passwort zurücksetzen",
+    "intro": "Gib deine E-Mail-Adresse ein und wir senden dir einen Link, um dein Passwort zurückzusetzen.",
+    "email_label": "E-Mail-Adresse",
+    "send_link": "Link zum Zurücksetzen senden",
+    "sending": "Wird gesendet…",
+    "back_to_signin": "Zurück zur Anmeldung",
+    "sent": "Falls ein Konto für <strong>{email}</strong> existiert, wurde ein Link zum Zurücksetzen gesendet. Bitte prüfe deinen Posteingang."
+  },
+  "reset_password": {
+    "title": "Neues Passwort",
+    "verifying": "Link wird überprüft…",
+    "invalid_link": "Dieser Link ist ungültig oder abgelaufen.",
+    "request_new": "Neuen Link anfordern",
+    "success": "Passwort aktualisiert. Weiterleitung…",
+    "set_for": "Lege ein neues Passwort für <strong>{username}</strong> fest",
+    "new_password": "Neues Passwort",
+    "confirm_password": "Passwort bestätigen",
+    "password_placeholder": "8+ Zeichen, Groß, Klein, Zahl, Symbol",
+    "submit": "Neues Passwort festlegen",
+    "saving": "Wird gespeichert…",
+    "errors": {
+      "required": "Passwort ist erforderlich",
+      "mismatch": "Passwörter stimmen nicht überein",
+      "failed": "Zurücksetzen fehlgeschlagen"
+    }
+  },
+  "native_setup": {
+    "subtitle": "Jeden Bissen im Blick",
+    "use_locally": "Lokal nutzen",
+    "use_locally_desc": "Alle Daten bleiben auf diesem Gerät. Funktioniert offline, kein Server erforderlich. Du kannst dich später in den Einstellungen mit einem Server verbinden.",
+    "connect_to_server": "Mit Server verbinden",
+    "connect_to_server_desc": "Synchronisiere mit deinem NutriTrace-Server. Deine Daten sind auf allen Geräten und in der Web-App verfügbar.",
+    "server_url": "Server-URL",
+    "server_url_placeholder": "https://nutritrace.example.com",
+    "server_url_hint": "Nach der Server-Eingabe werden die passenden Anmeldeoptionen (Passwort oder SSO) angezeigt.",
+    "back": "Zurück",
+    "checking": "Wird überprüft…",
+    "next": "Weiter",
+    "or": "oder",
+    "oidc_sign_in_with": "Mit {name} anmelden",
+    "username": "Benutzername",
+    "username_placeholder": "Dein Benutzername",
+    "password": "Passwort",
+    "password_placeholder": "Dein Passwort",
+    "no_auth_warning": "Auf diesem Server sind keine Anmeldemethoden eingerichtet. Bitte deine Administration, die Passwort-Anmeldung zu aktivieren oder einen OIDC-Anbieter einzurichten.",
+    "signing_in": "Wird angemeldet…",
+    "sign_in": "Anmelden",
+    "errors": {
+      "server_url_required": "Gib deine Server-URL ein",
+      "credentials_required": "Gib deine Zugangsdaten ein",
+      "browser_open_failed": "Browser zur Anmeldung konnte nicht geöffnet werden",
+      "connected": "Mit Server verbunden",
+      "login_failed": "Anmeldung fehlgeschlagen"
+    }
+  },
+  "profile": {
+    "title": "Profil",
+    "personal_info": "Persönliche Angaben",
+    "security": "Sicherheit",
+    "change_photo": "Foto ändern",
+    "full_name": "Vollständiger Name",
+    "full_name_placeholder": "Dein vollständiger Name",
+    "email_placeholder": "Wird zum Zurücksetzen des Passworts verwendet",
+    "nickname": "Spitzname / Anzeigename",
+    "nickname_placeholder": "Wie sollen wir dich nennen?",
+    "birthday": "Geburtstag",
+    "gender": "Geschlecht",
+    "gender_unset": "Keine Angabe",
+    "change_password": "Passwort ändern",
+    "set_password": "Passwort festlegen",
+    "current_password": "Aktuelles Passwort",
+    "confirm_new_password": "Neues Passwort bestätigen",
+    "saved": "Profil gespeichert",
+    "password_changed": "Passwort geändert",
+    "linked_accounts": "Verknüpfte Konten",
+    "no_linked_accounts": "Bisher keine Identitätsanbieter verknüpft.",
+    "link_with": "Verknüpfen mit",
+    "unlink": "Trennen",
+    "danger_zone": "Gefahrenbereich",
+    "delete_account": "Mein Konto löschen",
+    "delete_account_explainer": "Entfernt dein Konto und alle zugehörigen Daten dauerhaft (Lebensmittel, Mahlzeiten, Tagebuch, Gesundheit, Einstellungen).",
+    "delete_account_title": "Konto löschen?",
+    "delete_account_message": "Deine Daten zu Lebensmitteln, Mahlzeiten, Tagebuch, Einstellungen und Gesundheit werden dauerhaft gelöscht. Dies kann nicht rückgängig gemacht werden.",
+    "delete_account_confirm": "Konto löschen",
+    "deleting": "Wird gelöscht…",
+    "account_deleted": "Konto gelöscht",
+    "errors": {
+      "save_failed": "Profil konnte nicht gespeichert werden",
+      "upload_failed": "Hochladen fehlgeschlagen",
+      "password_change_failed": "Passwort konnte nicht geändert werden",
+      "delete_account_failed": "Konto konnte nicht gelöscht werden"
+    }
+  },
+  "wizard": {
+    "nav": {
+      "skip": "Überspringen",
+      "get_started": "Loslegen",
+      "next": "Weiter",
+      "finish": "Fertigstellen"
+    },
+    "welcome": {
+      "title": "Willkommen bei NutriTrace",
+      "desc": "Dein persönlicher Ernährungstracker. Lass uns die Einrichtung in etwa einer Minute erledigen."
+    },
+    "name": {
+      "title": "Wie sollen wir dich nennen?",
+      "desc": "Wird für Begrüßungen, im Seitenmenü und bei deinem KI-Assistenten verwendet. Du kannst das später in den Einstellungen ändern.",
+      "placeholder": "Dein Name (optional)"
+    },
+    "usermgmt": {
+      "create_account_title": "Erstelle dein Konto",
+      "create_account_desc": "Richte dein Admin-Konto ein, um deine NutriTrace-Instanz abzusichern. Weitere Benutzer kannst du später in den Einstellungen einladen.",
+      "multi_user_title": "Mehrbenutzer-Unterstützung",
+      "multi_user_desc": "NutriTrace kann im Einzelbenutzer-Modus (Standard) oder im Mehrbenutzer-Modus mit getrennten Logins und Passwort-Zurücksetzungen betrieben werden. Du kannst dies jederzeit später in den Einstellungen aktivieren.",
+      "enable_toggle": "Benutzerkonten aktivieren",
+      "enable_toggle_hint": "Jede Person erhält ein eigenes Ernährungstagebuch, eigene Einstellungen und ein Profil",
+      "admin_section": "Admin-Konto",
+      "username_label": "Benutzername *",
+      "username_placeholder": "admin",
+      "nickname_label": "Spitzname",
+      "nickname_placeholder": "Optional",
+      "full_name_label": "Vollständiger Name",
+      "full_name_placeholder": "Optional",
+      "email_label": "E-Mail-Adresse",
+      "email_placeholder": "Wird zum Zurücksetzen des Passworts verwendet (optional)"
+    },
+    "units": {
+      "title": "Einheiten",
+      "desc": "In welchen Einheiten möchtest du messen?",
+      "metric": "Metrisch",
+      "imperial": "Imperial"
+    },
+    "gender": {
+      "title": "Was ist dein Geschlecht?",
+      "desc": "Wird zur Berechnung deines Kalorienbedarfs benötigt."
+    },
+    "dob": {
+      "title": "Wann bist du geboren?",
+      "desc": "Dein Alter beeinflusst deinen Grundumsatz."
+    },
+    "height": {
+      "title": "Wie groß bist du?",
+      "desc": "Wird zur Schätzung deines Kalorienbedarfs verwendet.",
+      "label_cm": "Größe (cm)",
+      "label": "Größe",
+      "feet": "Fuß",
+      "inches": "Zoll"
+    },
+    "integrations_cards": {
+      "configure": "Konfigurieren",
+      "skip_this": "Überspringen",
+      "off": "Open Food Facts",
+      "usda": "USDA FoodData Central",
+      "mealie": "Mealie",
+      "ai": "KI-Assistent"
+    },
+    "weight": {
+      "title": "Wie viel wiegst du?"
+    },
+    "target": {
+      "title": "Was ist dein Zielgewicht?"
+    },
+    "activity": {
+      "title": "Wie aktiv bist du?",
+      "desc": "Beeinflusst deinen täglichen Kalorienbedarf."
+    },
+    "integrations": {
+      "title": "Integrationen",
+      "desc": "Verbinde optionale Dienste. Überspringe einfach alles, was du nicht brauchst – du kannst sie später in den Einstellungen konfigurieren."
+    },
+    "notifications": {
+      "title": "Am Ball bleiben",
+      "desc": "Erhalte hilfreiche Erinnerungen und feiere deine Erfolge. Du kannst all das später in den Einstellungen anpassen."
+    },
+    "summary": {
+      "title": "Deine täglichen Ziele",
+      "desc": "Berechnet aus deinen Angaben anhand der Mifflin-St.-Jeor-Formel."
+    },
+    "skip_modal": {
+      "title": "Einrichtung überspringen?",
+      "desc": "Du kannst deine Ziele, Einheiten und Integrationen jederzeit in den <strong>Einstellungen</strong> einrichten. Bis dahin werden deine Kalorienziele nicht automatisch berechnet.",
+      "continue": "Einrichtung fortsetzen",
+      "skip_now": "Vorerst überspringen"
+    }
+  },
+  "diary": {
+    "add_food": "Lebensmittel hinzufügen",
+    "notes_placeholder": "Wie war dein Tag? Schlaf, Energie, Hunger, Heißhunger…",
+    "quick_calories": {
+      "title": "Schnelle Kalorien",
+      "title_meal": "Schnelle Kalorien: {meal}",
+      "default_name": "Schnelle Kalorien",
+      "help": "Erfasse nur die {unit}, wenn du keine vollständigen Nährwertangaben hast oder das Lebensmittel nicht einzeln erfassen möchtest. Wird direkt im Tagebuch eingetragen, ohne ein neues Lebensmittel anzulegen.",
+      "name_label": "Name (optional)",
+      "name_placeholder": "Büro-Snack, Hotelfrühstück…",
+      "value_label": "{unit}",
+      "add": "Hinzufügen",
+      "adding": "Wird hinzugefügt…",
+      "cancel": "Abbrechen",
+      "summed_hint": "Auf \"Getrennt\" umstellen, um einzelne Einträge zu bearbeiten"
+    },
+    "nav": {
+      "previous_day": "Vorheriger Tag",
+      "next_day": "Nächster Tag",
+      "jump_to_date": "Zu Datum springen"
+    },
+    "actions": {
+      "cancel_selection": "Auswahl aufheben",
+      "delete_selected": "Ausgewählte löschen",
+      "log_water": "Wasser eintragen",
+      "log_water_long": "Wasser – erfasse deine tägliche Flüssigkeitsaufnahme",
+      "nutrition_summary": "Nährwert-Übersicht",
+      "nutrition_summary_long": "Nährwert-Übersicht – vollständige Aufschlüsselung der heutigen Nährstoffe",
+      "mark_day_complete": "Tag als abgeschlossen markieren",
+      "unmark_day_complete": "Abschluss des Tages aufheben",
+      "body_stats": "Körperwerte",
+      "body_stats_long": "Körperwerte – Gewicht, Körperfett und Umfänge eintragen"
+    },
+    "day_complete": {
+      "marked_toast": "Tag als abgeschlossen markiert",
+      "auto_marked_toast": "Alle Mahlzeiten erfasst; Tag automatisch abgeschlossen",
+      "unmarked_toast": "Tagesabschluss aufgehoben",
+      "error_toast": "Tagesabschluss konnte nicht aktualisiert werden",
+      "meal_reminders_hint": "Tipp: Aktiviere Mahlzeiten-Erinnerungen unter Einstellungen → Benachrichtigungen, damit du vor Tagesende keine Mahlzeit vergisst.",
+      "confirm_empty_title": "Tag mit leeren Mahlzeiten abschließen?",
+      "confirm_empty_msg": "Diese Mahlzeiten enthalten keine Einträge und wurden nicht als übersprungen markiert: {names}. Die leeren Mahlzeiten werden als bewusst übersprungen gekennzeichnet, damit du an diesem Tag nicht erneut danach gefragt wirst. Trotzdem abschließen?",
+      "confirm_empty_ok": "Trotzdem abschließen",
+      "confirm_empty_cancel": "Offen lassen",
+      "status": {
+        "today": "Heute",
+        "yesterday": "Gestern",
+        "progress": "{done} von {total} Mahlzeiten erfasst",
+        "mark_complete": "Tag als abgeschlossen markieren",
+        "closed_headline": "Tag abgeschlossen",
+        "closed_at": "Abgeschlossen um {time}",
+        "reopen": "Wieder öffnen"
+      }
+    },
+    "toast": {
+      "body_stats_saved": "Körperwerte gespeichert",
+      "updated": "Aktualisiert",
+      "item_removed": "Eintrag entfernt",
+      "activity_removed": "Aktivität entfernt"
+    },
+    "empty": {
+      "tap_to_add_food": "Tippen, um Lebensmittel hinzuzufügen"
+    },
+    "server_error": {
+      "unreachable": "Server konnte nicht erreicht werden –",
+      "retry": "Wiederholen"
+    },
+    "water": {
+      "custom": "Benutzerdefiniert",
+      "add": "Hinzufügen",
+      "remove": "Entfernen"
+    },
+    "edit_item": {
+      "save": "Speichern",
+      "remove_ingredient": "Zutat entfernen",
+      "remove_qc_entry": "Eintrag entfernen",
+      "remove_qc_aria": "Schnellen Kalorieneintrag entfernen"
+    },
+    "confirm": {
+      "remove_item": "{name} entfernen?",
+      "remove_fallback": "Eintrag",
+      "clear_all_meal": "Alle Einträge aus {meal} entfernen?",
+      "clear_all_fallback": "Mahlzeit"
+    },
+    "errors": {
+      "note_save_failed": "Notiz konnte nicht gespeichert werden",
+      "name_required": "Bitte gib einen Namen ein",
+      "nothing_to_save": "Nichts zu speichern",
+      "activity_save_failed": "Aktivität konnte nicht gespeichert werden",
+      "activity_delete_failed": "Aktivität konnte nicht gelöscht werden"
+    },
+    "activity": {
+      "section": "Aktivität",
+      "tap_to_add": "Tippen, um Aktivität hinzuzufügen",
+      "add": "Aktivität hinzufügen",
+      "add_to_diary": "Zum Tagebuch hinzufügen",
+      "save_changes": "Änderungen speichern",
+      "title_add": "Aktivität hinzufügen",
+      "title_edit": "Aktivität bearbeiten",
+      "field_name": "Aktivität",
+      "field_name_placeholder": "z. B. Morgenwanderung",
+      "field_kcal": "Verbrannte Kalorien",
+      "field_kcal_placeholder": "kcal",
+      "field_duration": "Dauer",
+      "field_duration_placeholder": "Minuten",
+      "field_distance": "Distanz",
+      "field_distance_placeholder": "z. B. 10 km",
+      "field_optional": "(optional)",
+      "saving": "Wird hinzugefügt…",
+      "estimated_short": "geschätzt",
+      "wellness_hint": "Synchronisierte Trainings von deinem Gerät findest du unter Gesundheit",
+      "not_counted": "Nicht gewertet – Daten vom Wearable verwendet",
+      "policy_chip": "Regel: Wearable hat Vorrang. Anpassbar unter Einstellungen → Tagebuch.",
+      "save_as_template": "Als Vorlage speichern",
+      "save_as_template_hint": "(beim nächsten Mal in der Auswahl angeheftet)",
+      "kcal_preview": "MET {met} × {weight_display} × {duration} Min. → {kcal} kcal",
+      "no_weight_hint": "Erfasse ein Gewicht in den Körperwerten, um die automatische MET-Schätzung zu aktivieren",
+      "suggest": {
+        "templates": "Vorlagen",
+        "past_entries": "Frühere Einträge",
+        "compendium": "Kompendium",
+        "template_badge": "Vorlage"
+      },
+      "browse": {
+        "title": "Aktivitäten durchsuchen",
+        "search_placeholder": "Alle Aktivitäten durchsuchen",
+        "all_categories": "Alle Kategorien",
+        "no_matches": "Keine Treffer für „{q}“",
+        "aria": "Aktivitäten-Kompendium durchsuchen",
+        "tooltip": "Aktivitäten durchsuchen"
+      },
+      "actions": {
+        "edit": "Bearbeiten",
+        "delete": "Löschen"
+      },
+      "errors": {
+        "name_required": "Name erforderlich",
+        "kcal_required": "Kalorien erforderlich"
+      }
+    }
+  },
+  "foods": {
+    "category_all": "Alle",
+    "saved_meals": "Gespeicherte Mahlzeiten",
+    "search_empty_hint": "Versuche oben Open Food Facts oder die USDA-Datenbank zu durchsuchen",
+    "multi_portion_sheet": "Portionen festlegen ({count} Einträge)",
+    "add_to_diary": "Zum Tagebuch hinzufügen",
+    "tier": {
+      "reset": "Zurücksetzen",
+      "off_data_quality": "OFF-Datenqualität",
+      "usda_data_type": "USDA-Datentyp",
+      "off_high": "Hoch",
+      "off_high_hint": "(≥70 %)",
+      "off_medium": "Mittel",
+      "off_medium_hint": "(40–69 %)",
+      "off_low": "Niedrig",
+      "off_low_hint": "(<40 %)",
+      "off_unknown": "Unbekannt",
+      "off_unknown_hint": "(keine Daten)",
+      "usda_foundation": "Foundation",
+      "usda_foundation_hint": "(kuratiert)",
+      "usda_sr_legacy": "SR Legacy",
+      "usda_sr_legacy_hint": "(Referenz)",
+      "usda_survey": "Survey (FNDDS)",
+      "usda_survey_hint": "(kombiniert)",
+      "usda_branded": "Markenprodukt",
+      "usda_branded_hint": "(vom Hersteller eingereicht)",
+      "usda_experimental": "Experimentell",
+      "usda_experimental_hint": "(Forschung)"
+    },
+    "search_placeholder": "Lebensmittel suchen oder Barcode scannen…",
+    "scan_barcode": "Barcode scannen",
+    "add_new": "Neu erstellen",
+    "n_selected": "{n} ausgewählt",
+    "add_n": "{n} hinzufügen",
+    "adding": "Wird hinzugefügt…",
+    "add_selected_to_diary": "Ausgewählte zum Tagebuch hinzufügen",
+    "search_in": "{source} durchsuchen",
+    "searching_in": "{source} wird durchsucht…",
+    "no_results_in": "Keine Ergebnisse in {source}",
+    "looking_up_barcode": "Barcode wird nachgeschlagen…",
+    "detail": {
+      "edit": "Bearbeiten",
+      "edit_aria": "Lebensmittel bearbeiten",
+      "add_to_diary": "Zum Tagebuch hinzufügen",
+      "add_to_diary_aria": "Zum Tagebuch hinzufügen",
+      "add_to_which_meal": "Zu welcher Mahlzeit hinzufügen?",
+      "per_serving": "pro Portion",
+      "barcode": "Barcode",
+      "added_to": "Zu {meal} hinzugefügt",
+      "delete_aria": "Lebensmittel löschen",
+      "delete_confirm_title": "Dieses Lebensmittel löschen?",
+      "delete_confirm_body": "„{name}“ wird aus deinen Lebensmitteln entfernt. Bestehende Tagebucheinträge, die dieses Lebensmittel verwenden, bleiben erhalten.",
+      "deleted": "Lebensmittel gelöscht"
+    },
+    "sources": {
+      "local": "Lokal",
+      "from_others": "Von anderen",
+      "all": "Alle",
+      "shared": "Geteilt",
+      "mealie": "Mealie"
+    },
+    "all_mode": {
+      "search_hint": "Alle aktivierten Quellen gleichzeitig durchsuchen",
+      "searching": "Alle Quellen werden durchsucht…",
+      "no_matches": "Keine Treffer für „{q}“ gefunden",
+      "loading_more": "Weitere werden geladen…",
+      "still_searching_others": "Weitere Quellen werden noch durchsucht…"
+    },
+    "loading_library": "Wird geladen…",
+    "pagination": {
+      "showing_x_of_y": "{shown} von {total} angezeigt",
+      "loading_more": "Weitere laden…"
+    },
+    "toast": {
+      "deleted": "Gelöscht",
+      "cloned": "Dupliziert"
+    }
+  },
+  "trace": {
+    "panel_label": "KI-Coach-Chat",
+    "ask_placeholder": "Frag mich alles…",
+    "clear_conversation": "Unterhaltung leeren",
+    "clear_confirm_title": "Diese Unterhaltung leeren?",
+    "clear_confirm_message": "Nachrichten in dieser Unterhaltung werden gelöscht. Dies kann nicht rückgängig gemacht werden.",
+    "clear_confirm_ok": "Leeren",
+    "attach_image": "Bild anhängen",
+    "fab": {
+      "release_to_cancel": "Loslassen zum Abbrechen",
+      "recording_release": "Aufnahme läuft – loslassen zum Eintragen",
+      "open_with_voice_hint": "KI-Coach öffnen (gedrückt halten für Spracheingabe)",
+      "tap_chat_hold_voice": "Tippen zum Chatten · Halten für Spracheingabe",
+      "open_short": "KI-Assistent"
+    },
+    "setup": {
+      "api_key_required": "API-Schlüssel erforderlich",
+      "api_key_desc": "Hinterlege den API-Schlüssel deines Anbieters unter <strong>Einstellungen → KI-Assistent</strong>, um den Chat zu starten.",
+      "supported_providers": "Unterstützt Anthropic Claude, OpenAI und Google Gemini.",
+      "open_settings": "Einstellungen öffnen"
+    }
+  },
+  "goals_page": {
+    "adaptive": {
+      "title": "Adaptiver TDEE",
+      "learned": "Ermittelt: <strong>{value} {unit}/Tag</strong> · Gewichtstrend {trend} kg/Woche",
+      "building": "Daten werden aufgebaut: <strong>{available} / {required}</strong> Tage mit Gewicht + Tagebuch",
+      "help_button": "So funktioniert's",
+      "today_goal": "Heutiges Ziel",
+      "confidence": "Genauigkeit",
+      "weight_source": "Gewichtsquelle",
+      "until_ready": "Bis genügend Daten vorliegen, gilt dein festes Ziel von {value} {unit}.",
+      "help_headline": "So funktioniert's.",
+      "help_intro": "Der adaptive TDEE ermittelt deinen tatsächlichen täglichen Gesamtenergieumsatz aus deinem Gewichtstrend der letzten 35 Tage, kombiniert mit deiner tatsächlichen Kalorienaufnahme. Die Berechnung:",
+      "help_step_1": "Gewichtsverlauf glätten (lineare Regression über 35 Tage).",
+      "help_step_2": "Trend in tägliche Energiebilanz umrechnen (1 kg Körpermasse ≈ 7.700 kcal).",
+      "help_step_3": "TDEE = durchschnittliche tägliche Kalorienaufnahme − tägliche Energiebilanz.",
+      "help_best_intro": "Für beste Ergebnisse:",
+      "help_best_weigh": "<strong>Wiege dich regelmäßig</strong> – täglich ist am besten, jeder zweite Tag ist in Ordnung. Einzelne Tage werden interpoliert, aber mehr Messungen liefern ein genaueres Ergebnis. Eine verbundene Waage (Withings, Fitbit, Garmin, Health Connect) funktioniert automatisch; manuelle Einträge in den Körperwerten klappen genauso.",
+      "help_best_log": "<strong>Erfasse dein Essen lückenlos:</strong> Fehlende Tage fließen nicht in die Berechnung ein. Wenn du nur jeden zweiten Tag loggst, wird die Schätzung ungenau.",
+      "help_best_switch": "<strong>Wechsle dein Ziel nicht mitten im Zeitraum:</strong> Der gleitende 35-Tage-Durchschnitt pendelt sich über Zeit ein. Wenn du wöchentlich zwischen Diät und Aufbau wechselst, hinkt der berechnete TDEE hinterher.",
+      "help_best_reweigh": "<strong>Wiege dich unter gleichen Bedingungen</strong> Morgens direkt nach dem Aufstehen, nach dem Toilettengang, vor dem Essen oder Trinken. Tägliche Schwankungen sind meist nur Wasser; entscheidend ist der Trend.",
+      "help_caveats": "<strong>Einschränkungen:</strong> Große Aktivitätsänderungen (mit Laufen begonnen, Bein gebrochen) spiegeln sich erst nach etwa 2 Wochen wider. Urlaubswochen mit unvollständig erfasstem Essen können die Schätzung nach oben verfälschen. Der berechnete TDEE wird mit deinem Zielfaktor multipliziert (Abnehmen -20 % / Halten / Zunehmen +20 %), um dein tägliches Ziel zu ermitteln."
+    },
+    "empty": {
+      "no_goals": "Bisher keine Ziele festgelegt.",
+      "add_hint": "Gehe zum Tab <strong>Alle Felder</strong>, um Ziele hinzuzufügen.",
+      "no_templates": "Bisher keine Vorlagen vorhanden.",
+      "no_templates_hint": "Speichere deine aktuellen Ziele, um deine erste Vorlage zu erstellen."
+    },
+    "sections": {
+      "body_stats": "Körperwerte",
+      "nutrients": "Nährstoffe",
+      "water": "Wasser",
+      "wellness": "Gesundheit"
+    },
+    "row": {
+      "not_set": "Nicht festgelegt",
+      "no_goal": "Kein Ziel",
+      "min": "(Min.)",
+      "stale_tip": "Letzter Messwert innerhalb der vergangenen 30 Tage, wird verwendet, bis du einen neuen Wert einträgst",
+      "daily_water_goal": "Tägliches Wasserziel"
+    },
+    "all_fields": {
+      "intro": "Tippe auf ein beliebiges Feld, um dessen Ziel festzulegen oder zu bearbeiten."
+    },
+    "templates": {
+      "intro": "Speichere deine aktuellen Ziele als benannte Vorlage, um sie später wiederzuverwenden.",
+      "save_button": "Aktuelle Ziele speichern",
+      "goals_count": "{count} Ziele",
+      "apply": "Anwenden",
+      "delete_template": "Vorlage löschen",
+      "save_title": "Als Vorlage speichern",
+      "template_name": "Name der Vorlage",
+      "template_placeholder": "z. B. Diät – Sommer 2025",
+      "snapshot_hint": "Speichert eine Momentaufnahme aller {count} aktuellen Ziele.",
+      "save_template": "Vorlage speichern",
+      "apply_title": "Vorlage anwenden",
+      "apply_confirm": "<strong>{name}</strong> anwenden?",
+      "apply_desc": "Dadurch werden deine aktuellen Ziele durch die {count} in dieser Vorlage gespeicherten Ziele ersetzt.",
+      "cancel": "Abbrechen"
+    },
+    "editor": {
+      "display": "Sichtbarkeit",
+      "show_in_diary": "Im Tagebuch anzeigen",
+      "show_in_statistics": "In Statistiken anzeigen",
+      "goal_behavior": "Ziel-Verhalten",
+      "same_every_day": "Jeden Tag dasselbe Ziel",
+      "one_target": "Ein Zielwert für jeden Tag",
+      "per_weekday": "Unterschiedliches Ziel je Wochentag",
+      "minimum_goal": "Mindestziel",
+      "min_hint_true": "Muss mindestens diesen Wert erreichen",
+      "min_hint_false": "Darf diesen Wert nicht überschreiten",
+      "as_percent_calories": "Ziel als % der Kalorien",
+      "as_percent_hint": "Zielwert skaliert mit deinem Kalorienziel",
+      "auto_adjust": "Automatisch an Aktivität anpassen",
+      "auto_adjust_hint": "Passt sich an verbrannte Kalorien von Wearables an",
+      "target": "Zielwert",
+      "targets_per_day": "Zielwerte pro Tag",
+      "value_percent_of_cal": "% der Kalorien",
+      "value_label": "Wert ({unit})",
+      "value_label_day": "{day} ({unit})",
+      "remove_goal": "Ziel entfernen",
+      "water_sheet_label": "Ziel ({unit})"
+    }
+  },
+  "goals": {
+    "save_goal": "Ziel speichern",
+    "toast": {
+      "goal_saved": "Ziel gespeichert",
+      "water_goal_saved": "Wasserziel gespeichert",
+      "template_saved": "Vorlage gespeichert",
+      "template_applied": "„{name}“ angewendet"
+    }
+  },
+  "settings_main": {
+    "group_display": "Darstellung",
+    "custom_color": "Eigene Farbe",
+    "persistent_sidebar": "Dauerhafte Seitenleiste",
+    "persistent_sidebar_desc": "Die Seitenleiste bleibt geöffnet und verschiebt den Inhalt, statt ihn zu überlagern. Verfügbar auf Tablets, Foldables und Desktop.",
+    "start_page": "Startseite",
+    "reduce_motion": "Bewegung reduzieren",
+    "goal_pulse": "Balken-Animation bei Zielerreichung",
+    "goal_pulse_desc": "Lässt den Nährwertbalken im Tagebuch pulsieren, sobald du ein Tagesziel erreichst. Push-Benachrichtigungen bei Zielerreichung findest du unter Benachrichtigungen.",
+    "page_banners": "Seiten-Banner",
+    "page_banners_desc": "Kopfzeilen-Stil am oberen Rand jeder Seite. \"Animiert\" ist ein kompakter Akzent-Farbverlauf mit ausgewähltem Bewegungseffekt, \"Farbverlauf\" ist derselbe Balken statisch, \"Aus\" ist ein schlichter Glas-Header.",
+    "banner_animated": "Animiert",
+    "banner_gradient": "Farbverlauf",
+    "banner_off": "Aus",
+    "anim_style": "Animationsstil",
+    "anim_style_desc": "Schimmern ist ein sanfter weißer Lichtstreif, Driften eine langsame Farbdrehung, Pulsieren ein sanftes Atmen, Aurora eine weiche, akzentuierte Lichtwolke. Alle Einstellungen respektieren \"Bewegung reduzieren\".",
+    "anim_shimmer": "Schimmern",
+    "anim_drift": "Driften",
+    "anim_pulse": "Pulsieren",
+    "anim_aurora": "Aurora"
+  },
+  "settings_diary": {
+    "show_brand": "Markennamen anzeigen",
+    "show_brand_desc": "Zeigt die Marke unter dem jeweiligen Lebensmittelnamen an",
+    "show_timestamps": "Uhrzeiten anzeigen",
+    "show_timestamps_desc": "Zeigt die Uhrzeit an, zu der der Eintrag erfasst wurde",
+    "show_thumbnails": "Vorschaubilder anzeigen",
+    "show_thumbnails_desc": "Fotos von Lebensmitteln oder Mahlzeiten neben jedem Eintrag anzeigen",
+    "show_all_nutrients": "Alle Nährstoffe anzeigen",
+    "show_all_nutrients_desc": "Zeigt in der Mahlzeiten-Übersicht alle verfügbaren Nährstoffe (Vitamine, Mineralstoffe etc.) statt nur der Makronährstoffe an",
+    "show_units": "Nährwerteinheiten anzeigen",
+    "show_units_desc": "Hängt „g“, „mg“ etc. an die Zahlenwerte an",
+    "show_macro_summary": "Makro-Übersicht pro Mahlzeit anzeigen",
+    "show_macro_summary_desc": "Balken für Eiweiß, Kohlenhydrate und Fett am Ende jeder Mahlzeit; tippen für vollständige Nährstoffaufschlüsselung",
+    "ask_quantity": "Beim Hinzufügen nach Menge fragen",
+    "ask_quantity_desc": "Vor dem Hinzufügen nach der Portionsgröße fragen (andernfalls wird der Standardwert des Lebensmittels verwendet)",
+    "unit_metadata": "Einheiten-Metadaten anzeigen",
+    "unit_metadata_desc": "Fügt drei Felder im Lebensmittel-Editor hinzu: Nährwertbasis (pro 100 g vs. pro 100 ml), Portions-Einheiten (1 Scheibe = 35 g etc.) und Dichte (g/ml) für exakte Flüssigkeitsberechnungen.",
+    "warn_conversions": "Vor Einheiten-Umrechnungen warnen",
+    "warn_conversions_desc": "Warnung anzeigen, wenn Gramm bei Lebensmitteln mit ml-Angabe gewählt wird (oder umgekehrt), ohne dass eine Dichte hinterlegt ist. Standardmäßig wird 1 ml ≈ 1 g angenommen, was bei Ölen, Honig etc. ungenau ist.",
+    "show_portion": "Portionsgröße anzeigen",
+    "show_portion_desc": "Zeigt „150 g“, „1 Tasse“ etc. bei jedem Eintrag im Tagebuch an",
+    "show_daily_notes": "Tagesnotizen anzeigen",
+    "show_daily_notes_desc": "Freitext-Bereich für Notizen am Ende des Tagebuchs für jeden Tag",
+    "show_completion": "Tagesabschluss anzeigen",
+    "show_completion_desc": "Fügt der Datumsleiste ein Häkchen hinzu, um Tage abzuschließen. Abgeschlossene Tage werden im Kalender und in den Statistiken grün markiert.",
+    "show_quick_cals": "Schaltfläche für schnelle Kalorien anzeigen",
+    "show_quick_cals_desc": "Fügt jeder Mahlzeit ein Blitz-Symbol hinzu, um schnell nur Kalorien einzutragen (ohne Lebensmittel oder Portionsangabe). Nützlich, wenn du die Kalorienmenge kennst, aber das Lebensmittel nicht einzeln erfassen möchtest.",
+    "quick_cals_display": "Anzeige der schnellen Kalorien",
+    "quick_cals_display_desc": "Wie mehrere schnelle Kalorieneinträge in derselben Mahlzeit im Tagebuch dargestellt werden. „Zusammengefasst“ fasst sie in einer Zeile zusammen; „Getrennt“ zeigt jeden Eintrag in einer eigenen Zeile an.",
+    "opt_summed": "Zusammengefasst",
+    "opt_separate": "Getrennt",
+    "show_activity": "Aktivitätsbereich anzeigen",
+    "show_activity_desc": "Ein Bereich für Aktivitäten im Tagebuch zum Erfassen von Training. Jeder Eintrag hat einen Namen und verbrannte Kalorien. Nützlich, wenn du keine Smartwatch verbunden hast.",
+    "adjust_calorie_goal": "Kalorienziel durch Aktivitäten anpassen",
+    "adjust_calorie_goal_desc": "Erhöht dein verbleibendes Kalorienziel um verbrannte Kalorien. Bei Deaktivierung bleibt dein Ziel unverändert.",
+    "policy_wearable_wins": "Wearable hat Vorrang",
+    "policy_wearable_desc": ": Manuelle Einträge werden angezeigt, verändern aber nicht das Kalorienziel (kein Risiko von Doppelzählungen).",
+    "policy_manual_wins": "Manuell hat Vorrang",
+    "policy_manual_desc": ": Manuelle Einträge ersetzen die Daten des Wearables für diesen Tag.",
+    "policy_add": "Zusammenrechnen",
+    "policy_add_desc": ": Rechnet beides zusammen. ⚠ Risiko von Doppelzählungen, wenn deine Uhr das Training schon erfasst hat.",
+    "show_fasting": "Fasten-Tracker anzeigen",
+    "show_fasting_desc": "Fügt oben im Tagebuch einen Timer für Intervallfasten hinzu. Starte das Fasten und verfolge die verstrichene Zeit bis zu deinem Ziel.",
+    "default_fast_goal": "Standard-Fastenziel",
+    "notify_goal": "Benachrichtigen bei Zielerreichung",
+    "notify_goal_desc": "Sendet eine Benachrichtigung, wenn dein aktives Fasten das Ziel erreicht, sodass du nicht ständig ins Tagebuch schauen musst.",
+    "recurring_schedule": "Wiederkehrender Zeitplan",
+    "start_time": "Startzeit",
+    "repeat_on": "Wiederholen am",
+    "schedule_goal": "Ziel des Zeitplans",
+    "show_progress_bar": "Fortschrittsbalken für Tagesziele anzeigen",
+    "show_progress_bar_desc": "Fortschrittsleiste am Ende des Tagebuchs, die anzeigt, wie viel deiner Tagesziele du erreicht hast",
+    "meal_names": "Mahlzeiten-Namen"
+  },
+  "settings_water": {
+    "display_unit": "Anzeigeeinheit",
+    "show_in_diary": "Im Tagebuch anzeigen",
+    "show_in_statistics": "In Statistiken anzeigen",
+    "containers_title": "Wasserbehälter",
+    "no_containers": "Noch keine Wasserbehälter vorhanden",
+    "add_container": "Wasserbehälter hinzufügen"
+  },
+  "settings_scanner": {
+    "recipes_sort": "Rezept-Sortierung",
+    "beep_on_scan": "Signalton bei erfolgreichem Scan",
+    "use_flashlight": "Taschenlampe beim Scannen aktivieren",
+    "crop_photos": "Fotos beim Hochladen zuschneiden"
+  },
+  "settings_goals": {
+    "calorie_goal_mode": "Modus für Kalorienziel",
+    "calorie_goal_mode_desc": "Wie dein tägliches Kalorienziel berechnet wird",
+    "mode_fixed": "Fest",
+    "mode_dynamic": "Dynamisch",
+    "mode_adaptive": "Adaptiv",
+    "goal_factor": "Zielfaktor",
+    "factor_maintain": "Gewicht halten",
+    "adaptive_note": "Ermittelt deinen echten TDEE aus 35 Tagen mit Gewicht und Tagebuch und passt sich täglich an. Fällt auf dein festes Ziel zurück, bis genügend Daten vorliegen. Siehe die Bereitschaftskarte auf der Ziele-Seite für den aktuellen Status.",
+    "how_it_works": "So funktioniert's →",
+    "dynamic_needs_wearable": "Der dynamische Modus erfordert ein Wearable, das den Kalorienverbrauch übermittelt (Fitbit, Garmin oder Google Health).",
+    "dynamic_needs_wearable_setup": "Richte eines unter Gesundheit ein"
+  },
+  "settings_stats": {
+    "default_chart": "Standard-Diagrammtyp",
+    "show_average_line": "Durchschnittslinie anzeigen",
+    "show_goal_line": "Ziellinie anzeigen",
+    "show_trend_line": "Trendlinie anzeigen",
+    "include_today": "Heute in Trends einbeziehen",
+    "show_empty_days": "Leere Tage anzeigen",
+    "custom_nutrients": "Eigene Nährstoffe",
+    "no_custom_nutrients": "Keine eigenen Nährstoffe",
+    "no_categories": "Noch keine Kategorien",
+    "label": "Bezeichnung",
+    "custom_units": "Eigene Einheiten",
+    "no_custom_units": "Noch keine eigenen Einheiten",
+    "full_name": "Vollständiger Name"
+  },
+  "settings_integrations": {
+    "group": "Integrationen",
+    "enable_usda": "USDA FoodData aktivieren",
+    "mealie_section": "Mealie",
+    "enable_mealie": "Mealie aktivieren",
+    "cooktrace_section": "CookTrace",
+    "enable_cooktrace": "CookTrace aktivieren",
+    "cooktrace_desc": "Rezepte aus deiner selbst gehosteten CookTrace-Instanz importieren",
+    "base_url": "Basis-URL",
+    "connected": "Verbunden",
+    "last_synced": "Zuletzt synchronisiert",
+    "local_mode": "Lokaler Modus",
+    "local_mode_desc": "Alle Daten werden nur auf diesem Gerät gespeichert",
+    "server_url": "Server-URL",
+    "username": "Benutzername",
+    "password": "Passwort",
+    "admin_section": "Admin",
+    "enable_sharing": "Lebensmittel teilen aktivieren",
+    "bulk_share": "Massenfreigabe",
+    "vis_private": "Privat",
+    "vis_group": "Alle",
+    "vis_specific": "Bestimmte Personen"
+  },
+  "settings_diagnostics": {
+    "diag_mode": "Diagnosemodus",
+    "view_logs": "Diagnose-Protokolle ansehen",
+    "logs_desc_web": "Aktuelle Protokollzeilen aus der App-Konsole. Nützlich für Fehlerberichte, zum Kopieren und Teilen in",
+    "logs_desc_android": " Auf Android mit aktiviertem Diagnosemodus kannst du auch die gespeicherte Protokolldatei oder erfasste Absturzberichte teilen.",
+    "logs_note": "Es wird nichts automatisch übertragen.",
+    "calibration_export": "Kalibrierungs-Export",
+    "crash_available": "Absturzbericht verfügbar",
+    "log_help": "Aktuelle Protokollzeilen (normalerweise auf 500 begrenzt, 1000 im ausführlichen Modus). Der Header zeigt App-Version und Plattform, damit die empfangende Person weiß, worum es geht. Bitte schwärze persönliche Gesundheitsdaten wie HRV, Ruhepuls, Gewicht oder Kalorien vor einer öffentlichen Weitergabe."
+  },
+  "settings_admin_group": "Admin",
+  "settings_about": {
+    "food_data_from": "Lebensmitteldaten von",
+    "food_data_license": "(ODbL)",
+    "server_from": "Server:",
+    "server_open_source": "Open Source",
+    "server_license": "(AGPL-3.0)",
+    "translations_from": "Übersetzungen ermöglicht durch",
+    "support_dev": "Entwicklung unterstützen"
+  },
+  "settings_merge": {
+    "title": "Synchronisations-Optionen",
+    "upload": "Vom Smartphone auf Server laden",
+    "download": "Vom Server auf Smartphone laden",
+    "merge": "Beide zusammenführen",
+    "cancel": "Abbrechen",
+    "continue": "Fortfahren"
+  },
+  "settings_color": {
+    "saturation": "Sättigung",
+    "lightness": "Helligkeit",
+    "hex_code": "Hex-Code",
+    "apply_color": "Farbe anwenden"
+  },
+  "time_picker": {
+    "hour": "Stunde",
+    "minute": "Minute",
+    "cancel": "Abbrechen",
+    "set_time": "Zeit festlegen"
+  },
+  "nutrition_facts": {
+    "title": "Nährwertangaben",
+    "serving_size": "Portionsgröße",
+    "amount_per": "Menge pro Portion"
+  },
+  "fasting_insights": {
+    "title": "Fasten",
+    "avg_duration": "Durchschnittliche Dauer",
+    "longest": "Längstes Fasten",
+    "current_streak": "Aktuelle Serie",
+    "longest_streak": "Längste Serie"
+  },
+  "bulk_import": {
+    "download_template": "Vorlage herunterladen",
+    "clear": "Leeren",
+    "will_import": "Wird importiert",
+    "cancel": "Abbrechen"
+  },
+  "meal_editor_deep": {
+    "readonly_recipe": "Tippe auf „In meinen Katalog speichern“, um dieses Rezept in deinen Katalog zu übernehmen und zu bearbeiten.",
+    "readonly_meal": "Tippe auf „In meinen Katalog speichern“, um diese Mahlzeit in deinen Katalog zu übernehmen und zu bearbeiten.",
+    "notes_ph": "Notizen (optional)…",
+    "total_amount": "Gesamtmenge",
+    "take_photo": "Foto aufnehmen",
+    "crop_photo": "Foto zuschneiden"
+  },
+  "quick_calories": {
+    "name_ph": "Büro-Snack, Hotelfrühstück…",
+    "optional_macros": "Optionale Makronährstoffe",
+    "protein": "Eiweiß",
+    "carbs": "Kohlenhydrate",
+    "cancel": "Abbrechen"
+  },
+  "fasting": {
+    "start_fasting": "Fasten starten",
+    "hours_ph": "Stunden",
+    "name_ph": "Name (optional)",
+    "start": "Starten",
+    "end_fast": "Fasten beenden",
+    "cancel": "Abbrechen"
+  },
+  "smart_log": {
+    "placeholder": "Zum Frühstück hatte ich 2 Eier und Toast",
+    "title": "Smart Log",
+    "badge_local": "Lokal",
+    "badge_recipe": "Rezept",
+    "badge_yesterday": "Gestern",
+    "badge_water": "Wasser",
+    "badge_not_found": "Nicht gefunden"
+  },
+  "foods_deep": {
+    "cant_reach_retry_msg": "Server konnte nicht erreicht werden, ",
+    "retry": "Wiederholen",
+    "serving_size": "Portionsgröße",
+    "servings": "Portionen",
+    "num_servings": "Anzahl der Portionen",
+    "total_amount": "Gesamtmenge",
+    "total": "Gesamt"
+  },
+  "settings_main_deep": {
+    "search_ph": "Einstellungen durchsuchen…",
+    "meal_placeholder": "Mahlzeit {n}",
+    "container_name_ph": "Name (z. B. Meine Trinkflasche)",
+    "volume_ph": "Volumen",
+    "server_username_ph": "Dein Benutzername",
+    "server_password_ph": "Dein Passwort",
+    "bearer_ph": "Bearer-Token"
+  },
+  "wellness_deep": {
+    "no_stage_data": "Keine Schlafphasen-Daten verfügbar",
+    "garmin": "Garmin",
+    "daily_readiness": "Tagesform",
+    "resting_hr": "Ruhepuls",
+    "sleep": "Schlaf",
+    "penalties": "Abzüge",
+    "resilience": "Belastbarkeit",
+    "physical_calmness": "Körperliche Ruhe",
+    "activity_balance": "Aktivitäts-Balance",
+    "sleep_patterns": "Schlafmuster",
+    "body_scan_scores": "Body-Scan-Werte",
+    "segmental_analysis": "Segmentale Analyse",
+    "muscle_lean_note": "Muskelmasse = kontraktiles Muskelgewebe. Fettfreie Masse = alles Gewebe außer Fett (Muskeln + Knochen + Wasser). Die fettfreie Masse ist immer höher als die Muskelmasse. Diese Werte sind absolute Gewichtsangaben; Prozentangaben in Geräte-Apps können abweichen.",
+    "muscle": "Muskelmasse",
+    "connect_withings": "Withings verbinden",
+    "no_gps": "Keine GPS-Daten verfügbar",
+    "duration": "Dauer",
+    "distance": "Distanz",
+    "steps": "Schritte",
+    "avg_hr": "Durchschn. Puls",
+    "peak_hr": "Maximalpuls"
+  },
+  "diary_deep": {
+    "day_notes": "Tagesnotizen",
+    "consumed": "Verzehrt",
+    "remaining": "Verbleibend",
+    "water": "Wasser",
+    "quick_add": "Schnell hinzufügen",
+    "no_water_today": "Heute noch kein Wasser erfasst",
+    "qce_name_ph": "Büro-Snack, Hotelfrühstück…",
+    "optional_macros": "Optionale Makronährstoffe",
+    "protein": "Eiweiß",
+    "carbs": "Kohlenhydrate",
+    "fat": "Fett",
+    "serving_size": "Portionsgröße",
+    "num_servings": "Anzahl der Portionen",
+    "logged_time": "Uhrzeit",
+    "total_amount": "Gesamtmenge",
+    "cancel": "Abbrechen",
+    "meal_name": "Mahlzeiten-Name",
+    "body_stats": "Körperwerte",
+    "nutrition_summary": "Nährwert-Übersicht"
+  },
+  "wizard_deep": {
+    "off_user_ph": "Benutzername (optional)",
+    "off_pass_ph": "Passwort (optional)",
+    "usda_search": "Durchsuche die USDA-Lebensmittel- und Nährwertdatenbank",
+    "usda_key_ph": "Füge hier deinen USDA-API-Schlüssel ein",
+    "mealie_url_ph": "Mealie-URL (z. B. http://mealie:9000)",
+    "mealie_token_ph": "API-Token",
+    "env_locked": "Über Umgebungsvariablen konfiguriert",
+    "api_key_ph": "API-Schlüssel",
+    "enable_notifications": "Benachrichtigungen aktivieren",
+    "hydration_reminders": "Trinkerinnerungen",
+    "meal_reminders": "Mahlzeiten-Erinnerungen",
+    "goal_celebrations": "Erfolgsmeldungen bei Zielerreichung",
+    "wellness_alerts": "Gesundheits-Benachrichtigungen",
+    "starting_tdee": "Ausgangs-TDEE",
+    "water_goal": "Wasserziel",
+    "current_weight": "Aktuelles Gewicht",
+    "target_weight": "Zielgewicht",
+    "activity_level": "Aktivitätslevel",
+    "adjust_note": "Du kannst diese Werte jederzeit in den Einstellungen anpassen. Nach etwa einem Monat kann der adaptive Modus dein Ziel anhand deines echten Gewichtstrends verfeinern."
+  },
+  "settings_custom_nutrient": {
+    "name": "Nährstoffname",
+    "add": "Nährstoff hinzufügen"
+  },
+  "settings_foods_picker": {
+    "show_thumbnails": "Vorschaubilder anzeigen",
+    "show_thumbnails_desc": "Fotos von Lebensmitteln/Mahlzeiten in der Auswahlliste",
+    "show_categories": "Kategorien anzeigen",
+    "show_categories_desc": "Filter-Chips oben in der Lebensmittelauswahl",
+    "show_category_labels": "Kategorie-Bezeichnungen anzeigen",
+    "show_category_labels_desc": "Kategoriename + Emoji in jeder Lebensmittelzeile anzeigen",
+    "show_notes": "Notizen anzeigen",
+    "show_notes_desc": "Gespeicherte Lebensmittel-Notizen (z. B. „1 Portion = 150 g gekocht“) auf der Schnellhinzufügen-Karte anzeigen",
+    "default_source": "Standard-Suchquelle",
+    "default_source_desc": "Mit welchem Quellen-Chip die Lebensmittelseite geöffnet wird. „Alle“ durchsucht jede aktivierte Datenbank; „Meine Lebensmittel“ startet in deiner lokalen Bibliothek.",
+    "foods_sort": "Lebensmittel-Sortierung",
+    "meals_sort": "Mahlzeiten-Sortierung",
+    "opt_recent": "Zuletzt verwendet",
+    "opt_most": "Am häufigsten verwendet",
+    "opt_alpha": "Alphabetisch"
+  },
+  "barcode_scanner": {
+    "toast": {
+      "cam_denied": "Kamerazugriff verweigert",
+      "scan_failed": "Barcode-Scan fehlgeschlagen: {error}",
+      "unknown_error": "Unbekannter Fehler"
+    },
+    "close": "Scanner schließen",
+    "close_short": "Schließen",
+    "torch": "Taschenlampe ein-/ausschalten",
+    "title": "Barcode scannen",
+    "library": "Bibliothek",
+    "camera": "Kamera",
+    "manual_ph": "Oder Barcode manuell eingeben…",
+    "lookup": "Nachschlagen"
+  },
+  "food_editor": {
+    "name_placeholder": "Lebensmittelname",
+    "brand_placeholder": "Marke (optional)",
+    "saved": "Gespeichert",
+    "added_to_diary": "Zum Tagebuch hinzugefügt",
+    "card_photo": "Foto",
+    "card_basic": "Basis-Info",
+    "card_categories": "Kategorien",
+    "card_notes": "Notizen",
+    "card_nutrition": "Nährwerte",
+    "take_photo": "Foto aufnehmen",
+    "crop_photo": "Foto zuschneiden",
+    "crop_hint": "Bewege den Rahmen zum Verschieben; ziehe an der Ecke zum Anpassen der Größe",
+    "draft_restored": "Nicht gespeicherte Änderungen wiederhergestellt.",
+    "draft_discard": "Verwerfen",
+    "field_brand": "Marke",
+    "field_serving_size": "Portionsgröße",
+    "field_unit": "Einheit",
+    "field_nutrition_basis": "Nährwertbasis",
+    "field_serving_units": "Portions-Einheiten",
+    "field_barcode": "Barcode",
+    "placeholder_optional": "Optional",
+    "notes_placeholder": "Notizen (optional)",
+    "readonly_sub": "Tippe auf „In meinen Katalog speichern“, um dies in deinen Katalog zu übernehmen und zu bearbeiten.",
+    "photo_remove": "Foto entfernen",
+    "close_camera": "Kamera schließen",
+    "cancel": "Abbrechen",
+    "scan_barcode": "Barcode scannen",
+    "scan_label_title": "Fotografiere die Nährwerttabelle, um diese Felder automatisch auszufüllen",
+    "remove_serving_unit": "Portions-Einheit entfernen",
+    "toast": {
+      "camera_denied": "Kamerazugriff verweigert oder nicht verfügbar.",
+      "barcode_set": "Barcode festgelegt",
+      "off_upload_failed": "Konnte nicht zu Open Food Facts hochgeladen werden: {error}",
+      "off_not_found": "Nicht in Open Food Facts gefunden",
+      "off_refreshed": "Daten von Open Food Facts aktualisiert",
+      "refresh_failed": "Aktualisierung fehlgeschlagen: {error}",
+      "label_read_failed": "Tabelle konnte nicht gelesen werden. Bitte versuche es mit einem deutlicheren Foto.",
+      "nutrition_extracted": "Nährwerte aus Tabelle erkannt",
+      "scan_failed": "Scan fehlgeschlagen: {error}",
+      "saved_copy": "Eine Kopie in deinem Katalog gespeichert",
+      "save_copy_failed": "Kopie konnte nicht gespeichert werden: {error}",
+      "save_failed": "Speichern fehlgeschlagen: {error}",
+      "unknown_error": "Unbekannter Fehler"
+    },
+    "errors": {
+      "name_required": "Bitte gib einen Namen ein"
+    }
+  },
+  "meal_editor": {
+    "meal_name_placeholder": "Mahlzeiten-Name",
+    "recipe_name_placeholder": "Rezeptname",
+    "card_photo": "Foto",
+    "draft_restored": "Nicht gespeicherte Änderungen wiederhergestellt.",
+    "draft_discard": "Verwerfen",
+    "card_categories": "Kategorien",
+    "card_notes": "Notizen",
+    "card_nutrition_totals": "Nährwert-Gesamtsumme",
+    "add_ingredient": "Zutat hinzufügen",
+    "save_changes": "Änderungen speichern",
+    "ct_refresh": {
+      "headline": "CookTrace hat neuere Inhalte",
+      "sub": "Aktualisieren, um aktuellen Namen, Zutaten und Gesamtsummen abzurufen.",
+      "refresh": "Aktualisieren",
+      "dismiss": "Verwerfen",
+      "refreshed_toast": "Rezept aus CookTrace aktualisiert",
+      "error_toast": "Konnte nicht aus CookTrace aktualisiert werden",
+      "deleted_toast": "Rezept gelöscht"
+    },
+    "ct_deleted": {
+      "headline": "CookTrace-Quelle nicht mehr verfügbar",
+      "sub": "Das Originalrezept auf CookTrace wurde gelöscht oder kann nicht mehr gelesen werden.",
+      "unlink": "Trennen",
+      "delete": "Löschen"
+    },
+    "use_this_crop": "Diesen Zuschnitt verwenden",
+    "back": "Zurück",
+    "search_placeholder": "Suchen…",
+    "scan_barcode": "Barcode scannen",
+    "field_serving_size": "Portionsgröße",
+    "field_unit": "Einheit",
+    "field_quantity": "Menge",
+    "servings": {
+      "title": "Portionen",
+      "amount_placeholder": "Automatisch aus Zutaten",
+      "total_weight_hint": "Gesamtgewicht. Wird automatisch aus den Zutaten berechnet; kann für Kochverluste (z. B. Einkochen) angepasst werden.",
+      "yields_unit": "Portionen",
+      "yields_hint": "Anzahl der Portionen, die dieses Rezept ergibt.",
+      "per_serving_label": "Pro Portion:"
+    },
+    "errors": {
+      "no_ingredients": "Bitte füge mindestens eine Zutat hinzu"
+    }
+  },
+  "settings_wellness": {
+    "master": {
+      "label": "Aktivitäts-Tracking",
+      "desc": "Fügt einen Gesundheitsbereich zum Synchronisieren von Daten aus Fitness-Trackern und Waagen hinzu.",
+      "schedule_note": "Der Synchronisations-Zeitplan wird unten pro Gerät konfiguriert."
+    },
+    "common": {
+      "sync": "Synchronisieren",
+      "syncing": "Wird synchronisiert…",
+      "disconnect": "Trennen",
+      "disconnecting": "Wird getrennt…",
+      "connect": "Verbinden",
+      "connecting": "Wird verbunden…",
+      "save": "Speichern",
+      "save_and_connect": "Speichern & verbinden",
+      "linked": "Verbunden",
+      "not_connected": "Nicht verbunden",
+      "loading_status": "Verbindungsstatus wird geladen…",
+      "days": "Tage",
+      "sync_range": "Synchronisations-Zeitraum",
+      "sync_mode": "Synchronisations-Modus",
+      "mode_auto": "Automatisch (beim Öffnen)",
+      "mode_manual": "Nur manuell",
+      "mode_scheduled": "Nach Zeitplan",
+      "interval": "Intervall",
+      "sync_at": "Synchronisieren um",
+      "active_window": "Aktives Zeitfenster",
+      "active_window_desc": "Nur während dieser Stunden synchronisieren. Leer lassen, um den gesamten Tag zu synchronisieren.",
+      "time_start": "Start",
+      "time_end": "Ende",
+      "time_range_sep": "bis",
+      "last_sync_ok": "✓ {count} Messwerte für {date} synchronisiert",
+      "last_sync_error": "Synchronisationsfehler: {error}",
+      "change_creds_title": "API-Zugangsdaten ändern",
+      "api_credentials": "API-Zugangsdaten",
+      "client_id": "Client-ID",
+      "client_secret": "Client-Secret",
+      "hide": "Ausblenden",
+      "show": "Anzeigen",
+      "redirect_uri": "Weiterleitungs-URI (Redirect-URI)",
+      "use_suggested": "Vorschlag verwenden",
+      "copy_uri": "URI kopieren",
+      "visible_metrics": "Sichtbare Metriken",
+      "copied": "Kopiert",
+      "copy_failed": "Kopieren fehlgeschlagen. Bitte markiere den Text manuell.",
+      "experimental": "Experimentell",
+      "save_failed_prefix": "Speichern fehlgeschlagen: ",
+      "sync_failed": "Synchronisation fehlgeschlagen: {error}",
+      "reset_visible_metrics": "Alle sichtbaren Metriken zurücksetzen",
+      "workout_history": "Trainingsverlauf",
+      "workout_history_desc": "Zeigt aufgezeichnete Trainings mit GPS-Streckenkarten im Tab „Bewegung“ an. Erfordert ein GPS-fähiges Gerät.",
+      "custom_days_ph": "Tage",
+      "custom_days_title": "Benutzerdefinierte Anzahl von Tagen (maximal {max})",
+      "authorize_desc": "Autorisiere NutriTrace, deine Daten von {provider} zu lesen.",
+      "authorize_desc_fitbit": "Autorisiere NutriTrace, deine Fitbit-Daten über Google Health zu lesen.",
+      "server_only_desc": "Erfordert eine Serververbindung für die OAuth-Authentifizierung. Nutze im lokalen Modus unten „Health Connect“, um {provider}-Daten direkt vom Smartphone auszulesen.",
+      "sync_range_desc": "Wie weit die manuelle Synchronisation in die Vergangenheit zurückreicht.",
+      "sync_range_desc_fitbit": "Wie weit die manuelle Synchronisation zurückreicht. Die automatische Synchronisation umfasst immer nur den heutigen Tag.",
+      "register_uri_note": "Trage diese exakte URI in den Einstellungen deines Entwickler-Kontos ein",
+      "consumer_key": "Consumer-Key",
+      "consumer_key_ph": "Dein Garmin Consumer-Key",
+      "consumer_secret": "Consumer-Secret"
+    },
+    "lifttrace_ovr": {
+      "prefer_label": "Wearable-Daten gegenüber LiftTrace bevorzugen",
+      "prefer_desc": "Vermeidet Doppelzählungen: Wenn dein Wearable für denselben Tag bereits Kalorien erfasst hat, hat dessen Gesamtwert Vorrang vor den LiftTrace-Werten."
+    },
+    "fitbit_deep": {
+      "server_only": "Erfordert eine Serververbindung für die OAuth-Authentifizierung. Nutze im lokalen Modus unten Health Connect, um Fitbit-Daten direkt von deinem Android-Gerät auszulesen.",
+      "legacy_desc": "Schritte, Aktivität, Schlafphasen, Puls, HRV, SpO2. Die alte Fitbit-Web-API wird eingestellt; neue Verbindungen sollten Google Health nutzen.",
+      "retired_desc": "Die alte Fitbit-Web-API wird eingestellt. Verbinde dich unten über Google Health, um dieselben Daten über die Google Fitness-API abzurufen.",
+      "relink_label": "Erneute Verknüpfung erforderlich bis 31. Mai 2026",
+      "authorize_desc": "Autorisiere NutriTrace, deine Fitbit-Daten über Google Health zu lesen.",
+      "setup_desc": "Die Fitbit-Einrichtung nutzt jetzt die Google Cloud Console. Erstelle dort einen OAuth-2.0-Client vom Typ Webanwendung und trage Client-ID und Secret hier ein.",
+      "setup_link": "Einrichtungs-Anleitung →",
+      "client_id_ph": "Aus Google Cloud Console → APIs & Dienste → Anmeldedaten",
+      "redirect_note": "Trage diese exakte URI in der Liste autorisierter Weiterleitungs-URIs deines Google-Cloud-Clients ein",
+      "redirect_format": "Format:"
+    },
+    "garmin_deep": {
+      "server_only": "Erfordert eine Serververbindung für die OAuth-Authentifizierung. Nutze im lokalen Modus unten Health Connect, um Garmin-Daten direkt von deinem Android-Gerät auszulesen.",
+      "metrics_desc": "Schritte, Schlaf, Puls, HRV, SpO2, Body Battery, Stress. Erfordert eine Garmin Health API-Partnerschaft.",
+      "authorize_desc": "Autorisiere NutriTrace, deine Garmin-Daten zu lesen."
+    },
+    "withings_deep": {
+      "server_only": "Erfordert eine Serververbindung für die OAuth-Authentifizierung. Nutze im lokalen Modus unten Health Connect, um Withings-Daten direkt von deinem Android-Gerät auszulesen.",
+      "authorize_desc": "Autorisiere NutriTrace, deine Withings-Daten zu lesen."
+    },
+    "fitbit": {
+      "title": "Fitbit",
+      "linked_via_google": "Über Google Health verbunden",
+      "enable": "Fitbit aktivieren",
+      "local_mode_desc": "Erfordert eine Serververbindung für die OAuth-Authentifizierung…",
+      "enable_desc": "Schritte, Aktivität, Schlafphasen, Puls, HRV, SpO2…",
+      "retired_label": "Fitbit-Web-API eingestellt",
+      "retired_desc": "Die alte Fitbit-Web-API wird eingestellt…",
+      "sync_range_desc": "Wie weit die manuelle Synchronisation zurückreicht. Die automatische Synchronisation umfasst immer nur den heutigen Tag.",
+      "long_range_warn": "⚠ Große Zeiträume können mehrere Minuten dauern und an API-Limits stoßen.",
+      "relink_required": "Erneute Verknüpfung erforderlich bis 31. Mai 2026",
+      "relink_button": "Fitbit erneut verknüpfen",
+      "authorize_desc": "Autorisiere NutriTrace, deine Fitbit-Daten über Google Health zu lesen.",
+      "setup_guide_link": "Einrichtungs-Anleitung →",
+      "client_id_placeholder": "Aus Google Cloud Console → APIs & Dienste → Anmeldedaten",
+      "redirect_help": "Trage diese exakte URI in die Liste autorisierter Weiterleitungs-URIs ein",
+      "workout_history": "Trainingsverlauf",
+      "workout_history_desc": "Zeigt aufgezeichnete Trainings mit GPS-Streckenkarten im Tab „Bewegung“ an. Erfordert ein GPS-fähiges Gerät.",
+      "disconnected": "Von Fitbit getrennt",
+      "auth_start_failed": "Fitbit-Autorisierung konnte nicht gestartet werden",
+      "creds_saved": "Fitbit-Zugangsdaten gespeichert",
+      "synced_count": "{count} Messwerte für {date} synchronisiert"
+    },
+    "garmin": {
+      "title": "Garmin",
+      "enable": "Garmin aktivieren",
+      "enable_desc": "Schritte, Schlaf, Puls, HRV, SpO2, Body Battery, Stress. Erfordert eine Garmin Health API-Partnerschaft.",
+      "apply_link": "Zugang beantragen →",
+      "long_range_warn": "⚠ Die Garmin-API begrenzt verlässliche historische Daten auf ca. 6 Monate…",
+      "authorize_desc": "Autorisiere NutriTrace, deine Garmin-Daten zu lesen.",
+      "creds_desc": "OAuth-1.0a-Zugangsdaten aus deiner freigegebenen Garmin Health API-App. Die Weiterleitungs-URI muss exakt übereinstimmen.",
+      "creds_link": "API-Zugangsdaten abrufen →",
+      "consumer_key": "Consumer-Key",
+      "consumer_key_placeholder": "Dein Garmin Consumer-Key",
+      "consumer_secret": "Consumer-Secret",
+      "redirect_help": "Trage diese exakte URI in deinen Garmin-App-Einstellungen ein",
+      "disconnected": "Von Garmin getrennt",
+      "auth_start_failed": "Garmin-Autorisierung konnte nicht gestartet werden",
+      "creds_saved": "Garmin-Zugangsdaten gespeichert",
+      "synced_count": "{count} Garmin-Messwert(e) für {date} synchronisiert",
+      "sync_failed": "Garmin-Synchronisation fehlgeschlagen: "
+    },
+    "withings": {
+      "title": "Withings",
+      "enable": "Withings aktivieren",
+      "enable_desc": "Körperzusammensetzung von Waagen (Gewicht, Fettanteil, Muskel- und Knochenmasse etc.).",
+      "dashboard_link": "Entwickler-Dashboard →",
+      "long_range_warn": "⚠ Große Zeiträume können mehrere Minuten dauern und an Withings-API-Limits stoßen.",
+      "authorize_desc": "Autorisiere NutriTrace, deine Withings-Daten zu lesen.",
+      "creds_desc": "Erstelle ein Withings-Entwicklerkonto…",
+      "client_id_placeholder": "z. B. abc123def456",
+      "redirect_help": "Trage diese exakte URI in die Weiterleitungs-URL-Liste deiner Withings-App ein",
+      "disconnected": "Von Withings getrennt",
+      "auth_start_failed": "Withings-Autorisierung konnte nicht gestartet werden",
+      "creds_saved": "Withings-Zugangsdaten gespeichert",
+      "synced_count": "{count} Withings-Messwert(e) für {date} synchronisiert",
+      "sync_failed": "Withings-Synchronisation fehlgeschlagen: "
+    },
+    "hc": {
+      "title": "Health Connect",
+      "permission_granted": "Berechtigung erteilt",
+      "data_types_readable": "{n} Datentyp(en) aus Health Connect lesbar",
+      "not_installed": "Health Connect ist nicht installiert. Bitte installiere es aus dem Play Store.",
+      "not_supported": "Health Connect wird auf diesem Gerät nicht unterstützt.",
+      "not_supported_short": "Auf diesem Gerät nicht unterstützt",
+      "perms_not_granted": "Berechtigungen nicht erteilt. Bitte öffne die Health Connect-App → App-Berechtigungen → NutriTrace und aktiviere sie manuell.",
+      "perm_denied": "Berechtigungen verweigert. Bitte in der Health Connect-App manuell aktivieren.",
+      "enabled_success": "Health Connect aktiviert ({count} Datentypen)",
+      "enabled_toast": "Health Connect aktiviert ({n} Datentypen)",
+      "enable_label": "Health Connect aktivieren",
+      "enable": "Health Connect aktivieren",
+      "enable_desc": "Liest Schritte, Puls, Schlaf, Gewicht und Aktivitäten aus Android Health Connect. Daten von jedem verbundenen Wearable.",
+      "status_label": "Status",
+      "status_unsupported": "Auf diesem Gerät nicht unterstützt",
+      "mode_scheduled": "Nach Zeitplan",
+      "bg_sync_label": "Hintergrund-Synchronisation",
+      "bg_sync_desc": "Synchronisiert stündlich im Hintergrund, auch wenn die App geschlossen ist. Falls die Synchronisation stoppt, stelle unter Android-Einstellungen → Apps → NutriTrace den Akku auf „Uneingeschränkt“.",
+      "synced_count": "{count} Health Connect-Messwert(e) für {date} synchronisiert",
+      "sync_failed": "Health Connect-Synchronisation fehlgeschlagen: "
+    },
+    "lifttrace": {
+      "title": "LiftTrace",
+      "prefer_wearable": "Wearable-Daten gegenüber LiftTrace bevorzugen",
+      "prefer_wearable_desc": "Wenn LiftTrace geschätzte verbrannte Kalorien sendet…"
+    }
+  },
+  "settings_auth": {
+    "toast": {
+      "issuer_client_required": "Issuer-URL und Client-ID sind erforderlich",
+      "redirect_required": "Mindestens eine Weiterleitungs-URI ist erforderlich",
+      "provider_updated": "Anbieter aktualisiert",
+      "provider_created": "Anbieter erstellt",
+      "provider_deleted": "Anbieter gelöscht",
+      "need_active_provider": "Füge mindestens einen aktiven OIDC-Anbieter hinzu, bevor du die Passwort-Anmeldung deaktivierst.",
+      "password_login_enabled": "Passwort-Anmeldung aktiviert",
+      "password_login_disabled": "Passwort-Anmeldung deaktiviert"
+    },
+    "confirm": {
+      "delete_provider": "Anbieter „{name}“ löschen? Verknüpfte Benutzer verlieren diese Anmeldeoption.",
+      "disable_password": "Passwort-Anmeldung deaktivieren? Benutzer ohne OIDC-Verknüpfung können sich erst wieder anmelden, wenn du sie reaktivierst. RECOVERY_TOKEN funktioniert weiterhin."
+    },
+    "empty": {
+      "user_mgmt_required": "Benutzerverwaltung erforderlich",
+      "user_mgmt_required_desc": "Single Sign-On gilt für Benutzerkonten, daher muss die Benutzerverwaltung zuerst aktiviert werden. Richte sie unter Einstellungen → Benutzer ein und kehre dann hierher zurück.",
+      "admin_only": "Nur für Admins",
+      "admin_only_desc": "Nur Admins können Identitätsanbieter konfigurieren. Wende dich an die Administration dieser NutriTrace-Instanz, um dein Konto befördern zu lassen."
+    },
+    "providers": {
+      "section_title": "OIDC-Anbieter (Single Sign-On)",
+      "section_desc": "Authentik, Keycloak, Pocket ID, Authelia, Auth0, Google etc. Benutzer melden sich mit ihrem bestehenden Identitätsanbieter an.",
+      "add_provider": "+ Anbieter hinzufügen",
+      "env_lock_title": "Über Umgebungsvariablen konfiguriert; passe deine .env / docker-compose an, um Änderungen vorzunehmen",
+      "env_lock_pill": "env",
+      "test_title": "Discovery testen",
+      "readonly_title": "Über Umgebung konfiguriert, schreibgeschützt",
+      "edit_title": "Bearbeiten",
+      "delete_title": "Löschen",
+      "link_on": "an",
+      "link_off": "aus",
+      "disabled_suffix": " · deaktiviert",
+      "row_summary": "{issuer} · Verknüpfen {link} · Registrieren {register}{disabled}",
+      "empty": "Noch keine Anbieter eingerichtet. Klicke auf + Anbieter hinzufügen oder definiere sie in deiner .env mit den OIDC_*-Variablen.",
+      "discovery_ok": "Discovery erfolgreich",
+      "discovery_failed": "Discovery fehlgeschlagen"
+    },
+    "form": {
+      "provider_type": "Anbietertyp",
+      "display_name": "Anzeigename",
+      "display_name_default_ph": "Authentik / Pocket ID / Google",
+      "issuer_url": "Issuer-URL *",
+      "client_id": "Client-ID *",
+      "client_secret_new": "Client-Secret *",
+      "client_secret_edit": "Client-Secret (leer lassen, um bestehendes zu behalten)",
+      "redirect_uris": "Weiterleitungs-URIs *",
+      "add_redirect": "+ Weiterleitungs-URI hinzufügen",
+      "redirect_note": "Muss exakt mit den Angaben deines Identitätsanbieters übereinstimmen. Der Pfad lautet /api/auth/oidc/callback/<provider-id> unter deiner NutriTrace-Basis-URL.",
+      "remove_title": "Entfernen",
+      "scope": "Scope",
+      "token_auth": "Token-Endpunkt-Authentifizierungsmethode",
+      "token_auth_post": "client_secret_post (Standard)",
+      "token_auth_basic": "client_secret_basic",
+      "token_auth_none": "none (nur PKCE, öffentlicher Client)",
+      "auto_link": "Bestehende Benutzer automatisch verknüpfen (verifizierte E-Mail)",
+      "auto_link_desc": "Wenn der Identitätsanbieter email_verified=true meldet und die E-Mail mit einem bestehenden NutriTrace-Konto übereinstimmt, werden beide beim ersten Login automatisch verknüpft.",
+      "auto_register": "Neue Benutzer automatisch registrieren",
+      "auto_register_desc": "Erlaubt jeder Person mit einem Konto bei diesem Anbieter, beim ersten Login ein neues NutriTrace-Konto anzulegen. Aus = Admin muss zuerst einladen.",
+      "provider_active": "Anbieter aktiv",
+      "provider_active_desc": "Inaktive Anbieter werden auf der Login-Seite nicht angezeigt.",
+      "admin_group_claim": "Admin-Gruppen-Claim (optional)",
+      "admin_group_claim_ph": "groups",
+      "admin_group_claim_desc": "Name des Claims, der Benutzergruppen auflistet. Üblich: groups.",
+      "admin_group_value": "Admin-Gruppen-Wert (optional)",
+      "admin_group_value_ph": "NutriTraceAdmins",
+      "admin_group_value_desc": "Wenn der Gruppen-Claim diesen Wert enthält, erhält der Benutzer bei jedem Login Admin-Rechte.",
+      "logo_url": "Logo-URL (optional)",
+      "logo_url_ph": "https://…/authentik.png",
+      "cancel": "Abbrechen",
+      "saving": "Wird gespeichert…",
+      "save_changes": "Änderungen speichern",
+      "create_provider": "Anbieter erstellen"
+    },
+    "password_login": {
+      "label": "Passwort-Anmeldung erlauben",
+      "desc": "Wenn deaktiviert, melden sich Benutzer nur über OIDC an. Die Notfall-Wiederherstellung bleibt über die RECOVERY_TOKEN-Umgebungsvariable möglich.",
+      "env_locked": "Gesperrt durch die Umgebungsvariable OIDC_ENABLE_EMAIL_PASSWORD_LOGIN."
+    }
+  },
+  "settings_nutrition_import": {
+    "title": "Ernährungsverlauf importieren",
+    "desc": "Vergangene Tage aus einem anderen Tracker übernehmen. Dein bestehendes Tagebuch bleibt unberührt, außer du wählst unten „Ersetzen“.",
+    "source_app": "Quell-App",
+    "download_template": "CSV-Vorlage herunterladen",
+    "file": "Datei",
+    "choose_file": "Datei auswählen",
+    "choose_different_file": "Andere Datei auswählen",
+    "clear": "Leeren",
+    "reading": "Wird gelesen…",
+    "preview": "Vorschau",
+    "stats_items": "Einträge",
+    "stats_days": "Tage",
+    "stats_existing": "vorhanden",
+    "existing_hint": "Tage, die bereits einen Tagebucheintrag enthalten",
+    "range": "Zeitraum: {from} → {to}",
+    "unmapped_title": "Nicht zugeordnete Mahlzeiten",
+    "unmapped_desc": "Diese Bezeichnungen stimmen mit keinem deiner Mahlzeiten-Namen überein ({meals}). Sie werden in deinen letzten Mahlzeiten-Slot ({lastMeal}) importiert.",
+    "and_more": "… und {n} weitere",
+    "first_items": "Erste {n} Einträge:",
+    "dupes_days": "{n} Tag(e) enthalten bereits Einträge",
+    "dup_skip": "Überspringen",
+    "dup_skip_desc": ": bestehende Tage unverändert lassen (sicher)",
+    "dup_merge": "Zusammenführen",
+    "dup_merge_desc": ": importierte Einträge an bestehende Tage anhängen",
+    "dup_replace": "Ersetzen",
+    "dup_replace_desc": ": bestehende Tage überschreiben (unwiderruflich)",
+    "cancel": "Abbrechen",
+    "importing": "Wird importiert…",
+    "import_n": "{n} Einträge importieren",
+    "import_one": "{n} Eintrag importieren",
+    "preview_failed": "Vorschau fehlgeschlagen",
+    "import_failed": "Import fehlgeschlagen",
+    "imported_summary": "{days} Tag(e), {items} Einträge {verb}",
+    "verb_imported": "importiert",
+    "verb_merged": "zusammengeführt",
+    "verb_replaced": "ersetzt",
+    "sources": {
+      "spreadsheet_label": "Allgemeine Tabelle (CSV)",
+      "spreadsheet_hint": "Jede CSV-Datei mit mindestens den Spalten Datum, Name und Kalorien. Nutze für den einfachsten Weg unsere Vorlage.",
+      "cronometer_label": "Cronometer",
+      "cronometer_hint": "Konto → Daten exportieren → Lebensmittel- & Rezept-Einträge.",
+      "loseit_label": "Lose It!",
+      "loseit_hint": "loseit.com → Insights → Wöchentlich → In Tabelle exportieren.",
+      "mfp_label": "MyFitnessPal",
+      "mfp_hint": "Gehe auf myfitnesspal.com/reports/export, wähle einen Datumsbereich und klicke auf Exportieren."
+    }
+  },
+  "settings_email": {
+    "intro": "Wird zum Zurücksetzen von Passwörtern und für Benutzereinladungen verwendet",
+    "env_lock_banner": "Über Umgebungsvariablen konfiguriert, Änderungen sind deaktiviert.",
+    "banner": {
+      "configured": "Konfiguriert",
+      "last_test_sent": "Letzter Test gesendet",
+      "error_hint": "Prüfe Host, Zugangsdaten und Absenderadresse",
+      "send_test": "Test-E-Mail senden",
+      "no_test": "Bisher wurde kein Test gesendet",
+      "sent_to": "Gesendet an {recipient}. Nutze „Test-E-Mail senden“ jederzeit erneut zur Überprüfung.",
+      "sent_generic": "Nutze „Test-E-Mail senden“ jederzeit erneut zur Überprüfung."
+    },
+    "toast": {
+      "test_sent": "SMTP-Test-E-Mail an {recipient} gesendet",
+      "test_failed_prefix": "SMTP-Test fehlgeschlagen: {detail}",
+      "host_required": "SMTP-Test fehlgeschlagen: Host erforderlich",
+      "invalid_email": "Bitte gib eine gültige E-Mail-Adresse ein",
+      "http_prefix": "HTTP {status}",
+      "network_error": "Netzwerkfehler"
+    },
+    "form": {
+      "host": "SMTP-Host",
+      "host_ph": "z. B. smtp.example.com",
+      "port": "Port",
+      "tls": "TLS",
+      "username": "E-Mail oder Benutzername",
+      "username_ph": "SMTP-Benutzername oder E-Mail",
+      "password": "Passwort",
+      "password_ph": "SMTP-Passwort oder App-Passwort",
+      "hide": "Ausblenden",
+      "show": "Anzeigen",
+      "hide_pass_aria": "Passwort ausblenden",
+      "show_pass_aria": "Passwort anzeigen",
+      "change": "Ändern",
+      "change_pass_title": "Passwort ändern",
+      "pass_saved_hint": "Passwort gespeichert. Tippe auf Ändern, um es zu ersetzen.",
+      "from": "Absenderadresse",
+      "from_ph": "NutriTrace <noreply@example.com>",
+      "saved": "Gespeichert",
+      "saving": "Wird gespeichert…",
+      "save": "Speichern"
+    },
+    "test_dialog": {
+      "title": "Test-E-Mail senden",
+      "question": "Wohin sollen wir die Test-E-Mail senden?",
+      "recipient_ph": "du@example.com",
+      "cancel": "Abbrechen",
+      "send": "Senden"
+    }
+  },
+  "settings_api_tokens": {
+    "toast": {
+      "load_failed": "Tokens konnten nicht geladen werden",
+      "scope_required": "Mindestens eine Berechtigung (Scope) erforderlich",
+      "create_failed": "Erstellung fehlgeschlagen",
+      "revoke_failed": "Widerruf fehlgeschlagen",
+      "revoked": "Token widerrufen",
+      "copied": "Token in Zwischenablage kopiert",
+      "copy_failed": "Kopieren fehlgeschlagen. Bitte manuell auswählen und kopieren."
+    },
+    "intro_before": "Bearer-Tokens für verbundene TraceApps (LiftTrace, CookTrace",
+    "intro_middle": ") oder andere autorisierte Integrationen, um deine Daten über die Federation-API zu lesen oder zu schreiben unter",
+    "intro_dev": "(in Entwicklung)",
+    "intro_see": "Siehe",
+    "just_created": {
+      "title": "Neuer Token:",
+      "warn": "Kopiere diesen Token jetzt. Du wirst ihn danach nicht mehr sehen können.",
+      "copy": "Kopieren",
+      "saved": "Ich habe ihn gespeichert"
+    },
+    "empty": {
+      "title": "Bisher keine API-Tokens vorhanden",
+      "desc": "Erstelle einen Token, um anderen Apps Zugriff auf dein NutriTrace-Konto zu gewähren."
+    },
+    "row": {
+      "revoke_title": "Token widerrufen",
+      "last_used": "Zuletzt verwendet",
+      "never": "Nie",
+      "scopes_label": "Berechtigungen:",
+      "scopes_none": "keine",
+      "expires": "läuft ab {when}",
+      "just_now": "gerade eben",
+      "min_ago": "vor {n} Min.",
+      "hr_ago": "vor {n} Std.",
+      "day_ago": "vor {n} T."
+    },
+    "form": {
+      "scopes": "Berechtigungen (Scopes)",
+      "create": "Token erstellen",
+      "new_token": "Neuer Token",
+      "name": "Name *",
+      "name_ph": "z. B. CookTrace, mein Dashboard",
+      "expires_label": "Gültig für (Tage, optional)",
+      "expires_ph": "Leer lassen für unbegrenzte Gültigkeit",
+      "cancel": "Abbrechen",
+      "creating": "Wird erstellt…"
+    },
+    "confirm": {
+      "revoke_title": "Token „{name}“ widerrufen?",
+      "revoke_msg": "Apps, die diesen Token verwenden, funktionieren ab sofort nicht mehr. Dies kann nicht rückgängig gemacht werden; du müsstest einen neuen Token erstellen.",
+      "revoke_confirm": "Widerrufen"
+    }
+  },
+  "settings_webhooks": {
+    "intro": "Ausgehende Webhooks benachrichtigen andere Dienste sofort, wenn in NutriTrace etwas passiert (z. B. Essen geloggt, Wasser erfasst, Tagesziel erreicht). Jeder Webhook sendet einen signierten HTTP-POST-Request an eine von dir angegebene URL.",
+    "disabled_notice": "Webhooks sind auf diesem Server nicht aktiviert. Ein Webhook kann zwar angelegt werden, wird aber erst ausgeführt, wenn WEBHOOKS_ENABLED=1 gesetzt ist.",
+    "just_created": {
+      "title": "Webhook erstellt:",
+      "warn": "Kopiere diesen Sicherheitsschlüssel jetzt. Er wird nicht wieder angezeigt und du benötigst ihn zur Überprüfung der Signatur.",
+      "copy": "Kopieren",
+      "saved": "Ich habe ihn gespeichert"
+    },
+    "empty": {
+      "title": "Bisher keine Webhooks vorhanden",
+      "desc": "Erstelle einen Webhook, um externe Dienste bei Ereignissen in NutriTrace automatisch zu benachrichtigen."
+    },
+    "row": {
+      "never": "Nie",
+      "delete_title": "Webhook löschen",
+      "last_delivery": "letzte Zustellung {when}",
+      "just_now": "gerade eben",
+      "min_ago": "vor {n} Min.",
+      "hr_ago": "vor {n} Std.",
+      "day_ago": "vor {n} T.",
+      "status_success": "zugestellt",
+      "status_failed": "fehlgeschlagen",
+      "test_title": "Test-Ereignis senden",
+      "enabled_title": "Aktiviert"
+    },
+    "form": {
+      "url": "Ziel-URL (Payload-URL)",
+      "url_ph": "https://homeassistant.local/api/webhook/",
+      "events": "Ereignisse auswählen",
+      "secret_ph": "Leer lassen, um automatisch einen zu generieren",
+      "cancel": "Abbrechen",
+      "create": "Webhook erstellen",
+      "new_webhook": "Neuer Webhook",
+      "secret_label": "Sicherheitsschlüssel (optional)",
+      "creating": "Wird erstellt…"
+    },
+    "confirm": {
+      "delete_title": "Webhook löschen?",
+      "delete_msg": "Dies kann nicht rückgängig gemacht werden. Das Ziel empfängt ab sofort keine Ereignisse mehr.",
+      "delete_confirm": "Löschen"
+    },
+    "toast": {
+      "load_failed": "Webhooks konnten nicht geladen werden",
+      "url_required": "Ziel-URL ist erforderlich",
+      "deleted": "Webhook gelöscht",
+      "test_failed": "Test-Webhook fehlgeschlagen: {error}",
+      "copied": "Kopiert",
+      "event_required": "Wähle mindestens ein Ereignis aus",
+      "create_failed": "Webhook konnte nicht erstellt werden",
+      "update_failed": "Webhook konnte nicht aktualisiert werden",
+      "delete_failed": "Webhook konnte nicht gelöscht werden",
+      "test_delivered": "Test-Ereignis zugestellt",
+      "copy_failed": "Kopieren fehlgeschlagen. Bitte markiere den Text manuell."
+    }
+  },
+  "settings_import_export": {
+    "toast": {
+      "backup_exported": "Backup exportiert",
+      "backup_restored_reload": "Backup wiederhergestellt, wird neu geladen…",
+      "export_failed_prefix": "Export fehlgeschlagen: {error}",
+      "import_failed_prefix": "Import fehlgeschlagen: {error}",
+      "csv_exported": "CSV exportiert",
+      "activity_csv_exported": "Aktivitäten-CSV exportiert",
+      "imported_foods": "{n} Lebensmittel importiert",
+      "imported_foods_one": "{n} Lebensmittel importiert",
+      "imported_foods_skipped": "{n} Lebensmittel importiert ({skipped} doppelte Barcodes übersprungen)",
+      "imported_food_skipped": "{n} Lebensmittel importiert ({skipped} doppelter Barcode übersprungen)",
+      "unknown_error": "Unbekannter Fehler"
+    },
+    "actions": {
+      "export_diary_csv": "Tagebuch als CSV exportieren",
+      "export_activity_csv": "Aktivitäten als CSV exportieren",
+      "bulk_import": "Lebensmittel per Massenimport hinzufügen",
+      "bulk_import_desc": "Füge JSON ein oder lade eine CSV-Datei hoch, um mehrere Lebensmittel gleichzeitig anzulegen.",
+      "import_json": "JSON-Backup importieren",
+      "import_json_desc": "Stellt Daten aus einer zuvor exportierten JSON-Datei wieder her. Wird mit vorhandenen Daten zusammengeführt und löscht nichts.",
+      "export_json": "JSON-Backup exportieren",
+      "export_json_desc": "Leichtes, portables Format (nur JSON, ohne Bilder). Nützlich zum Teilen von Daten zwischen Konten.",
+      "export_diary_csv_desc": "Lädt deinen gesamten Tagebuch-Verlauf als Tabelle herunter. Nützlich für Excel oder Google Sheets.",
+      "export_full_nutrition_csv": "Vollständige Nährwerte als CSV exportieren",
+      "export_full_nutrition_csv_desc": "Ausführlicher Export mit Uhrzeit, Mahlzeit, Marke und jedem erfassten Nährstoff samt Einheiten.",
+      "export_activity_csv_desc": "Lädt dein gesamtes manuelles Aktivitäten-Protokoll (Name, Kalorien, Dauer, Distanz, MET) als Tabelle herunter."
+    },
+    "sections": {
+      "import": "Importieren",
+      "export": "Exportieren"
+    }
+  },
+  "settings_trace": {
+    "toast": {
+      "connected": "Trace KI verbunden, Assistent ist bereit",
+      "test_failed": "Test fehlgeschlagen",
+      "empty_response": "Keine Antwort von der KI erhalten"
+    },
+    "provider_env_locked": "Über Umgebung gesperrt",
+    "env_lock_banner": "Über Umgebungsvariablen konfiguriert, Änderungen sind deaktiviert.",
+    "labels": {
+      "enable": "KI-Assistent aktivieren",
+      "enable_desc": "Fügt allen Seiten einen schwebenden Chat-Button hinzu",
+      "provider": "Anbieter",
+      "base_url": "Basis-URL",
+      "base_url_ph": "http://localhost:11434 oder https://api.deepseek.com",
+      "base_url_desc": "Jeder OpenAI-kompatible Endpunkt (Ollama, LM Studio, DeepSeek, Groq etc.). Nur die Basis-Adresse ohne Pfad eingeben.",
+      "model": "Modell",
+      "custom_model_id": "Benutzerdefinierte Modell-ID",
+      "custom_model_hint": "Trage die genaue Modell-ID des Anbieters ein. Nutze dies, falls das gewünschte Modell nicht im Dropdown-Menü aufgeführt ist.",
+      "reliability_title": "Die Zuverlässigkeit von Tool-Aufrufen variiert je nach Modell.",
+      "reliability_body": "Llama 3.1+, Mistral und Qwen 2.5+ unterstützen diese zuverlässig. Kleinere oder ältere Modelle können Smart Log und Ziel-Erkenntnisse beeinträchtigen. Bild-Uploads (Vision) erfordern ein multimodales Modell.",
+      "api_key": "API-Schlüssel",
+      "api_key_optional_suffix": " (optional)",
+      "api_key_ph_local": "Für lokale Endpunkte (Ollama etc.) leer lassen",
+      "api_key_ph_cloud": "Füge hier deinen API-Schlüssel ein",
+      "hide": "Ausblenden",
+      "show": "Anzeigen",
+      "key_stored_device": "Dein Schlüssel wird auf diesem Gerät gespeichert.",
+      "key_stored_server": "Dein Schlüssel wird sicher auf dem Server gespeichert.",
+      "key_hint_claude": "Hole deinen Schlüssel bei",
+      "key_hint_openai": "Hole deinen Schlüssel bei",
+      "key_hint_gemini": "Hole deinen Schlüssel bei",
+      "key_hint_oai_compat": "Lokale Endpunkte (Ollama, LM Studio etc.) benötigen normalerweise keinen Schlüssel. Cloud-Anbieter wie DeepSeek oder Groq erfordern einen Schlüssel aus deren Dashboard.",
+      "assistant_name": "Name des Assistenten",
+      "assistant_name_ph": "Trace",
+      "smart_log": "Smart Log",
+      "smart_log_desc": "Assistenten-Button gedrückt halten und einsprechen, was du gegessen hast. Die KI erkennt Lebensmittel und Mahlzeit und bittet vor dem Speichern um Bestätigung.",
+      "voice_lang": "Sprache für Spracheingabe",
+      "voice_lang_desc": "Sprache, auf die das Mikrofon hört. Verwendet standardmäßig die Gerätesprache; passe dies an, wenn du in einer anderen Sprache sprichst.",
+      "trigger_words": "Signalwörter",
+      "trigger_meal": "„mein X-Gericht“ → gespeicherte Mahlzeiten",
+      "trigger_recipe": "„mein X-Rezept“ → gespeicherte Rezepte",
+      "trigger_yesterday": "„Dasselbe wie gestern zum Mittagessen“ → kopiert Einträge von gestern",
+      "smart_log_readme": "Siehe den Abschnitt zu Smart Log in der README für vollständige Beispiele und Datenschutz-Details.",
+      "activity_estimate": "Aktivitäts-Kalorien schätzen",
+      "activity_estimate_desc": "Wenn du ein Training ohne Kalorienanzahl einsprichst („Ich bin 10 km gewandert“), schätzt Trace den Verbrauch anhand deines Profils.",
+      "goal_insights": "Ziel-Erkenntnisse",
+      "goal_insights_desc": "Der Assistent analysiert deine Ernährungstrends und schlägt proaktiv Zielanpassungen vor, wenn sich feste Muster zeigen."
+    },
+    "voice_langs": {
+      "auto": "Automatisch (Gerätesprache verwenden)",
+      "en_US": "Englisch (USA)",
+      "en_GB": "Englisch (Großbritannien)",
+      "it_IT": "Italienisch",
+      "es_ES": "Spanisch (Spanien)",
+      "es_MX": "Spanisch (Mexiko)",
+      "fr_FR": "Französisch",
+      "de_DE": "Deutsch",
+      "pt_BR": "Portugiesisch (Brasilien)",
+      "pt_PT": "Portugiesisch (Portugal)",
+      "nl_NL": "Niederländisch",
+      "pl_PL": "Polnisch",
+      "ru_RU": "Russisch",
+      "sv_SE": "Schwedisch",
+      "da_DK": "Dänisch",
+      "nb_NO": "Norwegisch",
+      "fi_FI": "Finnisch",
+      "cs_CZ": "Tschechisch",
+      "tr_TR": "Türkisch",
+      "ja_JP": "Japanisch",
+      "ko_KR": "Koreanisch",
+      "zh_CN": "Chinesisch (Vereinfacht)",
+      "zh_TW": "Chinesisch (Traditionell)",
+      "hi_IN": "Hindi",
+      "ar_SA": "Arabisch"
+    }
+  },
+  "settings_backup": {
+    "toast": {
+      "backup_created": "Backup erstellt",
+      "backup_failed": "Backup fehlgeschlagen",
+      "backup_failed_prefix": "Backup fehlgeschlagen: {error}",
+      "restore_failed": "Wiederherstellung fehlgeschlagen",
+      "restore_failed_prefix": "Wiederherstellung fehlgeschlagen: {error}",
+      "restored_summary": "Backup erfolgreich wiederhergestellt ({size})",
+      "backup_deleted": "Backup gelöscht",
+      "share_failed_prefix": "Teilen fehlgeschlagen: {error}",
+      "share_saved_at": "Gespeichert unter {path}",
+      "full_backup_created": "Vollständiges Backup erstellt",
+      "cant_load_backups": "Backups konnten nicht geladen werden",
+      "upload_too_large": "Upload fehlgeschlagen: Datei überschreitet die vom Server oder Reverse-Proxy erlaubte Maximalgröße. Bei Remote-Zugriff versuche den Upload im lokalen Netzwerk.",
+      "server_error_prefix": "Serverfehler: {error}",
+      "all_data_cleared": "Alle Daten wurden gelöscht",
+      "all_settings_cleared": "Alle Einstellungen wurden zurückgesetzt",
+      "clear_failed_prefix": "Löschen fehlgeschlagen: {error}"
+    },
+    "confirm": {
+      "restore_local": "Möchtest du dieses lokale Backup wirklich wiederherstellen? Alle aktuellen Daten werden überschrieben.",
+      "delete_local": "„{name}“ löschen? Dies kann nicht rückgängig gemacht werden."
+    },
+    "share": {
+      "title": "Backup teilen",
+      "dialog_title": "NutriTrace-Backup senden"
+    },
+    "progress": {
+      "reading": "Backup wird gelesen…",
+      "percent_label": "{percent}%",
+      "restoring_backup": "Backup wird wiederhergestellt…",
+      "restore_complete": "Wiederherstellung abgeschlossen – wird neu geladen…",
+      "uploading": "Wird hochgeladen…",
+      "uploading_pct": "Wird hochgeladen… {percent}%",
+      "restoring_on_server": "Wird auf dem Server wiederhergestellt…"
+    },
+    "sections": {
+      "full_backup": "Vollständiges Backup",
+      "danger_zone": "Gefahrenbereich"
+    },
+    "full_backup": {
+      "desc_server": "Eine vollständige Momentaufnahme: alle Benutzerdaten, Tagebuch, Lebensmittel, Mahlzeiten, Rezepte, Einstellungen und hochgeladene Fotos. Wird auf dem Server gespeichert und kann jederzeit heruntergeladen oder wiederhergestellt werden.",
+      "desc_local": "Eine vollständige Momentaufnahme: alle Lebensmittel, Mahlzeiten, Rezepte, Tagebuch, Gesundheitsdaten, Trainings, Einstellungen UND Fotos. Wird im Dokumente-Ordner deines Geräts gespeichert – bereit für den Transfer von Smartphone zu Smartphone ohne Server.",
+      "auto_backup": "Automatisches Backup",
+      "env_lock_title": "Gesperrt durch Umgebungsvariablen (BACKUP_SCHEDULE / BACKUP_TIME / BACKUP_RETENTION)",
+      "env_lock_pill": "Über env gesperrt",
+      "schedule": "Zeitplan",
+      "schedule_off": "Aus",
+      "schedule_daily": "Täglich",
+      "schedule_weekly": "Wöchentlich",
+      "schedule_monthly": "Monatlich",
+      "time": "Uhrzeit",
+      "keep_last": "Letzte behalten",
+      "last_failed": "Zuletzt fehlgeschlagen am",
+      "last_success": "Zuletzt erfolgreich am",
+      "next": "Nächstes: {when}",
+      "next_when_open": "Nächstes Backup bei geöffneter App",
+      "retention_note": "Behält das {n} neueste Backup. Ältere Archive werden nach jedem Durchlauf automatisch bereinigt.",
+      "retention_note_plural": "Behält die {n} neuesten Backups; ältere Archive werden nach jedem Durchlauf automatisch bereinigt.",
+      "retention_note_local": "Behält das {n} neueste Auto-Backup; manuelle Exporte werden nie bereinigt.",
+      "retention_note_local_plural": "Behält die {n} neuesten Auto-Backups; manuelle Exporte werden nie bereinigt.",
+      "working": "Wird ausgeführt…",
+      "create": "Backup erstellen",
+      "upload_restore": "Backup hochladen & wiederherstellen",
+      "col_name": "Name",
+      "col_created": "Erstellt am",
+      "col_size": "Größe",
+      "download": "Herunterladen",
+      "restore": "Wiederherstellen",
+      "share": "Teilen",
+      "delete_title": "Löschen",
+      "empty_server": "Noch keine Backups auf dem Server vorhanden.",
+      "empty_local": "Noch keine lokalen Backups vorhanden.",
+      "min_ago": "vor {count} Min.",
+      "hr_ago": "vor {count} Std.",
+      "days_ago": "vor {n} Tagen"
+    },
+    "danger": {
+      "clear_data": "Alle Daten löschen",
+      "clear_data_desc": "Löscht alle Tagebucheinträge, Lebensmittel, Mahlzeiten und Körperwerte dauerhaft. Einstellungen und Zugangsdaten bleiben erhalten.",
+      "clear_settings": "Alle Einstellungen zurücksetzen",
+      "clear_settings_desc": "Setzt alle Einstellungen, Zugangsdaten und API-Schlüssel auf den Standard zurück. Lebensmittel- und Tagebuchdaten bleiben erhalten."
+    },
+    "dialogs": {
+      "clear_data_title": "Alle Daten löschen",
+      "clear_data_msg": "Dadurch werden alle Tagebucheinträge, Lebensmittel, Mahlzeiten und Körperwerte dauerhaft gelöscht. Einstellungen und Zugangsdaten bleiben erhalten. Dies kann nicht rückgängig gemacht werden.",
+      "clear_data_confirm": "Alle Daten löschen",
+      "clear_settings_title": "Alle Einstellungen zurücksetzen",
+      "clear_settings_msg": "Dadurch werden alle Einstellungen, Zugangsdaten und API-Schlüssel auf den Standard zurückgesetzt. Lebensmittel- und Tagebuchdaten bleiben erhalten. Dies kann nicht rückgängig gemacht werden.",
+      "clear_settings_confirm": "Alle Einstellungen zurücksetzen",
+      "restore_title": "Backup wiederherstellen?",
+      "restore_msg": "Dadurch werden alle aktuellen Daten durch die Inhalte dieses Backups ersetzt. Dies kann nicht rückgängig gemacht werden.",
+      "restore_confirm": "Wiederherstellen",
+      "upload_restore_title": "Aus hochgeladener Datei wiederherstellen?",
+      "upload_restore_msg": "Dadurch werden alle aktuellen Daten durch die Inhalte des hochgeladenen Backups ersetzt. Dies kann nicht rückgängig gemacht werden.",
+      "delete_backup_title": "Backup löschen?",
+      "delete_backup_msg": "Dieses Backup wird dauerhaft gelöscht. Dies kann nicht rückgängig gemacht werden.",
+      "delete_backup_confirm": "Löschen",
+      "cancel": "Abbrechen"
+    }
+  },
+  "settings_notifications": {
+    "toast": {
+      "test_sent": "Testnachricht gesendet",
+      "test_failed": "Senden der Testnachricht fehlgeschlagen: {error}"
+    },
+    "sections": {
+      "delivery": "Zustellung",
+      "scheduled_reminders": "Geplante Erinnerungen",
+      "alerts_summaries": "Benachrichtigungen & Zusammenfassungen"
+    },
+    "push": {
+      "configured": "Konfiguriert",
+      "send_test": "Testnachricht senden",
+      "test_failed_hint": "{provider}-Test fehlgeschlagen. Prüfe URL und Zugangsdaten unten.",
+      "device": "Geräte-Benachrichtigungen",
+      "device_desc": "Benachrichtigungen direkt auf diesem Gerät (nativ auf Android, Browser-Pop-ups auf Desktop/PWA).",
+      "push_service": "Push-Dienst",
+      "push_service_desc": "Vom Server weitergeleitete Benachrichtigungen via Apprise, Gotify oder ntfy – nützlich für PWA-Nutzer oder Home Assistant.",
+      "option_none": "Keiner",
+      "option_apprise": "Apprise",
+      "option_gotify": "Gotify",
+      "option_ntfy": "ntfy",
+      "apprise_url": "Apprise-URL",
+      "apprise_url_ph": "https://apprise.example.com",
+      "apprise_tag": "Apprise-Tag (optional)",
+      "apprise_tag_ph": "nutritrace",
+      "gotify_url": "Gotify-URL",
+      "gotify_url_ph": "https://gotify.example.com",
+      "gotify_token": "Gotify-App-Token",
+      "gotify_token_ph": "Dein Gotify-App-Token",
+      "ntfy_url": "ntfy-URL",
+      "ntfy_url_ph": "https://ntfy.sh (oder eigene Instanz)",
+      "ntfy_topic": "ntfy-Thema (Topic)",
+      "ntfy_topic_ph": "mein-nutritrace-topic",
+      "ntfy_token": "ntfy-Token (optional)",
+      "ntfy_token_ph": "tk_… (für geschützte Topics)",
+      "hide": "Ausblenden",
+      "show": "Anzeigen"
+    },
+    "reminders": {
+      "water": "Trinkerinnerungen",
+      "water_desc": "Regelmäßige Erinnerungen, ausreichend Wasser zu trinken (8:00 bis 22:00 Uhr)",
+      "interval": "Intervall",
+      "interval_1h": "Jede Stunde",
+      "interval_1_5h": "Alle 1,5 Stunden",
+      "interval_2h": "Alle 2 Stunden",
+      "interval_3h": "Alle 3 Stunden",
+      "meal": "Erinnerungen zur Mahlzeitenerfassung",
+      "meal_desc": "Tägliche Erinnerung an das Eintragen deiner Mahlzeiten.",
+      "weighin": "Wiege-Erinnerung",
+      "weighin_desc": "Morgendliche Erinnerung, auf die Waage zu steigen",
+      "weighin_time": "Wiege-Uhrzeit",
+      "bedtime": "Schlafenszeit-Erinnerung",
+      "bedtime_desc": "Erinnert dich daran, dich bettfertig zu machen.",
+      "bedtime_time": "Schlafenszeit",
+      "wind_down": "Entspannungsphase (Wind Down)",
+      "wind_down_desc": "Extra Erinnerung, dich bettfertig zu machen.",
+      "minutes_before": "Minuten vorher",
+      "min_15": "15 Minuten",
+      "min_30": "30 Minuten",
+      "min_45": "45 Minuten",
+      "min_60": "60 Minuten",
+      "min_90": "90 Minuten",
+      "smart_message": "Smarte Erinnerungs-Texte",
+      "smart_message_desc": "Passt die Erinnerung an den Schlaf der letzten Nacht an (falls erfasst)"
+    },
+    "alerts": {
+      "goals": "Zielerreichung feiern",
+      "goals_desc": "Benachrichtigung, wenn du ein Tagesziel erreichst (Kalorien, Eiweiß, Kohlenhydrate, Fett, Wasser, Schritte etc.)",
+      "steps": "Schrittziel-Fortschritt",
+      "steps_desc": "Mittägliche Erinnerung, wenn du hinter deinem Schrittziel zurückliegst.",
+      "wellness": "Gesundheits-Warnungen",
+      "wellness_desc": "Warnt bei stark sinkender HRV, abfallender Schlafqualität oder sprunghaft steigendem Ruhepuls.",
+      "workouts": "Trainings-Zusammenfassungen",
+      "workouts_desc": "Rückblick nach der Synchronisation eines Trainings (Dauer, Distanz, verbrannte Kalorien).",
+      "weekly": "Wochenrückblick",
+      "weekly_desc": "Wöchentliche Zusammenfassung mit durchschnittlichen Kalorien, Eiweiß, Schritten, Schlaf, Zielerreichungsrate und Gewichtsverlauf, zugestellt per Push-Benachrichtigung und E-Mail (falls konfiguriert)",
+      "delivery_day": "Zustelltag",
+      "delivery_time": "Uhrzeit",
+      "sync_failures": "Synchronisations-Fehler",
+      "sync_failures_desc": "Benachrichtigt dich, wenn ein Wearable oder Dienst nicht synchronisiert werden konnte.",
+      "day_sun": "Sonntag",
+      "day_mon": "Montag",
+      "day_tue": "Dienstag",
+      "day_wed": "Mittwoch",
+      "day_thu": "Donnerstag",
+      "day_fri": "Freitag",
+      "day_sat": "Samstag"
+    }
+  },
+  "wellness_page": {
+    "nav": {
+      "prev_day": "Vorheriger Tag",
+      "next_day": "Nächster Tag",
+      "jump_to_date": "Zu Datum springen"
+    },
+    "sync": {
+      "health_connect": "Health Connect synchronisieren",
+      "fitbit": "Fitbit synchronisieren",
+      "fitbit_with_user": "Fitbit synchronisieren · {user}",
+      "garmin": "Garmin synchronisieren",
+      "garmin_with_user": "Garmin synchronisieren · {user}",
+      "withings": "Withings synchronisieren",
+      "withings_with_user": "Withings synchronisieren · Benutzer {user}"
+    },
+    "empty": {
+      "no_integrations": "Keine Integrationen aktiviert",
+      "no_integrations_desc": "Aktiviere Fitbit oder Withings unter <strong>Einstellungen → Gesundheit</strong>, um Gesundheitsdaten zu synchronisieren.",
+      "no_device": "Kein Gerät verbunden",
+      "no_device_native_desc": "Verbinde dich in den <strong>Einstellungen → Serververbindung</strong> mit deinem NutriTrace-Server und verknüpfe ein Gesundheitsgerät, um deine Daten hier zu sehen.",
+      "no_device_desc": "Verbinde ein Gesundheitsgerät unter <strong>Einstellungen → Gesundheit</strong>, um mit der Aufzeichnung deiner Gesundheitsdaten zu beginnen."
+    },
+    "chip": {
+      "activity": "Aktivität",
+      "sleep": "Schlaf",
+      "heart": "Herz",
+      "body": "Körper",
+      "steps_activity": "Schritte & Aktivität",
+      "heart_hrv": "Herzfrequenz & HRV",
+      "spo2": "SpO2",
+      "breathing_rate": "Atemfrequenz"
+    },
+    "connect": {
+      "fitbit_title": "Fitbit verbinden",
+      "fitbit_desc": "Autorisiere NutriTrace, deine Fitbit-Daten über Google Health zu lesen. Du wirst zu Google weitergeleitet, um den Zugriff zu bestätigen, und anschließend hierher zurückgeführt.",
+      "fitbit_button": "Fitbit verbinden",
+      "connecting": "Wird verbunden…"
+    },
+    "metric_group": {
+      "sleep_stages": "Schlafphasen",
+      "sleep_debt": "Schlafdefizit",
+      "daily_readiness": "Tagesform",
+      "resilience": "Belastbarkeit",
+      "hrv": "HRV",
+      "resting_hr": "Ruhepuls",
+      "sleep": "Schlaf",
+      "physical_calmness": "Körperliche Ruhe",
+      "activity_balance": "Aktivitäts-Balance",
+      "sleep_patterns": "Schlafmuster"
+    },
+    "hint": {
+      "tap_sync": "Tippe auf Synchronisieren, um die neuesten Daten von deinem verbundenen Gerät abzurufen."
+    }
+  },
+  "statistics_page": {
+    "range": {
+      "last_7d": "Letzte 7 Tage",
+      "last_30d": "Letzte 30 Tage",
+      "last_90d": "Letzte 90 Tage",
+      "this_month": "Dieser Monat",
+      "last_month": "Letzter Monat",
+      "ytd": "Seit Jahresbeginn (YTD)",
+      "from": "Von",
+      "to": "Bis"
+    },
+    "summary": {
+      "average": "Durchschnitt",
+      "min": "Min.",
+      "max": "Max.",
+      "logged": "Erfasst",
+      "days_unit": "Tage"
+    },
+    "empty": {
+      "no_data": "Keine Daten für diesen Zeitraum",
+      "hint_food_metric": "Trage Mahlzeiten im Tagebuch ein, um hier Trends zu sehen",
+      "hint_wellness": "Verbinde einen Fitness-Tracker unter Einstellungen → Gesundheit",
+      "hint_other": "Keine Einträge gefunden – wähle einen anderen Datumsbereich"
+    },
+    "history_heading": "Verlauf"
+  },
+  "accept_invite": {
+    "title": "Konto erstellen",
+    "verifying": "Einladung wird überprüft…",
+    "invalid_link": "Dieser Einladungslink ist ungültig oder abgelaufen. Bitte deine Administration um einen neuen Link.",
+    "success": "Konto erstellt! Weiterleitung…",
+    "intro": "Du wurdest zu NutriTrace eingeladen. Wähle einen Benutzernamen und ein Passwort, um loszulegen.",
+    "intro_with_email": "Du wurdest als <strong>{email}</strong> eingeladen. Wähle einen Benutzernamen und ein Passwort, um loszulegen.",
+    "username_label": "Benutzername *",
+    "username_placeholder": "Wähle einen Benutzernamen",
+    "full_name_label": "Vollständiger Name (optional)",
+    "full_name_placeholder": "Dein Name",
+    "password_label": "Passwort *",
+    "confirm_label": "Passwort bestätigen *",
+    "submit": "Konto erstellen",
+    "creating": "Konto wird erstellt…",
+    "errors": {
+      "username_required": "Benutzername ist erforderlich",
+      "failed": "Konto konnte nicht erstellt werden"
     }
   }
 }
