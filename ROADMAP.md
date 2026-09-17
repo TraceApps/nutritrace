@@ -904,6 +904,48 @@ real user feedback on what (if anything) they ask for here.
 
 ---
 
+### Offline PWA editing (family-wide, after the next main release)
+
+Bring NoteTrace's browser offline model here, so the installed web app works in a
+dead zone the way the Android app does. This is set for every Trace app once the
+next main release is out.
+
+The pattern to copy (NoteTrace `src/lib/offline-api.js` + `offline-edits.js`):
+Workbox caches the app shell, an IndexedDB mirror answers reads when the server
+can't be reached, an outbox holds edits and shows them at once, new rows get
+temporary ids that are mapped to real ids after they go up, and the queue is sent
+through the existing sync push endpoint so the server merges browser edits exactly
+as it merges the phone's. A Web Lock stops two tabs sending at once and a
+BroadcastChannel keeps them in step.
+
+Deliberately NOT the Service Worker Background Sync API: Safari doesn't support
+it, and iOS is the main reason for the work. Flush from the page instead, with
+retries backing off from 3s to 30s plus `online` events.
+
+The sidebar sync pill and the amber / red colour rule are already in place here,
+so the state has somewhere to show.
+
+iOS caveats to plan for: Safari evicts site data after about 7 days of no use
+unless the PWA is on the Home Screen, so queued-but-unsent work needs to be
+visible and installing needs a nudge.
+
+NutriTrace specifics:
+
+- Eight entity types to cover (foods, meals, diary, activity, fasts, wellness,
+  workouts, settings), against NoteTrace's three. Same shape of work, bigger surface.
+- The sync engine already maps `client_id` to `server_id` on push, which is the
+  hard half of the id problem.
+- Still online afterwards: Open Food Facts search and barcode lookup (they call
+  OFF directly), meal photo uploads, wellness provider pulls (Fitbit, Garmin,
+  Withings, Google Health), Trace AI, and anything admin.
+- Because of that, offline search has to fall back to the user's own catalog and
+  recents, or "log a meal in a dead zone" only half works.
+- First slice: read the diary and log from foods you already have, with the queue
+  and its indicator. Photos and offline food search come after.
+- Asked for in issue #211 (PWA offline support for iPhone users).
+
+---
+
 ## Pre-1.0 Public Release: TODO
 
 Items to land before flipping `traceapps/nutritrace` public and submitting to Play Store:
