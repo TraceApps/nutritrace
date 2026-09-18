@@ -823,7 +823,7 @@
   },
   "trace": {
     "panel_label": "KI-Coach-Chat",
-    "ask_placeholder": "Frag mich alles…",
+    "ask_placeholder": "Frag mich etwas…",
     "clear_conversation": "Unterhaltung leeren",
     "clear_confirm_title": "Diese Unterhaltung leeren?",
     "clear_confirm_message": "Nachrichten in dieser Unterhaltung werden gelöscht. Dies kann nicht rückgängig gemacht werden.",
@@ -1070,7 +1070,7 @@
     "username": "Benutzername",
     "password": "Passwort",
     "admin_section": "Admin",
-    "enable_sharing": "Lebensmittel teilen aktivieren",
+    "enable_sharing": "Lebensmittel-Freigabe aktivieren",
     "bulk_share": "Massenfreigabe",
     "vis_private": "Privat",
     "vis_group": "Alle",
@@ -1326,7 +1326,7 @@
       "label_read_failed": "Tabelle konnte nicht gelesen werden. Bitte versuche es mit einem deutlicheren Foto.",
       "nutrition_extracted": "Nährwerte aus Tabelle erkannt",
       "scan_failed": "Scan fehlgeschlagen: {error}",
-      "saved_copy": "Eine Kopie in deinem Katalog gespeichert",
+      "saved_copy": "Eine Kopie in deinen Katalog gespeichert",
       "save_copy_failed": "Kopie konnte nicht gespeichert werden: {error}",
       "save_failed": "Speichern fehlgeschlagen: {error}",
       "unknown_error": "Unbekannter Fehler"
@@ -1767,7 +1767,7 @@
       "just_now": "gerade eben",
       "min_ago": "vor {n} Min",
       "hr_ago": "vor {n} Std",
-      "day_ago": "vor {n} T"
+      "day_ago": "vor {n} Tagen"
     },
     "form": {
       "scopes": "Berechtigungen (Scopes)",
@@ -1806,7 +1806,7 @@
       "just_now": "gerade eben",
       "min_ago": "vor {n} Min",
       "hr_ago": "vor {n} Std",
-      "day_ago": "vor {n} T",
+      "day_ago": "vor {n} Tagen",
       "status_success": "zugestellt",
       "status_failed": "fehlgeschlagen",
       "test_title": "Test-Ereignis senden",
@@ -1903,9 +1903,9 @@
       "show": "Anzeigen",
       "key_stored_device": "Dein Schlüssel wird auf diesem Gerät gespeichert.",
       "key_stored_server": "Dein Schlüssel wird sicher auf dem Server gespeichert.",
-      "key_hint_claude": "Hole deinen Schlüssel bei",
-      "key_hint_openai": "Hole deinen Schlüssel bei",
-      "key_hint_gemini": "Hole deinen Schlüssel bei",
+      "key_hint_claude": "Schlüssel abrufen unter",
+      "key_hint_openai": "Schlüssel abrufen unter",
+      "key_hint_gemini": "Schlüssel abrufen unter",
       "key_hint_oai_compat": "Lokale Endpunkte (Ollama, LM Studio etc.) benötigen normalerweise keinen Schlüssel. Cloud-Anbieter wie DeepSeek oder Groq erfordern einen Schlüssel aus deren Dashboard.",
       "assistant_name": "Name des Assistenten",
       "assistant_name_ph": "Trace",
@@ -1975,8 +1975,8 @@
       "delete_local": "„{name}“ löschen? Dies kann nicht rückgängig gemacht werden."
     },
     "share": {
-      "title": "Backup teilen",
-      "dialog_title": "NutriTrace-Backup senden"
+      "title": "NutriTrace-Backup",
+      "dialog_title": "Backup teilen"
     },
     "progress": {
       "reading": "Backup wird gelesen…",
