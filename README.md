@@ -189,7 +189,7 @@ Start translating at [hosted.weblate.org/projects/nutritrace/](https://hosted.we
 
 NutriTrace is free to self-host and always will be. No paid tier, nothing behind a donation, no telemetry. It's built and maintained by one person.
 
-**The current goal is iOS.** None of the Trace apps run properly on an iPhone, because building and testing for iOS needs Apple hardware: a Mac ($600), a used iPhone ($500), the Apple Developer Program ($99 a year), and a Google Play developer account ($25, so the Android apps can go on Play too). With tax and payment fees that's about $1,300, and the full breakdown is on the [Support page](https://traceapps.github.io/docs/support/).
+**The current goal is iOS.** None of the Trace apps run properly on an iPhone, because building and testing for iOS needs Apple hardware, plus the developer accounts for both app stores. That comes to about $1,300, and the itemised breakdown is on the [Support page](https://traceapps.github.io/docs/support/).
 
 Helping doesn't have to cost anything: starring the repo, reporting bugs with detail, and translating all count, and stars are how self-hosted projects get found.
 
