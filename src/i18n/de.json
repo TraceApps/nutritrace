@@ -83,7 +83,11 @@
       "mobile_data": "Du bist über mobile Daten verbunden. Dieser Server erfordert möglicherweise dein Heim-WLAN oder ein VPN.",
       "check_connection": "Prüfe dein WLAN, dein VPN oder deinen Server.",
       "saved_locally": "Deine Änderungen sind lokal gespeichert und werden automatisch synchronisiert."
-    }
+    },
+    "synced": "Synchronisiert",
+    "sync_offline": "Offline",
+    "sync_failing": "Server kann nicht erreicht werden",
+    "not_synced": "Noch nicht synchronisiert"
   },
   "settings": {
     "appearance": {
@@ -1090,7 +1094,8 @@
     "server_open_source": "Open Source",
     "server_license": "(AGPL-3.0)",
     "translations_from": "Übersetzungen ermöglicht durch",
-    "support_dev": "Entwicklung unterstützen"
+    "support_dev": "Entwicklung unterstützen",
+    "support_note": "NutriTrace kann immer kostenlos selbst gehostet werden. Das aktuelle Ziel ist ein Mac und ein iPhone, damit die Trace-Apps einwandfrei auf iOS laufen können."
   },
   "settings_merge": {
     "title": "Synchronisations-Optionen",
