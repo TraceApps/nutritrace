@@ -115,7 +115,7 @@
       "show_quick_calories": "Schaltfläche für schnelle Kalorien anzeigen",
       "show_quick_calories_desc": "Fügt jeder Mahlzeit ein Blitz-Symbol hinzu, um schnell nur Kalorien einzutragen (ohne Lebensmittel oder Portionsangabe). Nützlich, wenn du die Kalorienmenge kennst, aber das Lebensmittel nicht einzeln erfassen möchtest, oder wenn du schnelle Kalorien wie bei Fitbit gewohnt bist.",
       "quick_calories_display": "Anzeige der schnellen Kalorien",
-      "quick_calories_display_desc": "Wie mehrere schnelle Kalorieneinträge in derselben Mahlzeit im Tagebuch dargestellt werden. \"Zusammengefasst\" fasst sie in einer Zeile zusammen; \"Getrennt\" zeigt jeden Eintrag in einer eigenen Zeile an.",
+      "quick_calories_display_desc": "Wie mehrere schnelle Kalorieneinträge in derselben Mahlzeit im Tagebuch dargestellt werden. „Zusammengefasst“ fasst sie in einer Zeile zusammen; „Getrennt“ zeigt jeden Eintrag in einer eigenen Zeile an.",
       "quick_calories_summed": "Zusammengefasst",
       "quick_calories_separate": "Getrennt"
     },
@@ -207,11 +207,11 @@
       "delete_user_title": "{name} löschen?",
       "delete_user_message": "Alle Daten dieses Benutzers (Lebensmittel, Mahlzeiten, Tagebucheinträge, Einstellungen) werden gelöscht. Dies kann nicht rückgängig gemacht werden.",
       "delete": "Löschen",
-      "promote_title": "{name} befördern?",
+      "promote_title": "{name} hochstufen?",
       "promote_message": "Die Person kann danach Benutzer, Freigaben, E-Mail-Einstellungen und OIDC-Anbieter verwalten.",
-      "promote_confirm": "Befördern",
+      "promote_confirm": "Hochstufen",
       "demote_title": "{name} zurückstufen?",
-      "demote_message": "Die Person verliert den Admin-Zugriff. Du kannst sie später wieder befördern.",
+      "demote_message": "Die Person verliert den Admin-Zugriff. Du kannst sie später wieder hochstufen.",
       "demote_confirm": "Zurückstufen",
       "reset_password": "Passwort zurücksetzen",
       "reset_password_prompt": "Neues Passwort für {name} festlegen\n\n(Mindestens 8 Zeichen mit Groß- und Kleinbuchstaben, Zahl und Sonderzeichen.)",
@@ -332,7 +332,7 @@
     "auto_check_desc": "Im Hintergrund nach neuen Versionen suchen.",
     "interval": {
       "label": "Suchhäufigkeit",
-      "desc": "Wie oft die geöffnete App nach neuen Versionen sucht. \"Nur manuell\" schaltet alle automatischen Prüfungen ab.",
+      "desc": "Wie oft die geöffnete App nach neuen Versionen sucht. „Nur manuell“ schaltet alle automatischen Prüfungen ab.",
       "hourly": "Stündlich",
       "every_4h": "Alle 4 Stunden",
       "every_12h": "Alle 12 Stunden",
@@ -396,7 +396,7 @@
     "sso_or": "oder",
     "no_signin_methods": "Keine Anmeldemethoden verfügbar. Bitte wende dich an deine Administration.",
     "biometric": {
-      "sign_in_button": "Biometrische Authentifizierung",
+      "sign_in_button": "Mit Biometrie anmelden",
       "prompt": "Bei NutriTrace anmelden",
       "no_saved": "Keine Zugangsdaten hinterlegt. Bitte melde dich zuerst einmal mit deinem Passwort an.",
       "expired": "Deine gespeicherten Anmeldedaten sind abgelaufen. Bitte melde dich mit deinem Passwort an.",
@@ -548,7 +548,7 @@
       "title": "Einheiten",
       "desc": "In welchen Einheiten möchtest du messen?",
       "metric": "Metrisch",
-      "imperial": "Imperial"
+      "imperial": "Imperiales System"
     },
     "gender": {
       "title": "Was ist dein Geschlecht?",
@@ -617,7 +617,7 @@
       "add": "Hinzufügen",
       "adding": "Wird hinzugefügt…",
       "cancel": "Abbrechen",
-      "summed_hint": "Auf \"Getrennt\" umstellen, um einzelne Einträge zu bearbeiten"
+      "summed_hint": "Auf „Getrennt“ umstellen, um einzelne Einträge zu bearbeiten"
     },
     "nav": {
       "previous_day": "Vorheriger Tag",
@@ -862,7 +862,7 @@
       "help_best_weigh": "<strong>Wiege dich regelmäßig</strong> – täglich ist am besten, jeder zweite Tag ist in Ordnung. Einzelne Tage werden interpoliert, aber mehr Messungen liefern ein genaueres Ergebnis. Eine verbundene Waage (Withings, Fitbit, Garmin, Health Connect) funktioniert automatisch; manuelle Einträge in den Körperwerten klappen genauso.",
       "help_best_log": "<strong>Erfasse dein Essen lückenlos:</strong> Fehlende Tage fließen nicht in die Berechnung ein. Wenn du nur jeden zweiten Tag loggst, wird die Schätzung ungenau.",
       "help_best_switch": "<strong>Wechsle dein Ziel nicht mitten im Zeitraum:</strong> Der gleitende 35-Tage-Durchschnitt pendelt sich über Zeit ein. Wenn du wöchentlich zwischen Diät und Aufbau wechselst, hinkt der berechnete TDEE hinterher.",
-      "help_best_reweigh": "<strong>Wiege dich unter gleichen Bedingungen</strong> Morgens direkt nach dem Aufstehen, nach dem Toilettengang, vor dem Essen oder Trinken. Tägliche Schwankungen sind meist nur Wasser; entscheidend ist der Trend.",
+      "help_best_reweigh": "<strong>Wiege dich unter gleichen Bedingungen:</strong> Morgens direkt nach dem Aufstehen, nach dem Toilettengang, vor dem Essen oder Trinken. Tägliche Schwankungen sind meist nur Wasser; entscheidend ist der Trend.",
       "help_caveats": "<strong>Einschränkungen:</strong> Große Aktivitätsänderungen (mit Laufen begonnen, Bein gebrochen) spiegeln sich erst nach etwa 2 Wochen wider. Urlaubswochen mit unvollständig erfasstem Essen können die Schätzung nach oben verfälschen. Der berechnete TDEE wird mit deinem Zielfaktor multipliziert (Abnehmen -20 % / Halten / Zunehmen +20 %), um dein tägliches Ziel zu ermitteln."
     },
     "empty": {
@@ -946,12 +946,12 @@
     "goal_pulse": "Balken-Animation bei Zielerreichung",
     "goal_pulse_desc": "Lässt den Nährwertbalken im Tagebuch pulsieren, sobald du ein Tagesziel erreichst. Push-Benachrichtigungen bei Zielerreichung findest du unter Benachrichtigungen.",
     "page_banners": "Seiten-Banner",
-    "page_banners_desc": "Kopfzeilen-Stil am oberen Rand jeder Seite. \"Animiert\" ist ein kompakter Akzent-Farbverlauf mit ausgewähltem Bewegungseffekt, \"Farbverlauf\" ist derselbe Balken statisch, \"Aus\" ist ein schlichter Glas-Header.",
+    "page_banners_desc": "Kopfzeilen-Stil am oberen Rand jeder Seite. „Animiert“ ist ein kompakter Akzent-Farbverlauf mit ausgewähltem Bewegungseffekt, „Farbverlauf“ ist derselbe Balken statisch, „Aus“ ist ein schlichter Glas-Header.",
     "banner_animated": "Animiert",
     "banner_gradient": "Farbverlauf",
     "banner_off": "Aus",
     "anim_style": "Animationsstil",
-    "anim_style_desc": "Schimmern ist ein sanfter weißer Lichtstreif, Driften eine langsame Farbdrehung, Pulsieren ein sanftes Atmen, Aurora eine weiche, akzentuierte Lichtwolke. Alle Einstellungen respektieren \"Bewegung reduzieren\".",
+    "anim_style_desc": "Schimmern ist ein sanfter weißer Lichtstreif, Driften eine langsame Farbdrehung, Pulsieren ein sanftes Atmen, Aurora eine weiche, akzentuierte Lichtwolke. Alle Einstellungen respektieren „Bewegung reduzieren“.",
     "anim_shimmer": "Schimmern",
     "anim_drift": "Driften",
     "anim_pulse": "Pulsieren",
@@ -973,7 +973,7 @@
     "ask_quantity": "Beim Hinzufügen nach Menge fragen",
     "ask_quantity_desc": "Vor dem Hinzufügen nach der Portionsgröße fragen (andernfalls wird der Standardwert des Lebensmittels verwendet)",
     "unit_metadata": "Einheiten-Metadaten anzeigen",
-    "unit_metadata_desc": "Fügt drei Felder im Lebensmittel-Editor hinzu: Nährwertbasis (pro 100 g vs. pro 100 ml), Portions-Einheiten (1 Scheibe = 35 g, 1 Flasche = 500 ml etc.) und Dichte (g/ml) für exakte Flüssigkeitsberechnungen. Zeigt außerdem Portions-Schnellauswahl-Chips im Tagebuch-Dialog an. Deaktiviert lassen, wenn nicht benötigt.",
+    "unit_metadata_desc": "Fügt drei Felder im Lebensmittel-Editor hinzu: Nährwertbasis (pro 100 g vs. pro 100 ml), Portions-Einheiten (1 Scheibe = 35 g, 1 Flasche = 500 ml etc.) und Dichte (g/ml) für exakte Flüssigkeitsberechnungen bei Mengenangaben in Gramm. Zeigt außerdem Portions-Schnellauswahl-Chips im Tagebuch sowie den Zusatz „pro 100 g/ml“ in Lebensmittelzeilen an. Standardmäßig deaktiviert.",
     "warn_conversions": "Vor Einheiten-Umrechnungen warnen",
     "warn_conversions_desc": "Warnung anzeigen, wenn Gramm bei Lebensmitteln mit ml-Angabe gewählt wird (oder umgekehrt), ohne dass eine Dichte hinterlegt ist. Standardmäßig wird 1 ml ≈ 1 g angenommen, was bei Ölen, Honig etc. ungenau ist.",
     "show_portion": "Portionsgröße anzeigen",
@@ -981,7 +981,7 @@
     "show_daily_notes": "Tagesnotizen anzeigen",
     "show_daily_notes_desc": "Freitext-Bereich für Notizen am Ende des Tagebuchs für jeden Tag",
     "show_completion": "Tagesabschluss anzeigen",
-    "show_completion_desc": "Fügt der Datumsleiste ein Häkchen hinzu, um Tage abzuschließen. Abgeschlossene Tage werden im Kalender und in den Statistiken grün markiert.",
+    "show_completion_desc": "Fügt der Datumsleiste ein Häkchen hinzu, um Tage abzuschließen, wenn alles eingetragen ist. Abgeschlossene Tage zeigen ein grünes Häkchen in der Wochenleiste, der Datumsauswahl und den Statistiken. Fügt außerdem ein Häkchen auf jeder Mahlzeiten-Karte hinzu und bestätigt leere Mahlzeiten vor dem Tagesabschluss. Standardmäßig deaktiviert.",
     "show_quick_cals": "Schaltfläche für schnelle Kalorien anzeigen",
     "show_quick_cals_desc": "Fügt jeder Mahlzeit ein Blitz-Symbol hinzu, um schnell nur Kalorien einzutragen (ohne Lebensmittel oder Portionsangabe). Nützlich, wenn du die Kalorienmenge kennst, aber das Lebensmittel nicht einzeln erfassen möchtest.",
     "quick_cals_display": "Anzeige der schnellen Kalorien",
@@ -991,7 +991,7 @@
     "show_activity": "Aktivitätsbereich anzeigen",
     "show_activity_desc": "Ein Bereich für Aktivitäten im Tagebuch zum Erfassen von Training. Jeder Eintrag hat einen Namen und verbrannte Kalorien. Nützlich, wenn du keine Smartwatch verbunden hast.",
     "adjust_calorie_goal": "Kalorienziel durch Aktivitäten anpassen",
-    "adjust_calorie_goal_desc": "Erhöht dein verbleibendes Kalorienziel um verbrannte Kalorien. Bei Deaktivierung bleibt dein Ziel unverändert.",
+    "adjust_calorie_goal_desc": "Wenn aktiviert, erhöht der heutige Kalorienverbrauch (manuell + Wearable gemäß Richtlinie) dein verbleibendes Kalorienbudget für den Tag („Earn-Back“-Modell). Bei Deaktivierung werden Aktivitäten weiterhin erfasst und angezeigt, dein Ziel bleibt jedoch auf dem Basiswert.",
     "policy_wearable_wins": "Wearable hat Vorrang",
     "policy_wearable_desc": ": Manuelle Einträge werden angezeigt, verändern aber nicht das Kalorienziel (kein Risiko von Doppelzählungen).",
     "policy_manual_wins": "Manuell hat Vorrang",
@@ -1544,7 +1544,7 @@
       "status_unsupported": "Auf diesem Gerät nicht unterstützt",
       "mode_scheduled": "Nach Zeitplan",
       "bg_sync_label": "Hintergrund-Synchronisation",
-      "bg_sync_desc": "Synchronisiert stündlich im Hintergrund, auch wenn die App geschlossen ist. Falls die Synchronisation stoppt, stelle unter Android-Einstellungen → Apps → NutriTrace den Akku auf „Uneingeschränkt“.",
+      "bg_sync_desc": "Synchronisiert stündlich im Hintergrund, auch wenn die App geschlossen ist. Falls die Synchronisation stoppt, stelle unter Android-Einstellungen → Apps → NutriTrace den Akku auf „Uneingeschränkt“. Bei einigen Herstellern (Samsung, Xiaomi, OnePlus) muss NutriTrace zusätzlich zur Ausnahmeliste für den Standby-Modus oder den Autostart hinzugefügt werden.",
       "synced_count": "{count} Health Connect-Messwert(e) für {date} synchronisiert",
       "sync_failed": "Health Connect-Synchronisation fehlgeschlagen: "
     },
@@ -1573,7 +1573,7 @@
       "user_mgmt_required": "Benutzerverwaltung erforderlich",
       "user_mgmt_required_desc": "Single Sign-On gilt für Benutzerkonten, daher muss die Benutzerverwaltung zuerst aktiviert werden. Richte sie unter Einstellungen → Benutzer ein und kehre dann hierher zurück.",
       "admin_only": "Nur für Admins",
-      "admin_only_desc": "Nur Admins können Identitätsanbieter konfigurieren. Wende dich an die Administration dieser NutriTrace-Instanz, um dein Konto befördern zu lassen."
+      "admin_only_desc": "Nur Admins können Identitätsanbieter konfigurieren. Wende dich an die Administration dieser NutriTrace-Instanz, um dein Konto zum Administrator hochstufen zu lassen."
     },
     "providers": {
       "section_title": "OIDC-Anbieter (Single Sign-On)",
@@ -1613,7 +1613,7 @@
       "auto_link": "Bestehende Benutzer automatisch verknüpfen (verifizierte E-Mail)",
       "auto_link_desc": "Wenn der Identitätsanbieter email_verified=true meldet und die E-Mail mit einem bestehenden NutriTrace-Konto übereinstimmt, werden beide beim ersten Login automatisch verknüpft.",
       "auto_register": "Neue Benutzer automatisch registrieren",
-      "auto_register_desc": "Erlaubt jeder Person mit einem Konto bei diesem Anbieter, beim ersten Login ein neues NutriTrace-Konto anzulegen. Aus = Admin muss zuerst einladen.",
+      "auto_register_desc": "Erlaubt jeder Person mit einem Konto bei diesem Anbieter, beim ersten Login ein neues NutriTrace-Konto anzulegen. Aus = Admin muss zuerst einladen. Bei geteilten Anbietern (Google, Firmen-SSO) deaktiviert lassen, außer es soll ein offener Beitritt für alle gelten.",
       "provider_active": "Anbieter aktiv",
       "provider_active_desc": "Inaktive Anbieter werden auf der Login-Seite nicht angezeigt.",
       "admin_group_claim": "Admin-Gruppen-Claim (optional)",
@@ -1860,7 +1860,7 @@
       "export_diary_csv": "Tagebuch als CSV exportieren",
       "export_activity_csv": "Aktivitäten als CSV exportieren",
       "bulk_import": "Lebensmittel per Massenimport hinzufügen",
-      "bulk_import_desc": "Füge JSON ein oder lade eine CSV-Datei hoch, um mehrere Lebensmittel gleichzeitig anzulegen.",
+      "bulk_import_desc": "Füge JSON ein oder lade eine CSV-Datei hoch, um mehrere Lebensmittel gleichzeitig anzulegen. Nützlich für Lebensmittel, die nicht bei Open Food Facts vorhanden sind. Eine Vorlage wird bereitgestellt, damit eine KI Nährwertdaten in das richtige Format überführen kann.",
       "import_json": "JSON-Backup importieren",
       "import_json_desc": "Stellt Daten aus einer zuvor exportierten JSON-Datei wieder her. Wird mit vorhandenen Daten zusammengeführt und löscht nichts.",
       "export_json": "JSON-Backup exportieren",
@@ -1910,7 +1910,7 @@
       "assistant_name": "Name des Assistenten",
       "assistant_name_ph": "Trace",
       "smart_log": "Smart Log",
-      "smart_log_desc": "Assistenten-Button gedrückt halten und einsprechen, was du gegessen hast. Die KI erkennt Lebensmittel und Mahlzeit und bittet vor dem Speichern um Bestätigung",
+      "smart_log_desc": "Assistenten-Button gedrückt halten und einsprechen, was du gegessen hast. Die KI erkennt Lebensmittel und Mahlzeit und bittet vor dem Speichern um Bestätigung.",
       "voice_lang": "Sprache für Spracheingabe",
       "voice_lang_desc": "Sprache, auf die das Mikrofon hört. Verwendet standardmäßig die Gerätesprache; passe dies an, wenn du in einer anderen Sprache sprichst.",
       "trigger_words": "Signalwörter",
@@ -1919,7 +1919,7 @@
       "trigger_yesterday": "„Dasselbe wie gestern zum Mittagessen“ → kopiert Einträge von gestern",
       "smart_log_readme": "Siehe den Abschnitt zu Smart Log in der README für vollständige Beispiele und Datenschutz-Details.",
       "activity_estimate": "Aktivitäts-Kalorien schätzen",
-      "activity_estimate_desc": "Wenn du ein Training ohne Kalorienanzahl einsprichst („Ich bin 10 km gewandert“), schätzt Trace den Verbrauch anhand deines Profils.",
+      "activity_estimate_desc": "Wenn du ein Training über Trace ohne Kalorienanzahl erfasst („Ich bin 10 km gewandert“), schätzt Trace den Verbrauch anhand deines Körperprofils. Für die Schätzung müssen Gewicht, Größe, Alter und Geschlecht hinterlegt sein; fehlen Angaben, fragt Trace stattdessen nach der Kalorienanzahl.",
       "goal_insights": "Ziel-Erkenntnisse",
       "goal_insights_desc": "Der Assistent analysiert deine Ernährungstrends und schlägt proaktiv Zielanpassungen vor, wenn sich feste Muster zeigen"
     },
@@ -1971,7 +1971,7 @@
       "clear_failed_prefix": "Löschen fehlgeschlagen: {error}"
     },
     "confirm": {
-      "restore_local": "\"{name}\" wiederherstellen? Bestehende Daten werden zusammengeführt, nicht gelöscht.",
+      "restore_local": "„{name}“ wiederherstellen? Bestehende Daten werden zusammengeführt, nicht gelöscht.",
       "delete_local": "„{name}“ löschen? Dies kann nicht rückgängig gemacht werden."
     },
     "share": {
@@ -2107,8 +2107,8 @@
       "bedtime": "Schlafenszeit-Erinnerung",
       "bedtime_desc": "Erinnert dich daran, dich bettfertig zu machen",
       "bedtime_time": "Schlafenszeit",
-      "wind_down": "Entspannungsphase (Wind Down)",
-      "wind_down_desc": "Extra Erinnerung, dich bettfertig zu machen",
+      "wind_down": "Erinnerung zum Entspannen",
+      "wind_down_desc": "Sanfte Erinnerung vor der Schlafenszeit, um zur Ruhe zu kommen",
       "minutes_before": "Minuten vorher",
       "min_15": "15 Minuten",
       "min_30": "30 Minuten",
