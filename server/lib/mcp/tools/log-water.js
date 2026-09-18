@@ -7,7 +7,7 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { DATE_RE, safeJson, todayLocal, toolResult, toolError } from '../_util.js';
+import { DATE_RE, safeJson, todayLocal, toolResult, toolError, isCalendarDate } from '../_util.js';
 import { mutateDiaryDay, DiaryTombstonedError } from '../_diary-write.js';
 import { dispatchWebhookEvent } from '../../webhooks.js';
 import { checkWaterGoalCrossing } from '../../goal-webhook.js';
@@ -34,7 +34,7 @@ function _formatTime(date, use24) {
  */
 export function logWaterCore(userId, { amount_ml, date, time } = {}) {
   const day = date || todayLocal();
-  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+  if (!isCalendarDate(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
   if (time && !TIME_RE.test(time)) {
     throw new Error(
       `Invalid time '${time}'; expected "h:mm AM/PM" (e.g. "9:15 AM") or "HH:mm" (e.g. "21:15").`

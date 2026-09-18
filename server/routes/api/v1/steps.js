@@ -25,11 +25,14 @@ router.use((req, res, next) => {
 
 router.get('/', requireScope('mcp:read'), wrap((req, res) => {
   try {
-    res.json(getStepsCore(req.apiUser.id, {
+    const result = getStepsCore(req.apiUser.id, {
       start: req.query.start,
       end: req.query.end,
       source: req.query.source,
-    }));
+    });
+    // A bad range comes back as { error }, which is a client error, not a result.
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

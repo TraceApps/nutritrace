@@ -10,7 +10,7 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { DATE_RE, safeJson, todayLocal, toolResult, toolError } from '../_util.js';
+import { DATE_RE, safeJson, todayLocal, toolResult, toolError, isCalendarDate } from '../_util.js';
 import { mutateDiaryDay, DiaryTombstonedError } from '../_diary-write.js';
 import { dispatchWebhookEvent } from '../../webhooks.js';
 import { checkNutritionGoalCrossing } from '../../goal-webhook.js';
@@ -23,7 +23,7 @@ import { dailyTotalsCore } from './daily-totals.js';
  */
 export function logMealCore(userId, { meal_id, date, meal } = {}) {
   const day = date || todayLocal();
-  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+  if (!isCalendarDate(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
 
   const savedMeal = db.prepare(
     `SELECT id, name, items, is_recipe

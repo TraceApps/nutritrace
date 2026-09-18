@@ -10,7 +10,7 @@
  * mirrors the client-side saveBodyStats() contract.
  */
 import { z } from 'zod';
-import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
+import { DATE_RE, todayLocal, toolResult, toolError, isCalendarDate } from '../_util.js';
 import { mutateDiaryDay, DiaryTombstonedError } from '../_diary-write.js';
 import { dispatchWebhookEvent } from '../../webhooks.js';
 
@@ -54,7 +54,7 @@ const ALLOWED_STATS = new Set(Object.keys(STAT_RANGES));
  */
 export function logBodyStatCore(userId, { stats, date } = {}) {
   const day = date || todayLocal();
-  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+  if (!isCalendarDate(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
 
   const clean = {};
   const rejected = [];

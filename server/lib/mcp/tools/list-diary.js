@@ -14,7 +14,7 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { DATE_RE, safeJson, todayLocal, toolResult, toolError } from '../_util.js';
+import { DATE_RE, safeJson, todayLocal, toolResult, toolError, isCalendarDate } from '../_util.js';
 
 /**
  * Core lookup, shared by the MCP tool below and the public REST API at
@@ -23,7 +23,7 @@ import { DATE_RE, safeJson, todayLocal, toolResult, toolError } from '../_util.j
  */
 export function listDiaryCore(userId, { date } = {}) {
   const day = date || todayLocal();
-  if (!DATE_RE.test(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+  if (!isCalendarDate(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
 
   const row = db.prepare(
     `SELECT items FROM diary

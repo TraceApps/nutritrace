@@ -48,7 +48,8 @@ Each token is limited to 60 requests per minute by default
 
 ## Errors
 
-A bad request (an invalid date, a meal id with no match) returns `400`
+A bad request (a malformed date, a date that doesn't exist such as
+`2026-02-31`, a reversed date range, a meal id with no match) returns `400`
 with `{"error": "..."}`. A missing or invalid token returns `401`; a
 token lacking the required scope returns `403`.
 
@@ -62,7 +63,7 @@ token lacking the required scope returns `403`.
 | GET | `/api/v1/diary/:date/totals` | Summed nutrition (calories, macros, any micronutrients present) plus total water for that day. |
 | GET | `/api/v1/goals` | The user's current macro/micronutrient/water goal targets. |
 | GET | `/api/v1/meals/search?query=&limit=&include_recipes=` | Search the saved meals catalog by name, or list all when `query` is omitted. Recipes excluded by default. |
-| GET | `/api/v1/meals/recent?limit=&include_recipes=` | Most-recently-used saved meals. |
+| GET | `/api/v1/meals/recent?limit=&include_recipes=&start=&end=` | Most-recently-used saved meals. Optional inclusive `YYYY-MM-DD` `start`/`end` filter by the date each meal was last used; either can be left out. |
 | GET | `/api/v1/meals/:id` | One saved meal's full contents, including every item. |
 | GET | `/api/v1/steps?start=&end=&source=` | Persisted daily step observations from wellness data, one row per source. Inclusive `YYYY-MM-DD` bounds; a supplied bound leaves the other side open, both omitted means the last 90 days. `source` filters to one provider. Sources are never merged and missing days are not zeros. |
 | GET | `/api/v1/profile` | The user's gender and date of birth as set on the Profile page or during onboarding. Either field is `null` when unset. |

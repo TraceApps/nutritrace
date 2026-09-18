@@ -68,8 +68,11 @@ export function toolResult(payload) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-function isCalendarDate(value) {
-  if (!DATE_RE.test(value)) return false;
+// A real calendar date: the right shape AND a day that exists, so
+// 2026-02-31 and 2026-13-01 are rejected instead of reading or writing a
+// diary row for a date that can't exist.
+export function isCalendarDate(value) {
+  if (typeof value !== 'string' || !DATE_RE.test(value)) return false;
   const year = Number(value.slice(0, 4));
   const month = Number(value.slice(5, 7));
   const day = Number(value.slice(8, 10));
@@ -107,7 +110,7 @@ export function resolveDateRange(start, end, defaultDays = 90) {
  * be handled upstream (each tool decides whether to default to today).
  */
 export function validateDate(s) {
-  return typeof s === 'string' && DATE_RE.test(s) ? s : null;
+  return isCalendarDate(s) ? s : null;
 }
 
 export { DATE_RE };

@@ -43,12 +43,18 @@ router.get('/search', requireScope('mcp:read'), core(req =>
   })
 ));
 
-router.get('/recent', requireScope('mcp:read'), core(req =>
-  recentMealsCore(req.apiUser.id, {
+router.get('/recent', requireScope('mcp:read'), core(req => {
+  // start/end match the MCP get_recent_meals tool (#215). A bad range comes
+  // back as { error }; throwing it lets core() answer 400.
+  const result = recentMealsCore(req.apiUser.id, {
     limit: req.query.limit,
     include_recipes: req.query.include_recipes === 'true',
-  })
-));
+    start: req.query.start,
+    end: req.query.end,
+  });
+  if (result.error) throw new Error(result.error);
+  return result;
+}));
 
 router.get('/:id', requireScope('mcp:read'), core(req =>
   getMealDetailsCore(req.apiUser.id, { meal_id: Number(req.params.id) })
