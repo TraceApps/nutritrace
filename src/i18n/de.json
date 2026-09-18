@@ -880,7 +880,7 @@
     "row": {
       "not_set": "Nicht festgelegt",
       "no_goal": "Kein Ziel",
-      "min": "(Min.)",
+      "min": "(mind.)",
       "stale_tip": "Letzter Messwert innerhalb der vergangenen 30 Tage, wird verwendet, bis du einen neuen Wert einträgst",
       "daily_water_goal": "Tägliches Wasserziel"
     },
@@ -973,7 +973,7 @@
     "ask_quantity": "Beim Hinzufügen nach Menge fragen",
     "ask_quantity_desc": "Vor dem Hinzufügen nach der Portionsgröße fragen (andernfalls wird der Standardwert des Lebensmittels verwendet)",
     "unit_metadata": "Einheiten-Metadaten anzeigen",
-    "unit_metadata_desc": "Fügt drei Felder im Lebensmittel-Editor hinzu: Nährwertbasis (pro 100 g vs. pro 100 ml), Portions-Einheiten (1 Scheibe = 35 g etc.) und Dichte (g/ml) für exakte Flüssigkeitsberechnungen.",
+    "unit_metadata_desc": "Fügt drei Felder im Lebensmittel-Editor hinzu: Nährwertbasis (pro 100 g vs. pro 100 ml), Portions-Einheiten (1 Scheibe = 35 g, 1 Flasche = 500 ml etc.) und Dichte (g/ml) für exakte Flüssigkeitsberechnungen. Zeigt außerdem Portions-Schnellauswahl-Chips im Tagebuch-Dialog an. Deaktiviert lassen, wenn nicht benötigt.",
     "warn_conversions": "Vor Einheiten-Umrechnungen warnen",
     "warn_conversions_desc": "Warnung anzeigen, wenn Gramm bei Lebensmitteln mit ml-Angabe gewählt wird (oder umgekehrt), ohne dass eine Dichte hinterlegt ist. Standardmäßig wird 1 ml ≈ 1 g angenommen, was bei Ölen, Honig etc. ungenau ist.",
     "show_portion": "Portionsgröße anzeigen",
@@ -1445,7 +1445,7 @@
     },
     "lifttrace_ovr": {
       "prefer_label": "Wearable-Daten gegenüber LiftTrace bevorzugen",
-      "prefer_desc": "Vermeidet Doppelzählungen: Wenn dein Wearable für denselben Tag bereits Kalorien erfasst hat, hat dessen Gesamtwert Vorrang vor den LiftTrace-Werten."
+      "prefer_desc": "Vermeidet Doppelzählungen: Wenn dein Wearable (Fitbit, Garmin, Google Health, Health Connect) für denselben Tag bereits Kalorien erfasst hat, hat dessen Gesamtwert Vorrang vor den geschätzten LiftTrace-Werten. LiftTrace-Workouts werden in Gesundheit weiterhin angezeigt, aber nicht zusätzlich addiert. Deaktiviere dies, falls dein Wearable Krafttrainingseinheiten übersieht und du stattdessen die Schätzung von LiftTrace verwenden möchtest."
     },
     "fitbit_deep": {
       "server_only": "Erfordert eine Serververbindung für die OAuth-Authentifizierung. Nutze im lokalen Modus unten Health Connect, um Fitbit-Daten direkt von deinem Android-Gerät auszulesen.",
@@ -1652,7 +1652,7 @@
     "existing_hint": "Tage, die bereits einen Tagebucheintrag enthalten",
     "range": "Zeitraum: {from} → {to}",
     "unmapped_title": "Nicht zugeordnete Mahlzeiten",
-    "unmapped_desc": "Diese Bezeichnungen stimmen mit keinem deiner Mahlzeiten-Namen überein ({meals}). Sie werden in deinen letzten Mahlzeiten-Slot ({lastMeal}) importiert.",
+    "unmapped_desc": "Diese Bezeichnungen stimmen mit keinem deiner Mahlzeiten-Namen überein ({meals}). Sie werden in deinen letzten Mahlzeiten-Slot ({lastMeal}) importiert. Füge in den Einstellungen eigene Mahlzeiten hinzu, wenn du sie getrennt gruppieren möchtest.",
     "and_more": "… und {n} weitere",
     "first_items": "Erste {n} Einträge:",
     "dupes_days": "{n} Tag(e) enthalten bereits Einträge",
@@ -1676,11 +1676,11 @@
       "spreadsheet_label": "Allgemeine Tabelle (CSV)",
       "spreadsheet_hint": "Jede CSV-Datei mit mindestens den Spalten Datum, Name und Kalorien. Nutze für den einfachsten Weg unsere Vorlage.",
       "cronometer_label": "Cronometer",
-      "cronometer_hint": "Konto → Daten exportieren → Lebensmittel- & Rezept-Einträge.",
+      "cronometer_hint": "Konto → Daten exportieren → Lebensmittel- & Rezept-Einträge für einzelne Lebensmittel. Cronometer lässt bei manchen Konten Nährwerte weg; falls Kalorienspalten fehlen, nutze „Daily Nutrition“ mit aktiviertem „Include diary group rows“, um Tagessummen je Mahlzeit zu importieren.",
       "loseit_label": "Lose It!",
-      "loseit_hint": "loseit.com → Insights → Wöchentlich → In Tabelle exportieren.",
+      "loseit_hint": "loseit.com → Insights → Wöchentlich → In Tabelle exportieren. Eine CSV pro Woche; vor dem Import mehrerer Wochen zuerst zusammenfügen.",
       "mfp_label": "MyFitnessPal",
-      "mfp_hint": "Gehe auf myfitnesspal.com/reports/export, wähle einen Datumsbereich und klicke auf Exportieren."
+      "mfp_hint": "Gehe auf myfitnesspal.com/reports/export, wähle einen Datumsbereich und klicke auf Exportieren. Funktioniert mit Free und Premium. Der Export ist pro Mahlzeit und Tag zusammengefasst; es wird ein Tagebucheintrag pro Mahlzeit mit der Marke „MyFitnessPal“ erstellt, wobei die Makros erhalten bleiben. Einzelne Lebensmittel sind im Export nicht enthalten und werden daher nicht rekonstruiert."
     }
   },
   "settings_email": {
@@ -1759,7 +1759,7 @@
     },
     "row": {
       "revoke_title": "Token widerrufen",
-      "last_used": "Zuletzt verwendet",
+      "last_used": "Zuletzt verwendet: {when}",
       "never": "Nie",
       "scopes_label": "Berechtigungen:",
       "scopes_none": "keine",
@@ -1832,7 +1832,7 @@
       "load_failed": "Webhooks konnten nicht geladen werden",
       "url_required": "Ziel-URL ist erforderlich",
       "deleted": "Webhook gelöscht",
-      "test_failed": "Test-Webhook fehlgeschlagen: {error}",
+      "test_failed": "Test-Zustellung fehlgeschlagen",
       "copied": "Kopiert",
       "event_required": "Wähle mindestens ein Ereignis aus",
       "create_failed": "Webhook konnte nicht erstellt werden",
@@ -1958,20 +1958,20 @@
       "backup_failed_prefix": "Backup fehlgeschlagen: {error}",
       "restore_failed": "Wiederherstellung fehlgeschlagen",
       "restore_failed_prefix": "Wiederherstellung fehlgeschlagen: {error}",
-      "restored_summary": "Backup erfolgreich wiederhergestellt ({size})",
+      "restored_summary": "{foods} Lebensmittel · {meals} Mahlzeiten · {recipes} Rezepte · {diary} Tage · {wellness} Messwerte wiederhergestellt",
       "backup_deleted": "Backup gelöscht",
       "share_failed_prefix": "Teilen fehlgeschlagen: {error}",
-      "share_saved_at": "Gespeichert unter {path}",
+      "share_saved_at": "Gespeichert unter: {uri}",
       "full_backup_created": "Vollständiges Backup erstellt",
-      "cant_load_backups": "Backups konnten nicht geladen werden",
+      "cant_load_backups": "Backups konnten nicht geladen werden ({status})",
       "upload_too_large": "Upload fehlgeschlagen: Datei überschreitet die vom Server oder Reverse-Proxy erlaubte Maximalgröße. Bei Remote-Zugriff versuche den Upload im lokalen Netzwerk.",
-      "server_error_prefix": "Serverfehler: {error}",
+      "server_error_prefix": "Serverfehler: {status}",
       "all_data_cleared": "Alle Daten wurden gelöscht",
       "all_settings_cleared": "Alle Einstellungen wurden zurückgesetzt",
       "clear_failed_prefix": "Löschen fehlgeschlagen: {error}"
     },
     "confirm": {
-      "restore_local": "Möchtest du dieses lokale Backup wirklich wiederherstellen? Alle aktuellen Daten werden überschrieben.",
+      "restore_local": "\"{name}\" wiederherstellen? Bestehende Daten werden zusammengeführt, nicht gelöscht.",
       "delete_local": "„{name}“ löschen? Dies kann nicht rückgängig gemacht werden."
     },
     "share": {
@@ -1980,7 +1980,7 @@
     },
     "progress": {
       "reading": "Backup wird gelesen…",
-      "percent_label": "{percent}%",
+      "percent_label": "{percent}% – {label}",
       "restoring_backup": "Backup wird wiederhergestellt…",
       "restore_complete": "Wiederherstellung abgeschlossen – wird neu geladen…",
       "uploading": "Wird hochgeladen…",
@@ -2004,10 +2004,10 @@
       "schedule_monthly": "Monatlich",
       "time": "Uhrzeit",
       "keep_last": "Letzte behalten",
-      "last_failed": "Zuletzt fehlgeschlagen am",
-      "last_success": "Zuletzt erfolgreich am",
+      "last_failed": "Letztes automatisches Backup fehlgeschlagen: {error}",
+      "last_success": "Letztes automatisches Backup: {when}",
       "next": "Nächstes: {when}",
-      "next_when_open": "Nächstes Backup bei geöffneter App",
+      "next_when_open": "Nächstes: {when} (wird bei geöffneter App ausgeführt)",
       "retention_note": "Behält das {n} neueste Backup. Ältere Archive werden nach jedem Durchlauf automatisch bereinigt.",
       "retention_note_plural": "Behält die {n} neuesten Backups; ältere Archive werden nach jedem Durchlauf automatisch bereinigt.",
       "retention_note_local": "Behält das {n} neueste Auto-Backup; manuelle Exporte werden nie bereinigt.",
@@ -2024,8 +2024,8 @@
       "delete_title": "Löschen",
       "empty_server": "Noch keine Backups auf dem Server vorhanden.",
       "empty_local": "Noch keine lokalen Backups vorhanden.",
-      "min_ago": "vor {count} Min",
-      "hr_ago": "vor {count} Std",
+      "min_ago": "vor {n} Min.",
+      "hr_ago": "vor {n} Std.",
       "days_ago": "vor {n} Tagen"
     },
     "danger": {
