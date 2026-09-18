@@ -862,7 +862,7 @@
       "help_best_weigh": "<strong>Wiege dich regelmäßig</strong> – täglich ist am besten, jeder zweite Tag ist in Ordnung. Einzelne Tage werden interpoliert, aber mehr Messungen liefern ein genaueres Ergebnis. Eine verbundene Waage (Withings, Fitbit, Garmin, Health Connect) funktioniert automatisch; manuelle Einträge in den Körperwerten klappen genauso.",
       "help_best_log": "<strong>Erfasse dein Essen lückenlos:</strong> Fehlende Tage fließen nicht in die Berechnung ein. Wenn du nur jeden zweiten Tag loggst, wird die Schätzung ungenau.",
       "help_best_switch": "<strong>Wechsle dein Ziel nicht mitten im Zeitraum:</strong> Der gleitende 35-Tage-Durchschnitt pendelt sich über Zeit ein. Wenn du wöchentlich zwischen Diät und Aufbau wechselst, hinkt der berechnete TDEE hinterher.",
-      "help_best_reweigh": "<strong>Wiege dich unter gleichen Bedingungen:</strong> Morgens direkt nach dem Aufstehen, nach dem Toilettengang, vor dem Essen oder Trinken. Tägliche Schwankungen sind meist nur Wasser; entscheidend ist der Trend.",
+      "help_best_reweigh": "<strong>Wiege dich unter gleichen Bedingungen</strong> Morgens direkt nach dem Aufstehen, nach dem Toilettengang, vor dem Essen oder Trinken. Tägliche Schwankungen sind meist nur Wasser; entscheidend ist der Trend.",
       "help_caveats": "<strong>Einschränkungen:</strong> Große Aktivitätsänderungen (mit Laufen begonnen, Bein gebrochen) spiegeln sich erst nach etwa 2 Wochen wider. Urlaubswochen mit unvollständig erfasstem Essen können die Schätzung nach oben verfälschen. Der berechnete TDEE wird mit deinem Zielfaktor multipliziert (Abnehmen -20 % / Halten / Zunehmen +20 %), um dein tägliches Ziel zu ermitteln."
     },
     "empty": {
@@ -1611,7 +1611,7 @@
       "token_auth_basic": "client_secret_basic",
       "token_auth_none": "none (nur PKCE, öffentlicher Client)",
       "auto_link": "Bestehende Benutzer automatisch verknüpfen (verifizierte E-Mail)",
-      "auto_link_desc": "Wenn der Identitätsanbieter email_verified=true meldet und die E-Mail mit einem bestehenden NutriTrace-Konto übereinstimmt, werden beide beim ersten Login automatisch verknüpft.",
+      "auto_link_desc": "Wenn der Identitätsanbieter email_verified=true meldet und die E-Mail mit einem bestehenden NutriTrace-Konto übereinstimmt, werden beide beim ersten Login automatisch verknüpft. Empfohlen für jeden Anbieter, dem du bei der E-Mail-Verifizierung vertraust.",
       "auto_register": "Neue Benutzer automatisch registrieren",
       "auto_register_desc": "Erlaubt jeder Person mit einem Konto bei diesem Anbieter, beim ersten Login ein neues NutriTrace-Konto anzulegen. Aus = Admin muss zuerst einladen. Bei geteilten Anbietern (Google, Firmen-SSO) deaktiviert lassen, außer es soll ein offener Beitritt für alle gelten.",
       "provider_active": "Anbieter aktiv",
@@ -1867,7 +1867,7 @@
       "export_json_desc": "Leichtes, portables Format (nur JSON, ohne Bilder). Nützlich zum Teilen von Daten zwischen Konten.",
       "export_diary_csv_desc": "Lädt deinen gesamten Tagebuch-Verlauf als Tabelle herunter. Nützlich für Excel oder Google Sheets.",
       "export_full_nutrition_csv": "Vollständige Nährwerte als CSV exportieren",
-      "export_full_nutrition_csv_desc": "Ausführlicher Export mit Uhrzeit, Mahlzeit, Marke und jedem erfassten Nährstoff samt Einheiten.",
+      "export_full_nutrition_csv_desc": "Ausführlicher Export mit Uhrzeit, Mahlzeit, Marke und jedem erfassten Nährstoff samt Einheiten. Ideal für eigene Datenbanken und langfristige Analysen.",
       "export_activity_csv_desc": "Lädt dein gesamtes manuelles Aktivitäten-Protokoll (Name, Kalorien, Dauer, Distanz, MET) als Tabelle herunter."
     },
     "sections": {
@@ -1894,7 +1894,7 @@
       "custom_model_id": "Benutzerdefinierte Modell-ID",
       "custom_model_hint": "Trage die genaue Modell-ID des Anbieters ein. Nutze dies, falls das gewünschte Modell nicht im Dropdown-Menü aufgeführt ist.",
       "reliability_title": "Die Zuverlässigkeit von Tool-Aufrufen variiert je nach Modell.",
-      "reliability_body": "Llama 3.1+, Mistral und Qwen 2.5+ unterstützen diese zuverlässig. Kleinere oder ältere Modelle können Smart Log und Ziel-Erkenntnisse beeinträchtigen. Bild-Uploads (Vision) erfordern ein multimodales Modell.",
+      "reliability_body": "Llama 3.1+, Mistral und Qwen 2.5+ unterstützen diese zuverlässig. Kleinere oder ältere Modelle können Smart Log und Ziel-Erkenntnisse beeinträchtigen. Bild-Uploads (Vision) erfordern ein multimodales Modell. Wenn du dir unsicher bist, starte mit einem bewährten Modell und prüfe zuerst die Chatfunktion, bevor du dich darauf verlässt.",
       "api_key": "API-Schlüssel",
       "api_key_optional_suffix": " (optional)",
       "api_key_ph_local": "Für lokale Endpunkte (Ollama etc.) leer lassen",
@@ -1910,7 +1910,7 @@
       "assistant_name": "Name des Assistenten",
       "assistant_name_ph": "Trace",
       "smart_log": "Smart Log",
-      "smart_log_desc": "Assistenten-Button gedrückt halten und einsprechen, was du gegessen hast. Die KI erkennt Lebensmittel und Mahlzeit und bittet vor dem Speichern um Bestätigung.",
+      "smart_log_desc": "Assistenten-Button gedrückt halten und einsprechen, was du gegessen hast. Die KI erkennt Lebensmittel und Mahlzeit und bittet vor dem Speichern um Bestätigung",
       "voice_lang": "Sprache für Spracheingabe",
       "voice_lang_desc": "Sprache, auf die das Mikrofon hört. Verwendet standardmäßig die Gerätesprache; passe dies an, wenn du in einer anderen Sprache sprichst.",
       "trigger_words": "Signalwörter",
@@ -2023,9 +2023,9 @@
       "share": "Teilen",
       "delete_title": "Löschen",
       "empty_server": "Noch keine Backups auf dem Server vorhanden.",
-      "empty_local": "Noch keine lokalen Backups vorhanden.",
-      "min_ago": "vor {n} Min.",
-      "hr_ago": "vor {n} Std.",
+      "empty_local": "Noch keine lokalen Backups vorhanden – tippe auf „Backup erstellen“, um loszulegen.",
+      "min_ago": "vor {n} Min",
+      "hr_ago": "vor {n} Std",
       "days_ago": "vor {n} Tagen"
     },
     "danger": {
