@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Daily steps via MCP and REST.** New `get_steps` MCP tool and `GET /api/v1/steps` route returning persisted daily step observations from wellness data, one row per source, in an inclusive `YYYY-MM-DD` range. Either bound can be omitted to leave that side open; with neither, the range covers the last 90 days. Sources are never merged and missing days are not returned as zeros. Requires the `mcp:read` scope (and `PUBLIC_API_ENABLED=1` for the REST route).
+- **Profile facts via MCP and REST.** New `get_profile` MCP tool and `GET /api/v1/profile` route returning the user's gender and date of birth, as set on the Profile page or during onboarding. Either field is `null` when unset. Requires the `mcp:read` scope (and `PUBLIC_API_ENABLED=1` for the REST route). Both interfaces are backed by the same shared core functions as the rest of the read API.
+
 ### Fixed
 
 - **Foods filter panel and food details no longer cover the header when you scroll** ([#217](https://github.com/TraceApps/nutritrace/issues/217)). On a wide window the Sources panel and the food details panel are pinned in place beside the list, and where they sit is worked out in JavaScript. That calculation read the window's scroll position, which is always zero here because the page scrolls inside its own container, so the numbers were only right while the list sat at the top. As soon as the list changed size lower down, which happens every time more Open Food Facts results load, both panels were re-placed at the very top of the screen, over the header and the search bar. They now measure against the container that actually scrolls and stay put. The same reading also meant returning from the food editor always jumped back to the top of the list instead of where you were, which is fixed too. Thanks @fatman00 for the report.
