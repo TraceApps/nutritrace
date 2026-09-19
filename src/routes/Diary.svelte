@@ -51,7 +51,7 @@
            fastingEnabled,
            wellnessEnabled,
            notifMealReminders,
-           diaryShowCompletion,
+           diaryShowCompletion, diaryDefaultField,
            diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
            diaryRailShowActivity as diaryRailShowActivityWidget,
            diaryRailShowNotes,
@@ -66,6 +66,7 @@
   import { readBodyStat, tagBodyStats, LENGTH_KEYS } from '../lib/body-stats-unit.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { pageScrollTop } from '../lib/scroll-anchor.js';
+  import { focusDefaultField } from '../lib/default-field.js';
 
   let addMealIdx = 0;
   let showAddAction = false;
@@ -116,9 +117,9 @@
   // value so typing replaces it instead of appending. Matches the
   // Body Stats weight-edit pattern.
   $: if (showEditSheet) tick().then(() => {
-    const _first = _editSheetEl?.querySelector('input[inputmode="numeric"], input[inputmode="decimal"]');
-    _first?.focus();
-    _first?.select?.();
+    // #224: Serving Size or Number of Servings per Default Field; the
+    // Quick Calories branch has neither, so its first number box is used.
+    focusDefaultField(_editSheetEl, $diaryDefaultField);
   });
   function _onEditSheetKey(e) {
     if (e.key !== 'Enter') return;
@@ -2756,7 +2757,7 @@
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">{$_('diary_deep.serving_size')}</label>
-          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editPortion} style="width:100%" />
+          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editPortion} data-field="portion" style="width:100%" />
         </div>
         <div style="width:100px">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">Unit</label>
@@ -2766,7 +2767,7 @@
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">{$_('diary_deep.num_servings')}</label>
-          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editQuantity} style="width:100%" />
+          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editQuantity} data-field="servings" style="width:100%" />
         </div>
         {#if !_editChildContext && $diaryShowTimestamps}
           <div style="width:130px">
