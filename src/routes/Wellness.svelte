@@ -3389,6 +3389,10 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
     padding-bottom: var(--safe-bottom);
+    /* Never taller than the screen, and never up under the status bar (#228). */
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   /* Date picker sheet wrapper — calendar UI lives in DatePicker.svelte */
