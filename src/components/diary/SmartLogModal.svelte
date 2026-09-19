@@ -453,7 +453,7 @@
     border-top: 1px solid var(--border);
     border-radius: 20px 20px 0 0;
     z-index: 601;
-    max-height: 88vh;
+    max-height: min(88vh, calc(100dvh - var(--safe-top) - 8px));
     display: flex;
     flex-direction: column;
     box-shadow: 0 -8px 40px rgba(0,0,0,0.45);

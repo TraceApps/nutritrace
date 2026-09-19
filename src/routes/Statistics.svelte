@@ -1458,6 +1458,10 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 480px; margin: 0 auto;
     padding-bottom: var(--safe-bottom);
+    /* Never taller than the screen, and never up under the status bar (#228). */
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .sheet-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 10px auto 0; }
   .cal-title { font-size: 15px; font-weight: 700; color: var(--text-1); padding: 12px 16px 0; }

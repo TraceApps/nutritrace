@@ -628,7 +628,7 @@
   .scanner-panel {
     width: 100%;
     max-width: 440px;
-    max-height: calc(100dvh - 32px);
+    max-height: min(calc(100dvh - 32px), calc(100dvh - 2 * var(--safe-top) - 16px));
     background: var(--surface-1);
     border-radius: var(--radius-xl);
     overflow: hidden;

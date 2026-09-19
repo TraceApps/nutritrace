@@ -3457,7 +3457,7 @@
   }
   .workout-detail {
     background: var(--surface-1); border-radius: 16px;
-    width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+    width: 100%; max-width: 520px; max-height: min(90vh, calc(100dvh - 2 * var(--safe-top) - 16px)); overflow-y: auto;
     padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
   }
   .workout-detail-header {

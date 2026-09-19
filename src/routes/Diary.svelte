@@ -4400,7 +4400,7 @@
     background: var(--surface-1);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
-    max-height: 85dvh; display: flex; flex-direction: column;
+    max-height: min(85dvh, calc(100dvh - var(--safe-top) - 8px)); display: flex; flex-direction: column;
     padding-bottom: var(--safe-bottom);
   }
   .ns-body { flex: 1; overflow-y: auto; padding: 0 16px 16px; }

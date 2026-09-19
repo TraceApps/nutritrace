@@ -1572,7 +1572,7 @@
     background: var(--surface-1);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
-    max-height: 90dvh; display: flex; flex-direction: column;
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px)); display: flex; flex-direction: column;
     padding-bottom: var(--safe-bottom);
   }
   .sheet-handle {
