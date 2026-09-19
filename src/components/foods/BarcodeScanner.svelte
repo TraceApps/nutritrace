@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { fly } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
@@ -490,7 +491,7 @@
        body+root made transparent via .barcode-scanner-active. Portal
        to <body> so the visibility-hide CSS rule (which hides every
        body child except this overlay) doesn't sweep us up with #app. -->
-  <div class="native-scanner-overlay" use:modalPortal>
+  <div class="native-scanner-overlay" use:modalPortal use:closeOnBack={closeNative}>
     <div class="ns-top">
       <button class="btn-icon ns-close" on:click={closeNative} aria-label={$_('barcode_scanner.close')} title={$_('barcode_scanner.close')}>
         <span class="material-symbols-rounded">close</span>

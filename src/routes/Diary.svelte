@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -2411,7 +2412,7 @@
      auto — the app's scroll container). Rendered only when the
      overlay is actually open so widgets don't double-mount. -->
 {#if _railMode === 'hidden' && _railOverlay && _wideViewport}
-  <aside use:portal class="diary-right-col diary-right-col-overlay">
+  <aside use:portal class="diary-right-col diary-right-col-overlay" use:closeOnBack={() => _railOverlay = false}>
     {@render railWidgets()}
   </aside>
 {/if}
@@ -2893,7 +2894,7 @@
      locally overridden to z-200 in Diary which would have buried the
      calendar; this one stays at z-90 to let z-100 nested Sheets win. -->
 {#if showCopySheet}
-  <div use:portal class="copy-to-backdrop" role="dialog" aria-modal="true"
+  <div use:portal class="copy-to-backdrop" role="dialog" aria-modal="true" use:closeOnBack={() => showCopySheet = false}
     on:click={() => { if (!_sheetLock) showCopySheet = false; }} on:keydown={() => {}}>
     <div class="bs-sheet copy-date-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
@@ -2933,7 +2934,7 @@
 <!-- Save as meal sheet -->
 {#if showSaveAsMeal}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock && !saveAsMealSaving) showSaveAsMeal = false; }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock && !saveAsMealSaving) showSaveAsMeal = false; }} use:closeOnBack={() => { if (!saveAsMealSaving) showSaveAsMeal = false; }} on:keydown={() => {}}>
     <div class="bs-sheet copy-date-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <p class="sheet-title">Save {actionMealIdx != null ? meals[actionMealIdx] : 'meal'} to library</p>
@@ -2958,7 +2959,7 @@
 <!-- Date Picker Calendar Sheet -->
 {#if showDatePicker}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock) showDatePicker = false; }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock) showDatePicker = false; }} use:closeOnBack={() => showDatePicker = false} on:keydown={() => {}}>
     <div class="bs-sheet dp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <DatePicker bind:value={pickerDate} completedDays={pickerCompletedDays} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
@@ -2969,7 +2970,7 @@
 <!-- Body Stats Sheet -->
 {#if $diaryShowBodyStats}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock) diaryShowBodyStats.set(false); }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock) diaryShowBodyStats.set(false); }} use:closeOnBack={() => diaryShowBodyStats.set(false)} on:keydown={() => {}}>
     <div class="bs-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header-row">
@@ -3035,7 +3036,7 @@
 {#if $diaryShowNutritionSummary}
   {@const _nsTotEnergy = Nutrition.displayEnergy(totals.calories || 0, $energyUnit)}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock) diaryShowNutritionSummary.set(false); }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock) diaryShowNutritionSummary.set(false); }} use:closeOnBack={() => diaryShowNutritionSummary.set(false)} on:keydown={() => {}}>
     <div class="ns-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header-row">

@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { createEventDispatcher } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { portal } from '../../lib/portal.js';
@@ -74,7 +75,7 @@
 </button>
 
 {#if open}
-  <div use:portal class="tp-backdrop" role="dialog" aria-modal="true"
+  <div use:portal class="tp-backdrop" role="dialog" aria-modal="true" use:closeOnBack={() => open = false}
     on:click|self={() => open = false} on:keydown={() => {}}>
     <div class="tp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="tp-handle"></div>

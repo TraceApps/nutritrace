@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick } from 'svelte';
   import { pop } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -1226,7 +1227,7 @@
 
 <!-- ── Ingredient picker overlay ── -->
 {#if showPicker}
-  <div class="picker-overlay" role="dialog" aria-modal="true">
+  <div class="picker-overlay" role="dialog" aria-modal="true" use:closeOnBack={() => { showPicker = false; pickerSearch = ''; selectedIngredients = new Set(); }}>
     <div class="picker-header">
       <button class="btn-icon" on:click={() => { showPicker = false; pickerSearch = ''; selectedIngredients = new Set(); }} title={$_('meal_editor.back')}>
         <span class="material-symbols-rounded">arrow_back</span>
@@ -1385,7 +1386,7 @@
 
 <!-- ── Camera overlay ── -->
 {#if cameraOpen}
-  <div class="cam-overlay" role="dialog" aria-modal="true" use:portal>
+  <div class="cam-overlay" role="dialog" aria-modal="true" use:portal use:closeOnBack={closeCamera}>
     <div class="cam-popup">
       <div class="cam-header">
         <span class="cam-title">{$_('meal_editor_deep.take_photo')}</span>

@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { push } from 'svelte-spa-router';
@@ -2609,7 +2610,7 @@
 <!-- Date picker calendar sheet -->
 {#if showDatePicker}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock) showDatePicker = false; }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock) showDatePicker = false; }} use:closeOnBack={() => showDatePicker = false} on:keydown={() => {}}>
     <div class="bs-sheet dp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <DatePicker bind:value={pickerDate} max={localDateStr()} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
@@ -2620,7 +2621,7 @@
 <!-- ── Workout Detail Modal ── -->
 {#if _showWorkoutDetail && _selectedWorkout}
   {@const w = _selectedWorkout}
-  <div class="workout-overlay" on:click|self={() => _showWorkoutDetail = false} use:portal>
+  <div class="workout-overlay" on:click|self={() => _showWorkoutDetail = false} use:portal use:closeOnBack={() => _showWorkoutDetail = false}>
     <div class="workout-detail">
       <div class="workout-detail-header">
         <div style="display:flex;align-items:center;gap:8px">

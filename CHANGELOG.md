@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **Moving the Trace button no longer refreshes the page** ([#225](https://github.com/TraceApps/nutritrace/issues/225)). In the Android app connected to a server, dragging the Trace button downward while the page was scrolled to the top was treated as pull-to-refresh and synced. The same could happen when dragging a reorder handle down (meal names, nutrients, body stats, Statistics categories, Meal Editor ingredients) or moving the photo cropper. Dragging those no longer counts as a pull; pulling down anywhere else still refreshes as before. Thanks @nomad64 for the report.
+- **The Android back button closes what's open first** ([#226](https://github.com/TraceApps/nutritrace/issues/226)). Back only knew how to go back a page, so with a sheet like Body Stats open it did nothing visible, and elsewhere it could leave the page with a sheet or dialog still up. Back now closes the newest sheet, dialog, menu, picker or panel first, one at a time, the same as its own close button (a dialog closes as Cancel, and a camera stops). The sync merge questions still need an answer, so back leaves them open. It also closes the slide-out sidebar if that's showing. With nothing open, back goes back a page and then offers to exit, as before. Thanks @nomad64 for the report.
 
 ---
 

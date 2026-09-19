@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut }  from 'svelte/easing';
   import { createEventDispatcher } from 'svelte';
@@ -36,7 +37,7 @@
 {#if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sheet-backdrop" on:click={onBackdropClick}
+  <div use:portal class="sheet-backdrop" on:click={onBackdropClick} use:closeOnBack={close}
     in:fade={{ duration: 200 }} out:fade={{ duration: 160 }}>
     <div
       class="sheet-panel"

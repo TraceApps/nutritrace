@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { createEventDispatcher } from 'svelte';
   import { portal } from '../../lib/portal.js';
   import { centeredSquareCrop, moveSquareCrop, resizeSquareCrop } from '../../lib/crop-geometry.js';
@@ -76,7 +77,7 @@
   }
 </script>
 
-<div class="crop-overlay" role="dialog" aria-modal="true" use:portal>
+<div class="crop-overlay" role="dialog" aria-modal="true" use:portal use:closeOnBack={() => dispatch('cancel')}>
   <div class="crop-popup">
     <div class="crop-header">
       <span class="crop-title">{title}</span>

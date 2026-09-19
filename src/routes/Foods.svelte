@@ -2,6 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { push, location } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
+  import { closeOnBack } from '../lib/back-stack.js';
   import { fade, fly, slide } from 'svelte/transition';
 
   import Tabs        from '../components/ui/Tabs.svelte';
@@ -2844,7 +2845,7 @@
 {#if offDropdownOpen}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="tier-dropdown-backdrop"
+  <div use:portal class="tier-dropdown-backdrop" use:closeOnBack={_closeTierDropdowns}
     in:fade={{ duration: 120 }} out:fade={{ duration: 100 }}>
     <div class="tier-dropdown-panel"
       bind:this={offDropdownPanelEl}
@@ -2884,7 +2885,7 @@
 {#if usdaDropdownOpen}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="tier-dropdown-backdrop"
+  <div use:portal class="tier-dropdown-backdrop" use:closeOnBack={_closeTierDropdowns}
     in:fade={{ duration: 120 }} out:fade={{ duration: 100 }}>
     <div class="tier-dropdown-panel"
       bind:this={usdaDropdownPanelEl}

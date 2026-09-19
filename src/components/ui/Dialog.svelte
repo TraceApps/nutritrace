@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { scale, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { createEventDispatcher } from 'svelte';
@@ -35,7 +36,7 @@
 {#if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="dialog-backdrop" on:click={cancel}
+  <div use:portal class="dialog-backdrop" on:click={cancel} use:closeOnBack={() => { open = false; dispatch('cancel'); }}
     in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
     <div
       class="dialog-box"

@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
@@ -1281,7 +1282,7 @@
 
 <!-- Custom range calendar sheet -->
 {#if showCalFor}
-  <div use:portal class="stat-backdrop" role="dialog" aria-modal="true"
+  <div use:portal class="stat-backdrop" role="dialog" aria-modal="true" use:closeOnBack={() => showCalFor = null}
     on:click={() => showCalFor = null} on:keydown={() => {}}>
     <div class="stat-cal-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
