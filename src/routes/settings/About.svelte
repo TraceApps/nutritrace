@@ -67,7 +67,7 @@
           <span class="material-symbols-rounded" style="font-size:14px">coffee</span> Ko-fi
         </a>
       </div>
-      <div class="setting-desc" style="padding-left:30px;font-size:11px">NutriTrace is free to self-host. Donations are appreciated but never required.</div>
+      <div class="setting-desc" style="padding-left:30px;font-size:11px">{$_('settings_about.support_note')}</div>
     </div>
     <div class="setting-divider"></div>
     <div class="about-desc" style="font-size:11px;color:var(--text-3);line-height:1.5">

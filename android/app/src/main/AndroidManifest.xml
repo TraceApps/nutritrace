@@ -88,6 +88,15 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!-- #207: Close today quick action from the bedtime notification.
+             Writes today's diary row's completed_at directly and dismisses
+             the notification. Not exported so only in-package PendingIntents
+             can trigger it. -->
+        <receiver
+            android:name=".DiaryCompletionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <!-- Boot/update receiver — re-arms reminder alarms after device reboot
              or app update. Without this, all alarms are wiped on reboot. -->
         <receiver

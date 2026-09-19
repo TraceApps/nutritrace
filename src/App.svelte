@@ -21,11 +21,13 @@
   const syncState = writable({ syncing: false, phase: '', progress: '', lastSync: null, error: null, online: true, connectionIssue: null, showErrorBanner: false });
   $: _syncModeActive = isNative && getNativeMode() === 'server';
   $: _serverReachable = $syncState.online && !$syncState.connectionIssue;
+  // The server answers but the sync is failing, as opposed to no network at all.
+  $: _syncFailing = $syncState.online && !!$syncState.connectionIssue;
   $: _connectionCopy = describeConnectionIssue($syncState.connectionIssue, $_, true);
   $: _syncBannerCopy = $syncState.showErrorBanner && _connectionCopy
-    ? { ..._connectionCopy, icon: 'cloud_off' }
+    ? { ..._connectionCopy, icon: _connectionCopy.tone === 'wait' ? 'cloud_off' : 'cloud_alert' }
     : ($syncState.showErrorBanner && $syncState.error
-    ? { title: $_('sync.error_title'), detail: $syncState.error, icon: 'error' }
+    ? { title: $_('sync.error_title'), detail: $syncState.error, icon: 'error', tone: 'bad' }
     : null);
   let _retryingConnection = false;
   const PULL_SYNC_SLOP = 10;
@@ -91,7 +93,7 @@
     // Listen at window level because the fixed top bar and portalled offline
     // banner both sit outside <main>. Dialogs, sheets, sidebars and bottom
     // navigation retain their own touch handling.
-    if (event.target.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav')) return;
+    if (event.target.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav, .bottom-dock')) return;
     if (event.touches.length !== 1) return;
     // Walk up from the touch target to the nearest scrolling ancestor.
     // Editor pages have their own overflow container that sits on top of
@@ -215,6 +217,7 @@
 
   const NAV_HIDDEN = ['/wizard', '/foods/edit', '/meal-editor', '/profile'];
   $: showNav       = !NAV_HIDDEN.some(p => $location.startsWith(p));
+  $: _bottomNavVisible = showNav && ($navStyle === 'bottom' || $navStyle === 'both');
   const EDITOR_ROUTES = ['/foods/edit', '/meal-editor', '/profile', '/wizard'];
   $: _isEditorRoute = EDITOR_ROUTES.some(r => $location.startsWith(r));
   $: isEditor      = NAV_HIDDEN.some(p => $location.startsWith(p));
@@ -749,8 +752,10 @@
     >
       <span class="material-symbols-rounded">menu</span>
       {#if _syncModeActive && !_serverReachable}
-        <span class="conn-badge conn-offline">
-          <span class="material-symbols-rounded" style="font-size:10px">cloud_off</span>
+        <!-- Amber while simply offline (nothing lost, it just hasn't gone yet),
+             red when the server is reachable but the sync is failing. -->
+        <span class="conn-badge" class:conn-failing={_syncFailing} class:conn-offline={!_syncFailing}>
+          <span class="material-symbols-rounded" style="font-size:10px">{_syncFailing ? 'cloud_alert' : 'cloud_off'}</span>
         </span>
       {/if}
     </button>
@@ -763,7 +768,7 @@
      the app's compact header instead of covering the clock or hamburger. -->
 {#if _syncModeActive && !needsLogin && _syncBannerCopy}
   <div
-    class="sync-connection-banner"
+    class="sync-connection-banner {_syncBannerCopy.tone || 'bad'}"
     use:portal
     transition:slide={{ duration: $disableAnimations ? 0 : 200 }}
     role="status"
@@ -809,6 +814,16 @@
      server-update banner lives inside Settings → Updates admin panel). -->
 {#if !needsLogin}<UpdateBanner />{/if}
 
+<!-- Bottom dock: the tab bar plus any page bar that has to sit directly on
+     it (Diary's summary bar portals into the slot). One fixed container, so
+     the two cannot drift apart when a platform moves or resizes fixed
+     elements (#208). It renders before <main> so the slot already exists
+     when a page mounts and portals into it. -->
+<div class="bottom-dock" class:no-nav={!_bottomNavVisible}>
+  <div id="bottom-dock-slot"></div>
+  {#if _bottomNavVisible}<BottomNav />{/if}
+</div>
+
 <!-- Page content -->
 <!-- Key on the top-level path segment (/settings, /foods, /goals, …)
      instead of the full $location. Otherwise inner nav within a
@@ -828,10 +843,6 @@
     <Router {routes} />
   </main>
 {/key}
-
-{#if showNav && ($navStyle === 'bottom' || $navStyle === 'both')}
-  <BottomNav />
-{/if}
 
 <Toast />
 <Trace />
@@ -895,14 +906,26 @@
     overflow-y: auto;
     transition: left 0.25s ease;
   }
-  :global(.bottom-nav) {
-    left: var(--sidebar-w, 0px) !important;
-    transition: left 0.25s ease !important;
+  /* Bottom dock (see the markup). One column anchored to the bottom and
+     offset past a pinned sidebar. The dock ignores pointer events so it
+     never blocks taps on the page around its bars; its children take
+     them back. */
+  .bottom-dock {
+    position: fixed;
+    left: var(--sidebar-w, 0px);
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+    transition: left 0.25s ease;
   }
-  :global(.diary-bottom-bar) {
-    left: var(--sidebar-w, 0px) !important;
-    transition: left 0.25s ease !important;
-  }
+  .bottom-dock > :global(*) { pointer-events: auto; }
+  /* Without the tab bar, the page bar reaches the screen edge and clears
+     the home indicator with its own padding, so its background fills that
+     strip. Padding on the dock instead left it see-through (#208). */
+  .bottom-dock.no-nav #bottom-dock-slot > :global(:last-child) { padding-bottom: var(--safe-bottom); }
 
   /* ── Connection badge on hamburger ── */
   .conn-badge {
@@ -919,9 +942,22 @@
     transition: background 0.3s;
   }
   .conn-offline {
-    background: var(--error, #ef4444);
+    background: var(--warning);
+    color: #1b1300;
+  }
+  .conn-failing {
+    background: var(--danger);
     color: #fff;
   }
+  /* Same rule as the sidebar and the rest of the app: amber when there is no
+     network, red when the server can't be reached or is answering with errors. */
+  .sync-connection-banner.wait {
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 8%, var(--surface-2));
+    border-color: color-mix(in srgb, var(--warning) 25%, var(--border));
+  }
+  .sync-connection-banner.wait .sync-retry { color: var(--warning); }
+
 
   /* ── Actionable server-connection banner ── */
   .sync-connection-banner {
@@ -934,9 +970,9 @@
     align-items: center;
     gap: 10px;
     padding: 10px 12px;
-    color: var(--error, #f87171);
-    background: color-mix(in srgb, var(--error, #f87171) 8%, var(--surface-2));
-    border: 1px solid color-mix(in srgb, var(--error, #f87171) 25%, var(--border));
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border));
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     font-size: 12px;
@@ -964,7 +1000,7 @@
   .sync-dismiss {
     flex: 0 0 auto;
     border: 0;
-    color: var(--error, #f87171);
+    color: var(--danger);
     background: transparent;
     font: inherit;
     font-weight: 600;

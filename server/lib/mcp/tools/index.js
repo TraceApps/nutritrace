@@ -12,8 +12,12 @@
  * agent has no way to attempt them.
  */
 import { registerGetGoals } from './goals.js';
+import { registerGetProfile } from './profile.js';
+import { registerGetSteps } from './get-steps.js';
 import { registerListDiary } from './list-diary.js';
+import { registerListDiaryRange } from './list-diary-range.js';
 import { registerDailyTotals } from './daily-totals.js';
+import { registerDailyTotalsRange } from './daily-totals-range.js';
 import { registerSearchFoods } from './search-foods.js';
 import { registerRecentFoods } from './recent-foods.js';
 import { registerSearchMeals } from './search-meals.js';
@@ -29,8 +33,12 @@ import { registerCreateFood } from './create-food.js';
 
 export function registerReadTools(server, ctx) {
   registerGetGoals(server, ctx);
+  registerGetProfile(server, ctx);
+  registerGetSteps(server, ctx);
   registerListDiary(server, ctx);
+  registerListDiaryRange(server, ctx);
   registerDailyTotals(server, ctx);
+  registerDailyTotalsRange(server, ctx);
   registerSearchFoods(server, ctx);
   registerRecentFoods(server, ctx);
   registerSearchMeals(server, ctx);

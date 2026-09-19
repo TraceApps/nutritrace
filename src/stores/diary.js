@@ -346,6 +346,80 @@ export async function addQuickCalories({ kcal, name, meal, date, proteins, carbo
 // device can still get wiped by these paths' full-row PUT. A
 // proper fix requires stable per-item identifiers; tracked for a
 // follow-up commit.
+/**
+ * #207: mark or unmark the given date as fully logged. Updates the
+ * currentEntry optimistically when it matches the affected date so the
+ * checkmark reflects instantly; the underlying API call runs in the
+ * background and reconciles the timestamp on success.
+ *
+ * NtApi.setDiaryCompletion routes correctly across all three transports
+ * (server-cookie, native server-mode Bearer, cached local-first) so the
+ * caller doesn't need to know which mode is active.
+ */
+export async function setDayCompletion(dateStr, completed) {
+  if (!dateStr) return null;
+  let entry = null;
+  currentEntry.subscribe(v => entry = v)();
+  const optimisticTs = completed ? new Date().toISOString() : null;
+  if (entry && entry.date === dateStr) {
+    currentEntry.set({ ...entry, completed_at: optimisticTs });
+  }
+  try {
+    const result = await NtApi.setDiaryCompletion(dateStr, !!completed);
+    let latest = null;
+    currentEntry.subscribe(v => latest = v)();
+    if (latest && latest.date === dateStr) {
+      currentEntry.set({ ...latest, completed_at: result?.completed_at ?? optimisticTs });
+    }
+    return result?.completed_at ?? optimisticTs;
+  } catch (e) {
+    // Roll back the optimistic flip so the UI reflects reality.
+    let latest = null;
+    currentEntry.subscribe(v => latest = v)();
+    if (latest && latest.date === dateStr) {
+      currentEntry.set({ ...latest, completed_at: entry?.completed_at ?? null });
+    }
+    throw e;
+  }
+}
+
+/**
+ * #207 (per-meal companion): mark or unmark a single meal slot on the
+ * viewed date. Optimistic flip on currentEntry.completed_meals so the
+ * meal-card check reflects instantly. Rolls back on API failure so the
+ * UI stays honest.
+ */
+export async function setMealCompletion(dateStr, slot, completed) {
+  if (!dateStr || !Number.isInteger(slot)) return null;
+  let entry = null;
+  currentEntry.subscribe(v => entry = v)();
+  const prior = Array.isArray(entry?.completed_meals) ? entry.completed_meals : [];
+  const optimistic = (() => {
+    const s = new Set(prior);
+    if (completed) s.add(slot); else s.delete(slot);
+    return Array.from(s).sort((a, b) => a - b);
+  })();
+  if (entry && entry.date === dateStr) {
+    currentEntry.set({ ...entry, completed_meals: optimistic });
+  }
+  try {
+    const result = await NtApi.setDiaryMealCompletion(dateStr, slot, !!completed);
+    let latest = null;
+    currentEntry.subscribe(v => latest = v)();
+    if (latest && latest.date === dateStr) {
+      currentEntry.set({ ...latest, completed_meals: Array.isArray(result?.completed_meals) ? result.completed_meals : optimistic });
+    }
+    return result?.completed_meals ?? optimistic;
+  } catch (e) {
+    let latest = null;
+    currentEntry.subscribe(v => latest = v)();
+    if (latest && latest.date === dateStr) {
+      currentEntry.set({ ...latest, completed_meals: prior });
+    }
+    throw e;
+  }
+}
+
 export async function removeDiaryItem(index) {
   let entry = null;
   currentEntry.subscribe(v => entry = v)();

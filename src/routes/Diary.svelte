@@ -5,6 +5,7 @@
   import DatePicker from '../components/ui/DatePicker.svelte';
   import DateInput  from '../components/ui/DateInput.svelte';
   import { resolveAssetUrl, isNative, getServerUrl } from '../lib/platform.js';
+  import { resolveGoalFor } from '../lib/goal-resolver.js';
   import { fade, slide, fly } from 'svelte/transition';
   import { tweened } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
@@ -26,11 +27,13 @@
   import TimePicker   from '../components/ui/TimePicker.svelte';
   import { scaleFactor as _unitScaleFactor, amountAndUnit } from '../lib/units.js';
   import { showSuccess, showError, showInfo } from '../stores/toast.js';
+  import { confirmDialog } from '../stores/confirmDialog.js';
   import {
     currentDate, currentEntry, diaryTotals, macroPercents,
     prevDay, nextDay, loadEntry, removeDiaryItem, updateDiaryItem, saveBodyStats,
     addWaterLog,
     copyMealItems, moveMealItems, clearMealItems, copyMealToDate, saveDiaryNote,
+    setDayCompletion, setMealCompletion,
     splitRecipeItem, removeSplitChild, updateSplitChild,
     diaryShowNutritionSummary, diaryShowBodyStats, diaryLoadError,
     buildDiaryWritePayload,
@@ -47,6 +50,8 @@
            diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
            fastingEnabled,
            wellnessEnabled,
+           notifMealReminders,
+           diaryShowCompletion,
            diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
            diaryRailShowActivity as diaryRailShowActivityWidget,
            diaryRailShowNotes,
@@ -60,6 +65,7 @@
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
   import { readBodyStat, tagBodyStats, LENGTH_KEYS } from '../lib/body-stats-unit.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
+  import { pageScrollTop } from '../lib/scroll-anchor.js';
 
   let addMealIdx = 0;
   let showAddAction = false;
@@ -100,6 +106,27 @@
   let editUnit         = 'g';
   let editQuantity     = 1;     // number of servings — drives nutrition calc
   let showEditSheet    = false;
+  // Autofocus + Enter-submit for the edit-item sheet (#170). Same pattern
+  // as the qty-prompt sheet: on open, focus the first numeric input inside
+  // the sheet root, and any Enter (outside a textarea / select) commits
+  // the edit. Works for both the food branch (portion input first) and
+  // the quick_calories branch (kcal input first).
+  let _editSheetEl = null;
+  // #170 follow-up (drekkym on 2026-08-26): also select the existing
+  // value so typing replaces it instead of appending. Matches the
+  // Body Stats weight-edit pattern.
+  $: if (showEditSheet) tick().then(() => {
+    const _first = _editSheetEl?.querySelector('input[inputmode="numeric"], input[inputmode="decimal"]');
+    _first?.focus();
+    _first?.select?.();
+  });
+  function _onEditSheetKey(e) {
+    if (e.key !== 'Enter') return;
+    const t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    e.preventDefault();
+    saveEditItem();
+  }
   // Quick Calories edit fields. Mirror QuickCaloriesSheet's create flow so
   // the user can change kcal / name / optional macros after the entry is in
   // the diary. Serving Size / Number of Servings / Unit don't apply to
@@ -355,11 +382,36 @@
     : { items: [], bodyStats: {} };
   $: totals = $diaryTotals || {};
 
-  // Bump the week-strip refetch key whenever an entry's item count
-  // or item-nutrition changes so the strip's daily-totals cache stays
-  // in sync with what the user just logged. `_weekStripSig` is a cheap
-  // digest string that changes on any meaningful diary mutation.
-  $: _weekStripSig = `${$currentDate}|${(entry.items || []).length}|${(entry.water || []).length}`;
+  // Bump the week-strip refetch key whenever the day's rendered totals
+  // change so the strip's daily-totals cache stays in sync with what
+  // the user just logged. Uses the same Nutrition.calculate helper the
+  // week strip itself uses to compute its ring, so the signature
+  // watches EXACTLY what the strip would show.
+  //
+  // Includes the scaled kcal + water-ml sum so an EDIT (portion,
+  // quantity, unit swap) that leaves the item count the same still
+  // bumps the signature. Without this, changing a serving size
+  // updated the diary total instantly but left the week strip
+  // showing the pre-edit calorie ring for that day until reload /
+  // tab-switch (#168 followup on drekkym's report).
+  $: _weekStripSig = (() => {
+    const items = entry.items || [];
+    const water = entry.water || [];
+    let kcalSum = 0;
+    for (const it of items) {
+      const n = Nutrition.calculate(it);
+      kcalSum += n.calories || 0;
+    }
+    let mlSum = 0;
+    for (const w of water) mlSum += Number(w.amount) || 0;
+    // #180 — activitySummary.effective in the sig too so logging or
+    // removing activity bumps refreshKey, which triggers WeekStrip's
+    // per-day goal recompute for the visible week. Without this the
+    // per-day activity adjustment stays stale until the user manually
+    // navigates dates or reloads.
+    const active = Math.round($activitySummary?.effective || 0);
+    return `${$currentDate}|${items.length}|${water.length}|${Math.round(kcalSum)}|${Math.round(mlSum)}|${active}`;
+  })();
   $: if (_weekStripSig) { _weekStripRefreshKey = (_weekStripRefreshKey + 1); }
 
   // Nutrition Summary drill-down: tap a nutrient row → show top contributing
@@ -397,7 +449,10 @@
   let _dynamicGoalDate    = null;   // which diary date we fetched for
   // Adaptive TDEE — server-computed; cached once per page load
   let _adaptiveTdee = null;
-  $: _fixedGoal = ($goals && $goals.calories) ? ($goals.calories.max || $goals.calories.min || 2000) : 2000;
+  // #203: resolve per-weekday when the user has "different target per
+  // weekday" turned on. See src/lib/goal-resolver.js for the full
+  // rationale and the shared behavior with Statistics.
+  $: _fixedGoal = resolveGoalFor($goals?.calories, $currentDate) ?? 2000;
   $: caloriesGoal =
        ($calorieGoalMode === 'dynamic' && _dynamicCaloriesOut != null)
          ? Math.round(_dynamicCaloriesOut * $calorieGoalFactor)
@@ -436,7 +491,6 @@
   $: caloriesGoalAdjusted = caloriesGoal + _effectiveActive;
 
   $: _hasBottomNav = $navStyle === 'bottom' || $navStyle === 'both';
-  $: barBottom     = _hasBottomNav ? 'calc(var(--nav-h) + env(safe-area-inset-bottom, 0px))' : 'env(safe-area-inset-bottom, 0px)';
 
   let barExpanded = false;
   let showWaterQuickAdd = false;
@@ -513,7 +567,8 @@
     // flow. Since we're already position:fixed, we can't read that
     // directly — read the grid's top + its padding-top instead, which
     // is where the aside's cell sits.
-    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    // The page scrolls inside .page-transition, not the window (#217).
+    const scrollY = pageScrollTop(_diaryContentEl);
     const pad = parseFloat(getComputedStyle(_diaryContentEl).paddingTop || '0') || 0;
     const naturalDocTop = gridRect.top + scrollY + pad;
     const rootCS = getComputedStyle(document.documentElement);
@@ -726,19 +781,20 @@
     ? `calc(var(--nav-h) + ${_barBaseH + _barExpandedExtra + 12}px)`
     : `${_barBaseH + _barExpandedExtra + 12}px`;
 
-  // Per-macro goals (absolute) for bottom bar remaining display
-  function _macroGoal(id) {
+  // Per-macro goals (absolute) for bottom bar remaining display.
+  // #203: resolve per-weekday when the macro has its own weekday split.
+  function _macroGoal(id, dateStr) {
     const g = $goals?.[id]; if (!g) return null;
-    const raw = g.max ?? g.min ?? null; if (raw == null) return null;
+    const raw = resolveGoalFor(g, dateStr); if (raw == null) return null;
     if (g.isPercent) {
       const density = {fat:9,'saturated-fat':9,carbohydrates:4,sugars:4,proteins:4}[id];
       return density ? Math.round(caloriesGoal * raw / 100 / density) : raw;
     }
     return raw;
   }
-  $: fatGoal   = _macroGoal('fat');
-  $: carbGoal  = _macroGoal('carbohydrates');
-  $: protGoal  = _macroGoal('proteins');
+  $: fatGoal   = _macroGoal('fat', $currentDate);
+  $: carbGoal  = _macroGoal('carbohydrates', $currentDate);
+  $: protGoal  = _macroGoal('proteins', $currentDate);
   $: calPct    = Math.min(100, ((totals.calories||0) / caloriesGoalAdjusted) * 100);
 
   function formatDate(d) {
@@ -854,6 +910,104 @@
     _lockAndOpen(() => showMealAction = true);
   }
 
+  // #207: viewed-day completion toggle. Reflects the mark that lives on
+  // the diary row's completed_at column; the WeekStrip badge reads the
+  // same source of truth. Optimistic in the store so the icon flips
+  // instantly and rolls back on API failure.
+  $: _dayIsComplete = !!$currentEntry?.completed_at;
+
+  async function _toggleDayCompletion() {
+    const date = $currentDate;
+    const nextState = !_dayIsComplete;
+    // #207 (per-meal companion): when the per-meal opt-in is on and the
+    // user is CLOSING the day, warn about any meal slot that is both
+    // empty AND not explicitly marked as skipped. Confirming the close
+    // records the intent by marking those slots complete, so tomorrow
+    // an equivalent skip pattern (e.g. fasters skipping breakfast) does
+    // not re-prompt if they keep the marks. Cancel bails without
+    // touching state.
+    let emptyUnmarked = [];
+    if (nextState && $diaryShowCompletion && entry?.items) {
+      const marked = new Set(Array.isArray(entry.completed_meals) ? entry.completed_meals : []);
+      const perMealItems = meals.map((_, i) => (entry.items || []).filter(it => (it.meal ?? 0) === i));
+      emptyUnmarked = meals
+        .map((name, i) => ({ i, name, empty: perMealItems[i].length === 0 }))
+        .filter(m => m.empty && !marked.has(m.i));
+    }
+    if (emptyUnmarked.length) {
+      const names = emptyUnmarked.map(m => m.name).join(', ');
+      const ok = await confirmDialog({
+        title: $_('diary.day_complete.confirm_empty_title'),
+        message: $_('diary.day_complete.confirm_empty_msg', { values: { names } }),
+        confirmText: $_('diary.day_complete.confirm_empty_ok'),
+        cancelText:  $_('diary.day_complete.confirm_empty_cancel'),
+      }).catch(() => false);
+      if (!ok) return;
+      // Mark the empty slots first so the pattern persists.
+      for (const m of emptyUnmarked) {
+        try { await setMealCompletion(date, m.i, true); } catch {}
+      }
+    }
+    try {
+      await setDayCompletion(date, nextState);
+      if (nextState) {
+        showSuccess($_('diary.day_complete.marked_toast'));
+        const shown = localStorage.getItem('nt:dayCompletionMealTipShown') === '1';
+        if (!shown && !$notifMealReminders) {
+          showInfo($_('diary.day_complete.meal_reminders_hint'));
+          try { localStorage.setItem('nt:dayCompletionMealTipShown', '1'); } catch {}
+        }
+      } else {
+        showInfo($_('diary.day_complete.unmarked_toast'));
+      }
+    } catch (e) {
+      showError(e?.message || $_('diary.day_complete.error_toast'));
+    }
+  }
+
+  // #207: the fixed status bar reserves top space via body.has-day-status
+  // so the first meal card is not covered on load. Toggled here (not in
+  // the template) so the class comes off cleanly when the user leaves the
+  // Diary route or turns the setting off.
+  $: if (typeof document !== 'undefined') {
+    document.body.classList.toggle('has-day-status', !!$diaryShowCompletion);
+  }
+  onDestroy(() => {
+    if (typeof document !== 'undefined') document.body.classList.remove('has-day-status');
+  });
+
+  // #207 (per-meal): store-backed toggle wrapper. Best-effort UI
+  // feedback; the store already handles optimistic flip + rollback.
+  // After a successful mark, if every populated meal slot is now
+  // marked AND the day isn't already closed, auto-close the day.
+  // Auto-uncomplete on unmark is intentionally NOT done: the user
+  // explicitly closed the day and unmarking a single meal shouldn't
+  // silently reverse that decision. They can uncheck the day toggle
+  // themselves if they want to reopen it.
+  async function _toggleMealCompletion(mealIdx) {
+    const date = $currentDate;
+    const cur = Array.isArray(entry?.completed_meals) && entry.completed_meals.includes(mealIdx);
+    const nextState = !cur;
+    try {
+      await setMealCompletion(date, mealIdx, nextState);
+      if (nextState && !_dayIsComplete) {
+        // Read fresh state (setMealCompletion already updated currentEntry).
+        let latest = null;
+        currentEntry.subscribe(v => latest = v)();
+        const marked = new Set(Array.isArray(latest?.completed_meals) ? latest.completed_meals : []);
+        const allSlotsMarked = meals.every((_, i) => marked.has(i));
+        if (allSlotsMarked) {
+          try {
+            await setDayCompletion(date, true);
+            showSuccess($_('diary.day_complete.auto_marked_toast'));
+          } catch { /* store handles its own rollback */ }
+        }
+      }
+    } catch (e) {
+      showError(e?.message || $_('diary.day_complete.error_toast'));
+    }
+  }
+
   function onMealAction(e) {
     const val = e.detail?.value;
     if (val === 'move') { mealActionMode = 'move'; _lockAndOpen(() => showMealTargetPicker = true); }
@@ -956,8 +1110,28 @@
   // Date picker — calendar UI lives in src/components/ui/DatePicker.svelte
   let showDatePicker = false;
   let pickerDate = '';
+  // #207: completed-days set for the DatePicker badge. Populated lazily
+  // when the user opens the calendar; refreshed on each open so a mark
+  // change (topbar toggle) surfaces immediately the next time the
+  // picker is shown. Filled by calling getAllDiary and folding rows
+  // with completed_at into a Set of ISO date strings.
+  let pickerCompletedDays = new Set();
+  async function _refreshPickerCompletedDays() {
+    try {
+      const all = await NtApi.getAllDiary().catch(() => []);
+      const s = new Set();
+      for (const e of all || []) {
+        if (e?.date && e.completed_at) s.add(e.date);
+      }
+      pickerCompletedDays = s;
+    } catch { pickerCompletedDays = new Set(); }
+  }
   function openDatePicker() {
     pickerDate = $currentDate;
+    // #207: skip the load when completion is off so we don't pay the
+    // getAllDiary round-trip for a feature the user never activated.
+    if ($diaryShowCompletion) _refreshPickerCompletedDays();
+    else pickerCompletedDays = new Set();
     _lockAndOpen(() => showDatePicker = true);
   }
   function goToDate() {
@@ -1024,10 +1198,10 @@
         const g = $goals[n.id];
         let tgt = null;
         if (g) {
-          const raw = g.max ?? g.min ?? null;
+          const raw = resolveGoalFor(g, $currentDate);
           if (raw != null && g.isPercent) {
             const density = {fat:9,'saturated-fat':9,carbohydrates:4,sugars:4,proteins:4}[n.id];
-            const calGoal = $goals.calories?.max ?? $goals.calories?.min ?? 2000;
+            const calGoal = resolveGoalFor($goals.calories, $currentDate) ?? 2000;
             tgt = density ? Math.round(calGoal * raw / 100 / density) : raw;
           } else {
             tgt = raw;
@@ -1625,7 +1799,7 @@
 
 <div class="page-shell diary-page">
   <!-- Action icons — fixed at top-right, same level as hamburger -->
-  <div use:portal class="diary-topbar-actions">
+  <div use:portal class="diary-topbar-actions" class:select-mode-actions={selectMode}>
     {#if selectMode}
       <button class="btn-icon" on:click={exitSelectMode} aria-label={$_('diary.actions.cancel_selection')} title={$_('diary.actions.cancel_selection')}>
         <span class="material-symbols-rounded">close</span>
@@ -1669,6 +1843,9 @@
         {#if $diaryShowNotes && (entry?.notes || '').trim()}
           <span class="material-symbols-rounded date-note-indicator" title="Has notes">edit_note</span>
         {/if}
+        {#if $diaryShowCompletion && _dayIsComplete}
+          <span class="material-symbols-rounded date-complete-indicator" title="Day marked complete" aria-label="Day marked complete">task_alt</span>
+        {/if}
       </span>
       <span class="date-sub">{formatDateSub($currentDate, $dateFormat)}</span>
     </button>
@@ -1681,14 +1858,93 @@
        ≥1280px; hidden on mobile. Data refetches whenever the diary
        store fires an update (bumps refreshKey). -->
   <div class="diary-week-strip-wrap">
+    <!-- #180 — pass the UNADJUSTED base goal. caloriesGoalAdjusted
+         mixes in the CURRENT day's activity kcal, and WeekStrip
+         divides every day's food total by that same denominator,
+         so every bar shifted whenever the viewed day's activity
+         changed. The main day-gauge still uses caloriesGoalAdjusted
+         because that one is scoped to the current day. -->
     <WeekStrip
       currentDate={$currentDate}
-      calorieGoal={caloriesGoalAdjusted}
+      calorieGoal={caloriesGoal}
+      calorieGoalMode={$calorieGoalMode}
+      calorieGoalFactor={$calorieGoalFactor}
+      adjustFromActivity={$diaryShowActivity && $calorieAdjustFromActivity}
+      activityPolicy={$manualActivityPolicy || 'wearable_wins'}
       refreshKey={_weekStripRefreshKey}
       onSelectDate={(iso) => _loadEntryTracked(iso)}
       onDropMeal={_onDropMealOnWeekDay}
+      showCompletion={$diaryShowCompletion}
     />
   </div>
+
+  {#if $diaryShowCompletion}
+    <!-- #207: day-completion status bar. Sits between the week strip
+         and the day's content so the mark reads as "state of this day",
+         not a floating action. Combines the progress line and the
+         affordance in one place; swaps to a "Day complete" summary
+         with a Reopen button once the day is closed. -->
+    {@const _mealCounts = (entry?.items || []).reduce((acc, it) => {
+      const s = it.meal ?? 0;
+      acc[s] = (acc[s] || 0) + 1;
+      return acc;
+    }, {})}
+    {@const _mealsLogged = meals.filter((_, i) => (_mealCounts[i] || 0) > 0).length}
+    {@const _mealsTotal  = meals.length}
+    {@const _dayLabelShort = (() => {
+      const today = localDateStr();
+      if ($currentDate === today) return $_('diary.day_complete.status.today');
+      try {
+        const yd = new Date(); yd.setDate(yd.getDate() - 1);
+        if ($currentDate === localDateStr(yd)) return $_('diary.day_complete.status.yesterday');
+      } catch {}
+      return formatDate($currentDate);
+    })()}
+    <div use:portal class="diary-day-status" class:complete={_dayIsComplete}
+      style="--sidebar-w-offset: var(--sidebar-w, 0px);">
+      {#if _dayIsComplete}
+        <span class="dds-icon material-symbols-rounded">task_alt</span>
+        <span class="dds-text">
+          <span class="dds-headline">{$_('diary.day_complete.status.closed_headline')}</span>
+          {#if entry?.completed_at}
+            {@const _ts = (() => {
+              try {
+                // SQLite datetime('now') stores UTC as "YYYY-MM-DD HH:MM:SS"
+                // with no timezone marker; JS Date() parses that string as
+                // LOCAL time and would show wall-clock at the server's clock,
+                // not the user's. Normalize to ISO with 'Z' so the parse is
+                // unambiguous UTC and toLocaleTimeString renders in the
+                // viewer's own zone. Absolute ISO (already has 'T' + tz) is
+                // passed through unchanged.
+                const raw = String(entry.completed_at);
+                const iso = raw.includes('T') ? raw
+                  : raw.replace(' ', 'T') + (raw.endsWith('Z') ? '' : 'Z');
+                return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+              } catch { return ''; }
+            })()}
+            {#if _ts}<span class="dds-sub">· {$_('diary.day_complete.status.closed_at', { values: { time: _ts } })}</span>{/if}
+          {/if}
+        </span>
+        <button class="btn btn-secondary btn-sm dds-cta" on:click={_toggleDayCompletion}
+          aria-label={$_('diary.day_complete.status.reopen')}>
+          {$_('diary.day_complete.status.reopen')}
+        </button>
+      {:else}
+        <span class="dds-icon material-symbols-rounded" style="color:var(--accent)">restaurant</span>
+        <span class="dds-text">
+          <span class="dds-headline">{_dayLabelShort}</span>
+          <span class="dds-sub">·
+            {$_('diary.day_complete.status.progress', { values: { done: _mealsLogged, total: _mealsTotal } })}
+          </span>
+        </span>
+        <button class="btn btn-primary btn-sm dds-cta" on:click={_toggleDayCompletion}
+          aria-label={$_('diary.actions.mark_day_complete')}>
+          <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;margin-right:3px">check_circle</span>
+          {$_('diary.day_complete.status.mark_complete')}
+        </button>
+      {/if}
+    </div>
+  {/if}
 
   <div
     bind:this={_diaryContentEl}
@@ -1746,6 +2002,19 @@
         <div class="meal-header" style="--meal-color:{mealColor(mealIdx)}">
           <span class="meal-type-icon material-symbols-rounded">{mealIcon(meal)}</span>
           <span class="meal-name">{meal}</span>
+          {#if $diaryShowCompletion}
+            {@const _mealDone = Array.isArray(entry?.completed_meals) && entry.completed_meals.includes(mealIdx)}
+            <!-- #207 per-meal (opt-in via Settings > Diary > Show meal completion):
+                 quick check toggle. Tap to mark this slot done; tap again to
+                 unmark. Records the user's intent so day-close can skip the
+                 empty-slot confirm on slots the user has explicitly closed. -->
+            <button class="btn-icon meal-complete-btn" class:meal-done={_mealDone}
+              on:click|stopPropagation={() => _toggleMealCompletion(mealIdx)}
+              aria-label={_mealDone ? `Unmark ${meal} complete` : `Mark ${meal} complete`}
+              title={_mealDone ? `Unmark ${meal} complete` : `Mark ${meal} complete`}>
+              <span class="material-symbols-rounded">{_mealDone ? 'task_alt' : 'radio_button_unchecked'}</span>
+            </button>
+          {/if}
           {#if items.length > 0 && !$diaryShowMacroSummary}
             {@const _mealKcal = items.reduce((s,it) => s + formatKcal(it), 0)}
             {@const _mealEnergy = Nutrition.displayEnergy(_mealKcal, $energyUnit)}
@@ -2147,7 +2416,7 @@
 {/if}
 
 <!-- Persistent bottom nutrition bar -->
-<div use:portal class="diary-bottom-bar" style="bottom:{barBottom}">
+<div use:portal={'#bottom-dock-slot'} class="diary-bottom-bar">
   <!-- Calorie progress strip -->
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div class="dbb-progress" on:click={() => barExpanded = !barExpanded}
@@ -2427,7 +2696,7 @@
 <!-- Edit item sheet -->
 <Sheet bind:open={showEditSheet} title={editItem ? editItem.name : ''} on:close={() => showEditSheet = false}>
   {#if editItem}
-    <div class="edit-sheet-body">
+    <div class="edit-sheet-body" bind:this={_editSheetEl} on:keydown={_onEditSheetKey}>
       {#if editItem.type === 'quick_calories'}
         <!-- Quick Calories edit — mirrors the create sheet (kcal pill + 3-up
              macros + optional name). No Serving Size / Unit / Number of
@@ -2691,7 +2960,7 @@
     on:click={() => { if (!_sheetLock) showDatePicker = false; }} on:keydown={() => {}}>
     <div class="bs-sheet dp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
-      <DatePicker bind:value={pickerDate} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
+      <DatePicker bind:value={pickerDate} completedDays={pickerCompletedDays} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
     </div>
   </div>
 {/if}
@@ -2966,6 +3235,154 @@
     gap: 2px;
     pointer-events: all;
   }
+  /* #207: toggle button's on-state colours the check the same green as the
+     WeekStrip completion badge so the two surfaces read as one signal.
+     Lives on the date bar (works on mobile + desktop) so scope covers
+     both the topbar-actions layout and the date-bar itself. */
+  :global(.btn-icon.day-complete-on) {
+    color: var(--success, #10b981);
+  }
+  /* #207: matching check next to the date label so the current viewed
+     day carries its state visually without relying on the toggle icon
+     alone (helps the mark read clearly on wide screens with lots of
+     white space in the date bar). */
+  .date-complete-indicator {
+    font-size: 16px;
+    color: var(--success, #10b981);
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+  /* #207: day-completion status bar. Slim one-line band that pins
+     below the sticky date bar / week strip so it stays put as the diary
+     scrolls. Reads "Today · N of M meals logged" plus a compact CTA;
+     swaps to a green completed state after the day is closed. Uses
+     token colors + color-mix so both themes look right without a second
+     rule set. */
+  /* Fixed and portaled to <body> so it's unambiguously viewport-relative
+     with no ancestor containing-block gotchas. left accounts for the
+     desktop sidebar rail via --sidebar-w. Stays put period regardless
+     of what happens in .page-transition. */
+  :global(body > .diary-day-status) {
+    position: fixed;
+    top: calc(var(--page-top, var(--safe-top)) + 108px + var(--hamburger-row, 0px));
+    left: calc(var(--sidebar-w, 0px) + 12px);
+    right: 12px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 12px;
+    margin: 0;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    box-shadow: 0 2px 8px color-mix(in srgb, #000 12%, transparent);
+    font-size: 13px;
+    line-height: 1.15;
+    color: var(--text-1);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    transition: background 200ms, border-color 200ms;
+  }
+  /* Content beneath the fixed bar needs top padding equal to the bar's
+     own height so the first meal card is not covered on the initial
+     render. Applied via body-level class toggle instead of hard-coding
+     into .diary-content because the bar only exists when the setting
+     is on. */
+  :global(body.has-day-status) .diary-content {
+    padding-top: 40px;
+  }
+  :global(.diary-day-status.complete) {
+    background: color-mix(in srgb, var(--success, #10b981) 10%, var(--surface-1));
+    border-color: color-mix(in srgb, var(--success, #10b981) 22%, transparent);
+  }
+  :global(.diary-day-status .dds-icon) {
+    font-size: 15px;
+    flex-shrink: 0;
+    color: var(--accent);
+  }
+  :global(.diary-day-status.complete .dds-icon) {
+    color: var(--success, #10b981);
+  }
+  :global(.diary-day-status .dds-text) {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :global(.diary-day-status .dds-headline) {
+    font-weight: 600;
+    font-size: 13px;
+  }
+  :global(.diary-day-status .dds-sub) {
+    color: var(--text-3);
+    font-size: 12px;
+  }
+  :global(.diary-day-status .dds-cta) {
+    /* Override .btn's height:44px + font:15px so the CTA sits INSIDE
+       the slim status bar. Without these the bar's own padding gets
+       pushed out to 44px by the button, which is what made the button
+       look like it was floating above / below the visible sticky area. */
+    flex-shrink: 0;
+    height: auto;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 0;
+    line-height: 1.15;
+    white-space: nowrap;
+    border-radius: 6px;
+  }
+  :global(.diary-day-status.complete .dds-cta) {
+    /* Reopen is a subdued affordance; keep it secondary regardless of
+       the theme's primary/secondary defaults. */
+    background: transparent;
+    color: var(--text-2);
+    border: 1px solid var(--border);
+  }
+  :global(.diary-day-status.complete .dds-cta:hover) {
+    background: color-mix(in srgb, var(--text-1) 6%, transparent);
+    color: var(--text-1);
+  }
+  /* Desktop: sit under the week-strip when the strip is visible.
+     .page-transition offsets by --sidebar-w on the left, and the fixed
+     bar is a descendant of it, so left/right are already relative to
+     the sidebar-offset viewport (no manual sidebar math needed). */
+  @media (min-width: 1280px) {
+    :global(html:not(.force-mobile-layout) body > .diary-day-status) {
+      top: calc(var(--page-top, var(--safe-top)) + 200px + var(--hamburger-row, 0px));
+    }
+  }
+  @media (max-width: 480px) {
+    .diary-day-status {
+      margin: 4px 8px 0;
+      padding: 2px 10px;
+    }
+    :global(.diary-day-status .dds-cta) {
+      padding: 2px 8px;
+      font-size: 12px;
+    }
+  }
+  /* #207 per-meal: tiny check toggle on each meal card header. Muted
+     when unchecked so it recedes into the header; green when checked
+     to match the day-level badge idiom. */
+  :global(.meal-header .meal-complete-btn) {
+    color: var(--text-3);
+    opacity: 0.7;
+  }
+  :global(.meal-header .meal-complete-btn:hover) {
+    color: var(--text-1);
+    opacity: 1;
+  }
+  :global(.meal-header .meal-complete-btn.meal-done) {
+    color: var(--success, #10b981);
+    opacity: 1;
+  }
 
   /* H1 height/alignment now lives in base.css .page-header h1 (uniform 40px). */
 
@@ -3236,7 +3653,12 @@
        measurements, nutrient detail, activity impact). Hide both
        mobile-only surfaces at ≥1280px to eliminate the redundancy
        that Phases 2 and 3 deliberately kept for safety. */
-    :global(html:not(.force-mobile-layout) .diary-topbar-actions) { display: none; }
+    /* #198: keep the topbar-actions visible in select mode at wide
+       screens too. The rail carries feature-parity for the NORMAL-mode
+       buttons (water / summary / body stats), but has no select-mode
+       UI, so hiding everything hides the multi-select cancel + delete
+       buttons and traps users with no way to act on their selection. */
+    :global(html:not(.force-mobile-layout) .diary-topbar-actions:not(.select-mode-actions)) { display: none; }
     :global(html:not(.force-mobile-layout) .diary-bottom-bar) { display: none; }
     /* Notes mutual-exclusion: when the rail widget is showing Notes,
        hide the bottom card so it doesn't render twice. If the user
@@ -4104,9 +4526,8 @@
 
   /* ── Persistent bottom nutrition bar ─────────────────────────── */
   .diary-bottom-bar {
-    position: fixed;
-    left: 0; right: 0;
-    z-index: 90;
+    /* Lives in App's bottom dock, stacked directly on the tab bar. */
+    position: relative;
     background: var(--glass-surface);
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);

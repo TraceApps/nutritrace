@@ -51,7 +51,11 @@
     _carbs = '';
     _fat = '';
     _saving = false;
-    setTimeout(() => _inputEl?.focus(), 50);
+    // #170 follow-up: select() after focus() so a partially-entered
+    // draft (from a prior open the user cancelled) is replaced by
+    // typing instead of appended to. Reset above leaves fields empty
+    // so this is usually a no-op, but harmless when it is.
+    setTimeout(() => { _inputEl?.focus(); _inputEl?.select?.(); }, 50);
   }
 
   $: _isKj = $energyUnit === 'kJ';

@@ -4,6 +4,11 @@ import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
 import { mergeEntries, ensureUuids } from '../lib/diary-merge.js';
+import { dispatchWebhookEvent } from '../lib/webhooks.js';
+import { getGoalsCore } from '../lib/mcp/tools/goals.js';
+import { dailyTotalsCore } from '../lib/mcp/tools/daily-totals.js';
+import { checkNutritionGoalCrossing, checkWaterGoalCrossing } from '../lib/goal-webhook.js';
+import { Nutrition } from '../../src/lib/nutrition.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -48,7 +53,7 @@ router.get('/:date', wrap((req, res) => {
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND deleted_at IS NULL').get(req.params.date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(req.params.date, u);
   const tombstones = _loadTombstones(u, req.params.date);
-  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [], notes: '', tombstones });
+  if (!row) return res.json({ date: req.params.date, items: [], body_stats: {}, water: [], notes: '', completed_at: null, completed_meals: [], tombstones });
   res.json({ ...parse(row), tombstones });
 }));
 
@@ -182,6 +187,53 @@ router.put('/:date', wrap((req, res) => {
   const row = u == null
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL AND deleted_at IS NULL').get(date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ? AND deleted_at IS NULL').get(date, u);
+
+  // Outgoing webhooks. Webhooks require a real account (webhooks.user_id
+  // is NOT NULL), so this is naturally a no-op in single-user mode where
+  // u is null. Every dispatch is wrapped so a webhook failure can never
+  // block or delay the save above, which has already committed.
+  if (u != null) {
+    try {
+      const newItems = mergedItems.filter(it => it.uuid && !serverItems.some(s => s.uuid === it.uuid));
+      if (newItems.length) dispatchWebhookEvent(u, 'meal.logged', { date, items: newItems });
+    } catch (e) { /* never let a webhook failure block the save */ }
+
+    try {
+      const newWaterEntries = mergedWater.filter(w => w.uuid && !serverWater.some(s => s.uuid === w.uuid));
+      if (newWaterEntries.length) {
+        const water_ml = mergedWater.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+        dispatchWebhookEvent(u, 'water.logged', { date, water_ml, added: newWaterEntries });
+      }
+    } catch (e) { /* never let a webhook failure block the save */ }
+
+    try {
+      if (bsJson !== (existingRow?.body_stats ?? null)) {
+        dispatchWebhookEvent(u, 'body_stat.logged', { date, stats: JSON.parse(bsJson) });
+      }
+    } catch (e) { /* never let a webhook failure block the save */ }
+
+    // goal.achieved: per-metric, fires once when a metric crosses from
+    // under-target to at-or-above-target THIS save. Pre-save totals come
+    // from the items/water this handler already loaded before the merge;
+    // post-save totals are read back via dailyTotalsCore so the webhook's
+    // notion of "today's totals" matches GET /api/v1/diary/:date/totals
+    // exactly. If the existing row was soft-deleted, treat the "before"
+    // state as empty rather than the erased day's stale contents, a
+    // fresh log into a previously-deleted day should not compare against
+    // phantom pre-deletion totals.
+    try {
+      const { goals, water_goal_ml } = getGoalsCore(u);
+      const priorItems = (existingRow && !existingRow.deleted_at) ? serverItems : [];
+      const priorWater = (existingRow && !existingRow.deleted_at) ? serverWater : [];
+      const beforeTotals = Nutrition.sum(priorItems.map(i => Nutrition.calculate(i)));
+      const beforeWaterMl = priorWater.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+      const after = dailyTotalsCore(u, { date });
+
+      checkNutritionGoalCrossing(u, date, goals, beforeTotals, after.totals);
+      checkWaterGoalCrossing(u, date, water_goal_ml, beforeWaterMl, after.water_ml);
+    } catch (e) { /* never let a webhook failure block the save */ }
+  }
+
   res.json({ ...parse(row), tombstones: _loadTombstones(u, date) });
 }));
 
@@ -194,6 +246,110 @@ router.delete('/:date', wrap((req, res) => {
   }
   res.json({ ok: true });
 }));
+
+/**
+ * PUT /api/diary/:date/completion
+ * Body: { completed: boolean }
+ *
+ * #207: mark the day as "fully logged" (or clear the mark). Purely a
+ * user-facing visual affordance; no diary math depends on completed_at.
+ *
+ * Creates the diary row if the user marks a day complete without having
+ * logged anything (still valid: someone might close an intentionally
+ * empty day, e.g. a fast). Idempotent: PUT-true twice is the same as
+ * once, and the completed_at stamp is preserved on the first mark so a
+ * subsequent PUT-true does not shift the timestamp.
+ */
+router.put('/:date/completion', wrap((req, res) => {
+  const u = uid(req);
+  const date = String(req.params.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'invalid date' });
+  }
+  const completed = req.body?.completed !== false;
+
+  const existing = u == null
+    ? db.prepare('SELECT id, completed_at FROM diary WHERE date = ? AND user_id IS NULL').get(date)
+    : db.prepare('SELECT id, completed_at FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+
+  if (completed) {
+    if (existing) {
+      // Preserve first-mark timestamp so a repeat PUT does not overwrite it.
+      if (!existing.completed_at) {
+        db.prepare("UPDATE diary SET completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+          .run(existing.id);
+      }
+    } else {
+      db.prepare(
+        `INSERT INTO diary (user_id, date, completed_at, updated_at)
+         VALUES (?, ?, datetime('now'), datetime('now'))`
+      ).run(u, date);
+    }
+  } else if (existing) {
+    db.prepare("UPDATE diary SET completed_at = NULL, updated_at = datetime('now') WHERE id = ?")
+      .run(existing.id);
+  }
+
+  const row = u == null
+    ? db.prepare('SELECT date, completed_at FROM diary WHERE date = ? AND user_id IS NULL').get(date)
+    : db.prepare('SELECT date, completed_at FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+  res.json({ ok: true, date, completed_at: row?.completed_at || null });
+}));
+
+/**
+ * PUT /api/diary/:date/meal-completion
+ * Body: { slot: number, completed: boolean }
+ *
+ * #207 companion: per-meal completion mark. Stored as a JSON array of
+ * slot indexes on diary.completed_meals. Adding or removing a slot
+ * respects the same "create row if missing" pattern as the day-level
+ * endpoint above, so a user can close individual meals on an
+ * intentionally empty day. Purely visual, gated on the client behind
+ * the diaryShowMealCompletion setting.
+ */
+router.put('/:date/meal-completion', wrap((req, res) => {
+  const u = uid(req);
+  const date = String(req.params.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'invalid date' });
+  }
+  const slot = Number(req.body?.slot);
+  if (!Number.isInteger(slot) || slot < 0 || slot > 31) {
+    return res.status(400).json({ error: 'slot must be an integer in [0, 31]' });
+  }
+  const completed = req.body?.completed !== false;
+
+  const existing = u == null
+    ? db.prepare('SELECT id, completed_meals FROM diary WHERE date = ? AND user_id IS NULL').get(date)
+    : db.prepare('SELECT id, completed_meals FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+
+  const current = _parseSlotArray(existing?.completed_meals);
+  const set = new Set(current);
+  if (completed) set.add(slot); else set.delete(slot);
+  const next = Array.from(set).sort((a, b) => a - b);
+  const nextJson = next.length ? JSON.stringify(next) : null;
+
+  if (existing) {
+    db.prepare("UPDATE diary SET completed_meals = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(nextJson, existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO diary (user_id, date, completed_meals, updated_at)
+       VALUES (?, ?, ?, datetime('now'))`
+    ).run(u, date, nextJson);
+  }
+
+  res.json({ ok: true, date, completed_meals: next });
+}));
+
+function _parseSlotArray(raw) {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
+  } catch { return []; }
+}
 
 // Fix any Capacitor cached paths that leaked into diary items
 function fixCachedPaths(items) {
@@ -235,12 +391,25 @@ function fixCachedPaths(items) {
 // untouched. Single batch query, scales fine for typical diary days.
 function parse(row) {
   const items = JSON.parse(row.items || '[]');
+  // #207 (per-meal): completed_meals is a JSON string on disk, array on
+  // the wire. Parse defensively so a malformed value renders as no
+  // marked meals instead of crashing the whole GET.
+  let completedMeals = [];
+  if (row.completed_meals) {
+    try {
+      const arr = JSON.parse(row.completed_meals);
+      if (Array.isArray(arr)) {
+        completedMeals = arr.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
+      }
+    } catch { completedMeals = []; }
+  }
   return {
     ...row,
-    items:      freshenItemImages(hydrateItems(fixCachedPaths(items))),
-    body_stats: JSON.parse(row.body_stats || '{}'),
-    water:      JSON.parse(row.water      || '[]'),
-    notes:      row.notes || '',
+    items:            freshenItemImages(hydrateItems(fixCachedPaths(items))),
+    body_stats:       JSON.parse(row.body_stats || '{}'),
+    water:            JSON.parse(row.water      || '[]'),
+    notes:            row.notes || '',
+    completed_meals:  completedMeals,
   };
 }
 

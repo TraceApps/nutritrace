@@ -94,8 +94,12 @@ console.log(`\n\x1b[1mMCP smoke test\x1b[0m  ${URL_}\n`);
 // --- tools/list ---
 const READ_TOOLS = [
   'get_goals',
+  'get_profile',
+  'get_steps',
   'list_diary_entries',
+  'list_diary_entries_range',
   'get_daily_totals',
+  'get_daily_totals_range',
   'search_foods',
   'get_recent_foods',
 ];
@@ -149,10 +153,16 @@ async function checkTool(name, args, resultKey, note) {
 }
 
 await checkTool('get_goals',           {},                       'goals');
+await checkTool('get_profile',         {},                       'gender',   '(gender/birthday)');
+await checkTool('get_steps',           { start: '2000-01-01', end: '2000-01-02' }, 'steps', '(explicit range)');
 await checkTool('get_daily_totals',    {},                       'totals',    '(today)');
+await checkTool('get_daily_totals_range', { start: '2000-01-01', end: '2000-01-02' }, 'totals', '(explicit range)');
 await checkTool('list_diary_entries',  {},                       'items',     '(today)');
+await checkTool('list_diary_entries_range', { start: '2000-01-01', end: '2000-01-02' }, 'entries', '(explicit range)');
 await checkTool('search_foods',        { query: 'a', limit: 3 }, 'items',     '(q=a)');
 await checkTool('get_recent_foods',    { limit: 3 },             'items');
+await checkTool('get_recent_foods',    { start: '2000-01-01', end: '2000-01-02' }, 'items', '(explicit range)');
+await checkTool('get_recent_meals',    { start: '2000-01-01', end: '2000-01-02' }, 'items', '(explicit range)');
 
 // --- Write tools (opt-in with --writes) ---
 if (WRITE_MODE) {

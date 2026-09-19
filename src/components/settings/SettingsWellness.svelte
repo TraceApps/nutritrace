@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '../../lib/clipboard.js';
   import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { slide } from 'svelte/transition';
@@ -7,7 +8,7 @@
   import ConnectionStatus from './ConnectionStatus.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
-    wellnessEnabled, fitbitEnabled, healthConnectEnabled, wellnessMetrics, workoutsEnabled,
+    wellnessEnabled, fitbitEnabled, healthConnectEnabled, wellnessMetrics, workoutsEnabled, mirrorWellnessWeight,
     lifttraceOverlapFill, envLocks,
     wellnessSyncRange,
     fitbitSyncMode, fitbitSyncInterval, fitbitSyncWindowStart, fitbitSyncWindowEnd,
@@ -30,6 +31,8 @@
   let healthConnectEnabledVal = DB.getSetting('healthConnectEnabled', false);
   let workoutsEnabledVal     = DB.getSetting('workoutsEnabled',     false);
   let lifttraceOverlapFillVal = DB.getSetting('lifttraceOverlapFill', true);
+  // #200: opt-in mirror from wellness weight readings → diary Body Stats weight.
+  let mirrorWellnessWeightVal = DB.getSetting('mirrorWellnessWeight', false);
   let healthConnectAvailability = 'checking';
   let healthConnectPermissions = { read: [] };
   let hcLastBgSyncAt = null;
@@ -495,7 +498,7 @@
   }
 
   function copyRedirectUri() {
-    navigator.clipboard.writeText(fitbitRedirectUri || fitbitRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')));
+    copyText(fitbitRedirectUri || fitbitRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')), () => showError($_('settings_wellness.common.copy_failed')));
   }
 
   async function disconnectGarminFromSettings() {
@@ -539,7 +542,7 @@
   }
 
   function copyGarminRedirectUri() {
-    navigator.clipboard.writeText(garminRedirectUri || garminRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')));
+    copyText(garminRedirectUri || garminRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')), () => showError($_('settings_wellness.common.copy_failed')));
   }
 
   async function saveWithingsConfig() {
@@ -557,7 +560,7 @@
   }
 
   function copyWithingsRedirectUri() {
-    navigator.clipboard.writeText(withingsRedirectUri || withingsRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')));
+    copyText(withingsRedirectUri || withingsRedirectSuggested).then(() => showSuccess($_('settings_wellness.common.copied')), () => showError($_('settings_wellness.common.copy_failed')));
   }
 </script>
 
@@ -578,6 +581,21 @@
         <div>
           <span class="setting-desc">{$_('settings_wellness.master.schedule_note')}</span>
         </div>
+      </div>
+      <!-- #200 mirror toggle. Off by default so the two-store split
+           stays intact for anyone who wasn't asking for it. Manual
+           Body Stats entries always win — the mirror only fills days
+           where Body Stats weight is empty. Withings already applies
+           this behavior unconditionally; the toggle covers Health
+           Connect and any future weight-writing wellness source. -->
+      <div class="setting-divider"></div>
+      <div class="setting-row">
+        <div>
+          <span class="setting-label">Mirror wellness weight to Body Stats</span>
+          <div class="setting-desc">Also write scale readings from Health Connect into that day's Body Stats weight so the Weight goal on Goals and the Body Stats widget on Diary reflect your scale. Manual Body Stats entries are never overwritten. Withings applies this by default independently of this toggle.</div>
+        </div>
+        <Toggle checked={mirrorWellnessWeightVal}
+          on:change={e => { mirrorWellnessWeightVal = e.detail; mirrorWellnessWeight.set(e.detail); }} />
       </div>
     {/if}
   </div>

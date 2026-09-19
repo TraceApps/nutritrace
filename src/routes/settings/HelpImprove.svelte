@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '../../lib/clipboard.js';
   import { _ } from 'svelte-i18n';
   import Toggle from '../../components/settings/Toggle.svelte';
   import Sheet from '../../components/ui/Sheet.svelte';
@@ -27,11 +28,11 @@
   }
   async function _copyLogs() {
     try {
-      await navigator.clipboard.writeText(_logsText);
+      await copyText(_logsText);
       _logsCopied = true;
       setTimeout(() => _logsCopied = false, 2000);
     } catch (e) {
-      showError('Copy failed — select the text manually');
+      showError('Copy failed. Select the text manually.');
     }
   }
   async function _shareLogs() {
@@ -202,11 +203,11 @@
 
   async function _copyCalibExport() {
     try {
-      await navigator.clipboard.writeText(_calibExportJson);
+      await copyText(_calibExportJson);
       _calibCopied = true;
       setTimeout(() => _calibCopied = false, 2000);
     } catch (e) {
-      showError('Copy failed — select the text manually');
+      showError('Copy failed. Select the text manually.');
     }
   }
 </script>
@@ -216,7 +217,7 @@
     <div class="setting-row">
       <div>
         <span class="setting-label">{$_('settings_diagnostics.diag_mode')}</span>
-        <div class="setting-desc">Enables detailed app-internal logs (sync, settings, notifications, Health Connect) and{isNative ? ' writes them to a daily log file on disk so they survive crashes and reloads.' : ' enables verbose console output.'} Off by default — turn on while reproducing a bug, then export below.</div>
+        <div class="setting-desc">Enables detailed app-internal logs (sync, settings, notifications, Health Connect) and{isNative ? ' writes them to a daily log file on disk so they survive crashes and reloads.' : ' enables verbose console output.'} Also records screen sizes and positions (never what you type) to help with display problems on specific devices. Off by default. Turn on while reproducing a bug, then export below.</div>
       </div>
       <Toggle checked={_verboseLogging} on:change={e => _toggleVerbose(e.detail)} />
     </div>

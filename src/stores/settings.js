@@ -31,6 +31,7 @@ export const USER_PREFS = new Set([
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
   'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes','warnUnitMismatch','showUnitMetadata',
+  'diaryShowCompletion',
   'diaryShowActivity','manualActivityPolicy','activityAutoEstimate','calorieAdjustFromActivity',
   'showQuickCalories','quickCaloriesDisplay',
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
@@ -54,7 +55,9 @@ export const USER_PREFS = new Set([
   'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','aiKeyVerified','quickLogEnabled','aiGoalInsights','smartLogVoiceLang',
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
+  'cooktraceEnabled','cooktraceBaseUrl','cooktraceApiToken',
   'wellnessEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
+  'mirrorWellnessWeight',
   'lifttraceOverlapFill',
   'wellnessSyncRange',
   'fitbitSyncMode','fitbitSyncInterval','fitbitSyncWindowStart','fitbitSyncWindowEnd',
@@ -64,7 +67,7 @@ export const USER_PREFS = new Set([
   'garminEnabled','garminSyncRange',
   'garminSyncMode','garminSyncInterval','garminSyncWindowStart','garminSyncWindowEnd',
   'healthConnectSyncMode','healthConnectSyncInterval','healthConnectSyncWindowStart','healthConnectSyncWindowEnd',
-  'defaultFoodVisibility',
+  'defaultShareVisibility',
   // Notifications
   'notifLocalEnabled','notifPushService',
   'notifWaterReminders','notifWaterInterval','notifMealReminders','notifMealTimes',
@@ -518,6 +521,14 @@ export const diaryShowPortionSize   = createSettingStore('diaryShowPortionSize',
 export const showQuickCalories      = createSettingStore('showQuickCalories',       true);
 export const quickCaloriesDisplay   = createSettingStore('quickCaloriesDisplay',    'summed');
 export const diaryShowNotes         = createSettingStore('diaryShowNotes',          true);
+// #207: master toggle for every completion surface (day + per-meal).
+// Off by default. When on: the day-completion toggle appears in the
+// date bar, WeekStrip + DatePicker badges render, Statistics gains a
+// completion KPI + x-axis tick dots, meal cards get per-meal checks,
+// day-close confirms empty-and-unmarked meals, and the bedtime + weekly
+// summary hooks activate on the server / native side too. Off: every
+// surface reverts to what NT looked like before #207 landed.
+export const diaryShowCompletion = createSettingStore('diaryShowCompletion', false);
 
 // Desktop diary redesign — right-rail widget visibility. Each widget
 // can be independently hidden by the user. Defaults show everything so
@@ -767,6 +778,13 @@ export const googleHealthEnabled = createSettingStore('googleHealthEnabled', fal
 export const healthConnectEnabled = createSettingStore('healthConnectEnabled', false);
 export const wellnessMetrics    = createSettingStore('wellnessMetrics',    null); // null = all visible
 export const workoutsEnabled   = createSettingStore('workoutsEnabled',   false); // show workout history + GPS maps in Movement tab
+// #200: opt-in mirror from Wellness → Body Stats. When true, any weight
+// reading that lands in wellness_data (Fitbit / Withings / Health Connect
+// / API v1 body-measurements) also populates that day's diary
+// body_stats.weight IF empty. Manual Body Stats entries always win.
+// Off by default so the historical two-store split stays intact unless
+// the user asks for the merge.
+export const mirrorWellnessWeight = createSettingStore('mirrorWellnessWeight', false);
 // Federation: when ON, a LiftTrace-imported workout for a given date is
 // counted toward TDEE only if no wearable (Fitbit / Garmin / Google Health /
 // Health Connect) has a daily calories_burned row for the same date.
@@ -840,7 +858,14 @@ export const healthConnectSyncWindowStart  = createSettingStore('healthConnectSy
 export const healthConnectSyncWindowEnd    = createSettingStore('healthConnectSyncWindowEnd',    null);
 
 // Sharing
-export const defaultFoodVisibility = createSettingStore('defaultFoodVisibility', 'private'); // 'private' | 'group' | 'specific'
+// #183 — per-user default visibility applied to newly-created foods,
+// meals, and recipes. Server enforces it in POST /api/foods,
+// /api/meals, and the sync-push new-insert path when the client omits
+// an explicit visibility. Values: 'private' | 'group'. 'specific'
+// deferred (would need a user-list picker paired with this setting).
+// Always overridden to 'private' server-side when the admin's global
+// sharing_enabled toggle is false.
+export const defaultShareVisibility = createSettingStore('defaultShareVisibility', 'private');
 
 // AI Assistant (Trace)
 export const aiEnabled       = createSettingStore('aiEnabled',       false);

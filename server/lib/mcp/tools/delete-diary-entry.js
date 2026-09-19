@@ -11,7 +11,7 @@
  * "undo" by calling log_food with the same fields.
  */
 import { z } from 'zod';
-import { DATE_RE, todayLocal, toolResult, toolError } from '../_util.js';
+import { DATE_RE, todayLocal, toolResult, toolError, isCalendarDate } from '../_util.js';
 import { mutateDiaryDay, DiaryTombstonedError } from '../_diary-write.js';
 
 export function registerDeleteDiaryEntry(server, { userId }) {
@@ -33,7 +33,7 @@ export function registerDeleteDiaryEntry(server, { userId }) {
     },
     async ({ entry_index, date, confirm }) => {
       const day = date || todayLocal();
-      if (!DATE_RE.test(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+      if (!isCalendarDate(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
       if (confirm !== true) {
         return toolError(
           'delete_diary_entry requires confirm=true. This safeguards against ' +

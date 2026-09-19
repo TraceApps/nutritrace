@@ -42,6 +42,10 @@ const SCHEMA = `
     nutrition_basis TEXT DEFAULT NULL,
     alt_units       TEXT DEFAULT NULL,
     density_g_ml    REAL DEFAULT NULL,
+    -- Federation source columns for the CT pantry bulk-import.
+    source_app          TEXT DEFAULT NULL,
+    source_external_id  TEXT DEFAULT NULL,
+    source_url          TEXT DEFAULT NULL,
     created_at      TEXT DEFAULT (datetime('now')),
     updated_at      TEXT DEFAULT (datetime('now')),
     deleted_at      TEXT DEFAULT NULL,
@@ -49,27 +53,31 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS meals (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    server_id    INTEGER,
-    user_id      INTEGER DEFAULT 1,
-    name         TEXT NOT NULL,
-    nutrition    TEXT DEFAULT '{}',
-    items        TEXT DEFAULT '[]',
-    img_url      TEXT,
-    notes        TEXT,
-    is_recipe    INTEGER DEFAULT 0,
-    portion      REAL DEFAULT 100,
-    unit         TEXT DEFAULT 'g',
-    servings     INTEGER DEFAULT 1,
-    visibility   TEXT NOT NULL DEFAULT 'private',
-    source_id    INTEGER,
-    favorite     INTEGER NOT NULL DEFAULT 0,
-    usage_count  INTEGER NOT NULL DEFAULT 0,
-    last_used_at TEXT DEFAULT NULL,
-    created_at   TEXT DEFAULT (datetime('now')),
-    updated_at   TEXT DEFAULT (datetime('now')),
-    deleted_at   TEXT DEFAULT NULL,
-    sync_status  TEXT DEFAULT 'synced'
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id          INTEGER,
+    user_id            INTEGER DEFAULT 1,
+    name               TEXT NOT NULL,
+    nutrition          TEXT DEFAULT '{}',
+    items              TEXT DEFAULT '[]',
+    img_url            TEXT,
+    notes              TEXT,
+    is_recipe          INTEGER DEFAULT 0,
+    portion            REAL DEFAULT 100,
+    unit               TEXT DEFAULT 'g',
+    servings           INTEGER DEFAULT 1,
+    visibility         TEXT NOT NULL DEFAULT 'private',
+    source_id          INTEGER,
+    favorite           INTEGER NOT NULL DEFAULT 0,
+    usage_count        INTEGER NOT NULL DEFAULT 0,
+    last_used_at       TEXT DEFAULT NULL,
+    source_app         TEXT DEFAULT NULL,
+    source_external_id TEXT DEFAULT NULL,
+    source_url         TEXT DEFAULT NULL,
+    import_warnings    TEXT DEFAULT NULL,
+    created_at         TEXT DEFAULT (datetime('now')),
+    updated_at         TEXT DEFAULT (datetime('now')),
+    deleted_at         TEXT DEFAULT NULL,
+    sync_status        TEXT DEFAULT 'synced'
   );
 
   CREATE TABLE IF NOT EXISTS diary (
@@ -80,10 +88,12 @@ const SCHEMA = `
     items       TEXT DEFAULT '[]',
     body_stats  TEXT DEFAULT '{}',
     water       TEXT DEFAULT '[]',
-    notes       TEXT DEFAULT NULL,
-    updated_at  TEXT DEFAULT (datetime('now')),
-    deleted_at  TEXT DEFAULT NULL,
-    sync_status TEXT DEFAULT 'synced'
+    notes           TEXT DEFAULT NULL,
+    completed_at    TEXT DEFAULT NULL,
+    completed_meals TEXT DEFAULT NULL,
+    updated_at      TEXT DEFAULT (datetime('now')),
+    deleted_at   TEXT DEFAULT NULL,
+    sync_status  TEXT DEFAULT 'synced'
     , UNIQUE(date, user_id)
   );
 
@@ -239,8 +249,16 @@ async function _applySchema(db) {
     if (!cols.includes('notes')) {
       await db.execute(`ALTER TABLE diary ADD COLUMN notes TEXT DEFAULT NULL`);
     }
+    // #207: per-day completion mark.
+    if (!cols.includes('completed_at')) {
+      await db.execute(`ALTER TABLE diary ADD COLUMN completed_at TEXT DEFAULT NULL`);
+    }
+    // #207 (per-meal companion): JSON array of slot indexes.
+    if (!cols.includes('completed_meals')) {
+      await db.execute(`ALTER TABLE diary ADD COLUMN completed_meals TEXT DEFAULT NULL`);
+    }
   } catch (e) {
-    console.debug('[db-native] diary.notes migration skipped:', e?.message);
+    console.debug('[db-native] diary.notes/completed_at migration skipped:', e?.message);
   }
 
   // Favorites + usage tracking — mirror of the server-side migration.
@@ -265,6 +283,21 @@ async function _applySchema(db) {
         // an explicit number via dbCreateMeal/dbUpdateMeal.
         await db.execute(`ALTER TABLE meals ADD COLUMN servings INTEGER`);
       }
+      // Federation source columns (CookTrace pull flow). Nullable; only
+      // populated when the meal was imported from another TraceApps
+      // sibling and the user saved it into the NT catalog.
+      if (tbl === 'meals' && !cols.includes('source_app')) {
+        await db.execute(`ALTER TABLE meals ADD COLUMN source_app TEXT DEFAULT NULL`);
+      }
+      if (tbl === 'meals' && !cols.includes('source_external_id')) {
+        await db.execute(`ALTER TABLE meals ADD COLUMN source_external_id TEXT DEFAULT NULL`);
+      }
+      if (tbl === 'meals' && !cols.includes('source_url')) {
+        await db.execute(`ALTER TABLE meals ADD COLUMN source_url TEXT DEFAULT NULL`);
+      }
+      if (tbl === 'meals' && !cols.includes('import_warnings')) {
+        await db.execute(`ALTER TABLE meals ADD COLUMN import_warnings TEXT DEFAULT NULL`);
+      }
     } catch (e) {
       console.debug(`[db-native] ${tbl} favorites/usage migration skipped:`, e?.message);
     }
@@ -283,6 +316,16 @@ async function _applySchema(db) {
     }
     if (!cols.includes('density_g_ml')) {
       await db.execute(`ALTER TABLE foods ADD COLUMN density_g_ml REAL DEFAULT NULL`);
+    }
+    // CT pantry pull federation columns.
+    if (!cols.includes('source_app')) {
+      await db.execute(`ALTER TABLE foods ADD COLUMN source_app TEXT DEFAULT NULL`);
+    }
+    if (!cols.includes('source_external_id')) {
+      await db.execute(`ALTER TABLE foods ADD COLUMN source_external_id TEXT DEFAULT NULL`);
+    }
+    if (!cols.includes('source_url')) {
+      await db.execute(`ALTER TABLE foods ADD COLUMN source_url TEXT DEFAULT NULL`);
     }
   } catch (e) {
     console.debug('[db-native] foods OFF-units migration skipped:', e?.message);
@@ -319,6 +362,32 @@ async function _applySchema(db) {
     }
   } catch (e) {
     console.debug('[db-native] wellness_data.sync_status migration skipped:', e?.message);
+  }
+
+  // One-shot heal: prune Health Connect body-composition rows that were
+  // saved as literal 0 by pre-#206 code. The old readers did
+  // `latest.mass?.inKilograms || 0` on records the plugin returned as
+  // Kotlin toString() strings, so real measurements landed as 0 in
+  // wellness_data and rendered as "0.0 kg" in the Wellness cards.
+  // Cleaning them here is safe: none of these metrics have a legitimate
+  // zero reading (0 kg lean mass or 0 kcal BMR is nonsense), and the
+  // next sync from Health Connect will re-write the correct value now
+  // that the parsers handle the string form. Runs once per launch; a
+  // no-op after the first run since the write path now omits the key.
+  try {
+    const badMetrics = ['bone_mass_kg', 'lean_mass_kg', 'basal_metabolic_rate',
+                        'body_fat_pct', 'body_temperature', 'vo2_max',
+                        'respiratory_rate', 'spo2_avg'];
+    const placeholders = badMetrics.map(() => '?').join(',');
+    await db.execute(
+      `DELETE FROM wellness_data
+        WHERE source = 'health_connect'
+          AND value = 0
+          AND metric_type IN (${placeholders})`,
+      badMetrics
+    );
+  } catch (e) {
+    console.debug('[db-native] wellness_data zero-value prune skipped:', e?.message);
   }
 
   // One-shot heal: clear `sync_status='pending'` on any row that was
@@ -966,9 +1035,10 @@ export async function dbGetDiaryDate(date) {
   return {
     ...row,
     items,
-    body_stats: _parseJson(row.body_stats, {}),
-    water:      _parseJson(row.water, []),
-    notes:      row.notes || '',
+    body_stats:      _parseJson(row.body_stats, {}),
+    water:           _parseJson(row.water, []),
+    notes:           row.notes || '',
+    completed_meals: _parseSlotArrayLocal(row.completed_meals),
   };
 }
 
@@ -978,13 +1048,31 @@ export async function dbSaveDiaryDate(date, data) {
   const body_stats = JSON.stringify(data.body_stats || {});
   const water      = JSON.stringify(data.water || []);
   const notes      = (typeof data.notes === 'string' && data.notes.trim()) ? data.notes : null;
+  // #207: preserve completed_at and completed_meals if the caller
+  // doesn't send them (same shape as the server's preserve-if-null
+  // pattern). An in-app save that doesn't touch the completion state
+  // shouldn't clear it. Per-meal set union-merges when the caller
+  // sends an explicit array so the two devices' marks don't collide.
+  const existing = _row(await db.query(
+    `SELECT completed_at, completed_meals FROM diary WHERE date = ? AND user_id = ?`,
+    [date, LOCAL_USER_ID]
+  ));
+  const incomingCompleted = (typeof data.completed_at === 'string' && data.completed_at) ? data.completed_at : null;
+  const completedAt = incomingCompleted || (existing?.completed_at || null);
+  const existingMeals = _parseSlotArrayLocal(existing?.completed_meals);
+  const incomingMeals = Array.isArray(data.completed_meals)
+    ? data.completed_meals.filter(n => Number.isInteger(n) && n >= 0 && n <= 31)
+    : [];
+  const mergedMeals = Array.from(new Set([...existingMeals, ...incomingMeals])).sort((a, b) => a - b);
+  const completedMealsJson = mergedMeals.length ? JSON.stringify(mergedMeals) : null;
   await db.run(
-    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
      ON CONFLICT(date, user_id) DO UPDATE SET
        items=excluded.items, body_stats=excluded.body_stats, water=excluded.water,
-       notes=excluded.notes, updated_at=excluded.updated_at, sync_status='pending'`,
-    [LOCAL_USER_ID, date, items, body_stats, water, notes, _now()]
+       notes=excluded.notes, completed_at=excluded.completed_at, completed_meals=excluded.completed_meals,
+       updated_at=excluded.updated_at, sync_status='pending'`,
+    [LOCAL_USER_ID, date, items, body_stats, water, notes, completedAt, completedMealsJson, _now()]
   );
   // Option C: persist per-uuid deletions locally as pending tombstones so
   // an offline delete survives an app restart and gets pushed on the next
@@ -1009,6 +1097,83 @@ export async function dbSaveDiaryDate(date, data) {
     }
   }
   return dbGetDiaryDate(date);
+}
+
+/**
+ * #207: set or clear the per-day completion mark locally, mark the row
+ * sync_status='pending' so the next push carries the change to the
+ * server. Creates a bare diary row if none exists (a user can close an
+ * intentionally empty day, e.g. a fast). Returns the resulting
+ * completed_at value (ISO string when set, null when cleared).
+ */
+export async function dbSetDiaryCompletion(date, completed) {
+  const db = await getDb();
+  const nowTs = _now();
+  const completedAt = completed ? nowTs : null;
+  const existing = _row(await db.query(
+    `SELECT id, completed_at FROM diary WHERE date = ? AND user_id = ?`,
+    [date, LOCAL_USER_ID]
+  ));
+  if (existing) {
+    // Preserve first-mark timestamp so repeated PUT-true does not shift it.
+    const nextCompletedAt = completed
+      ? (existing.completed_at || completedAt)
+      : null;
+    await db.run(
+      `UPDATE diary SET completed_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
+      [nextCompletedAt, nowTs, existing.id]
+    );
+    return nextCompletedAt;
+  }
+  await db.run(
+    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, updated_at, sync_status)
+     VALUES (?, ?, '[]', '{}', '[]', NULL, ?, ?, 'pending')`,
+    [LOCAL_USER_ID, date, completedAt, nowTs]
+  );
+  return completedAt;
+}
+
+/**
+ * #207 (per-meal companion): local-first meal-slot completion toggle.
+ * Reads the current JSON array from diary.completed_meals, adds or
+ * removes the slot idempotently, writes back, marks the row pending
+ * so the sync engine carries it up on the next push. Creates a bare
+ * row when the day has no other data (matches the day-level behavior).
+ */
+export async function dbSetMealCompletion(date, slot, completed) {
+  const db = await getDb();
+  const nowTs = _now();
+  const existing = _row(await db.query(
+    `SELECT id, completed_meals FROM diary WHERE date = ? AND user_id = ?`,
+    [date, LOCAL_USER_ID]
+  ));
+  const arr = _parseSlotArrayLocal(existing?.completed_meals);
+  const set = new Set(arr);
+  if (completed) set.add(Number(slot)); else set.delete(Number(slot));
+  const next = Array.from(set).sort((a, b) => a - b);
+  const nextJson = next.length ? JSON.stringify(next) : null;
+  if (existing) {
+    await db.run(
+      `UPDATE diary SET completed_meals = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
+      [nextJson, nowTs, existing.id]
+    );
+  } else {
+    await db.run(
+      `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_meals, updated_at, sync_status)
+       VALUES (?, ?, '[]', '{}', '[]', NULL, ?, ?, 'pending')`,
+      [LOCAL_USER_ID, date, nextJson, nowTs]
+    );
+  }
+  return next;
+}
+
+function _parseSlotArrayLocal(raw) {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
+  } catch { return []; }
 }
 
 /**
@@ -1285,8 +1450,10 @@ export async function dbUpsertFromServer(table, serverRecord) {
     // into local sort keys, and "Most Used" / "Recently Used" on Android
     // rank by stale local-only counters.
     if (table === 'foods') {
+      // Federation source columns carry the CT-pantry provenance across
+      // cross-device pulls, mirroring the meals path below.
       await db.run(
-        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
+        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, source_app=?, source_external_id=?, source_url=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
         [data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
@@ -1295,25 +1462,34 @@ export async function dbUpsertFromServer(table, serverRecord) {
          data.density_g_ml != null && Number.isFinite(Number(data.density_g_ml))
            ? Number(data.density_g_ml)
            : null,
+         data.source_app || null, data.source_external_id || null, data.source_url || null,
          data.updated_at, serverId]
       );
     } else if (table === 'meals') {
+      // Federation source columns preserve the "From CookTrace" badge
+      // and the deep-link on cross-device pull. Null-safe defaults so
+      // pre-federation rows continue to sync cleanly.
+      const importWarnings = data.import_warnings;
+      const importWarningsJson = Array.isArray(importWarnings)
+        ? JSON.stringify(importWarnings)
+        : (typeof importWarnings === 'string' && importWarnings ? importWarnings : null);
       await db.run(
-        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), updated_at=?, sync_status='synced' WHERE server_id=?`,
+        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), source_app=?, source_external_id=?, source_url=?, import_warnings=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
         [data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
          data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
          data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
+         data.source_app || null, data.source_external_id || null, data.source_url || null, importWarningsJson,
          data.updated_at, serverId]
       );
     }
   } else {
-    // New from server — insert locally
+    // New from server, insert locally.
     if (table === 'foods') {
       await db.run(
-        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
@@ -1322,17 +1498,24 @@ export async function dbUpsertFromServer(table, serverRecord) {
          data.density_g_ml != null && Number.isFinite(Number(data.density_g_ml))
            ? Number(data.density_g_ml)
            : null,
+         data.source_app || null, data.source_external_id || null, data.source_url || null,
          data.updated_at]
       );
     } else if (table === 'meals') {
+      const importWarnings = data.import_warnings;
+      const importWarningsJson = Array.isArray(importWarnings)
+        ? JSON.stringify(importWarnings)
+        : (typeof importWarnings === 'string' && importWarnings ? importWarnings : null);
       await db.run(
-        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
          data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
          data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
-         data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null, data.updated_at]
+         data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
+         data.source_app || null, data.source_external_id || null, data.source_url || null, importWarningsJson,
+         data.updated_at]
       );
     }
   }
@@ -1341,7 +1524,10 @@ export async function dbUpsertFromServer(table, serverRecord) {
 // Upsert diary from server pull (keyed by date)
 export async function dbUpsertDiaryFromServer(serverRecord) {
   const db = await getDb();
-  const { id: serverId, deleted_at, date, items, body_stats, water, notes, updated_at } = serverRecord;
+  const {
+    id: serverId, deleted_at, date, items, body_stats, water, notes, updated_at,
+    completed_at, completed_meals,
+  } = serverRecord;
 
   if (deleted_at) {
     await db.run(`DELETE FROM diary WHERE server_id = ? OR date = ?`, [serverId, date]);
@@ -1351,8 +1537,8 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
   const existing = await db.query(`SELECT id, sync_status FROM diary WHERE date = ? AND user_id = ?`, [date, LOCAL_USER_ID]);
   const local = _row(existing);
 
-  // If local has pending changes AND is newer than server, skip (local wins)
-  // Otherwise server wins — update local
+  // If local has pending changes AND is newer than server, skip (local wins).
+  // Otherwise server wins, update local.
   if (local && local.sync_status === 'pending') {
     const localRow = await db.query(`SELECT updated_at FROM diary WHERE id = ?`, [local.id]);
     const localUpdated = _row(localRow)?.updated_at || '';
@@ -1360,17 +1546,26 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
     if (localUpdated > serverUpdated) return; // local is newer, keep it
   }
 
+  // #207: normalize completed_meals to JSON string on disk.
+  const completedMealsJson = Array.isArray(completed_meals)
+    ? (completed_meals.length ? JSON.stringify(completed_meals) : null)
+    : (typeof completed_meals === 'string' && completed_meals ? completed_meals : null);
+
   await db.run(
-    `INSERT INTO diary (server_id, user_id, date, items, body_stats, water, notes, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+    `INSERT INTO diary (server_id, user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
      ON CONFLICT(date, user_id) DO UPDATE SET
        server_id=excluded.server_id, items=excluded.items, body_stats=excluded.body_stats,
-       water=excluded.water, notes=excluded.notes, updated_at=excluded.updated_at, sync_status='synced'`,
+       water=excluded.water, notes=excluded.notes,
+       completed_at=excluded.completed_at, completed_meals=excluded.completed_meals,
+       updated_at=excluded.updated_at, sync_status='synced'`,
     [serverId, LOCAL_USER_ID, date,
      typeof items === 'string' ? items : JSON.stringify(items || []),
      typeof body_stats === 'string' ? body_stats : JSON.stringify(body_stats || {}),
      typeof water === 'string' ? water : JSON.stringify(water || []),
      (typeof notes === 'string' && notes.trim()) ? notes : null,
+     completed_at || null,
+     completedMealsJson,
      updated_at]
   );
 }

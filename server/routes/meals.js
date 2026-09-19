@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { sharingEnabled, canRead as _canRead } from '../lib/sharing.js';
+import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { sendMealShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
@@ -56,18 +57,72 @@ router.get('/:id', wrap((req, res) => {
 
 // ── POST / ────────────────────────────────────────────────────────────────
 router.post('/', wrap(async (req, res) => {
-  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id } = req.body;
+  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id,
+          source_app, source_external_id, source_url, import_warnings } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
-  const vis = visibility || 'private';
-  const localImg = isExternalUrl(img_url) ? await localizeImage(img_url) : (img_url || null);
+  // #183: honor the caller's defaultShareVisibility when the client
+  // omits an explicit value. Same rule applies to recipes (is_recipe=1).
+  const vis = visibility || resolveNewItemVisibility(u);
+  const cleanSourceApp = source_app ? String(source_app).slice(0, 40) : null;
+  const cleanSourceExtId = source_external_id ? String(source_external_id).slice(0, 128) : null;
+  const cleanSourceUrl = source_url ? String(source_url).slice(0, 2048) : null;
+  // For federation imports, trust the user's own saved integration base
+  // URL for image fetches so a LAN CT/Mealie origin does not get blocked
+  // by the SSRF guard (and the "From CookTrace" recipe silently ends up
+  // with no thumbnail).
+  const _trustedImgOrigins = (() => {
+    if (!cleanSourceApp) return [];
+    const key = cleanSourceApp === 'cooktrace' ? 'cooktraceBaseUrl'
+              : cleanSourceApp === 'mealie'    ? 'mealieBaseUrl'
+              : null;
+    if (!key) return [];
+    const row = u == null
+      ? db.prepare(`SELECT value FROM user_settings WHERE key = ? AND deleted_at IS NULL LIMIT 1`).get(key)
+      : db.prepare(`SELECT value FROM user_settings WHERE user_id = ? AND key = ? AND deleted_at IS NULL`).get(u, key);
+    const v = (row?.value || '').replace(/^"|"$/g, '');
+    return v ? [v] : [];
+  })();
+  // isExternalUrl treats any URL containing "/uploads/" as already-local;
+  // for federation-sourced meals the CT origin's own /uploads/ path would
+  // pass through unlocalized. Override that for source-stamped imports.
+  const _shouldLocalizeImg = img_url && (cleanSourceApp
+    ? (img_url.startsWith('http') || img_url.startsWith('data:'))
+    : isExternalUrl(img_url));
+  const localImg = _shouldLocalizeImg ? await localizeImage(img_url, { trustedOrigins: _trustedImgOrigins }) : (img_url || null);
+  const warningsCol = Array.isArray(import_warnings) && import_warnings.length
+    ? JSON.stringify(import_warnings.map(w => String(w || '').slice(0, 400)).filter(Boolean).slice(0, 20))
+    : null;
+
+  // Upsert on re-import: a save with the same (user, source_app, source_external_id)
+  // as an existing row updates that row in place. This is how the CookTrace pull
+  // flow keeps a re-imported recipe on the same NT meal id rather than tripping
+  // the partial unique index on meals(user_id, source_app, source_external_id).
+  if (cleanSourceApp && cleanSourceExtId) {
+    const existing = u == null
+      ? db.prepare(`SELECT id FROM meals WHERE user_id IS NULL AND source_app = ? AND source_external_id = ? AND deleted_at IS NULL`).get(cleanSourceApp, cleanSourceExtId)
+      : db.prepare(`SELECT id FROM meals WHERE user_id = ? AND source_app = ? AND source_external_id = ? AND deleted_at IS NULL`).get(u, cleanSourceApp, cleanSourceExtId);
+    if (existing) {
+      db.prepare(
+        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?,
+                          source_url=?, import_warnings=?, updated_at=datetime('now') WHERE id=?`
+      ).run(name, JSON.stringify(nutrition || {}), JSON.stringify(items || []),
+        localImg, notes || null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
+        servings != null ? Math.max(1, parseInt(servings) || 1) : null,
+        vis, cleanSourceUrl, warningsCol, existing.id);
+      return res.status(200).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(existing.id)));
+    }
+  }
+
   const result = db.prepare(
-    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id,
+                        source_app, source_external_id, source_url, import_warnings, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(u, name, JSON.stringify(nutrition || {}), JSON.stringify(items || []),
     localImg, notes || null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
     servings != null ? Math.max(1, parseInt(servings) || 1) : null,
-    vis, source_id || null);
+    vis, source_id || null,
+    cleanSourceApp, cleanSourceExtId, cleanSourceUrl, warningsCol);
   res.status(201).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(result.lastInsertRowid)));
 }));
 
@@ -211,11 +266,20 @@ router.post('/:id/copy', wrap((req, res) => {
 }));
 
 function parse(row) {
+  // import_warnings is a JSON string on disk (set by the CookTrace pull
+  // flow when NT imports a CT recipe missing per-ingredient nutrition on
+  // some rows), array on the wire. Parse defensively so a malformed value
+  // does not 500 the whole meals GET.
+  let warnings;
+  if (row.import_warnings) {
+    try { warnings = JSON.parse(row.import_warnings); } catch { warnings = null; }
+  }
   return {
     ...row,
     nutrition: JSON.parse(row.nutrition || '{}'),
     items: JSON.parse(row.items || '[]'),
     is_recipe: row.is_recipe === 1,
+    import_warnings: Array.isArray(warnings) ? warnings : undefined,
     _specific_users: row._specific_users || undefined,
   };
 }

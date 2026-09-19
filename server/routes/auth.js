@@ -7,6 +7,7 @@ import { signToken, sessionMaxAge, userMgmtActive, requireAuth, requireAdmin } f
 import { listProviders as oidcListProviders, publicProvider as oidcPublicProvider, isPasswordLoginEnabled, listUserLinks } from '../lib/oidc.js';
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
 import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/password-strength.js';
+import { claimAnonymousData, purgeUnreferencedUserData, purgeUserRows } from '../lib/claim-anonymous-data.js';
 
 const router = Router();
 
@@ -182,15 +183,14 @@ router.post('/register', wrap((req, res) => {
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
 
-  // First user: claim all existing data (user_id = NULL → new admin's id)
+  // First user: claim all existing data. In single-user mode every row is
+  // written anonymously, so nothing is visible to the new account until it
+  // is re-pointed at the new user id. Two sentinels are in play: routes/*.js
+  // write NULL via `uid()`, while the wearable pollers (fitbit, google-health,
+  // withings, garmin) write 0 because their tables have no FK to users(id).
+  // Both have to be claimed or the data silently disappears (issue #2).
   if (isFirst) {
-    db.prepare('UPDATE foods SET user_id = ? WHERE user_id IS NULL').run(user.id);
-    db.prepare('UPDATE meals SET user_id = ? WHERE user_id IS NULL').run(user.id);
-    db.prepare('UPDATE diary SET user_id = ? WHERE user_id IS NULL').run(user.id);
-    // Re-enabling user management: clear the single_user_mode flag set by
-    // a prior DELETE /management or POST /recover. Without this, /status
-    // would still report single_user_mode=true even with a real user.
-    db.prepare(`DELETE FROM app_config WHERE key = 'single_user_mode'`).run();
+    claimAnonymousData(user.id);
     res.cookie('nt_token', signToken(user), COOKIE_OPTS);
   }
 
@@ -259,6 +259,8 @@ router.delete('/me', requireAuth, wrap((req, res) => {
     return res.status(400).json({ error: 'Cannot delete the only admin account. Transfer admin to another user first.' });
   }
   // CASCADE handles foods, meals, diary, settings, wellness_data, ai_chat_history, etc.
+  // Tables with no FK to users(id) do not cascade — clear this user's rows.
+  purgeUserRows(userId);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   res.clearCookie('nt_token');
   res.json({ ok: true });
@@ -303,6 +305,8 @@ router.delete('/users/:id', requireAuth, requireAdmin, wrap((req, res) => {
       return res.status(400).json({ error: 'Cannot delete the only admin account.' });
     }
   }
+  // Tables with no FK to users(id) do not cascade — clear this user's rows.
+  purgeUserRows(id);
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
   res.json({ ok: true });
 }));
@@ -339,6 +343,8 @@ router.put('/users/:id/role', requireAuth, requireAdmin, wrap((req, res) => {
 // ── Admin: disable user management (delete all users) ─────────────────────
 router.delete('/management', requireAuth, requireAdmin, wrap((req, res) => {
   db.prepare('DELETE FROM users').run();
+  // Tables without an FK to users(id) survive the cascade — clear them too.
+  purgeUnreferencedUserData();
   // Remember this was an intentional disable, not a fresh install — so
   // /status returns setup_required=false and the client doesn't re-route
   // to the wizard's mandatory account-creation step. Cleared on next
@@ -363,6 +369,8 @@ router.post('/recover', rateLimitLogin, wrap((req, res) => {
     return res.status(403).json({ error: 'Invalid recovery token.' });
   }
   db.prepare('DELETE FROM users').run();
+  // Tables without an FK to users(id) survive the cascade — clear them too.
+  purgeUnreferencedUserData();
   // Same single-user-mode flag as DELETE /management (intentional disable,
   // not a fresh install). Without this the lockout-recovery path also
   // re-triggers the wizard on next load.
@@ -398,7 +406,8 @@ router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
   const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
   db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);
 
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
   try {
     await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
   } catch (e) {
@@ -447,7 +456,8 @@ router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
   db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
     .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires);
 
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
   const inviteUrl = `${baseUrl}/#/accept-invite?token=${token}`;
 
   if (email && isEmailConfigured()) {

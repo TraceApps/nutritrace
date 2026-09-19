@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { push } from 'svelte-spa-router';
@@ -10,6 +10,7 @@
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
+  import { macroGoalGrams, percentGoalToGrams, gramsGoalToPercent } from '../lib/goal-resolver.js';
   import { loadEntry } from '../stores/diary.js';
   import { showSuccess } from '../stores/toast.js';
   import MacroRing from '../components/diary/MacroRing.svelte';
@@ -272,6 +273,25 @@
 
   let editWaterOpen = false;
   let editWaterVal = '';
+  let _editWaterInputEl = null;
+  let _editGoalSheetEl = null;
+  // #170 follow-up: goals editor sheets get the same autofocus +
+  // preselect treatment the diary / foods sheets already have, so
+  // typing over an existing value works without a manual Ctrl+A.
+  // Enter to save is wired inline on each input (below).
+  $: if (editWaterOpen) tick().then(() => { _editWaterInputEl?.focus(); _editWaterInputEl?.select?.(); });
+  $: if (editOpen) tick().then(() => {
+    const _first = _editGoalSheetEl?.querySelector('input[inputmode="decimal"]');
+    _first?.focus();
+    _first?.select?.();
+  });
+  function _onEditGoalKey(e) {
+    if (e.key !== 'Enter') return;
+    const t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    e.preventDefault();
+    saveGoal();
+  }
   function openEditWater() {
     editWaterVal = String(mlToDisplay($waterGoalMl, $waterUnit));
     editWaterOpen = true;
@@ -428,6 +448,28 @@
     return stat && (stat.id in MACRO_DENSITY);
   }
 
+  // Toggling "As percent" converts the typed value into the new unit so the
+  // target keeps its meaning. Without it the number would just be read
+  // in the new unit: 137 g would become 137% of calories. Only the user's
+  // click lands here; openEdit sets editIsPercent directly, so an existing
+  // goal is never converted on open. Empty or unparseable fields are left
+  // as typed.
+  function _onPercentToggle(e) {
+    const density = MACRO_DENSITY[editStat?.id];
+    if (!density) return;
+    const toPercent = e.currentTarget.checked;
+    const convert = (str) => {
+      const n = parseDecimal(str);
+      if (!Number.isFinite(n)) return str;
+      const out = toPercent
+        ? gramsGoalToPercent(n, _effectiveCalGoal, density)
+        : percentGoalToGrams(n, _effectiveCalGoal, density);
+      return out == null ? str : String(out);
+    };
+    editVal0 = convert(editVal0);
+    editDayVals = editDayVals.map(convert);
+  }
+
   function getTodayValue(stat, totals, bodyStats, wellness, recent) {
     const t = totals    ?? todayTotals;
     const b = bodyStats ?? todayBodyStats;
@@ -512,9 +554,13 @@
   // Grams goals for macros (protein/carbs/fat) drive both the ring segments
   // and the stacked bar. Null when the goal isn't set — the preview then
   // renders an empty ring / warning that macros are incomplete.
-  $: _proteinGoalG = $goals.proteins?.max      ?? $goals.proteins?.min      ?? null;
-  $: _carbsGoalG   = $goals.carbohydrates?.max ?? $goals.carbohydrates?.min ?? null;
-  $: _fatGoalG     = $goals.fat?.max           ?? $goals.fat?.min           ?? null;
+  // Macros saved "As percent" hold a percentage, so convert them to grams
+  // here. Everything below (card, ring, stacked bar, preset chip, macro
+  // kcal warning) treats these as grams. _effectiveCalGoal is the same
+  // calorie basis Diary converts with, so this preview matches Diary.
+  $: _proteinGoalG = macroGoalGrams($goals.proteins,      _effectiveCalGoal, MACRO_DENSITY.proteins);
+  $: _carbsGoalG   = macroGoalGrams($goals.carbohydrates, _effectiveCalGoal, MACRO_DENSITY.carbohydrates);
+  $: _fatGoalG     = macroGoalGrams($goals.fat,           _effectiveCalGoal, MACRO_DENSITY.fat);
   $: _macroKcalSum =
        (_proteinGoalG || 0) * 4 +
        (_carbsGoalG   || 0) * 4 +
@@ -583,9 +629,9 @@
     const fG = Math.round(kcal * preset.f / 100 / 9);
     goals.update(g => ({
       ...g,
-      proteins:      { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.proteins      || {}), max: pG, min: undefined, days: Array(7).fill(pG) },
-      carbohydrates: { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.carbohydrates || {}), max: cG, min: undefined, days: Array(7).fill(cG) },
-      fat:           { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.fat           || {}), max: fG, min: undefined, days: Array(7).fill(fG) },
+      proteins:      { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.proteins      || {}), isPercent: false, max: pG, min: undefined, days: Array(7).fill(pG) },
+      carbohydrates: { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.carbohydrates || {}), isPercent: false, max: cG, min: undefined, days: Array(7).fill(cG) },
+      fat:           { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.fat           || {}), isPercent: false, max: fG, min: undefined, days: Array(7).fill(fG) },
     }));
     showSuccess('Macros set');
   }
@@ -1216,7 +1262,7 @@
       <div class="sheet-header">
         <h3 class="sheet-title">{editStat.label} {_editUnit ? '('+_editUnit+')' : ''}</h3>
       </div>
-      <div class="sheet-body">
+      <div class="sheet-body" bind:this={_editGoalSheetEl} on:keydown={_onEditGoalKey}>
 
         <!-- Display options -->
         {#if !editStat?.isWellness}
@@ -1266,7 +1312,7 @@
               <span class="toggle-hint">{$_('goals_page.editor.as_percent_hint')}</span>
             </div>
             <label class="toggle-switch">
-              <input type="checkbox" bind:checked={editIsPercent} />
+              <input type="checkbox" bind:checked={editIsPercent} on:change={_onPercentToggle} />
               <span class="toggle-track"></span>
             </label>
           </div>
@@ -1320,6 +1366,7 @@
       <div class="sheet-body">
         <label class="form-label">{$_('goals_page.editor.water_sheet_label', { values: { unit: $waterUnit } })}</label>
         <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editWaterVal}
+          bind:this={_editWaterInputEl}
           on:keydown={e => e.key === 'Enter' && saveWaterGoal()} />
         <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveWaterGoal}>{$_('common.save')}</button>
       </div>

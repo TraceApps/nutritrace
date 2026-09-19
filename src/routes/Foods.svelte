@@ -22,10 +22,12 @@
   import { API, USDA, NtApi } from '../lib/api.js';
   import { Nutrition } from '../lib/nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
+  import { CookTrace } from '../lib/cooktraceApi.js';
   import { resolveAssetUrl } from '../lib/platform.js';
   import { offCountryTagToFlag, offCountryTagToName } from '../lib/off-country-flag.js';
   import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, offSearchCountry, offSearchLanguage, foodsDefaultSource, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
+  import { pageScrollTop, restorePageScroll } from '../lib/scroll-anchor.js';
 
   // Query string params
   function qs() {
@@ -56,7 +58,8 @@
     refreshSharingStatus();
     // Non-foods tabs only support local + shared — silently reset if the
     // current source isn't valid here (toast removed; common-sense reset).
-    if (activeTab !== 0 && searchSource !== 'local' && searchSource !== 'shared') searchSource = 'local';
+    if (activeTab !== 0 && searchSource !== 'local' && searchSource !== 'shared'
+        && !(activeTab === 2 && searchSource === 'cooktrace')) searchSource = 'local';
     if (searchSource === 'shared' && !_tabHasShared) searchSource = 'local';
   }
 
@@ -88,8 +91,13 @@
   // to 'local' (unchanged behaviour).
   let searchSource = foodsDefaultSource.get() || 'local';
   const _mealieEnabled = DB.getSetting('mealieEnabled',  false);
-  // OFF / USDA / Mealie are food databases — only meaningful on the Foods tab.
-  // Meals + Recipes tabs only get Local + From Others (when shared content exists).
+  // CookTrace serves recipes, so its chip only makes sense on the Recipes
+  // tab (activeTab === 2). Mirrors Mealie's Foods-tab-only gate: an
+  // external source only shows up where its content type matches.
+  const _cooktraceEnabled = DB.getSetting('cooktraceEnabled', false);
+  // OFF / USDA / Mealie are food databases, only meaningful on the Foods tab.
+  // CookTrace is a recipe source, only meaningful on the Recipes tab.
+  // Meals tab gets Local + From Others only.
   // 'all' (issue #96) is prepended once there are >= 2 sources so the option
   // is only offered when it actually merges something. Fires everything in
   // parallel and shows results grouped by source with per-row source badges.
@@ -98,6 +106,11 @@
     ...(activeTab === 0 && $offEnabled    ? [{ value: 'off',    label: 'OFF' }] : []),
     ...(activeTab === 0 && $usdaEnabled   ? [{ value: 'usda',   label: 'USDA' }] : []),
     ...(activeTab === 0 && _mealieEnabled ? [{ value: 'mealie', label: 'Mealie' }] : []),
+    // CookTrace appears on both content tabs, backed by different
+    // endpoints: pantry rows on Foods, recipes on Recipes. Distinct
+    // source values keep the results arrays and pick handlers separate.
+    ...(activeTab === 0 && _cooktraceEnabled ? [{ value: 'ctpantry', label: 'CookTrace' }] : []),
+    ...(activeTab === 2 && _cooktraceEnabled ? [{ value: 'cooktrace', label: 'CookTrace' }] : []),
     ...(_tabHasShared  ? [{ value: 'shared', label: $_('foods.sources.from_others') }] : []),
   ];
   $: availableSources = _perSourceOptions.length >= 2
@@ -217,6 +230,8 @@
     off:    pinnedSources.size > 0 ? pinnedSources.has('off')    : searchSource === 'off',
     usda:   pinnedSources.size > 0 ? pinnedSources.has('usda')   : searchSource === 'usda',
     mealie: pinnedSources.size > 0 ? pinnedSources.has('mealie') : searchSource === 'mealie',
+    cooktrace: pinnedSources.size > 0 ? pinnedSources.has('cooktrace') : searchSource === 'cooktrace',
+    ctpantry: pinnedSources.size > 0 ? pinnedSources.has('ctpantry') : searchSource === 'ctpantry',
     shared: pinnedSources.size > 0 ? pinnedSources.has('shared') : searchSource === 'shared',
     all:    pinnedSources.size === 0 && searchSource === 'all',
   };
@@ -369,9 +384,18 @@
   let offResults = [];
   let usdaResults = [];
   let mealieResults = [];
+  let cooktraceResults = [];
+  let ctPantryResults = [];
   let loading = false;
   let loadError = false;
+  // #178 — true while the initial getFoods/getMeals/getRecipes batch is in
+  // flight on mount, false once it resolves (success or failure). Gates the
+  // render so a slow server doesn't show "No foods yet" over the user's
+  // actual library — that empty state was misread as "the app forgot my data".
+  let _initialLoading = true;
   let mealieLoading = false;
+  let cooktraceLoading = false;
+  let ctPantryLoading = false;
   let searchTimeout = null;
   // Pagination state for single-source OFF / USDA modes. Both use the
   // shared apiResults array (only one of the two can be active at a time)
@@ -389,6 +413,8 @@
   let _allOffPage = 1, _allOffHasMore = false, _allOffTotal = 0;
   let _allUsdaPage = 1, _allUsdaHasMore = false, _allUsdaTotal = 0;
   let _allMealiePage = 1, _allMealieHasMore = false, _allMealieTotal = 0;
+  let _allCooktracePage = 1, _allCooktraceHasMore = false, _allCooktraceTotal = 0;
+  let _allCtPantryPage = 1, _allCtPantryHasMore = false, _allCtPantryTotal = 0;
   let _allLoadingMore = false;
   // Smaller pages in ALL mode than single-source: keeps the merged
   // first-render snappy (3 sources at 20 = up to 60 external items) vs
@@ -402,6 +428,24 @@
   let showDeleteDialog = false;
   let scannerOpen = false;
   let showQtyPrompt = false;
+  let _qtyPromptPortionEl = null;
+  // Autofocus the portion input the moment the qty-prompt sheet opens
+  // so a user tapping "Add to Diary" on a food can start typing quantity
+  // immediately instead of tapping the field first. #170.
+  // #170 follow-up (drekkym on 2026-08-26): also select the existing
+  // value so typing replaces it instead of appending. Matches the
+  // Body Stats weight-edit pattern the user called out as the
+  // reference. Same applied to every other sheet on this page.
+  $: if (showQtyPrompt) tick().then(() => { _qtyPromptPortionEl?.focus(); _qtyPromptPortionEl?.select?.(); });
+  // Enter anywhere in the sheet submits (mirrors QuickCalories + water
+  // custom + activity flows). Guarded to not fire inside a select/textarea.
+  function _onQtyPromptKey(e) {
+    if (e.key !== 'Enter') return;
+    const t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    e.preventDefault();
+    if (!_addingToDiary) confirmQtyPrompt();
+  }
   let promptFood = null;
   let promptServings = 1;
   let promptPortion = 100;
@@ -460,6 +504,22 @@
   let selectedFoods = new Set();      // Set<food object reference>
   let showMultiPortionSheet = false;
   let multiPortionItems = [];         // [{ food, portion, unit, servings }]
+  let _multiPortionSheetEl = null;
+  // Same autofocus + Enter-submit treatment as the single qty prompt (#170).
+  // Query the first portion input inside the sheet root after mount so we
+  // don't have to bind ref per-item — cleaner with the {#each} loop.
+  $: if (showMultiPortionSheet) tick().then(() => {
+    const _first = _multiPortionSheetEl?.querySelector('input[type="text"][inputmode="decimal"]');
+    _first?.focus();
+    _first?.select?.();
+  });
+  function _onMultiPortionKey(e) {
+    if (e.key !== 'Enter') return;
+    const t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    e.preventDefault();
+    if (!multiAdding) confirmMultiPortionSheet();
+  }
   let multiAdding = false;
   // Guards every add-to-diary path (single, direct-click, meal expand, copy).
   // Without it, a mash-click during a slow write fires the add N times and
@@ -524,12 +584,16 @@
     ...(_isSourceActive('local')  ? (_ownList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).map(item => ({ source: 'local',  item })) : []),
     ...(_isSourceActive('shared') && _tabHasShared ? (_groupList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).map(item => ({ source: 'shared', item })) : []),
     ...(_isSourceActive('mealie') ? (mealieResults || []).map(item => ({ source: 'mealie', item })) : []),
+    ...(_isSourceActive('cooktrace') ? (cooktraceResults || []).map(item => ({ source: 'cooktrace', item })) : []),
+    ...(_isSourceActive('ctpantry') ? (ctPantryResults || []).map(item => ({ source: 'ctpantry', item })) : []),
     ...(_isSourceActive('off')    ? (offResults    || []).filter(f => !offTiersFiltered  || offTiersActive.has(_bucketOff(f.completeness))).map(item => ({ source: 'off',    item })) : []),
     ...(_isSourceActive('usda')   ? (usdaResults   || []).filter(f => !usdaTiersFiltered || usdaTiersActive.has(f.dataType || 'unknown')).map(item => ({ source: 'usda',   item })) : []),
   ];
 
   function _pickBySource(source, item) {
     if (source === 'mealie') return pickMealieRecipe(item);
+    if (source === 'cooktrace') return pickCooktraceRecipe(item);
+    if (source === 'ctpantry') return pickCtPantryItem(item);
     // Pass source through so pickFood can trigger the OFF v3 hydration
     // step (search-a-licious hits lack serving_size + _serving nutriments).
     return pickFood(item, source);  // local + shared + off + usda all go through pickFood
@@ -583,7 +647,7 @@
   // the search term). #96.
   async function loadMoreAll() {
     if (_allLoadingMore || !search.trim() || searchSource !== 'all') return;
-    if (!_allOffHasMore && !_allUsdaHasMore && !_allMealieHasMore) return;
+    if (!_allOffHasMore && !_allUsdaHasMore && !_allMealieHasMore && !_allCooktraceHasMore) return;
     _allLoadingMore = true;
     const jobs = [];
     const dedupAppend = (existing, incoming, keyOf) => {
@@ -615,13 +679,29 @@
         })
         .catch(() => {}));
     }
+    if (_allCooktraceHasMore) {
+      jobs.push(CookTrace.searchWithMeta(search, _allCooktracePage + 1, ALL_MODE_PAGE_SIZE)
+        .then(r => {
+          cooktraceResults = dedupAppend(cooktraceResults, r.items || [], x => x.id ?? x.name);
+          _allCooktracePage = r.page; _allCooktraceHasMore = r.hasMore; _allCooktraceTotal = r.totalHits;
+        })
+        .catch(() => {}));
+    }
+    if (_allCtPantryHasMore) {
+      jobs.push(CookTrace.searchPantryWithMeta(search, _allCtPantryPage + 1, ALL_MODE_PAGE_SIZE)
+        .then(r => {
+          ctPantryResults = dedupAppend(ctPantryResults, r.items || [], x => x.source_external_id ?? x.name);
+          _allCtPantryPage = r.page; _allCtPantryHasMore = r.hasMore; _allCtPantryTotal = r.totalHits;
+        })
+        .catch(() => {}));
+    }
     try { await Promise.all(jobs); }
     finally { _allLoadingMore = false; }
   }
 
   // Aggregate hasMore across ALL-mode external sources — sentinel + footer
   // only render while at least one source still has pages left.
-  $: _allHasMoreAny = _allOffHasMore || _allUsdaHasMore || _allMealieHasMore;
+  $: _allHasMoreAny = _allOffHasMore || _allUsdaHasMore || _allMealieHasMore || _allCooktraceHasMore || _allCtPantryHasMore;
   function _editDist(a, b) {
     if (Math.abs(a.length - b.length) > 2) return 99;
     const m = a.length, n = b.length;
@@ -703,6 +783,8 @@
     } catch(e) {
       console.error('[foods] load error:', e);
       loadError = true;
+    } finally {
+      _initialLoading = false;
     }
   }
 
@@ -712,7 +794,9 @@
     offResults = [];
     usdaResults = [];
     mealieResults = [];
-    // Reset pagination on every fresh search — new query means starting
+    cooktraceResults = [];
+    ctPantryResults = [];
+    // Reset pagination on every fresh search: new query means starting
     // over at page 1 with no accumulated results.
     apiPage = 1;
     apiTotalHits = 0;
@@ -722,7 +806,7 @@
     if (!search.trim() || searchSource === 'local' || searchSource === 'shared') return;
     const src = searchSource;
     searchTimeout = setTimeout(async () => {
-      if (activeTab !== 0) return;
+      if (activeTab !== 0 && src !== 'cooktrace' && src !== 'all') return;
       if (src === 'off') {
         try {
           loading = true;
@@ -750,6 +834,20 @@
           mealieResults = await Mealie.search(search) || [];
         } catch { mealieResults = []; }
         finally { mealieLoading = false; }
+      } else if (src === 'cooktrace') {
+        try {
+          cooktraceLoading = true;
+          cooktraceResults = await CookTrace.search(search) || [];
+        } catch { cooktraceResults = []; }
+        finally { cooktraceLoading = false; }
+      } else if (src === 'ctpantry') {
+        try {
+          ctPantryLoading = true;
+          const r = await CookTrace.searchPantryWithMeta(search, 1, 50);
+          ctPantryResults = r.items || [];
+          _allCtPantryTotal = r.totalHits; _allCtPantryHasMore = r.hasMore; _allCtPantryPage = r.page;
+        } catch { ctPantryResults = []; }
+        finally { ctPantryLoading = false; }
       } else if (src === 'all') {
         // Parallel fan-out to every enabled external source. Each promise
         // catches its own error so one failing API doesn't nuke the others
@@ -759,14 +857,19 @@
         // sentinel via loadMoreAll(). Previous version capped at 10 per
         // source; now returns the full first page (50 per external source)
         // and paginates on scroll for parity with single-source mode. #96.
-        _allOffPage = _allUsdaPage = _allMealiePage = 1;
-        _allOffHasMore = _allUsdaHasMore = _allMealieHasMore = false;
-        _allOffTotal = _allUsdaTotal = _allMealieTotal = 0;
+        _allOffPage = _allUsdaPage = _allMealiePage = _allCooktracePage = _allCtPantryPage = 1;
+        _allOffHasMore = _allUsdaHasMore = _allMealieHasMore = _allCooktraceHasMore = _allCtPantryHasMore = false;
+        _allOffTotal = _allUsdaTotal = _allMealieTotal = _allCooktraceTotal = _allCtPantryTotal = 0;
         const jobs = [];
         const usesOffOrUsda = $offEnabled || $usdaEnabled;
-        loading = usesOffOrUsda;
-        mealieLoading = _mealieEnabled;
-        if ($offEnabled) {
+        // OFF/USDA/Mealie only run for tab 0 (foods); CookTrace only for tab 2 (recipes).
+        // Skip the food-source jobs on tab 2 so an "all" search there merges
+        // Local recipes + CookTrace, not a stray food-source spew.
+        loading = usesOffOrUsda && activeTab === 0;
+        mealieLoading = _mealieEnabled && activeTab === 0;
+        cooktraceLoading = _cooktraceEnabled && activeTab === 2;
+        ctPantryLoading = _cooktraceEnabled && activeTab === 0;
+        if ($offEnabled && activeTab === 0) {
           jobs.push(API.searchByNameWithMeta(search, 1, ALL_MODE_PAGE_SIZE)
             .then(r => {
               offResults = r.items || [];
@@ -774,7 +877,7 @@
             })
             .catch(() => { offResults = []; }));
         }
-        if ($usdaEnabled) {
+        if ($usdaEnabled && activeTab === 0) {
           const key = usdaApiKey.get();
           jobs.push(USDA.searchByNameWithMeta(search, 1, key, ALL_MODE_PAGE_SIZE)
             .then(r => {
@@ -783,7 +886,7 @@
             })
             .catch(() => { usdaResults = []; }));
         }
-        if (_mealieEnabled) {
+        if (_mealieEnabled && activeTab === 0) {
           jobs.push(Mealie.searchWithMeta(search, 1, ALL_MODE_PAGE_SIZE)
             .then(r => {
               mealieResults = r.items || [];
@@ -791,8 +894,24 @@
             })
             .catch(() => { mealieResults = []; }));
         }
+        if (_cooktraceEnabled && activeTab === 2) {
+          jobs.push(CookTrace.searchWithMeta(search, 1, ALL_MODE_PAGE_SIZE)
+            .then(r => {
+              cooktraceResults = r.items || [];
+              _allCooktraceTotal = r.totalHits; _allCooktraceHasMore = r.hasMore; _allCooktracePage = r.page;
+            })
+            .catch(() => { cooktraceResults = []; }));
+        }
+        if (_cooktraceEnabled && activeTab === 0) {
+          jobs.push(CookTrace.searchPantryWithMeta(search, 1, ALL_MODE_PAGE_SIZE)
+            .then(r => {
+              ctPantryResults = r.items || [];
+              _allCtPantryTotal = r.totalHits; _allCtPantryHasMore = r.hasMore; _allCtPantryPage = r.page;
+            })
+            .catch(() => { ctPantryResults = []; }));
+        }
         try { await Promise.all(jobs); }
-        finally { loading = false; mealieLoading = false; }
+        finally { loading = false; mealieLoading = false; cooktraceLoading = false; ctPantryLoading = false; }
       }
     }, 400);
   }
@@ -808,6 +927,36 @@
     }
   }
 
+  // Pull a CookTrace recipe into NT. Unlike Mealie (which lands as a
+  // single-row food), CT recipes land in the MealEditor as an
+  // is_recipe=1 meal so the per-ingredient nutrition CT ships with
+  // each item is preserved. source_app / source_external_id /
+  // source_url stamp provenance so the MealEditor's "From CookTrace"
+  // badge shows on save and the meal upserts on future re-imports.
+  async function pickCooktraceRecipe(summary) {
+    try {
+      const full = await CookTrace.getRecipe(summary.id);
+      if (!full) { showError('Could not load recipe from CookTrace'); return; }
+      const mapped = CookTrace.mapRecipe(full);
+      openMealEditor(mapped, true);
+    } catch (e) {
+      showError('Failed to import from CookTrace');
+    }
+  }
+
+  // Pull a single CookTrace pantry row into NT's foods catalog. The
+  // search endpoint already returns the NT foods shape (server-side
+  // leaf-only filter, resolved nutrition, Atwater-derived calories), so
+  // this only remaps img_url to the client's imgUrl and opens the editor.
+  // source_app / source_external_id ride through FoodEditor's prefill
+  // spread, so saving upserts against the same row the bulk Import
+  // Pantry action manages rather than creating a duplicate.
+  function pickCtPantryItem(row) {
+    if (!row) return;
+    const { img_url, ...rest } = row;
+    openEditor({ ...rest, imgUrl: img_url || '' }, 'foodList');
+  }
+
   // Re-run search when query, source, or OFF filters change (country + language).
   // Country change is rare in practice (setting lives in Settings) but keeping
   // the reactive means switching either one takes effect immediately without
@@ -815,7 +964,7 @@
   $: { search; searchSource; $offSearchCountry; $offSearchLanguage; onSearch(); }
 
   function _saveScrollState() {
-    editorState.foodsScrollY   = window.scrollY;
+    editorState.foodsScrollY   = pageScrollTop(_foodsBodyEl);
     editorState.foodsActiveTab = activeTab;
   }
 
@@ -1148,6 +1297,29 @@
     manageMode = false;
     manageSelected = new Set();
   }
+  // #175 (nomad64) — bulk-select helpers on the manage bar. Both target
+  // `filteredList` so they respect the user's current source / category /
+  // search filters, giving a scoped bulk-clean rather than a database
+  // nuke. Select None does NOT drop out of manage mode (the exit-on-empty
+  // auto-exit only fires from the per-item toggle path).
+  function selectAllVisible() {
+    if (!manageMode) return;
+    const next = new Set(manageSelected);
+    for (const f of (filteredList || [])) {
+      if (f?.id != null) next.add(f.id);
+    }
+    manageSelected = next;
+  }
+  function selectNoneVisible() {
+    if (!manageMode) return;
+    manageSelected = new Set();
+  }
+  // Reactive helpers for enabling / labelling the buttons.
+  $: _visibleManageableIds = (filteredList || [])
+    .filter(f => f?.id != null)
+    .map(f => f.id);
+  $: _allVisibleSelected = _visibleManageableIds.length > 0
+    && _visibleManageableIds.every(id => manageSelected.has(id));
   async function confirmBulkDelete() {
     if (bulkDeleting || manageSelected.size === 0) return;
     bulkDeleting = true;
@@ -1452,7 +1624,8 @@
   function _measureFoodsRails() {
     if (!_foodsBodyEl) return;
     const rect = _foodsBodyEl.getBoundingClientRect();
-    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    // The page scrolls inside .page-transition, not the window (#217).
+    const scrollY = pageScrollTop(_foodsBodyEl);
     const cs = getComputedStyle(_foodsBodyEl);
     const padTop  = parseFloat(cs.paddingTop  || '0') || 0;
     const padLeft = parseFloat(cs.paddingLeft || '0') || 0;
@@ -1568,7 +1741,7 @@
       const sy = editorState.foodsScrollY;
       editorState.foodsScrollY = null;
       await tick();
-      window.scrollTo(0, sy);
+      restorePageScroll(_foodsBodyEl, sy);
     }
   });
 </script>
@@ -1671,6 +1844,18 @@
     <div use:portal class="foods-topbar-actions">
       <button class="btn-icon" on:click={exitManageMode} aria-label="Cancel selection" title="Cancel">
         <span class="material-symbols-rounded">close</span>
+      </button>
+      <button class="btn-icon"
+        disabled={_visibleManageableIds.length === 0 || _allVisibleSelected || bulkDeleting}
+        on:click={selectAllVisible}
+        aria-label="Select all visible" title="Select all">
+        <span class="material-symbols-rounded">select_all</span>
+      </button>
+      <button class="btn-icon"
+        disabled={manageSelected.size === 0 || bulkDeleting}
+        on:click={selectNoneVisible}
+        aria-label="Select none" title="Select none">
+        <span class="material-symbols-rounded">deselect</span>
       </button>
       <button class="btn-icon" style="color:var(--danger)"
         disabled={manageSelected.size === 0 || bulkDeleting}
@@ -1850,7 +2035,7 @@
           <span class="material-symbols-rounded empty-icon">search</span>
           <p>{$_('foods.all_mode.search_hint')}</p>
         </div>
-      {:else if (loading || mealieLoading) && _allModeItems.length === 0}
+      {:else if (loading || mealieLoading || cooktraceLoading || ctPantryLoading) && _allModeItems.length === 0}
         <div class="loading-row">
           <span class="material-symbols-rounded spin">refresh</span>
           <span class="text-2 text-sm">{$_('foods.all_mode.searching')}</span>
@@ -1862,8 +2047,13 @@
         </div>
       {:else}
         <ul class="food-list">
-          {#each _allModeItems as { source, item } (source + ':' + (item.id || item.slug || item.barcode || item.name))}
+          <!-- #191 (@systems-monitor): index-suffixed key so a duplicate
+               code / slug within a source can't crash the render. Same
+               reasoning as the visibleApiResults each below. -->
+          {#each _allModeItems as { source, item }, i (source + ':' + (item.id || item.slug || item.barcode || item.name || 'x') + ':' + i)}
             {@const isMealie = source === 'mealie'}
+            {@const isCookTrace = source === 'cooktrace'}
+            {@const isCtPantry = source === 'ctpantry'}
             {@const isExternal = source === 'off' || source === 'usda'}
             {@const _foodEnergy = isMealie
               ? null
@@ -1871,19 +2061,22 @@
             <li class="food-item card" in:fade={{ duration: 140 }}>
               <button class="food-item-btn"
                 on:click={() => _pickBySource(source, item)}
-                on:contextmenu|preventDefault={() => !isMealie && !isExternal && longPress(item)}
-                on:touchstart|passive={() => _startLongPress(() => !isMealie && !isExternal && longPress(item))}
+                on:contextmenu|preventDefault={() => !isMealie && !isCookTrace && !isCtPantry && !isExternal && longPress(item)}
+                on:touchstart|passive={() => _startLongPress(() => !isMealie && !isCookTrace && !isCtPantry && !isExternal && longPress(item))}
                 on:touchmove|passive={_cancelLongPress}
                 on:touchend={_cancelLongPress}>
                 {#if isMealie && item.id}
                   <img class="food-thumb" src={Mealie.imageUrl(item.id)} alt=""
                     loading="lazy" on:error={e => e.target.style.display='none'} />
+                {:else if (isCookTrace || isCtPantry) && item.img_url}
+                  <img class="food-thumb" src={item.img_url} alt=""
+                    loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
                 {:else if item.imgUrl}
                   <img class="food-thumb" src={item.imgUrl} alt="" loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
                 {:else}
                   <div class="food-thumb-placeholder">
                     <span class="material-symbols-rounded">
-                      {#if isMealie}menu_book{:else if source === 'usda'}science{:else if source === 'off'}public{:else}{_tabIcon}{/if}
+                      {#if isMealie || isCookTrace}menu_book{:else if source === 'usda'}science{:else if source === 'off'}public{:else}{_tabIcon}{/if}
                     </span>
                   </div>
                 {/if}
@@ -1939,6 +2132,7 @@
                   {#if source === 'local'}{$_('foods.sources.local')}
                   {:else if source === 'shared'}{$_('foods.sources.shared')}
                   {:else if source === 'mealie'}{$_('foods.sources.mealie')}
+                  {:else if source === 'cooktrace' || source === 'ctpantry'}CookTrace
                   {:else if source === 'usda'}USDA
                   {:else}OFF{/if}
                 </span>
@@ -1950,7 +2144,7 @@
              turn silent 0s into visible signals (e.g. "OFF · 0" tells the
              user OFF didn't return anything, not that ALL is broken).
              Sentinel fires loadMoreAll() when it scrolls into view. #96. -->
-        {#if _allModeItems.length > 0 || _allOffTotal > 0 || _allUsdaTotal > 0 || _allMealieTotal > 0}
+        {#if _allModeItems.length > 0 || _allOffTotal > 0 || _allUsdaTotal > 0 || _allMealieTotal > 0 || _allCooktraceTotal > 0 || _allCtPantryTotal > 0}
           {@const _localCount = (_ownList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).length}
           {@const _sharedCount = _tabHasShared ? (_groupList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).length : 0}
           <div class="all-source-counts">
@@ -1958,8 +2152,14 @@
             {#if _tabHasShared}
               <span class="asc-chip"><span class="asc-dot asc-shared"></span>Shared · {_sharedCount}</span>
             {/if}
-            {#if _mealieEnabled}
+            {#if _mealieEnabled && activeTab === 0}
               <span class="asc-chip"><span class="asc-dot asc-mealie"></span>Mealie · {mealieResults.length}{#if _allMealieTotal > mealieResults.length} of {_allMealieTotal.toLocaleString()}{/if}</span>
+            {/if}
+            {#if _cooktraceEnabled && activeTab === 2}
+              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {cooktraceResults.length}{#if _allCooktraceTotal > cooktraceResults.length} of {_allCooktraceTotal.toLocaleString()}{/if}</span>
+            {/if}
+            {#if _cooktraceEnabled && activeTab === 0}
+              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {ctPantryResults.length}{#if _allCtPantryTotal > ctPantryResults.length} of {_allCtPantryTotal.toLocaleString()}{/if}</span>
             {/if}
             {#if $offEnabled}
               <span class="asc-chip"><span class="asc-dot asc-off"></span>OFF · {offResults.length}{#if _allOffTotal > offResults.length} of {_allOffTotal.toLocaleString()}{/if}</span>
@@ -1974,7 +2174,7 @@
             <span class="material-symbols-rounded spin">refresh</span>
             <span class="text-2 text-sm">{$_('foods.all_mode.loading_more')}</span>
           </div>
-        {:else if loading || mealieLoading}
+        {:else if loading || mealieLoading || cooktraceLoading || ctPantryLoading}
           <div class="loading-row" style="margin-top:8px">
             <span class="material-symbols-rounded spin">refresh</span>
             <span class="text-2 text-sm">{$_('foods.all_mode.still_searching_others')}</span>
@@ -1985,9 +2185,17 @@
         {/if}
       {/if}
 
-    {:else if searchSource === 'local' || searchSource === 'shared' || activeTab !== 0}
+    {:else if searchSource === 'local' || searchSource === 'shared' || (activeTab !== 0 && searchSource !== 'cooktrace')}
       <!-- ── Local list ─────────────────────────────────────────────────────── -->
-      {#if filteredList.length === 0 && !search && !loadError}
+      {#if _initialLoading && filteredList.length === 0 && !loadError}
+        <!-- #178 — hold the empty state while the initial fetch is in
+             flight. A slow /api/foods response would otherwise render
+             "No foods yet" over the user's actual (server-side) library. -->
+        <div class="loading-row">
+          <span class="material-symbols-rounded spin">refresh</span>
+          <span class="text-2 text-sm">{$_('foods.loading_library')}</span>
+        </div>
+      {:else if filteredList.length === 0 && !search && !loadError}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">
             {activeTab === 0 ? 'restaurant' : activeTab === 1 ? 'dinner_dining' : 'book'}
@@ -2084,13 +2292,13 @@
           <p>{$_('foods.search_in', { values: { source: _sourceLabel } })}</p>
         </div>
 
-      {:else if loading || mealieLoading}
+      {:else if loading || mealieLoading || cooktraceLoading || ctPantryLoading}
         <div class="loading-row">
           <span class="material-symbols-rounded spin">refresh</span>
           <span class="text-2 text-sm">{$_('foods.searching_in', { values: { source: _sourceLabel } })}</span>
         </div>
 
-      {:else if apiResults.length === 0 && mealieResults.length === 0}
+      {:else if apiResults.length === 0 && mealieResults.length === 0 && cooktraceResults.length === 0 && ctPantryResults.length === 0}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search_off</span>
           <p>{$_('foods.no_results_in', { values: { source: _sourceLabel } })}</p>
@@ -2113,7 +2321,15 @@
              changing the underlying fetch. -->
         {#if visibleApiResults.length > 0}
           <ul class="food-list">
-            {#each visibleApiResults as food (food.id || food.barcode)}
+            <!-- #191 (@systems-monitor): key on (code|id, index) so a
+                 duplicate code in the search results (the stock OFF
+                 snapshot has 60 duplicate codes in 4.7M rows, and
+                 custom mirrors have more) can never trigger Svelte's
+                 each_key_duplicate error, which was hard-freezing
+                 the whole app until reload. Index-suffix stays stable
+                 across infinite-scroll appends because rows only
+                 append at the end. -->
+            {#each visibleApiResults as food, i ((food.id || food.barcode || 'x') + ':' + i)}
               {@const _sel = selectedFoods.has(food)}
               {@const _foodEnergy = Nutrition.displayEnergy(food.nutrition?.calories || food.calories || 0, $energyUnit)}
               <li class="food-item card" class:food-selected={_sel}>
@@ -2237,6 +2453,64 @@
             {/each}
           </ul>
         {/if}
+
+        <!-- CookTrace results -->
+        {#if cooktraceResults.length > 0}
+          <ul class="food-list">
+            {#each cooktraceResults as recipe, i (recipe.id ?? i)}
+              <li class="food-item card">
+                <button class="food-item-btn" on:click={() => pickCooktraceRecipe(recipe)}>
+                  {#if recipe.img_url}
+                    <img class="food-thumb" src={recipe.img_url} alt=""
+                      loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
+                  {:else}
+                    <div class="food-thumb-placeholder">
+                      <span class="material-symbols-rounded">menu_book</span>
+                    </div>
+                  {/if}
+                  <div class="food-info">
+                    <span class="food-name">{recipe.name}</span>
+                    {#if recipe.servings}
+                      <span class="food-brand text-3 text-sm">{recipe.servings} serving{recipe.servings === 1 ? '' : 's'}</span>
+                    {/if}
+                  </div>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+
+        <!-- CookTrace pantry results (Foods tab). Leaf rows only: the
+             endpoint filters out generic parents that have variants, so
+             what lands here maps 1:1 onto the bulk Import Pantry set. -->
+        {#if ctPantryResults.length > 0}
+          <ul class="food-list">
+            {#each ctPantryResults as row, i (row.source_external_id ?? i)}
+              {@const _ctEnergy = Nutrition.displayEnergy(row.nutrition?.calories || 0, $energyUnit)}
+              <li class="food-item card">
+                <button class="food-item-btn" on:click={() => pickCtPantryItem(row)}>
+                  {#if row.img_url}
+                    <img class="food-thumb" src={row.img_url} alt=""
+                      loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
+                  {:else}
+                    <div class="food-thumb-placeholder">
+                      <span class="material-symbols-rounded">kitchen</span>
+                    </div>
+                  {/if}
+                  <div class="food-info">
+                    <span class="food-name">{row.name}</span>
+                    {#if row.brand}
+                      <span class="food-brand text-3 text-sm">{row.brand}</span>
+                    {/if}
+                  </div>
+                  <span class="food-kcal text-sm">
+                    {_ctEnergy.value.toLocaleString()} {_ctEnergy.unit}
+                  </span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       {/if}
     {/if}
   </div><!-- /.page-content -->
@@ -2247,7 +2521,7 @@
          nutrition / actions markup renders in both places. Empty
          state prompts when nothing is selected. Only visible at
          ≥1440px via CSS; mobile continues to use the modal sheet. -->
-    {#if _foodsPaneMode}
+    {#if _foodsPaneMode && !manageMode}
     <aside
       use:portal
       class="foods-detail-pane"
@@ -2268,7 +2542,7 @@
 
 <!-- Multi-item portion sheet -->
 <Sheet bind:open={showMultiPortionSheet} title={$_('foods.multi_portion_sheet', { values: { count: multiPortionItems.length } })}>
-  <div style="display:flex;flex-direction:column;gap:0;padding-top:4px">
+  <div bind:this={_multiPortionSheetEl} style="display:flex;flex-direction:column;gap:0;padding-top:4px" on:keydown={_onMultiPortionKey}>
     {#each multiPortionItems as item, i}
       {#if i > 0}<div style="height:1px;background:var(--border);margin:12px 0"></div>{/if}
       <div style="display:flex;flex-direction:column;gap:10px">
@@ -2321,7 +2595,7 @@
 
 <!-- Quantity prompt sheet -->
 <Sheet bind:open={showQtyPrompt} title={promptFood ? promptFood.name : 'Add to Diary'}>
-  <div style="display:flex;flex-direction:column;gap:16px;padding-top:8px">
+  <div style="display:flex;flex-direction:column;gap:16px;padding-top:8px" on:keydown={_onQtyPromptKey}>
     <!-- Issues #69 + #70: surface the OFF nutrition basis so users know
          whether values are per-100-g or per-100-ml at a glance. Gated on
          the showUnitMetadata opt-in (or the warn-about-conversions toggle
@@ -2355,7 +2629,8 @@
     <div style="display:flex;gap:12px">
       <div style="flex:1">
         <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:6px">{$_('foods_deep.serving_size')}</label>
-        <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={promptPortion}
+        <input class="input" type="text" inputmode="decimal" use:decimalInput
+          bind:value={promptPortion} bind:this={_qtyPromptPortionEl}
           style="font-size:16px;width:100%" />
       </div>
       <div style="width:100px">
@@ -2921,6 +3196,11 @@
   .source-badge-mealie { background: rgba(251, 146, 60, 0.14); color: rgb(234, 128, 42); }
   .source-badge-usda   { background: rgba(59, 130, 246, 0.14); color: rgb(59, 130, 246); }
   .source-badge-off    { background: rgba(148, 163, 184, 0.18); color: rgb(148, 163, 184); }
+  /* Both CookTrace surfaces (recipes on the Recipes tab, pantry rows on
+     the Foods tab) share one badge colour: same upstream app, and the
+     tab already disambiguates which endpoint produced the row. */
+  .source-badge-cooktrace,
+  .source-badge-ctpantry { background: rgba(45, 212, 191, 0.16); color: rgb(13, 148, 136); }
 
   /* Pagination footer under external results (single-source OFF/USDA
      modes). "Showing X of Y" gives users the truth about how much data
@@ -2984,6 +3264,7 @@
   .asc-mealie { background: rgb(234, 128, 42); }
   .asc-usda   { background: rgb(59, 130, 246); }
   .asc-off    { background: rgb(148, 163, 184); }
+  .asc-cooktrace { background: rgb(13, 148, 136); }
 
   .server-error-banner {
     display: flex; align-items: center; gap: 8px;
@@ -3555,12 +3836,11 @@
   }
 
   /* Phase D — manage-mode top-right portaled action bar shifts
-     left on desktop to clear the detail pane (420 pane + 20 gap
-     + 12 right inset + a little slack). Below 1440 the pane isn't
-     rendered so the original right:12 anchor still works. */
-  @media (min-width: 1440px) {
-    :global(html:not(.force-mobile-layout)) :global(.foods-topbar-actions) {
-      right: 452px;
-    }
-  }
+     detail pane is now hidden entirely when manageMode is on (the
+     pane isn't interactive during selection anyway — tapping a food
+     toggles its checkbox, not the preview), so the manage-bar buttons
+     get the right edge to themselves at every viewport width. Prior
+     override that inset them 452px to clear the pane is no longer
+     needed and was making the buttons look adrift in the middle
+     of wide screens on the user's report. */
 </style>

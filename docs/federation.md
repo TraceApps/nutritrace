@@ -9,6 +9,12 @@ third-party developers. The wire format is stable across NT releases
 within a major version; consumers code against this document, not
 against NT's internal database schema.
 
+Looking for the routes a user's own scripts and automations can call,
+rather than a sister-app contract? See [the general public API](public-api.md)
+and [outgoing webhooks](webhooks.md), both mounted alongside this API
+but gated behind their own opt-in flags and reusing the `mcp:read`/
+`mcp:write` token scopes instead of the federation-specific ones below.
+
 ---
 
 ## Versioning

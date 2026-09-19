@@ -13,7 +13,23 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { logger } from '../logger.js';
+import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
+import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
+import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
+
+// #199 (@tellis82): the POST /api/foods and POST /api/meals routes
+// localize incoming data URLs to /uploads/ (via image-localizer). This
+// sync-push handler wrote img_url verbatim, so an offline-created food
+// with a camera photo (a data URL under isNative) landed in the img_url
+// column raw. That fed the freshenItemImages 50 MB payload amplifier
+// on the diary side. Same rule as the direct routes: if the caller
+// sent an external URL (http/https or data:), route it through
+// localizeImage; if it's already a local /uploads/ path, keep as-is.
+async function _localizeIfNeeded(url) {
+  if (!url) return null;
+  return isExternalUrl(url) ? await localizeImage(url) : url;
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -160,10 +176,25 @@ router.get('/pull', wrap((req, res) => {
 // Receives batch of changed records from the client.
 // Each record has: client_id, server_id (if previously synced), and the data fields.
 // Returns a mapping of client_id → server_id for newly created records.
-router.post('/push', wrap((req, res) => {
+router.post('/push', wrap(async (req, res) => {
   const u = uid(req);
   const { foods = [], meals = [], diary = [], activity = [], fasts = [], wellness = [], settings = [], workouts = [] } = req.body;
   const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [], workouts: [] };
+
+  // #199 (@tellis82): localize any inbound img_url data URLs to
+  // /uploads/ files before the sync transaction. Direct POST /api/foods
+  // and /api/meals already do this via image-localizer; the sync path
+  // was writing them verbatim, so a native user's camera-photo food
+  // landed in the img_url column as a base64 blob and was then
+  // amplified across every referencing diary row by freshenItemImages.
+  // Runs outside the transaction because localizeImage does file IO
+  // and db.transaction() is sync-only.
+  for (const f of foods) {
+    if (f.img_url) f.img_url = await _localizeIfNeeded(f.img_url);
+  }
+  for (const m of meals) {
+    if (m.img_url) m.img_url = await _localizeIfNeeded(m.img_url);
+  }
 
   // Normalize timestamp for comparison (strip T, Z, milliseconds)
   const norm = ts => ts ? ts.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '') : '';
@@ -183,7 +214,7 @@ router.post('/push', wrap((req, res) => {
             db.prepare(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(f.server_id);
           } else {
             db.prepare(
-              `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=datetime('now') WHERE id=?`
+              `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, source_app=?, source_external_id=?, source_url=?, updated_at=datetime('now') WHERE id=?`
             ).run(f.name, f.brand, JSON.stringify(f.nutrition || {}), f.portion ?? 100, f.unit || 'g',
               f.img_url || null, f.notes || null, f.category || null, f.barcode || null,
               f.favorite ? 1 : 0, f.usage_count || 0, f.last_used_at || null,
@@ -194,15 +225,23 @@ router.post('/push', wrap((req, res) => {
               f.density_g_ml != null && Number.isFinite(Number(f.density_g_ml))
                 ? Number(f.density_g_ml)
                 : null,
+              // Federation columns carry the CT pantry provenance across
+              // cross-device pulls.
+              f.source_app || null, f.source_external_id || null, f.source_url || null,
               f.server_id);
           }
         }
         result.foods.push({ client_id: f.client_id, server_id: f.server_id });
       } else if (!f.deleted_at) {
-        // New record (no server_id, OR server_id refs missing row → re-create)
+        // New record (no server_id, OR server_id refs missing row -> re-create).
+        // #183: honor caller's defaultShareVisibility on new inserts,
+        // matching POST /api/foods. The sync path had been relying on
+        // the SQLite column default ('private'), which silently made
+        // the toggle a no-op for anything created offline first.
+        const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
-          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, visibility, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, f.name, f.brand || null, JSON.stringify(f.nutrition || {}), f.portion ?? 100, f.unit || 'g',
           f.img_url || null, f.notes || null, f.category || null, f.barcode || null,
           f.favorite ? 1 : 0, f.usage_count || 0, f.last_used_at || null,
@@ -210,7 +249,9 @@ router.post('/push', wrap((req, res) => {
           _serializeAltUnitsForServer(f.alt_units),
           f.density_g_ml != null && Number.isFinite(Number(f.density_g_ml))
             ? Number(f.density_g_ml)
-            : null);
+            : null,
+          f.source_app || null, f.source_external_id || null, f.source_url || null,
+          vis);
         result.foods.push({ client_id: f.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -235,13 +276,18 @@ router.post('/push', wrap((req, res) => {
         }
         result.meals.push({ client_id: m.client_id, server_id: m.server_id });
       } else if (!m.deleted_at) {
+        // #183 — same default-visibility handling as the foods branch.
+        // Applies to both meals and recipes (is_recipe distinguishes them
+        // but shares the same default).
+        const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
-          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, visibility, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, m.name, JSON.stringify(m.nutrition || {}), JSON.stringify(m.items || []),
           m.img_url || null, m.notes || null, m.is_recipe ? 1 : 0, m.portion ?? 100, m.unit || 'g',
           Math.max(1, parseInt(m.servings) || 1),
-          m.favorite ? 1 : 0, m.usage_count || 0, m.last_used_at || null);
+          m.favorite ? 1 : 0, m.usage_count || 0, m.last_used_at || null,
+          vis);
         result.meals.push({ client_id: m.client_id, server_id: r.lastInsertRowid });
       }
     }
@@ -298,26 +344,59 @@ router.post('/push', wrap((req, res) => {
         const itemsJson = JSON.stringify(mergedItems);
         const waterJson = JSON.stringify(mergedWater);
 
+        // #207: completion mark. Preserve-if-incoming-null semantics
+        // (same shape as the notes/body_stats empty guard): an offline
+        // client that syncs before receiving another device's mark must
+        // not clobber the mark by pushing its stale null. Explicit
+        // unmarking still works via PUT /api/diary/:date/completion,
+        // which sets completed_at=NULL directly.
+        const incomingCompletedAt = (typeof d.completed_at === 'string' && d.completed_at) ? d.completed_at : null;
+        const completedAt = incomingCompletedAt || (existingRow?.completed_at || null);
+
+        // #207 (per-meal): union-merge the meal completion sets across
+        // the two sides. A slot marked on either device stays marked,
+        // so an offline client pushing an older empty array cannot wipe
+        // marks the other device just set. Explicit un-mark of a slot
+        // still works via PUT /api/diary/:date/meal-completion with
+        // completed=false, which writes the array directly.
+        const _pickIntArray = v => {
+          if (!Array.isArray(v)) return [];
+          return v.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
+        };
+        const incomingMeals = _pickIntArray(d.completed_meals);
+        let existingMeals = [];
+        if (existingRow?.completed_meals) {
+          try {
+            const arr = JSON.parse(existingRow.completed_meals);
+            existingMeals = _pickIntArray(arr);
+          } catch {}
+        }
+        const mealSet = new Set([...existingMeals, ...incomingMeals]);
+        const mergedMeals = Array.from(mealSet).sort((a, b) => a - b);
+        const completedMealsJson = mergedMeals.length ? JSON.stringify(mergedMeals) : null;
+
         if (u == null) {
           // Single-user mode: NULL user_id never collides under SQLite UNIQUE
           // (see diary.js PUT for the same workaround, issue #37).
           const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(d.date);
           if (existing) {
-            db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
-              .run(itemsJson, bsJson, waterJson, dNotes, existing.id);
+            db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, completed_at=?, completed_meals=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
+              .run(itemsJson, bsJson, waterJson, dNotes, completedAt, completedMealsJson, existing.id);
           } else {
-            db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`)
-              .run(d.date, itemsJson, bsJson, waterJson, dNotes);
+            db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, completed_at, completed_meals, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+              .run(d.date, itemsJson, bsJson, waterJson, dNotes, completedAt, completedMealsJson);
           }
         } else {
           db.prepare(
-            `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
              ON CONFLICT(date, user_id) DO UPDATE SET
                items = excluded.items, body_stats = excluded.body_stats, water = excluded.water,
                notes = excluded.notes,
+               completed_at = excluded.completed_at,
+               completed_meals = excluded.completed_meals,
                updated_at = datetime('now'), deleted_at = NULL`
-          ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes);
+          ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes, completedAt, completedMealsJson);
         }
 
         // Persist new tombstones idempotently.
@@ -416,6 +495,15 @@ router.post('/push', wrap((req, res) => {
         w.value == null ? null : Number(w.value),
         typeof w.metadata === 'string' ? w.metadata : JSON.stringify(w.metadata || {}));
       result.wellness.push({ date: w.date, source: w.source, metric_type: w.metric_type });
+      // #200: mirror weight readings into diary body_stats when the
+      // per-user toggle is on. Pass the resolved diary uid (u), not the
+      // wellness sentinel (wellnessUid=0 for anonymous) — the mirror
+      // helper is a no-op for single-user mode anyway, but keeping the
+      // two identifiers separate here matches the diary route's own
+      // "IS NULL vs = uid" convention.
+      if (w.metric_type === 'weight_kg' && w.value != null) {
+        mirrorWeightToBodyStats(u, w.date, Number(w.value));
+      }
     }
 
     // ── Workouts (client-authored, e.g. Health Connect ExerciseSession) ──

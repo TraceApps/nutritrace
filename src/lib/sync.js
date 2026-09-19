@@ -363,10 +363,18 @@ async function pushChanges() {
 
   _dlog(`[sync] push payload: ${payload.foods.length} foods, ${payload.meals.length} meals, ${payload.diary.length} diary, ${payload.activity.length} activity, ${payload.fasts.length} fasts, ${payload.wellness.length} wellness, ${payload.workouts.length} workouts, ${payload.settings.length} settings`);
 
+  // 30s ceiling. Without a signal, a wedged connection (proxy timeout,
+  // dropped TCP, server GC pause) stalls the whole sync loop for the OS
+  // TCP-retry window — verbose-log repros showed 10-19 minute holds that
+  // blocked every subsequent pull-to-refresh because _syncing stays true
+  // for the entire hang. 30s is generous enough for a full-library push
+  // over a slow link and short enough that a genuinely dead connection
+  // fails visibly.
   const res = await fetch(apiUrl('/api/sync/push'), {
     method: 'POST',
     headers: _headers(),
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!res.ok) {
@@ -462,8 +470,12 @@ async function pullChanges() {
 
   _dlog(`[sync] pulling since ${lastSync}`);
 
+  // 30s ceiling — same reasoning as the push above. Initial pull for a
+  // large library over slow network still fits comfortably; anything
+  // beyond 30s is a wedged connection, not a legitimate transfer.
   const res = await fetch(apiUrl(`/api/sync/pull?since=${encodeURIComponent(lastSync)}`), {
     headers: _headers(),
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!res.ok) {

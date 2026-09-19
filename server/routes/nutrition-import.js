@@ -15,7 +15,7 @@ import AdmZip from 'adm-zip';
 import db from '../db.js';
 import { wrap, logger } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
-import { mapMeal } from '../lib/nutrition-import/common.js';
+import { mapMeal, isZipBuffer } from '../lib/nutrition-import/common.js';
 import { parseSpreadsheet } from '../lib/nutrition-import/spreadsheet.js';
 import { parseCronometer }  from '../lib/nutrition-import/cronometer.js';
 import { parseLoseit }      from '../lib/nutrition-import/loseit.js';
@@ -41,9 +41,9 @@ const SUPPORTED_SOURCES = ['spreadsheet', 'cronometer', 'loseit', 'mfp'];
  * CSV out of it. Other adapters expect plain CSV text.
  */
 function _extractText(source, file) {
-  const filename = (file.originalname || '').toLowerCase();
-  const isZip = filename.endsWith('.zip') ||
-    (file.buffer.length > 4 && file.buffer[0] === 0x50 && file.buffer[1] === 0x4B);
+  // Decide from the bytes, not the file name: a renamed file must behave the
+  // same as the original. See isZipBuffer for why all four bytes are checked.
+  const isZip = isZipBuffer(file.buffer);
 
   if (source === 'mfp' && isZip) {
     let zip;
@@ -97,7 +97,11 @@ function _decodeMealNames(row) {
  * Matches what addDiaryItem() in src/stores/diary.js produces.
  */
 function _toDiaryItem(canonical, mealNames) {
-  const meal = mapMeal(canonical.mealLabel, mealNames);
+  // A row can name its meal ("Breakfast") or state the slot outright, which
+  // Cronometer's whole-day totals do since they belong to no single meal.
+  const meal = canonical.mealIndex != null
+    ? { index: Math.min(Math.max(0, canonical.mealIndex), mealNames.length - 1), matched: true }
+    : mapMeal(canonical.mealLabel, mealNames);
   return {
     name:       canonical.name,
     brand:      canonical.brand || undefined,
@@ -146,7 +150,7 @@ router.post('/preview', upload.single('file'), wrap((req, res) => {
   for (const c of canonical) {
     if (!byDate.has(c.date)) byDate.set(c.date, 0);
     byDate.set(c.date, byDate.get(c.date) + 1);
-    const m = mapMeal(c.mealLabel, mealNames);
+    const m = c.mealIndex != null ? { matched: true } : mapMeal(c.mealLabel, mealNames);
     if (!m.matched && c.mealLabel) {
       unmappedLabels.set(c.mealLabel, (unmappedLabels.get(c.mealLabel) || 0) + 1);
     }

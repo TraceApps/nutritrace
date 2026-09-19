@@ -660,9 +660,13 @@
     }
     saving = true;
     try {
-      // Build nested nutrition object from flat fields for Nutrition.calculate() compatibility
+      // Build nested nutrition object from flat fields for Nutrition.calculate() compatibility.
+      // #201: iterate custom nutriments too so user-defined nutrients
+      // survive the save. Nutrition.calculate iterates
+      // Object.entries(item.nutrition) on the nested path so any key
+      // written here flows through calculations without further changes.
       const _nutrition = {};
-      for (const _n of NUTRIMENTS) {
+      for (const _n of [...NUTRIMENTS, ...($customNutriments || [])]) {
         const _v = food[_n.id];
         if (_v !== undefined && _v !== '' && _v !== null && !isNaN(parseDecimal(_v))) {
           _nutrition[_n.id] = parseDecimal(_v) || 0;
@@ -755,13 +759,25 @@
       return ai - bi;
     });
   }
+  // #201 (@caioqv-dev): merge $customNutriments into both field lists
+  // so nutrients the user created in Settings → Nutrients actually
+  // appear in the Food Editor. Custom entries always show (the user
+  // explicitly added them; they'd delete them from Settings rather
+  // than expect a separate visibility toggle here). Built-in
+  // nutriments still respect the visibleNutriments list / default
+  // flag. _applyOrder sorts custom entries after any explicitly
+  // ordered built-ins, matching how nutrimentsOrder handles unknown
+  // ids. Custom entries have {id,label,unit} only; the render loop
+  // reads n.label / n.unit / n.subOf and n.id === 'calories', all
+  // of which tolerate the smaller shape (missing subOf is falsy,
+  // custom ids never match 'calories').
   $: visibleFields = (() => {
     const vis = $visibleNutriments;
     const base = vis ? NUTRIMENTS.filter(n => vis.includes(n.id)) : NUTRIMENTS.filter(n => n.default);
-    return _applyOrder(base);
+    return _applyOrder([...base, ...($customNutriments || [])]);
   })();
 
-  $: allFields = _applyOrder(NUTRIMENTS);
+  $: allFields = _applyOrder([...NUTRIMENTS, ...($customNutriments || [])]);
   $: displayFields = showAllNutrients ? allFields : visibleFields;
 </script>
 

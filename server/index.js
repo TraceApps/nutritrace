@@ -1,4 +1,10 @@
 import 'dotenv/config';
+// Forward-proxy support (#177). Self-installs an undici
+// EnvHttpProxyAgent as the global fetch dispatcher when
+// HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
+// are set. No-op when unset. Must import right after dotenv/config
+// so any downstream module-init outbound fetch already sees it.
+import './lib/proxy-agent.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -15,6 +21,7 @@ import activityRoutes from './routes/activity.js';
 import fastsRoutes    from './routes/fasts.js';
 import uploadRoutes from './routes/upload.js';
 import mealieRoutes    from './routes/mealie.js';
+import cooktraceRoutes from './routes/cooktrace.js';
 import settingsRoutes  from './routes/settings.js';
 import appConfigRoutes  from './routes/app-config.js';
 import aiRoutes         from './routes/ai.js';
@@ -27,6 +34,7 @@ import syncRoutes       from './routes/sync.js';
 import oidcRoutes       from './routes/oidc.js';
 import oidcAdminRoutes  from './routes/oidc-admin.js';
 import apiTokensRoutes  from './routes/api-tokens.js';
+import webhooksRoutes   from './routes/webhooks.js';
 import apiV1Routes      from './routes/api/v1/index.js';
 import mcpRoutes        from './routes/mcp.js';
 import nutritionImportRoutes from './routes/nutrition-import.js';
@@ -50,6 +58,7 @@ import { APP_VERSION } from './routes/version-source.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
+import { isPrivateUploadPath, UPLOAD_RESPONSE_HEADERS } from './lib/upload-paths.js';
 
 // Seed config from env vars if provided (env vars take priority over UI)
 seedSmtpFromEnv();
@@ -132,8 +141,24 @@ router.use((req, res, next) => {
 // Serve uploaded images BEFORE auth — images are public (needed for Android WebView
 // which can't send Authorization headers on <img src> requests)
 const uploadsPath = process.env.UPLOADS_PATH || './uploads';
+// Backup archives are NOT public. BACKUPS_PATH defaults to a directory
+// inside UPLOADS_PATH, so without this the whole database dump was
+// downloadable by anyone who could reach the server, even though every
+// /api/full-backup route is admin-only.
+//
+// The guard tests the RESOLVED path rather than the URL text. A prefix
+// route on '/uploads/backups' looks equivalent and is not: express.static
+// percent-decodes before opening the file while the router matches the raw
+// path, so /uploads/%62ackups/x.zip and /uploads//backups/x.zip read
+// straight through it. A flat 404 rather than a 401, so the response says
+// nothing about whether a given filename exists.
+router.use('/uploads', (req, res, next) => {
+  if (isPrivateUploadPath(req.path)) return res.status(404).json({ error: 'Not found' });
+  next();
+});
+
 router.use('/uploads', express.static(uploadsPath, {
-  setHeaders(res) { res.set('Cache-Control', 'public, max-age=3600'); }
+  setHeaders(res) { res.set('Cache-Control', 'public, max-age=3600'); res.set(UPLOAD_RESPONSE_HEADERS); }
 }));
 
 // Proxy also before auth — used by Android WebView to load external images
@@ -178,6 +203,12 @@ router.use('/api/admin/oidc', oidcAdminRoutes);
 // Federation API token management (the Settings UI, not the federation
 // clients themselves). Admin-only.
 router.use('/api/admin/api-tokens', apiTokensRoutes);
+// Outgoing webhook management (the Settings UI, not the delivery path
+// itself, that's dispatchWebhookEvent in server/lib/webhooks.js).
+// Admin-only. Feature-gated at delivery time by WEBHOOKS_ENABLED, not
+// at this route, an admin can configure webhooks even before enabling
+// the flag.
+router.use('/api/admin/webhooks', webhooksRoutes);
 // Federation API itself — Bearer-token auth, scope-gated. Mounted at
 // /api/v1 so the version is part of the contract URL. See
 // docs/federation.md for the wire format.
@@ -197,6 +228,7 @@ router.use('/api/fasts',    fastsRoutes);
 router.use('/api/nutrition-import', nutritionImportRoutes);
 router.use('/api/upload', uploadRoutes);
 router.use('/api/mealie',     mealieRoutes);
+router.use('/api/cooktrace',  cooktraceRoutes);
 router.use('/api/settings',  settingsRoutes);
 router.use('/api/app-config',  appConfigRoutes);
 router.use('/api/off-local',   offLocalRoutes);
@@ -233,8 +265,12 @@ router.get('/api/wellness/latest', (req, res) => {
          ORDER BY date DESC LIMIT 1`
       ).get(userId, metric)
     : db.prepare(
+        // Single-user mode stores wellness rows under two sentinels: the
+        // wearable pollers write 0, the Android sync writes NULL. Reading
+        // only NULL silently hid every poller-sourced metric. Mirrors the
+        // same both-sentinel read in routes/withings.js.
         `SELECT date, value, source FROM wellness_data
-         WHERE user_id IS NULL AND metric_type = ? AND value > 0
+         WHERE (user_id IS NULL OR user_id = 0) AND metric_type = ? AND value > 0
          ORDER BY date DESC LIMIT 1`
       ).get(metric);
   res.json(row || null);
@@ -376,12 +412,34 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   logger.info(`NutriTrace ${APP_VERSION} running on port ${PORT}`);
+
+  // One-time repair for instances that enabled user management on a build
+  // where the handover was incomplete (TraceApps/docs#2). No-op once clean.
+  try {
+    const { repairOrphanedData } = await import('./lib/claim-anonymous-data.js');
+    const r = repairOrphanedData();
+    if (r.ambiguous) {
+      logger.warn(`[claim] ${r.rows} row(s) from single-user mode are unowned, but this instance has more than one account so they cannot be attributed automatically. See https://traceapps.github.io/docs/auth/local-users/`);
+    } else if (r.rows) {
+      logger.info(`[claim] adopted ${r.rows} row(s) left over from single-user mode into user ${r.repaired}`);
+    }
+  } catch (e) {
+    logger.warn(`[claim] orphan repair skipped: ${e.message}`);
+  }
 
   // Start the notification + sync scheduler
   import('./lib/scheduler.js').then(({ startScheduler }) => startScheduler()).catch(e => {
     logger.warn(`[scheduler] failed to start: ${e.message}`);
+  });
+
+  // #199 one-shot: localize any data-URL img_urls in foods/meals to
+  // /uploads/ files so the diary hydrator stops amplifying them.
+  // Guarded by app_config flag; idempotent; fire-and-forget so it
+  // doesn't delay accepting traffic.
+  import('./lib/img-url-migration.js').then(({ migrateDataUrlImages }) => migrateDataUrlImages()).catch(e => {
+    logger.warn(`[img-url-migration] failed to start: ${e.message}`);
   });
 
   // Local OFF mirror: kick initial download if file is missing, then start

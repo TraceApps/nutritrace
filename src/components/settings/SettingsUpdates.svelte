@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '../../lib/clipboard.js';
   /**
    * SettingsUpdates — in-app update UX. Layout modeled on Fathom's
    * lib/screens/updates_screen.dart so the mental model transfers.
@@ -211,7 +212,7 @@
   async function copyDockerCommand() {
     const cmd = 'docker-compose pull && docker-compose up -d';
     try {
-      await navigator.clipboard.writeText(cmd);
+      await copyText(cmd);
       showSuccess($_('updates.server.copied'));
     } catch {
       showError($_('updates.server.copy_failed'));

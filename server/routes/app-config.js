@@ -13,7 +13,7 @@ const ALLOWED_KEYS = new Set([
   'session_hours',
   'fitbit_client_id', 'fitbit_client_secret', 'fitbit_redirect_uri',
   'withings_client_id', 'withings_client_secret', 'withings_redirect_uri',
-  'sharing_enabled', 'default_food_visibility',
+  'sharing_enabled',
   // Per-category bulk-share state (persists what the admin last applied so
   // the form pre-fills correctly). Visibility values: private | group | specific.
   // The user-list keys are JSON-encoded arrays of user ids (used when
@@ -183,7 +183,8 @@ router.post('/test-email', requireAuth, requireAdmin, wrap(async (req, res) => {
   const to = (typeof body.to === 'string' && body.to.trim()) || req.user?.email || undefined;
   // Origin lets the email template load the app logo. Recipient name
   // personalizes the greeting.
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const origin = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
   const recipientName = req.user?.full_name || req.user?.nickname || req.user?.username || null;
   try {
     const result = await testSmtp({ overrides, to, origin, recipientName });
