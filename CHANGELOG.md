@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Choose which box the cursor starts in when adding food** ([#224](https://github.com/TraceApps/nutritrace/issues/224)). Since 1.3.0 the add and edit sheets put the cursor in the first box, Serving Size, so changing the number of servings took an extra tap every time. Settings, Diary, Default Field picks Number of Servings or Serving Size for adding a food, adding several at once, and editing a diary entry. It defaults to Number of Servings and follows your account across devices. Thanks @nomad64 for the report.
+
+### Fixed
+
+- **Moving the Trace button no longer refreshes the page** ([#225](https://github.com/TraceApps/nutritrace/issues/225)). In the Android app connected to a server, dragging the Trace button downward while the page was scrolled to the top was treated as pull-to-refresh and synced. The same could happen when dragging a reorder handle down (meal names, nutrients, body stats, Statistics categories, Meal Editor ingredients) or moving the photo cropper. Dragging those no longer counts as a pull; pulling down anywhere else still refreshes as before. Thanks @nomad64 for the report.
+
 ---
 
 ## [1.3.0] - 2026-09-19
