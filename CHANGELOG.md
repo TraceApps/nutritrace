@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.1-dev01] - 2026-09-19 (pre-release)
+
+First dev pre-release of the 1.3.1 patch cycle. Adds a Default Field setting for the add and edit sheets, and a round of Android fixes: the back button closes what's open first, dragging the Trace button no longer refreshes the page, Settings categories open at their top, and sheets and dialogs stay below the status bar.
+
 ### Changed
 
 - **Choose which box the cursor starts in when adding food** ([#224](https://github.com/TraceApps/nutritrace/issues/224)). Since 1.3.0 the add and edit sheets put the cursor in the first box, Serving Size, so changing the number of servings took an extra tap every time. Settings, Diary, Default Field picks Number of Servings or Serving Size for adding a food, adding several at once, and editing a diary entry. It defaults to Number of Servings and follows your account across devices. Thanks @nomad64 for the report.
@@ -18,6 +24,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **A Settings category now opens at its top** ([#227](https://github.com/TraceApps/nutritrace/issues/227)). On a phone, picking a category from lower down the Settings list (Import & Export, for example) opened it at the bottom, because the category kept the list's scroll position. Categories now open at their top, and going back to the list returns you to where you were on it. A setting found through Settings search still scrolls straight to its match. Thanks @nomad64 for the report.
 - **Body Stats no longer slides under the status bar** ([#228](https://github.com/TraceApps/nutritrace/issues/228)). In the Android app, opening Body Stats from the Diary brings up the keyboard, and the sheet grew taller than the space above it, so its title and close button ended up under the status bar where they couldn't be tapped. The sheet now stays below the status bar and scrolls its fields instead, with the title and close button always in reach. The other Diary sheets built the same way (Save to Library, Copy To, the date picker) and the Wellness date picker got the same limit. Thanks @nomad64 for the report.
 - **Other sheets and dialogs stay below the status bar too.** Found while fixing #228: the shared sheet used across the app, the Goals sheets, the nutrition summary, the Statistics calendar, the Wellness workout details and Smart Log. The Android app draws under the status bar, and these were capped only at a share of the screen, so one that filled its cap (a tall one, or any with the keyboard up) could start under the status bar. They now always stop below it and scroll their content instead. Nothing changes where there's room, or on a computer.
+
+### Translations
+
+- **German wording updates** on [Weblate](https://hosted.weblate.org/projects/nutritrace) by KAiSER: clearer labels for Delete, Body Stats, estimated values, the nutrition label reader and backup deletion. The new Default Field setting shows in English until it's translated.
+
+### Security
+
+- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
 
 ---
 
