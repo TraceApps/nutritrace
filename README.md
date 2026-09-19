@@ -19,12 +19,14 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
   <a href="https://github.com/traceapps/nutritrace/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/traceapps/nutritrace?style=flat"></a>
 </p>
 
-**Jump to:** [What it is](#what-nutritrace-is) · [Features](#features) · [Install](#install) · [Env vars](#env-vars) · [Docs](https://traceapps.github.io/docs/nutritrace/)
-
 <p align="center">
   <b>iOS fund:</b> the Trace apps have no iOS app yet, because building one needs a Mac and an iPhone.
   <a href="https://traceapps.github.io/docs/support/">See the goal</a> or <a href="https://ko-fi.com/traceapps">chip in</a>. Self-hosting stays free either way.
 </p>
+
+---
+
+**Jump to:** [What it is](#what-nutritrace-is) · [Features](#features) · [Install](#install) · [Env vars](#env-vars) · [Docs](https://traceapps.github.io/docs/nutritrace/)
 
 ---
 
@@ -39,7 +41,11 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - **Your data stays on your hardware.** No central server, no cloud sync that can read it; nothing leaves your network unless you opt into a third-party integration (OFF, USDA, Fitbit, etc.).
 - **Open source under AGPL-3.0.** Every line that touches your data is readable.
 
+---
+
 ![NutriTrace diary view: a full day of food logging with macro bar, per-meal breakdowns, and water tracking](docs/screenshots/01-diary.png)
+
+---
 
 ## Features
 
@@ -57,11 +63,15 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - **Multi-user + OIDC SSO.** Authentik/Keycloak/Pocket ID/Authelia/Google/Auth0. [Full guide](https://traceapps.github.io/docs/auth/oidc/).
 - **Native Android app.** Offline mode or server-sync, WorkManager native reminders. [Full guide](https://traceapps.github.io/docs/mobile/install/).
 
+---
+
 ## Apps
 
 - **Web (PWA).** Runs in any modern browser; add to home screen for full-screen use.
 - **Android.** Native Capacitor build; works standalone or connected to your NutriTrace server. Signed APK on the [Releases page](https://github.com/traceapps/nutritrace/releases/latest).
 - **iOS.** Not currently available (requires Mac + Apple Developer account; see [Support](#support)).
+
+---
 
 ## Install
 
@@ -105,6 +115,8 @@ Full compose recipes with SMTP, Docker secrets (`*_FILE`), reverse-proxy example
 
 Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone builds also get numbered `-devNN` pre-releases. See [DEPLOY.md](DEPLOY.md) for details.
 
+---
+
 ## Env vars
 
 | Variable | Required | Default | Description |
@@ -139,6 +151,8 @@ API request logs include a client/server correlation ID, method, path, response 
 
 The app sends `X-Request-ID` to the server and records the same ID in verbose client diagnostics. The server returns the ID on responses, so a failing app request can be matched directly to its server log. Invalid logging configuration fails at startup instead of silently falling back.
 
+---
+
 ## Data persistence
 
 Two host directories bind-mount:
@@ -157,6 +171,8 @@ docker compose up -d
 
 The database schema migrates automatically on startup.
 
+---
+
 ## Tech stack
 
 | Layer | Technology |
@@ -166,9 +182,13 @@ The database schema migrates automatically on startup.
 | Backend | Node.js, Express 5, better-sqlite3, optional DuckDB for the local OFF mirror |
 | Auth | JWT (httpOnly cookie), bcryptjs, OpenID Connect 1.0 (PKCE + state + nonce) |
 
+---
+
 ## Trace family
 
 Part of the **TraceApps** family. Sister apps: [CookTrace](https://github.com/traceapps/cooktrace) for recipes and pantry, [LiftTrace](https://github.com/traceapps/lifttrace) for weightlifting. Full docs for all three at [traceapps.github.io/docs](https://traceapps.github.io/docs/).
+
+---
 
 ## Translations
 
@@ -177,6 +197,8 @@ NutriTrace is translated with [Weblate](https://weblate.org/), a free web platfo
 [![Translation status](https://hosted.weblate.org/widget/nutritrace/svg-badge.svg)](https://hosted.weblate.org/engage/nutritrace/)
 
 Start translating at [hosted.weblate.org/projects/nutritrace/](https://hosted.weblate.org/projects/nutritrace/). See [CONTRIBUTING.md](CONTRIBUTING.md#translations) for domain-specific guidance (regulatory nutrition terms, proper nouns, tone).
+
+---
 
 ## Roadmap, changelog, contributing, license
 
