@@ -201,7 +201,126 @@
       if (meal.unit) recipeUnit = meal.unit;
     }
 
+    // #207 companion: if this meal came from a CT federation pull,
+    // background-check whether the CT source has been edited since our
+    // last save. Non-blocking: silent on any failure, only shows a
+    // banner when CT is confirmed newer AND the setting is on. User
+    // consents to overwrite via the banner's Refresh button; no forced
+    // sync.
+    _checkForCtUpdates();
   });
+
+  // Detected upstream refresh; the banner reads this to render.
+  let _ctUpdateAvailable = null;
+  // Set true when the upstream CT recipe returned a hard 404 (deleted or
+  // read-permission dropped). A separate signal from a plain network
+  // failure so the source-deleted banner does not flash for offline
+  // users. See _checkForCtUpdates below.
+  let _ctSourceDeleted = false;
+
+  async function _checkForCtUpdates() {
+    if (meal?.source_app !== 'cooktrace' || !meal?.source_external_id) return;
+    if (!DB.getSetting('cooktraceEnabled', false)) return;
+    // A recipe that has never been saved was just pulled from CookTrace,
+    // so it IS the current source content and there is nothing to refresh
+    // against. Without this guard the comparison below reads a missing
+    // meal.updated_at as epoch 0, which every real CT timestamp beats, so
+    // the banner fired on every fresh import.
+    if (!meal.id || !meal.updated_at) return;
+    const m = String(meal.source_external_id).match(/^recipe:(\d+)$/);
+    if (!m) return;
+    const ctId = Number(m[1]);
+    try {
+      const { CookTrace } = await import('../lib/cooktraceApi.js');
+      if (!CookTrace.isConfigured()) return;
+      // Probe first so a 404 lights up the "source deleted" indicator
+      // instead of silently failing the getRecipe below. A non-404
+      // failure (offline, 500, 401) resolves to 'unknown' and stays
+      // quiet, so an offline user does not see "source deleted".
+      const status = await CookTrace.probeRecipeStatus(ctId);
+      if (status === 'deleted') { _ctSourceDeleted = true; return; }
+      if (status !== 'exists') return;
+      const fresh = await CookTrace.getRecipe(ctId);
+      if (!fresh?.updated_at) return;
+      // Server timestamps come back as "YYYY-MM-DD HH:MM:SS" (UTC without
+      // a Z). Normalize to ISO before parsing so both sides land in the
+      // same zone.
+      const _iso = s => {
+        const raw = String(s || '');
+        if (!raw) return null;
+        return raw.includes('T') ? raw : raw.replace(' ', 'T') + (raw.endsWith('Z') ? '' : 'Z');
+      };
+      const remoteTs = new Date(_iso(fresh.updated_at)).getTime();
+      const localTs  = new Date(_iso(meal.updated_at) || 0).getTime();
+      if (Number.isFinite(remoteTs) && Number.isFinite(localTs) && remoteTs > localTs) {
+        _ctUpdateAvailable = fresh;
+      }
+    } catch { /* CT unreachable / auth issue: quietly skip */ }
+  }
+
+  // Unlink: keep the meal but strip the CT provenance so no future
+  // refresh/probe fires. The row becomes an ordinary NT-authored meal.
+  // Autosaves on the next Save; we do not touch the server here because
+  // the user may want to keep editing before persisting.
+  async function _unlinkCtSource() {
+    if (!meal?.source_app) return;
+    const proceed = window.confirm(
+      "Unlink this recipe from CookTrace?\n\nThe recipe stays in NutriTrace but stops trying to sync with CookTrace. You can safely delete the CookTrace copy after unlinking."
+    );
+    if (!proceed) return;
+    meal = { ...meal, source_app: null, source_external_id: null, source_url: null };
+    _ctSourceDeleted = false;
+    _ctUpdateAvailable = null;
+  }
+
+  // Delete: drop the NT copy too. Used when the user actually wanted the
+  // recipe gone (the CT side is already gone or they just do not want it).
+  // Confirms first because deletion of a recipe with historic diary
+  // references is not obviously reversible.
+  async function _deleteCtLinkedMeal() {
+    if (!meal?.id) return;
+    const proceed = window.confirm(
+      "Delete this recipe from NutriTrace?\n\nThis removes the local copy. Any diary entries referencing it stay logged with their captured nutrition."
+    );
+    if (!proceed) return;
+    try {
+      await NtApi.deleteMeal(meal.id);
+      clearMealEditorState();
+      showSuccess($_('meal_editor.ct_refresh.deleted_toast'));
+      pop();
+    } catch (e) {
+      showError(e?.message || $_('common.errors.failed'));
+    }
+  }
+
+  async function _applyCtRefresh() {
+    if (!_ctUpdateAvailable) return;
+    try {
+      const { CookTrace } = await import('../lib/cooktraceApi.js');
+      const mapped = CookTrace.mapRecipe(_ctUpdateAvailable);
+      // Overlay refreshed fields onto the current meal; keep id + local
+      // draft state untouched so the save flow lands on the same row.
+      meal = {
+        ...meal,
+        name:         mapped.name || meal.name,
+        items:        mapped.items || meal.items,
+        imgUrl:       mapped.imgUrl || meal.imgUrl,
+        servings:     mapped.servings ?? meal.servings,
+        nutrition:    mapped.nutrition || meal.nutrition,
+        source_url:   mapped.source_url || meal.source_url,
+      };
+      if (mapped.imgUrl) photoPreviewUrl = mapped.imgUrl;
+      if (mapped.servings) recipeYields = mapped.servings;
+      _ctUpdateAvailable = null;
+      showSuccess($_('meal_editor.ct_refresh.refreshed_toast'));
+    } catch (e) {
+      showError(e?.message || $_('meal_editor.ct_refresh.error_toast'));
+    }
+  }
+
+  function _dismissCtRefresh() {
+    _ctUpdateAvailable = null;
+  }
 
   // Discard restored draft (#157 followup, Wildenhaus). Resets each
   // tracked field to what the server actually loaded (or empty for the
@@ -698,16 +817,39 @@
         const yields = explicit ? Math.max(1, parseInt(recipeYields) || 1) : 1;
         // Store per-serving values. Adding "1" of this recipe to the diary
         // then naturally means "one serving". When yields=1 (or unset, where
-        // math treats it as 1), totalGrams/1 = totalGrams — identical to the
-        // pre-yields behavior. Explicit null preserves the "unset" state for
-        // legacy recipes so the editor keeps showing a blank field rather
-        // than auto-filling 1 on every reopen-save cycle.
+        // math treats it as 1), totalGrams/1 = totalGrams (identical to the
+        // pre-yields behavior). Explicit null preserves the "unset" state
+        // for legacy recipes so the editor keeps showing a blank field
+        // rather than auto-filling 1 on every reopen-save cycle.
         item.portion = totalGrams / yields;
         item.unit = recipeUnit;
         item.servings = explicit ? yields : null;
-        item.nutrition = Object.fromEntries(
-          Object.entries(totals).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
-        );
+        // #207 companion: for meals imported from an external source
+        // (CookTrace today, others via source_app in the future) with a
+        // pre-computed rollup, trust the source's totals over an
+        // items-derived recompute. Reason: CT's own rollup engine does
+        // density-aware unit conversion (e.g. "2 cups flour" -> grams via
+        // g_per_cup) that MealEditor's Nutrition.sum(items) cannot
+        // replicate here; recomputing would silently drift the totals
+        // every save. Fall back to the recomputed totals when the source
+        // did not carry a rollup, or when the user manually edited
+        // ingredients (touching items.length or item nutrition invalidates
+        // the source rollup).
+        const _hasSourceRollup = meal.source_app
+          && meal.nutrition && typeof meal.nutrition === 'object'
+          && Object.values(meal.nutrition).some(v => Number(v) > 0);
+        const _itemsMatchSourceCount = Array.isArray(meal.items)
+          && Array.isArray(_serverBaseline?.meal?.items)
+          && meal.items.length === _serverBaseline.meal.items.length;
+        if (_hasSourceRollup && _itemsMatchSourceCount) {
+          item.nutrition = Object.fromEntries(
+            Object.entries(meal.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
+          );
+        } else {
+          item.nutrition = Object.fromEntries(
+            Object.entries(totals).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
+          );
+        }
       }
       if (meal.id) await NtApi.updateMeal(meal.id, item);
       else await NtApi.createMeal(item);
@@ -855,6 +997,72 @@
       <div class="editor-card-title">Name *</div>
       <input class="input" placeholder={isRecipe ? $_('meal_editor.recipe_name_placeholder') : $_('meal_editor.meal_name_placeholder')} bind:value={meal.name} />
     </div>
+
+    <!-- Federation-source badge + import-warnings banner (CT push, and
+         any future cross-app source). Only renders on rows that came
+         in via a source_app; regular in-NT-authored meals see nothing. -->
+    {#if meal.source_app}
+      <div class="card editor-card ct-source-card">
+        <div class="ct-source-row">
+          <span class="material-symbols-rounded ct-source-icon">restaurant_menu</span>
+          <div class="ct-source-text">
+            <span class="ct-source-label">
+              {meal.source_app === 'cooktrace' ? 'From CookTrace' : `From ${meal.source_app}`}
+            </span>
+            {#if meal.source_url}
+              <a class="ct-source-link" href={meal.source_url} target="_blank" rel="noopener noreferrer">
+                Open original
+                <span class="material-symbols-rounded">open_in_new</span>
+              </a>
+            {/if}
+          </div>
+        </div>
+        {#if Array.isArray(meal.import_warnings) && meal.import_warnings.length > 0}
+          <div class="ct-source-warn">
+            <span class="material-symbols-rounded ct-source-warn-icon">warning</span>
+            <div>
+              {#each meal.import_warnings as w}
+                <p class="ct-source-warn-line">{w}</p>
+              {/each}
+            </div>
+          </div>
+        {/if}
+        {#if _ctUpdateAvailable && !_ctSourceDeleted}
+          <div class="ct-source-refresh">
+            <span class="material-symbols-rounded ct-source-refresh-icon">sync</span>
+            <div class="ct-source-refresh-text">
+              <span class="ct-source-refresh-headline">{$_('meal_editor.ct_refresh.headline')}</span>
+              <span class="ct-source-refresh-sub">{$_('meal_editor.ct_refresh.sub')}</span>
+            </div>
+            <div class="ct-source-refresh-actions">
+              <button class="btn btn-ghost btn-sm" on:click={_dismissCtRefresh}>
+                {$_('meal_editor.ct_refresh.dismiss')}
+              </button>
+              <button class="btn btn-primary btn-sm" on:click={_applyCtRefresh}>
+                {$_('meal_editor.ct_refresh.refresh')}
+              </button>
+            </div>
+          </div>
+        {/if}
+        {#if _ctSourceDeleted}
+          <div class="ct-source-refresh ct-source-deleted">
+            <span class="material-symbols-rounded ct-source-refresh-icon">link_off</span>
+            <div class="ct-source-refresh-text">
+              <span class="ct-source-refresh-headline">{$_('meal_editor.ct_deleted.headline')}</span>
+              <span class="ct-source-refresh-sub">{$_('meal_editor.ct_deleted.sub')}</span>
+            </div>
+            <div class="ct-source-refresh-actions">
+              <button class="btn btn-ghost btn-sm" on:click={_unlinkCtSource}>
+                {$_('meal_editor.ct_deleted.unlink')}
+              </button>
+              <button class="btn btn-danger btn-sm" on:click={_deleteCtLinkedMeal}>
+                {$_('meal_editor.ct_deleted.delete')}
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <!-- Recipe servings: total weight + yields -->
     {#if isRecipe}
@@ -1309,6 +1517,92 @@
   }
   .draft-restored-discard:hover { background: var(--accent, #3b82f6); color: #fff; }
   .editor-card-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+
+  /* Federation source badge + import-warnings banner. Shown only on
+     rows carrying a source_app (currently just CookTrace pushes). */
+  .ct-source-card { gap: 10px; }
+  .ct-source-row { display: flex; align-items: center; gap: 10px; }
+  .ct-source-icon { color: var(--accent); font-size: 22px; }
+  .ct-source-text { display: flex; flex-direction: column; flex: 1; }
+  .ct-source-label { font-weight: 600; font-size: 14px; }
+  .ct-source-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; color: var(--text-3); text-decoration: none;
+    margin-top: 2px; width: fit-content;
+  }
+  .ct-source-link:hover { color: var(--accent); }
+  .ct-source-link .material-symbols-rounded { font-size: 13px; }
+  .ct-source-warn {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 10px 12px; border-radius: 8px;
+    background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent);
+    font-size: 13px;
+  }
+  .ct-source-warn-icon { color: var(--warning, #f59e0b); flex-shrink: 0; font-size: 18px; }
+  .ct-source-warn-line { margin: 0; }
+  .ct-source-warn-line + .ct-source-warn-line { margin-top: 4px; }
+  /* #207 companion: refresh banner shown when the CT source recipe has
+     a newer updated_at than the local NT copy. Tinted accent so it
+     reads as an actionable prompt, not a warning. */
+  .ct-source-refresh {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    /* Always allowed to wrap: this card lives in the narrow left sidebar
+       on desktop as well as full width on mobile. */
+    flex-wrap: wrap;
+  }
+  .ct-source-refresh-icon {
+    color: var(--accent);
+    flex-shrink: 0;
+    font-size: 20px;
+  }
+  .ct-source-refresh-text {
+    /* flex-basis forces a wrap once the text has less than ~150px to work
+       with, which is what happens inside the desktop editor's narrow left
+       sidebar. Basing this on the container's own space rather than the
+       viewport matters: the old max-width:480px media query never fired on
+       a wide screen, so the two action buttons stayed on the same line as
+       the text and overlapped each other. */
+    flex: 1 1 150px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .ct-source-refresh-headline,
+  .ct-source-refresh-sub { overflow-wrap: anywhere; }
+  .ct-source-refresh-headline { font-weight: 600; font-size: 13px; color: var(--text-1); }
+  .ct-source-refresh-sub { font-size: 12px; color: var(--text-3); }
+  .ct-source-refresh-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+    /* Right-align whether the actions share the text's line or wrap onto
+       their own. */
+    margin-left: auto;
+  }
+  .ct-source-refresh-actions .btn {
+    height: auto;
+    padding: 4px 10px;
+    font-size: 12px;
+    min-height: 0;
+    line-height: 1.2;
+    border-radius: 6px;
+  }
+  @media (max-width: 480px) {
+    .ct-source-refresh-actions { width: 100%; justify-content: flex-end; }
+  }
+  /* Source-deleted variant: same shape as the refresh banner, warning-
+     tinted so it reads as "attention needed" not "friendly update". */
+  .ct-source-deleted {
+    background: color-mix(in srgb, var(--warning, #f59e0b) 12%, var(--surface-1));
+    border-color: color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);
+  }
+  .ct-source-deleted .ct-source-refresh-icon { color: var(--warning, #f59e0b); }
 
   /* Photo */
   .photo-preview-wrap {

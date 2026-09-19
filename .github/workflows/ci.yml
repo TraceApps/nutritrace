@@ -21,9 +21,17 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
 
       - name: Install
         run: npm ci
+
+      # Server dependencies too: without better-sqlite3 the MCP integration
+      # suite skips itself and still reports success (#216).
+      - name: Install server
+        run: npm ci --prefix server
 
       - name: i18n check
         run: npm run i18n:check

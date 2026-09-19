@@ -1,4 +1,5 @@
 <script>
+  import { copyText } from '../../lib/clipboard.js';
   /**
    * SettingsApiTokens.svelte
    *
@@ -146,7 +147,7 @@
 
   async function copyRaw() {
     try {
-      await navigator.clipboard.writeText(justCreatedRaw);
+      await copyText(justCreatedRaw);
       showSuccess($_('settings_api_tokens.toast.copied'));
     } catch {
       showError($_('settings_api_tokens.toast.copy_failed'));

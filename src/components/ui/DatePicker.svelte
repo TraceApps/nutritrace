@@ -22,6 +22,12 @@
   export let value = '';
   export let min = '';
   export let max = '';
+  // #207 companion: caller-supplied Set of ISO date strings to render
+  // with a small "day complete" dot. Opt-in so DatePicker stays generic
+  // for the other places it's used (birthday picker, backup schedule
+  // range, etc.). Diary passes a Set built from the same completions
+  // map WeekStrip already loads via getAllDiary; nothing extra fetched.
+  export let completedDays = null;
 
   const dispatch = createEventDispatcher();
 
@@ -154,6 +160,7 @@
           class:dp-today={ds === _todayStr()}
           class:dp-sel={ds === value}
           class:dp-future={ds > _todayStr() && !blocked}
+          class:dp-complete={completedDays && completedDays.has && completedDays.has(ds)}
           disabled={blocked}
           on:click={() => _selectDay(ds)}>
           {day}
@@ -226,6 +233,7 @@
     background: none; border: none; cursor: pointer;
     color: var(--text-1); transition: background var(--dur-fast);
     -webkit-tap-highlight-color: transparent;
+    position: relative;
   }
   .dp-day:hover:not(:disabled) { background: var(--surface-2); }
   .dp-day:disabled { color: var(--text-3); opacity: 0.35; cursor: default; }
@@ -233,4 +241,18 @@
   .dp-day.dp-future:hover { background: var(--surface-2); color: var(--text-2); }
   .dp-day.dp-today { color: var(--accent); font-weight: 700; }
   .dp-day.dp-sel { background: var(--accent) !important; color: #fff; font-weight: 600; }
+  /* #207: small green dot in the corner marks days the user closed out.
+     Positioned inside the day cell so it doesn't grow the grid; sits far
+     enough from the number that it never overlaps the digit. */
+  .dp-day.dp-complete::after {
+    content: '';
+    position: absolute;
+    top: 3px; right: 3px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--success, #10b981);
+  }
+  .dp-day.dp-sel.dp-complete::after {
+    background: #fff;
+  }
 </style>

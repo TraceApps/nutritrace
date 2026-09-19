@@ -8,7 +8,7 @@
     mealNames,
     diaryShowBrands, diaryShowTimestamps, diaryShowThumbnails, diaryShowAllNutrients,
     diaryShowNutritionUnits, diaryShowMacroSummary, diaryPromptQuantity,
-    diaryShowPortionSize, warnUnitMismatch, showUnitMetadata, diaryShowNotes,
+    diaryShowPortionSize, warnUnitMismatch, showUnitMetadata, diaryShowNotes, diaryShowCompletion,
     diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
     showQuickCalories, quickCaloriesDisplay,
     diaryShowNutritionBar,
@@ -116,6 +116,9 @@
     </SettingRow>
     <SettingRow label={$_('settings_diary.show_daily_notes')} desc={$_('settings_diary.show_daily_notes_desc')}>
       <Toggle checked={$diaryShowNotes} on:change={e => diaryShowNotes.set(e.detail)} />
+    </SettingRow>
+    <SettingRow label={$_('settings_diary.show_completion')} desc={$_('settings_diary.show_completion_desc')}>
+      <Toggle checked={$diaryShowCompletion} on:change={e => diaryShowCompletion.set(e.detail)} />
     </SettingRow>
   </div>
 

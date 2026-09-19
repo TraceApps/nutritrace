@@ -151,8 +151,9 @@ test('log_food writes a diary row and bumps foods.usage_count', async () => {
   const r = await server.call('log_food', { food_id: bananaId });
   assert.equal(_json(r).ok, true);
   assert.equal(_json(r).total_items_on_day, 1);
-  const row = db.prepare(`SELECT items FROM foods WHERE id = ?`).get(bananaId);
-  assert.ok(row);
+  const drow = db.prepare(`SELECT items FROM diary WHERE user_id = ? AND date = ?`).get(userId, _json(r).date);
+  assert.ok(drow, 'a diary row exists for the logged day');
+  assert.ok(JSON.parse(drow.items).some(it => it.name === 'Banana'), 'the diary row contains the logged food');
   const usage = db.prepare(`SELECT usage_count FROM foods WHERE id = ?`).get(bananaId);
   assert.equal(usage.usage_count, 1);
 });

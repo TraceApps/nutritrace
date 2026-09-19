@@ -16,6 +16,56 @@ import { safeJson, toolResult } from '../_util.js';
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
 
+/**
+ * Core lookup, shared by the MCP tool below and the public REST API at
+ * GET /api/v1/meals/search.
+ */
+export function searchMealsCore(userId, { query, limit, include_recipes } = {}) {
+  const q = String(query || '').trim();
+  const cap = Math.min(MAX_LIMIT, Math.max(1, Number(limit) || DEFAULT_LIMIT));
+  const recipeClause = include_recipes ? '' : 'AND is_recipe = 0';
+  let rows;
+  if (!q) {
+    rows = db.prepare(
+      `SELECT id, name, is_recipe, servings, portion, unit, nutrition,
+              favorite, usage_count, last_used_at
+         FROM meals
+        WHERE user_id = ?
+          AND deleted_at IS NULL
+          ${recipeClause}
+        ORDER BY favorite DESC, usage_count DESC, name COLLATE NOCASE ASC
+        LIMIT ?`
+    ).all(userId, cap);
+  } else {
+    const escaped = q.replace(/[\\%_]/g, c => '\\' + c);
+    const like = `%${escaped}%`;
+    rows = db.prepare(
+      `SELECT id, name, is_recipe, servings, portion, unit, nutrition,
+              favorite, usage_count, last_used_at
+         FROM meals
+        WHERE user_id = ?
+          AND deleted_at IS NULL
+          ${recipeClause}
+          AND name LIKE ? ESCAPE '\\'
+        ORDER BY favorite DESC, usage_count DESC, name COLLATE NOCASE ASC
+        LIMIT ?`
+    ).all(userId, like, cap);
+  }
+  const items = rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    is_recipe: !!r.is_recipe,
+    servings: Number.isFinite(Number(r.servings)) ? Number(r.servings) : null,
+    portion: Number.isFinite(Number(r.portion)) ? Number(r.portion) : null,
+    unit: r.unit || null,
+    nutrition: safeJson(r.nutrition, {}),
+    favorite: !!r.favorite,
+    usage_count: Number(r.usage_count) || 0,
+    last_used_at: r.last_used_at || null,
+  }));
+  return { query: q || null, count: items.length, limit: cap, items };
+}
+
 export function registerSearchMeals(server, { userId }) {
   server.registerTool(
     'search_meals',
@@ -35,52 +85,7 @@ export function registerSearchMeals(server, { userId }) {
       },
     },
     async ({ query, limit, include_recipes }) => {
-      const q = String(query || '').trim();
-      const cap = Math.min(MAX_LIMIT, Math.max(1, Number(limit) || DEFAULT_LIMIT));
-      const recipeClause = include_recipes ? '' : 'AND is_recipe = 0';
-      let rows;
-      if (!q) {
-        // No query — browse all meals ordered by favorite / usage / name.
-        rows = db.prepare(
-          `SELECT id, name, is_recipe, servings, portion, unit, nutrition,
-                  favorite, usage_count, last_used_at
-             FROM meals
-            WHERE user_id = ?
-              AND deleted_at IS NULL
-              ${recipeClause}
-            ORDER BY favorite DESC, usage_count DESC, name COLLATE NOCASE ASC
-            LIMIT ?`
-        ).all(userId, cap);
-      } else {
-        // Escape LIKE wildcards so a meal named "50% Reduced Fat" is searchable
-        // by "50%" without matching every row. Same convention as search_foods.
-        const escaped = q.replace(/[\\%_]/g, c => '\\' + c);
-        const like = `%${escaped}%`;
-        rows = db.prepare(
-          `SELECT id, name, is_recipe, servings, portion, unit, nutrition,
-                  favorite, usage_count, last_used_at
-             FROM meals
-            WHERE user_id = ?
-              AND deleted_at IS NULL
-              ${recipeClause}
-              AND name LIKE ? ESCAPE '\\'
-            ORDER BY favorite DESC, usage_count DESC, name COLLATE NOCASE ASC
-            LIMIT ?`
-        ).all(userId, like, cap);
-      }
-      const items = rows.map(r => ({
-        id: r.id,
-        name: r.name,
-        is_recipe: !!r.is_recipe,
-        servings: Number.isFinite(Number(r.servings)) ? Number(r.servings) : null,
-        portion: Number.isFinite(Number(r.portion)) ? Number(r.portion) : null,
-        unit: r.unit || null,
-        nutrition: safeJson(r.nutrition, {}),
-        favorite: !!r.favorite,
-        usage_count: Number(r.usage_count) || 0,
-        last_used_at: r.last_used_at || null,
-      }));
-      return toolResult({ query: q || null, count: items.length, limit: cap, items });
+      return toolResult(searchMealsCore(userId, { query, limit, include_recipes }));
     }
   );
 }

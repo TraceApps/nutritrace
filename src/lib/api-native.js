@@ -11,7 +11,7 @@
 import {
   dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood, dbBumpFoodUsage,
   dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal, dbBumpMealUsage,
-  dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary,
+  dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary, dbSetDiaryCompletion, dbSetMealCompletion,
   dbGetActivity, dbGetActivityRange, dbSumActivity, dbWearableActiveCalories,
   dbCreateActivity, dbUpdateActivity, dbDeleteActivity,
   LOCAL_USER_ID,
@@ -169,6 +169,16 @@ export const NtApiNative = {
 
   async getAllDiary() {
     return dbGetAllDiary();
+  },
+
+  // #207: local-only completion mark for standalone-native mode.
+  async setDiaryCompletion(date, completed) {
+    const completedAt = await dbSetDiaryCompletion(date, !!completed);
+    return { ok: true, date, completed_at: completedAt };
+  },
+  async setDiaryMealCompletion(date, slot, completed) {
+    const arr = await dbSetMealCompletion(date, Number(slot), !!completed);
+    return { ok: true, date, completed_meals: arr };
   },
 
   // ── Activity (manual exercise calorie offset) ─────────────────────────

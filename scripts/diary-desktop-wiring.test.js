@@ -69,7 +69,15 @@ test('Diary hides the mobile bottom bar + top-right actions at ≥1280px', () =>
   // These live inside the min-width:1280px media query and are gated
   // on :global(html:not(.force-mobile-layout) …) so the Force Mobile
   // Layout toggle can turn the whole large-screen behavior off.
-  assert.match(diarySrc, /:global\(html:not\(\.force-mobile-layout\)\s+\.diary-topbar-actions\)\s*\{\s*display:\s*none/);
+  //
+  // #198: the topbar-actions selector picked up an optional
+  // `:not(.select-mode-actions)` carve-out so the multi-select cancel +
+  // delete buttons stay visible at wide screens (the right rail carries
+  // parity for the NORMAL-mode buttons but has no select-mode UI).
+  // Regex tolerates either shape so the test still guards against
+  // accidental removal of the hide rule but permits the intentional
+  // select-mode escape hatch.
+  assert.match(diarySrc, /:global\(html:not\(\.force-mobile-layout\)\s+\.diary-topbar-actions(?::not\(\.select-mode-actions\))?\)\s*\{\s*display:\s*none/);
   assert.match(diarySrc, /:global\(html:not\(\.force-mobile-layout\)\s+\.diary-bottom-bar\)\s*\{\s*display:\s*none/);
 });
 

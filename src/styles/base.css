@@ -28,6 +28,26 @@ body {
   min-height: 100dvh;
   position: relative;
 }
+/* iPhone home-screen apps can open with the window shorter than the screen by
+   the status bar height, leaving a black strip along the bottom until the page
+   is scrolled (#208). 100vh keeps the full screen height in that state, so the
+   page starts out taller than the window, which makes iOS re-measure it without
+   waiting for a scroll. Once it has, 100vh and the window agree again. */
+html.ios-home-screen #app { min-height: 100vh; }
+
+/* iPhone and iPad zoom the page into any text field whose text is smaller than
+   16px as soon as it gets focus, and stay zoomed after (#212). Fields across
+   the app are 15px or smaller, so on those devices they get 16px. !important
+   because every page sizes its own fields. The few fields that are larger on
+   purpose keep their size (listed after); the type list sits in :where() so
+   this rule stays less specific than those. Other devices are untouched. */
+html.ios input:not(:where([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"])),
+html.ios textarea,
+html.ios select { font-size: 16px !important; }
+html.ios .qc-kcal-input,
+html.ios .qce-kcal-input { font-size: 28px !important; }
+html.ios .qc-macro-input,
+html.ios .qce-macro-input { font-size: 20px !important; }
 
 a { color: var(--accent); text-decoration: none; }
 button { font-family: inherit; cursor: pointer; border: none; background: none; }

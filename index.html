@@ -6,6 +6,12 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <script>
+    // iPhone home-screen app: see html.ios-home-screen in base.css (#208).
+    if (window.navigator.standalone === true) document.documentElement.classList.add('ios-home-screen');
+    // iPhone or iPad (iPadOS Safari reports itself as a Mac, so check for touch): see html.ios in base.css (#212).
+    if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)) document.documentElement.classList.add('ios');
+  </script>
   <meta name="theme-color" content="#0A0B0F" id="theme-color-meta" />
   <title>NutriTrace</title>
   <!-- VitePWA injects its own <link rel="manifest"> with a relative href that

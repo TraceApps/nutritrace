@@ -13,7 +13,7 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
-import { DATE_RE, safeJson, todayLocal, toolResult, toolError } from '../_util.js';
+import { DATE_RE, safeJson, todayLocal, toolResult, toolError, isCalendarDate } from '../_util.js';
 import { mutateDiaryDay, DiaryTombstonedError } from '../_diary-write.js';
 
 export function registerEditDiaryEntry(server, { userId }) {
@@ -44,7 +44,7 @@ export function registerEditDiaryEntry(server, { userId }) {
     },
     async ({ entry_index, date, confirm, patch }) => {
       const day = date || todayLocal();
-      if (!DATE_RE.test(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
+      if (!isCalendarDate(day)) return toolError(`Invalid date '${day}'; expected YYYY-MM-DD.`);
       if (confirm !== true) {
         return toolError(
           'edit_diary_entry requires confirm=true. This safeguards against ' +

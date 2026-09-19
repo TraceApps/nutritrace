@@ -835,22 +835,34 @@ NT#88 has zero comments as of 2026-07-09 so demand signal is weak.
 - Bundles neatly with the opaque-session-token migration above (both
   are auth-layer changes; can share design context).
 
-### Companion: symmetric NT → CT federation
+### Companion: CT ↔ NT recipe federation
 
-Right now CT → NT works (recipe → NT food lookup); NT → CT doesn't.
-Not what NT#88 was asking for but the natural next step once
-federation-auth is easy:
+Recipe federation is bi-directional and pull-only in both directions,
+matching the shape of the long-standing Mealie integration:
 
-- CT exposes `/api/v1/recipes` + `/api/v1/log-cooked` mirroring NT's
-  federation surface
-- NT writes a CookTrace adapter for its Foods search source
-  (`_ctEnabled` gate + `CtApi` in `src/lib/`, matching the existing
-  `_mealieEnabled` + `Mealie` pattern in `Foods.svelte`)
-- ~2 days work on top of Phase 2
+- **CT pulls foods from NT** (long-standing). CT holds an
+  `nt_pat_...` token with `read:foods`, browses NT's foods catalog
+  from its pantry picker, imports selections into its own pantry.
+- **NT pulls recipes from CT** (v1.3.0-dev). CT ships a mirrored
+  `/api/v1/*` bearer-auth surface with a `read:recipes` scope. NT
+  writes a CookTrace adapter (`src/lib/cooktraceApi.js`) + server
+  proxy (`/api/cooktrace/proxy`) parallel to Mealie. A **CookTrace**
+  source chip appears on the Foods screen, Recipes tab; picking a
+  recipe opens NT's Recipe editor pre-filled with per-ingredient
+  snapshots + rollup totals, ready to save into NT's meals catalog.
+  Save stamps `source_app='cooktrace'` on the meals row for the
+  MealEditor "From CookTrace" badge, deep-link back to CT, and
+  upsert-on-re-import (partial unique index on
+  `meals(user_id, source_app, source_external_id)`).
 
-**Assessment**: worth doing Phase 1 as tech-debt cleanup regardless
-of NT#88's demand, the admin-only token creation is a real UX gap
-that will bite the next self-hoster. Phase 2 waits for demand.
+Push flows (CT authored the recipe, wants to fan out to NT / other
+sinks) are intentionally not part of this direction. Pull matches
+how home users actually reach for a recipe (many times per week,
+from the logging surface), where push would push once at authoring
+time and then never sync again. See [CT nt-federation docs](https://traceapps.github.io/docs/cooktrace/nt-federation/).
+
+**Backlog / future enhancements:**
+- **Save ingredients to Foods library on import (opt-in checkbox).** Today the CT recipe pull stores an inline `items[]` snapshot on the meals row and never touches NT's `foods` table. That matches how NT recipes work in general, but users may want their pantry-linked CT ingredients to become reusable NT foods in the process. Add a checkbox to the CT recipe pick sheet ("Also add ingredients to my Foods library"), off by default. On confirm, upsert each ingredient into `foods` keyed by `(user_id, source_app='cooktrace', source_external_id='pantry:<ct_pantry_id>')` so re-imports do not duplicate. Skip ingredients with no nutrition (nothing useful to save). No sync-back the other way (CT-side pantry edits do not propagate to already-created NT foods).
 
 ---
 
@@ -889,6 +901,48 @@ real user feedback on what (if anything) they ask for here.
 ## Post-1.0 follow-ups
 
 - **Nutrition card filter behavior**: the per-meal totals popup and the day Nutrition Summary both respect the `diaryShowAllNutrients` toggle (default 9 nutrients vs all). Decide: should the per-meal popup ALWAYS show all available nutrients (since user opted in by tapping the macro bar) regardless of the toggle, or stay consistent with the day summary? Three options: (a) leave as-is, (b) always show all in the popup, (c) add an in-popup expand toggle. Defer the call until we have user feedback on what they reach for.
+
+---
+
+### Offline PWA editing (family-wide, after the next main release)
+
+Bring NoteTrace's browser offline model here, so the installed web app works in a
+dead zone the way the Android app does. This is set for every Trace app once the
+next main release is out.
+
+The pattern to copy (NoteTrace `src/lib/offline-api.js` + `offline-edits.js`):
+Workbox caches the app shell, an IndexedDB mirror answers reads when the server
+can't be reached, an outbox holds edits and shows them at once, new rows get
+temporary ids that are mapped to real ids after they go up, and the queue is sent
+through the existing sync push endpoint so the server merges browser edits exactly
+as it merges the phone's. A Web Lock stops two tabs sending at once and a
+BroadcastChannel keeps them in step.
+
+Deliberately NOT the Service Worker Background Sync API: Safari doesn't support
+it, and iOS is the main reason for the work. Flush from the page instead, with
+retries backing off from 3s to 30s plus `online` events.
+
+The sidebar sync pill and the amber / red colour rule are already in place here,
+so the state has somewhere to show.
+
+iOS caveats to plan for: Safari evicts site data after about 7 days of no use
+unless the PWA is on the Home Screen, so queued-but-unsent work needs to be
+visible and installing needs a nudge.
+
+NutriTrace specifics:
+
+- Eight entity types to cover (foods, meals, diary, activity, fasts, wellness,
+  workouts, settings), against NoteTrace's three. Same shape of work, bigger surface.
+- The sync engine already maps `client_id` to `server_id` on push, which is the
+  hard half of the id problem.
+- Still online afterwards: Open Food Facts search and barcode lookup (they call
+  OFF directly), meal photo uploads, wellness provider pulls (Fitbit, Garmin,
+  Withings, Google Health), Trace AI, and anything admin.
+- Because of that, offline search has to fall back to the user's own catalog and
+  recents, or "log a meal in a dead zone" only half works.
+- First slice: read the diary and log from foods you already have, with the queue
+  and its indicator. Photos and offline food search come after.
+- Asked for in issue #211 (PWA offline support for iPhone users).
 
 ---
 

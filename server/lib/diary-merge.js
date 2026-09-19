@@ -94,22 +94,55 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
   const serverDeduped = _dedupe(server, tombstoneSet);
   const serverByUuid = new Map(serverDeduped.map(e => [e.uuid, e]));
 
-  // Apply client entries: add if new, replace if newer, drop if tombstoned.
+  // Order follows the CLIENT's array, not the server's. The client
+  // resends its complete item list on every save, so it's authoritative
+  // for arrangement — a future within-meal reorder feature, or a
+  // meal-to-meal drag that also repositions the item, needs this to
+  // survive. A JS Map does NOT move an existing key when .set() is
+  // called on it again, so building the merged array from server-
+  // insertion order and only overwriting values (the prior approach)
+  // would silently discard any client-side reorder: the value updates
+  // but the position snaps back to wherever the server had it. Ported
+  // from LiftTrace's identical fix (workout-merge.js, 2026-08-31) after
+  // it broke superset reordering there; dormant here today since NT has
+  // no manual within-item reorder yet, but the merge should be correct
+  // regardless of whether a UI feature currently exercises it.
+  // posByUuid tracks each uuid's slot in `ordered` so a duplicate uuid
+  // within the client's own array (legacy client bug, or a race that
+  // sent the same entry twice) collapses to one slot at its FIRST
+  // occurrence, with later duplicates only allowed to overwrite the
+  // value there if they win on timestamp — matching what the old
+  // Map-based version did for client-side duplicates (a second
+  // `.set()` on the same key updates the value without moving it).
+  const posByUuid = new Map();
+  const ordered = [];
   for (let entry of client) {
     if (!entry || typeof entry !== 'object') continue;
     if (!entry.uuid || typeof entry.uuid !== 'string') {
       entry = { ...entry, uuid: randomUUID() };
     }
     if (tombstoneSet.has(entry.uuid)) continue;
-    const existing = serverByUuid.get(entry.uuid);
-    if (!existing || _tsOf(entry) >= _tsOf(existing)) {
-      serverByUuid.set(entry.uuid, entry);
+    const priorIdx = posByUuid.get(entry.uuid);
+    if (priorIdx !== undefined) {
+      if (_tsOf(entry) >= _tsOf(ordered[priorIdx])) ordered[priorIdx] = entry;
+      continue;
     }
-    // else: server has a strictly newer copy, keep it.
+    const existing = serverByUuid.get(entry.uuid);
+    const winner = (!existing || _tsOf(entry) >= _tsOf(existing)) ? entry : existing;
+    posByUuid.set(entry.uuid, ordered.length);
+    ordered.push(winner);
+    // else: server has a strictly newer copy, keep it (winner already
+    // resolves to existing in that case).
+  }
+  // Server-only entries — concurrent additions from another device that
+  // this client's payload never included. Appended after the client's
+  // own ordering, in their original server-relative order.
+  for (const [uuid, entry] of serverByUuid) {
+    if (!posByUuid.has(uuid)) ordered.push(entry);
   }
 
   return {
-    merged: Array.from(serverByUuid.values()),
+    merged: ordered,
     // Only uuids that weren't already tombstoned server-side count as NEW
     // tombstones to persist. The caller uses this to write to
     // diary_tombstones with INSERT OR IGNORE (safe either way).

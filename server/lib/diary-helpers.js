@@ -122,11 +122,21 @@ function _hydrateSplitChildren(item) {
 export function freshenItemImages(items) {
   if (!Array.isArray(items) || !items.length) return items;
   try {
+    // #199 (@tellis82): skip data URLs. A base64 img_url can easily be
+    // 400-800 KB, and this hydrator stamps it onto every diary item
+    // referencing that food on every date served by GET /api/diary
+    // (the all-days endpoint), producing 50 MB+ payloads once a
+    // frequently-used food carries one. Data URLs are still visible on
+    // the food's own detail view (that renders from the food row
+    // directly); dropping them here only affects the diary hydration.
+    // The write-side fix (sync push localizes incoming data URLs to
+    // /uploads/) prevents new occurrences; this read-side filter also
+    // shields existing rows that were pushed before the write fix.
     const foods = db.prepare(
-      `SELECT id, name, brand, img_url FROM foods WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' ORDER BY id ASC`
+      `SELECT id, name, brand, img_url FROM foods WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' AND img_url NOT LIKE 'data:%' ORDER BY id ASC`
     ).all();
     const meals = db.prepare(
-      `SELECT id, name, img_url FROM meals WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' ORDER BY id ASC`
+      `SELECT id, name, img_url FROM meals WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' AND img_url NOT LIKE 'data:%' ORDER BY id ASC`
     ).all();
 
     // Foods: three lookup tiers.

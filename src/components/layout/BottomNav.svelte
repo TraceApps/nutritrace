@@ -67,10 +67,8 @@
 
 <style>
   .bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    /* Lives in App's bottom dock, which does the fixed positioning. */
+    position: relative;
     height: calc(var(--nav-h) + var(--safe-bottom));
     padding-bottom: var(--safe-bottom);
     background: var(--glass-surface);
@@ -79,7 +77,6 @@
     border-top: 1px solid var(--border);
     display: flex;
     align-items: stretch;
-    z-index: 50;
   }
 
   /* Sliding highlight pill */

@@ -1,0 +1,1623 @@
+{
+ "_note": "Trimmed real search.openfoodfacts.org responses (page 1, langs=en) captured 2026-09-14 for #213. Fields: code, product_name, _score, completeness, has_image (whether OFF returned a front image URL), nutriscore_grade.",
+ "Blue Label Marie Biscuits": {
+  "count": 10000,
+  "hits": [
+   {
+    "code": "6009704170273",
+    "product_name": "Blue Label Marie Biscuits",
+    "_score": 76.9989,
+    "completeness": 0.3,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "4104450005014",
+    "product_name": "Medium Iubusquelle",
+    "_score": 18.0417,
+    "completeness": 0.8874999999999998,
+    "nutriscore_grade": "a",
+    "has_image": true
+   },
+   {
+    "code": "4004625358405",
+    "product_name": "Befall Super Huntert",
+    "_score": 18.0417,
+    "completeness": 0.7,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "9310062021006",
+    "product_name": "Blue Label",
+    "_score": 17.1499,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "2000000118537",
+    "product_name": "Marie Biscuit",
+    "_score": 16.1666,
+    "completeness": 0.775,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "8901928014006",
+    "product_name": "Marie biscuits",
+    "_score": 16.1666,
+    "completeness": 0.6875,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "5283003319514",
+    "product_name": "Biscuits Marie",
+    "_score": 16.1666,
+    "completeness": 0.3,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "8993039242522",
+    "product_name": "Biscuit marie",
+    "_score": 16.1666,
+    "completeness": 0.35,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "6009645790721",
+    "product_name": "Marie biscuit",
+    "_score": 15.9586,
+    "completeness": 0.25,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "8964000684474",
+    "product_name": "Marie biscuit",
+    "_score": 15.9586,
+    "completeness": 0.275,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "8710736731056",
+    "product_name": "Marie Biscuits",
+    "_score": 15.9271,
+    "completeness": 0.575,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "9501025050717",
+    "product_name": "Marie Biscuit",
+    "_score": 15.8826,
+    "completeness": 0.35,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "6009649712194",
+    "product_name": "marie biscuits",
+    "_score": 15.8826,
+    "completeness": 0.36250000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "9310175140083",
+    "product_name": "Molasses",
+    "_score": 15.531,
+    "completeness": 0.6875,
+    "nutriscore_grade": "d",
+    "has_image": true
+   },
+   {
+    "code": "8710296907618",
+    "product_name": "Party toast",
+    "_score": 15.5034,
+    "completeness": 0.4625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0055742335149",
+    "product_name": "Blue Label Cola",
+    "_score": 15.0489,
+    "completeness": 0.7874999999999999,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "8999999546076",
+    "product_name": "Blue label tea",
+    "_score": 14.9771,
+    "completeness": 0.275,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "3948063151741",
+    "product_name": "Marie gold biscuit",
+    "_score": 14.117,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "8901652140897",
+    "product_name": "Marie lite biscuit",
+    "_score": 13.9367,
+    "completeness": 0.6,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "9501025145116",
+    "product_name": "Marie teatime biscuit",
+    "_score": 13.9091,
+    "completeness": 0.2625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "6009639132520",
+    "product_name": "Choice Marie biscuits",
+    "_score": 13.9091,
+    "completeness": 0.25,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "6009704170655",
+    "product_name": "Mini Marie Biscuits",
+    "_score": 13.8699,
+    "completeness": 0.3,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "8901063136670",
+    "product_name": "Marie Gold Biscuits",
+    "_score": 13.8699,
+    "completeness": 0.775,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "6009705668885",
+    "product_name": "Blue label 100% whey",
+    "_score": 13.3563,
+    "completeness": 0.2,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "0055742335156",
+    "product_name": "Diet Blue Label Cola",
+    "_score": 13.2561,
+    "completeness": 0.7874999999999999,
+    "nutriscore_grade": "b",
+    "has_image": true
+   },
+   {
+    "code": "8996001300053",
+    "product_name": "Marie susu milk biscuit",
+    "_score": 12.3449,
+    "completeness": 0.4625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0020593000331",
+    "product_name": "Mary b's buttermilk biscuits",
+    "_score": 12.3449,
+    "completeness": 0.6625,
+    "nutriscore_grade": "d",
+    "has_image": true
+   },
+   {
+    "code": "7617700352204",
+    "product_name": "Label",
+    "_score": 11.8246,
+    "completeness": 0.2,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "3250391610075",
+    "product_name": "labell",
+    "_score": 11.8246,
+    "completeness": 0.30000000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "6937643523037",
+    "product_name": "Lost Mary blue razz ice",
+    "_score": 11.4277,
+    "completeness": 0.1625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "3250390638407",
+    "product_name": "Eau de rose",
+    "_score": 11.3706,
+    "completeness": 0.2,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "3760081352579",
+    "product_name": "gâteaux",
+    "_score": 11.3256,
+    "completeness": 0.7625,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "3270160608270",
+    "product_name": "Faux-Filet Race Charolaise",
+    "_score": 11.1809,
+    "completeness": 0.975,
+    "nutriscore_grade": "a",
+    "has_image": true
+   },
+   {
+    "code": "4056489409960",
+    "product_name": "Marie Biscuits Free From gluten",
+    "_score": 11.097,
+    "completeness": 0.7625,
+    "nutriscore_grade": "d",
+    "has_image": true
+   },
+   {
+    "code": "8888101282097",
+    "product_name": "Munchee Marie Biscuits  250.NET",
+    "_score": 11.0654,
+    "completeness": 0.1,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "4800092115073",
+    "product_name": "Marie",
+    "_score": 10.986,
+    "completeness": 0.1625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0671635747181",
+    "product_name": "Marie",
+    "_score": 10.986,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "6009644390335",
+    "product_name": "Marie",
+    "_score": 10.986,
+    "completeness": 0.36250000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "8904300201209",
+    "product_name": "Marie",
+    "_score": 10.8395,
+    "completeness": 0.2625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "6164002695351",
+    "product_name": "marie",
+    "_score": 10.8395,
+    "completeness": 0.36250000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "8720608629169",
+    "product_name": "BUSH T/BAG BLUE LABEL 50s",
+    "_score": 10.8338,
+    "completeness": 0.15,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "8720608629152",
+    "product_name": "BUSH T/BAG BLUE LABEL 100S",
+    "_score": 10.8221,
+    "completeness": 0.15,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "6410405141552",
+    "product_name": "Marie",
+    "_score": 10.8125,
+    "completeness": 0.30000000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "8888420347866",
+    "product_name": "MARIE",
+    "_score": 10.8125,
+    "completeness": 0.30000000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "4251680810809",
+    "product_name": "Marie",
+    "_score": 10.8125,
+    "completeness": 0.2,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "9310072000558",
+    "product_name": "Marie",
+    "_score": 10.7728,
+    "completeness": 0.36250000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "8901719129018",
+    "product_name": "Marie",
+    "_score": 10.7728,
+    "completeness": 0.4625,
+    "nutriscore_grade": "d",
+    "has_image": true
+   },
+   {
+    "code": "7613033129025",
+    "product_name": "Farine Cerelac Biscuits Marie Nestle 250GR",
+    "_score": 10.2272,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "8901030876981",
+    "product_name": "Red Label",
+    "_score": 10.1996,
+    "completeness": 0.2625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0670924883258",
+    "product_name": "Guinness Labels",
+    "_score": 10.1996,
+    "completeness": 0.2,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   }
+  ]
+ },
+ "nutella": {
+  "count": 631,
+  "hits": [
+   {
+    "code": "0009800800049",
+    "product_name": "Nutella & go! hazelnut spread + breadsticks",
+    "_score": 69.7647,
+    "completeness": 0.5625,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "0098008952506",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0613460834124",
+    "product_name": "nutella",
+    "_score": 55.0614,
+    "completeness": 0.475,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "12214181",
+    "product_name": "nutella",
+    "_score": 55.0614,
+    "completeness": 0.4625,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "94557336",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.2625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "56587982",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.475,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "00987533",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "8000500327388",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.475,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0009800000753",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.2625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "18377781",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0852469006020",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0009800895946",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0009800895496",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "05357615",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.2625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "80941316",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.4,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "80736660",
+    "product_name": "Nutella",
+    "_score": 55.0614,
+    "completeness": 0.7,
+    "nutriscore_grade": "e",
+    "has_image": false
+   },
+   {
+    "code": "0012970425035",
+    "product_name": "Nutella",
+    "_score": 54.9819,
+    "completeness": 0.3,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "9300698501539",
+    "product_name": "nutella",
+    "_score": 54.9819,
+    "completeness": 0.5874999999999999,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "88475165",
+    "product_name": "Nutella",
+    "_score": 54.9819,
+    "completeness": 0.30000000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "0048424401621",
+    "product_name": "Nutella",
+    "_score": 54.9819,
+    "completeness": 0.5874999999999999,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "05445363",
+    "product_name": "Nutella",
+    "_score": 54.9819,
+    "completeness": 0.475,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "0042285009330",
+    "product_name": "Nutella",
+    "_score": 54.9819,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "57651453",
+    "product_name": "Nutella",
+    "_score": 54.9819,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0077855496555",
+    "product_name": "nutella",
+    "_score": 54.9819,
+    "completeness": 0.30000000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "42339748",
+    "product_name": "Nutella",
+    "_score": 54.9819,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "13763349",
+    "product_name": "Nutella",
+    "_score": 54.9819,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "18138823",
+    "product_name": "Nutella",
+    "_score": 54.9819,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "8000500274460",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.475,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "00870701",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0009800870028",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "07491276",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.4625,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "18449860",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.2625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "06336356",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "03143740",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "35396505",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "59243243",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "93136976",
+    "product_name": "nutella",
+    "_score": 54.4694,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "59819431",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "14211676",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.30000000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "8000500289464",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.475,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "4008400401027",
+    "product_name": "nutella",
+    "_score": 54.4694,
+    "completeness": 0.3625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "8000500398449",
+    "product_name": "Nutella",
+    "_score": 54.4694,
+    "completeness": 0.7875,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "0846548089080",
+    "product_name": "Nutella",
+    "_score": 54.243,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "89350874",
+    "product_name": "Nutella",
+    "_score": 54.243,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "9501100305091",
+    "product_name": "nutella",
+    "_score": 54.243,
+    "completeness": 0.2,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "8000500193419",
+    "product_name": "Nutella",
+    "_score": 54.243,
+    "completeness": 0.36250000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0857290005242",
+    "product_name": "Nutella",
+    "_score": 54.243,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "16118652",
+    "product_name": "Nutella",
+    "_score": 54.243,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "8000500397466",
+    "product_name": "Nutella",
+    "_score": 54.243,
+    "completeness": 0.6874999999999999,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "14800016",
+    "product_name": "Nutella",
+    "_score": 54.243,
+    "completeness": 0.3,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   }
+  ]
+ },
+ "yogurt": {
+  "count": 10000,
+  "hits": [
+   {
+    "code": "4993478344799",
+    "product_name": "Yogurt",
+    "_score": 47.494,
+    "completeness": 0.4,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "0015000047320",
+    "product_name": "Yogurt Melts Peach",
+    "_score": 47.2537,
+    "completeness": 0.8875,
+    "nutriscore_grade": "not-applicable",
+    "has_image": true
+   },
+   {
+    "code": "0635000047313",
+    "product_name": "Yogurt Melts Mixed Berries",
+    "_score": 45.9146,
+    "completeness": 0.875,
+    "nutriscore_grade": "not-applicable",
+    "has_image": true
+   },
+   {
+    "code": "0015000047306",
+    "product_name": "Yogurt Melts Strawberry",
+    "_score": 45.7609,
+    "completeness": 0.9,
+    "nutriscore_grade": "not-applicable",
+    "has_image": true
+   },
+   {
+    "code": "0053600101073",
+    "product_name": "La yogurt, probiotic plain nonfat yogurt",
+    "_score": 43.6735,
+    "completeness": 0.875,
+    "nutriscore_grade": "a",
+    "has_image": true
+   },
+   {
+    "code": "0851463005053",
+    "product_name": "Strawberry greek yogurt",
+    "_score": 43.4341,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0851463005008",
+    "product_name": "Powerful yogurt, greek non-fat yogurt, apple cinnamon",
+    "_score": 43.2355,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0053600000932",
+    "product_name": "La yogurt, blended lowfat yogurt, lemon meringue",
+    "_score": 43.0033,
+    "completeness": 0.5,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "0736211663344",
+    "product_name": "Honey Yogurt",
+    "_score": 42.8775,
+    "completeness": 0.5,
+    "nutriscore_grade": "b",
+    "has_image": false
+   },
+   {
+    "code": "0851463005091",
+    "product_name": "Greek Non-Fat Yogurt",
+    "_score": 42.6908,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0851463005039",
+    "product_name": "Greek non-fat yogurt",
+    "_score": 42.6908,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0851463005060",
+    "product_name": "Greek non-fat yogurt",
+    "_score": 42.6908,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0713757667135",
+    "product_name": "Plain Yogurt",
+    "_score": 42.327,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0863601000202",
+    "product_name": "Plain Yogurt",
+    "_score": 41.9895,
+    "completeness": 0.5625,
+    "nutriscore_grade": "b",
+    "has_image": false
+   },
+   {
+    "code": "0736211663245",
+    "product_name": "Plain Yogurt",
+    "_score": 41.9804,
+    "completeness": 0.5,
+    "nutriscore_grade": "b",
+    "has_image": false
+   },
+   {
+    "code": "0053600000673",
+    "product_name": "Yogurt",
+    "_score": 41.8076,
+    "completeness": 0.475,
+    "nutriscore_grade": "a",
+    "has_image": true
+   },
+   {
+    "code": "0851463005114",
+    "product_name": "Nonfat Greek Yogurt With Fruit On Bottom",
+    "_score": 41.5951,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0851463005015",
+    "product_name": "Banana greek yogurt, banana",
+    "_score": 41.4917,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0851463005022",
+    "product_name": "Blueberry acai greek yogurt, blueberry acai",
+    "_score": 40.9304,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0053600729307",
+    "product_name": "La yogurt, lowfat yogurt, vanilla",
+    "_score": 40.5165,
+    "completeness": 0.5625,
+    "nutriscore_grade": "c",
+    "has_image": true
+   },
+   {
+    "code": "0053600001922",
+    "product_name": "Lowfat Yogurt",
+    "_score": 40.4187,
+    "completeness": 0.5,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "0851463005084",
+    "product_name": "Greek Non-Fat Yogurt Plus Hearty Grains",
+    "_score": 40.3766,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0851463005329",
+    "product_name": "Key lime greek yogurt, key lime",
+    "_score": 40.0549,
+    "completeness": 0.5625,
+    "nutriscore_grade": "a",
+    "has_image": true
+   },
+   {
+    "code": "0664054005727",
+    "product_name": "Yogurt Smoothie",
+    "_score": 40.041,
+    "completeness": 0.5,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "0664054005703",
+    "product_name": "Yogurt Smoothie",
+    "_score": 40.041,
+    "completeness": 0.5,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "5390053001495",
+    "product_name": "Whole milknatural live yogurt",
+    "_score": 39.9948,
+    "completeness": 0.6875,
+    "nutriscore_grade": "b",
+    "has_image": true
+   },
+   {
+    "code": "0053600000536",
+    "product_name": "La yogurt, original lowfat yogurt, vanilla",
+    "_score": 39.8023,
+    "completeness": 0.5625,
+    "nutriscore_grade": "b",
+    "has_image": true
+   },
+   {
+    "code": "0079792062022",
+    "product_name": "Low Fat Froze Yogurt Bar",
+    "_score": 39.6067,
+    "completeness": 0.5,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "0053600000321",
+    "product_name": "La yogurt",
+    "_score": 39.2023,
+    "completeness": 0.45,
+    "nutriscore_grade": "b",
+    "has_image": false
+   },
+   {
+    "code": "0053600000345",
+    "product_name": "La yogurt",
+    "_score": 39.2023,
+    "completeness": 0.5875,
+    "nutriscore_grade": "b",
+    "has_image": true
+   },
+   {
+    "code": "0814633018192",
+    "product_name": "Yogurt Smoothie",
+    "_score": 39.2023,
+    "completeness": 0.5,
+    "nutriscore_grade": "b",
+    "has_image": false
+   },
+   {
+    "code": "0664054005765",
+    "product_name": "Yogurt Smoothie",
+    "_score": 39.2023,
+    "completeness": 0.5,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "0053600000420",
+    "product_name": "La yogurt, probiotic lowfat yogurt, strawberry kiwi",
+    "_score": 39.1793,
+    "completeness": 0.5625,
+    "nutriscore_grade": "c",
+    "has_image": true
+   },
+   {
+    "code": "0713757667036",
+    "product_name": "Lowfat Plain Yogurt",
+    "_score": 39.1048,
+    "completeness": 0.5,
+    "nutriscore_grade": "a",
+    "has_image": false
+   },
+   {
+    "code": "0053600000215",
+    "product_name": "La yogurt, original blended lowfat yogurt, peach",
+    "_score": 38.797,
+    "completeness": 0.5625,
+    "nutriscore_grade": "c",
+    "has_image": true
+   },
+   {
+    "code": "9310653103470",
+    "product_name": "Chobani Yogurt",
+    "_score": 38.7788,
+    "completeness": 0.7875,
+    "nutriscore_grade": "a",
+    "has_image": true
+   },
+   {
+    "code": "4061464914131",
+    "product_name": "Mixed Berry Yogurt",
+    "_score": 38.7647,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0053600000727",
+    "product_name": "La yogurt, probiotic blended lowfat yogurt, peach",
+    "_score": 38.7565,
+    "completeness": 0.5625,
+    "nutriscore_grade": "c",
+    "has_image": true
+   },
+   {
+    "code": "0053600001892",
+    "product_name": "Probiotic Lowfat Yogurt",
+    "_score": 38.7221,
+    "completeness": 0.5,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "0795709010084",
+    "product_name": "Wallaby organic, organic lowfat yogurt, lemon",
+    "_score": 38.6112,
+    "completeness": 0.7875,
+    "nutriscore_grade": "b",
+    "has_image": true
+   },
+   {
+    "code": "0053600000581",
+    "product_name": "La yogurt, light probiotic blended nonfat yogurt, blueberry",
+    "_score": 38.2467,
+    "completeness": 0.5625,
+    "nutriscore_grade": "a",
+    "has_image": true
+   },
+   {
+    "code": "0053600002479",
+    "product_name": "La yogurt, la chocolate, probiotic lowfat yogurt, coconut",
+    "_score": 38.2018,
+    "completeness": 0.5,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "0053600000949",
+    "product_name": "La yogurt, probiotic lowfat yogurt, pomegranate blueberry",
+    "_score": 37.9959,
+    "completeness": 0.5,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "0053600000703",
+    "product_name": "La yogurt, probiotic blended lowfat yogurt, vanilla",
+    "_score": 37.9959,
+    "completeness": 0.5625,
+    "nutriscore_grade": "c",
+    "has_image": true
+   },
+   {
+    "code": "0816284020067",
+    "product_name": "Plain Yogurt",
+    "_score": 37.722,
+    "completeness": 0.6875,
+    "nutriscore_grade": "b",
+    "has_image": true
+   },
+   {
+    "code": "0053600000697",
+    "product_name": "La yogurt, rich & creamy probiotic formula blended lowfat yogurt, strawberry",
+    "_score": 37.7112,
+    "completeness": 0.5625,
+    "nutriscore_grade": "c",
+    "has_image": true
+   },
+   {
+    "code": "0053600000550",
+    "product_name": "La yogurt, light probiotic blended non-fat yogurt, strawberry",
+    "_score": 37.71,
+    "completeness": 0.5625,
+    "nutriscore_grade": "a",
+    "has_image": true
+   },
+   {
+    "code": "0053600000086",
+    "product_name": "La yogurt, original blended lowfat yogurt, strawberry fruit cup",
+    "_score": 37.71,
+    "completeness": 0.5625,
+    "nutriscore_grade": "c",
+    "has_image": true
+   },
+   {
+    "code": "0053600000437",
+    "product_name": "Probiotic banana yogurt",
+    "_score": 37.651,
+    "completeness": 0.4875,
+    "nutriscore_grade": "b",
+    "has_image": true
+   },
+   {
+    "code": "0053600000567",
+    "product_name": "La yogurt, probiotic blended nonfat yogurt, strawberry banana",
+    "_score": 37.4622,
+    "completeness": 0.5625,
+    "nutriscore_grade": "b",
+    "has_image": true
+   }
+  ]
+ },
+ "coca cola": {
+  "count": 7410,
+  "hits": [
+   {
+    "code": "57045399",
+    "product_name": "Coca-Cola",
+    "_score": 106.4179,
+    "completeness": 0.5874999999999999,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "0049000004632",
+    "product_name": "Coca-Cola",
+    "_score": 106.4179,
+    "completeness": 0.7999999999999999,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "4890008101306",
+    "product_name": "Coca Cola Plus",
+    "_score": 98.9934,
+    "completeness": 0.75,
+    "nutriscore_grade": "c",
+    "has_image": false
+   },
+   {
+    "code": "3948764012273",
+    "product_name": "Coca cola Soft Drink 750ml",
+    "_score": 92.1029,
+    "completeness": 0.6875,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "6415600567220",
+    "product_name": "Coca-Cola Zero Sugar Kofeiiniton",
+    "_score": 92.1029,
+    "completeness": 0.675,
+    "nutriscore_grade": "a",
+    "has_image": true
+   },
+   {
+    "code": "5000112594218",
+    "product_name": "Coca cola Zero",
+    "_score": 91.4131,
+    "completeness": 0.7625,
+    "nutriscore_grade": "c",
+    "has_image": true
+   },
+   {
+    "code": "7290000284316",
+    "product_name": "Coca-Cola Cachere- 1.5L- Klp -22",
+    "_score": 87.8976,
+    "completeness": 0.7625,
+    "nutriscore_grade": "e",
+    "has_image": false
+   },
+   {
+    "code": "6954767410494",
+    "product_name": "coca-cola",
+    "_score": 85.31,
+    "completeness": 0.575,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "9300675057899",
+    "product_name": "Coca Cola",
+    "_score": 85.31,
+    "completeness": 0.8,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "0049000046595",
+    "product_name": "Coca Cola",
+    "_score": 74.4235,
+    "completeness": 0.5,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "5449000664686",
+    "product_name": "Coca cola",
+    "_score": 74.4235,
+    "completeness": 0.6749999999999999,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "87126037",
+    "product_name": "Coca cola",
+    "_score": 74.4235,
+    "completeness": 0.6875,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "7441003596122",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.3625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "5449000059215",
+    "product_name": null,
+    "_score": 74.4235,
+    "completeness": 0.36250000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "40907000",
+    "product_name": "Coca Cola",
+    "_score": 74.4235,
+    "completeness": 0.775,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "5000112663914",
+    "product_name": "Coca Cola",
+    "_score": 74.4235,
+    "completeness": 0.2625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "7750182544085",
+    "product_name": "coca cola",
+    "_score": 74.4235,
+    "completeness": 0.575,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "7750182003919",
+    "product_name": "coca cola",
+    "_score": 74.4235,
+    "completeness": 0.575,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0049000053418",
+    "product_name": "Coca cola",
+    "_score": 74.4235,
+    "completeness": 0.48749999999999993,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "9555589212678",
+    "product_name": "coca-cola",
+    "_score": 74.4235,
+    "completeness": 0.4625,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "0049000031034",
+    "product_name": "Coca cola",
+    "_score": 74.4235,
+    "completeness": 0.36250000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "356260",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.30000000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "9300675001465",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.30000000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "7441003500235",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.48749999999999993,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "7401006400901",
+    "product_name": "Coca cola",
+    "_score": 74.4235,
+    "completeness": 0.475,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "7801610001974",
+    "product_name": "Coca-Cola 1 Litro",
+    "_score": 74.4235,
+    "completeness": 0.7625,
+    "nutriscore_grade": "e",
+    "has_image": false
+   },
+   {
+    "code": "8851959133019",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.5874999999999999,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "54007673",
+    "product_name": "Coca Cola",
+    "_score": 74.4235,
+    "completeness": 0.6,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "7894900018394",
+    "product_name": "coca-cola",
+    "_score": 74.4235,
+    "completeness": 0.475,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "77681126",
+    "product_name": "Coca Cola",
+    "_score": 74.4235,
+    "completeness": 0.5,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "5000112647235",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.36250000000000004,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "0046009602029",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.3,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "00001500",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.4,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "00356260",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.3,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "5000112641981",
+    "product_name": "Coca Cola",
+    "_score": 74.4235,
+    "completeness": 0.6875,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "5000112614466",
+    "product_name": "coca cola",
+    "_score": 74.4235,
+    "completeness": 0.5875,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "73513513",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.7875,
+    "nutriscore_grade": "d",
+    "has_image": true
+   },
+   {
+    "code": "8888002076009",
+    "product_name": "Coca Cola",
+    "_score": 74.4235,
+    "completeness": 0.8875,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "01112245",
+    "product_name": "COCA-COLA",
+    "_score": 74.4235,
+    "completeness": 0.675,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "5000112626940",
+    "product_name": "coca cola",
+    "_score": 74.4235,
+    "completeness": 0.7,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "5701872203005",
+    "product_name": "Coca-Cola",
+    "_score": 74.4235,
+    "completeness": 0.6875,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "5000112552508",
+    "product_name": "Coca-cola",
+    "_score": 74.3132,
+    "completeness": 0.475,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "7894900011159",
+    "product_name": "Coca cola",
+    "_score": 74.3132,
+    "completeness": 0.6874999999999999,
+    "nutriscore_grade": "e",
+    "has_image": true
+   },
+   {
+    "code": "5449000247964",
+    "product_name": "Coca cola citron",
+    "_score": 74.3132,
+    "completeness": 0.4625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "7801610323236",
+    "product_name": "Coca cola",
+    "_score": 74.3132,
+    "completeness": 0.475,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "9555589212142",
+    "product_name": "Coca-Cola",
+    "_score": 74.3132,
+    "completeness": 0.35,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "5000112604856",
+    "product_name": "Coca-cola",
+    "_score": 74.3132,
+    "completeness": 0.375,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "7861024626255",
+    "product_name": "Coca cola",
+    "_score": 74.3132,
+    "completeness": 0.2625,
+    "nutriscore_grade": "unknown",
+    "has_image": true
+   },
+   {
+    "code": "01416367",
+    "product_name": "Coca cola",
+    "_score": 74.3132,
+    "completeness": 0.5625,
+    "nutriscore_grade": "unknown",
+    "has_image": false
+   },
+   {
+    "code": "5000112630633",
+    "product_name": "Coca cola",
+    "_score": 74.3132,
+    "completeness": 0.7874999999999999,
+    "nutriscore_grade": "e",
+    "has_image": true
+   }
+  ]
+ }
+}

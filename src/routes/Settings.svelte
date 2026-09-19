@@ -46,6 +46,7 @@
   import Authentication    from './settings/Authentication.svelte';
   import Email             from './settings/Email.svelte';
   import ApiTokens         from './settings/ApiTokens.svelte';
+  import Webhooks          from './settings/Webhooks.svelte';
   import About             from './settings/About.svelte';
   import Profile           from './Profile.svelte';
 
@@ -136,7 +137,14 @@
     _pillVisible = true;
     if (!_pillReady) requestAnimationFrame(() => { _pillReady = true; });
   }
-  afterUpdate(_measurePill);
+  // Defer one paint frame so any conditional subtrees (the admin
+  // {#if $userMgmtActive && $currentUser?.role === 'admin'} blocks
+  // that hold the Users/Authentication/Email rail buttons) have
+  // committed before we querySelector for .active. Without the rAF,
+  // clicking a section inside one of those blocks races past the
+  // measurement, comes up empty, and hides the pill until an
+  // unrelated re-render lands.
+  afterUpdate(() => requestAnimationFrame(_measurePill));
   onMount(() => {
     if (typeof ResizeObserver === 'undefined' || !_railEl) return;
     _pillRO = new ResizeObserver(_measurePill);
@@ -159,7 +167,7 @@
     categories:        { titleKey: 'settings.categories.section',        icon: 'category' },
     customUnits:       { titleKey: 'settings_stats.custom_units',        icon: 'straighten' },
     connectedServices: { titleKey: 'settings.connected_services.section',icon: 'link' },
-    ai:                { titleKey: 'settings.ai.section',                icon: 'bolt' },
+    ai:                { titleKey: 'settings.ai.section',                icon: 'smart_toy' },
     wellness:          { titleKey: 'settings.wellness.section',          icon: 'favorite' },
     serverConnection:  { titleKey: 'settings.server.section',            icon: 'cloud' },
     notifications:     { titleKey: 'settings.notifications.section',     icon: 'notifications' },
@@ -171,7 +179,8 @@
     users:             { titleKey: 'settings.users.section',             icon: 'group' },
     authentication:    { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
     email:             { titleKey: 'settings.email.section',             icon: 'mail' },
-    apiTokens:         { titleKey: null,                                 icon: 'key' },
+    apiTokens:         { titleKey: 'settings.api_tokens.section',        icon: 'key' },
+    webhooks:          { titleKey: 'settings.webhooks.section',          icon: 'webhook' },
     about:             { titleKey: 'settings.about.section',             icon: 'info' },
     profile:           { titleKey: 'profile.title',                      icon: 'person' },
   };
@@ -204,6 +213,7 @@
     authentication:    Authentication,
     email:             Email,
     apiTokens:         ApiTokens,
+    webhooks:          Webhooks,
     about:             About,
     profile:           Profile,
   };
@@ -217,7 +227,7 @@
     authentication:    ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group'],
     appearance:        ['appearance','theme','dark','light','accent','color','navigation','sidebar','persistent','start page','animations','celebrations','reduce motion','banner','page banner','force mobile','mobile layout','mobile view','phone layout','narrow layout'],
     regional:          ['regional','language','translation','date format','time format','locale','date','time','12h','24h','units','energy unit','weight unit','height','circumference','distance','temperature','imperial','metric'],
-    diary:             ['diary','brands','timestamps','thumbnails','nutrients','nutrition units','macros','macro summary','prompt quantity','portion size','nutrition bar','goals progress','meal names','meals','activity','activity section','exercise','activity template','workout template','template','compendium','met','fasting','fast','intermittent fasting','if','16:8','omad','time restricted','unit metadata','unit conversion','unit conversions','nutrition basis','basis','serving units','serving sizes','density','g/ml','slice','bottle','cookie','milliliter','milliliters','mass','volume','oil','honey','warn','daily notes','notes','quick calories','quick cal','bolt','adjust calorie','calorie adjustment','earn back','wearable activity','activity policy','widget','widgets','rail','right rail','right column','desktop rail','desktop widgets','day summary widget','water widget','weight widget','measurements widget','activity impact','day notes'],
+    diary:             ['diary','brands','timestamps','thumbnails','nutrients','nutrition units','macros','macro summary','prompt quantity','portion size','nutrition bar','goals progress','meal names','meals','activity','activity section','exercise','activity template','workout template','template','compendium','met','fasting','fast','intermittent fasting','if','16:8','omad','time restricted','unit metadata','unit conversion','unit conversions','nutrition basis','basis','serving units','serving sizes','density','g/ml','slice','bottle','cookie','milliliter','milliliters','mass','volume','oil','honey','warn','daily notes','notes','quick calories','quick cal','bolt','adjust calorie','calorie adjustment','earn back','wearable activity','activity policy','widget','widgets','rail','right rail','right column','desktop rail','desktop widgets','day summary widget','water widget','weight widget','measurements widget','activity impact','day notes','mark complete','completion','meal completion','close day','close today','adherence'],
     foods:             ['foods','thumbnails','category','notes','yesterday meals','sort order','sort','barcode','scan','beep','flashlight','crop photos','search all','all sources','merged search','default source','default search','my foods','off','usda','mealie'],
     water:             ['water','display unit','daily goal','containers','bottle','cup','glass'],
     categories:        ['categories','food categories','tags','labels'],
@@ -226,17 +236,18 @@
     goals:             ['goals','calorie goal','dynamic calorie','adaptive','adaptive tdee','adaptive calorie','tdee','energy expenditure','burn','calories out','factor','lose','gain','maintain','activity','exercise','weight trend','macrofactor','learn','fixed'],
     bodyStats:         ['body stats','body','weight','measurements','stats','body fat','body water','hydration','muscle','bone'],
     statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
-    connectedServices: ['food sources','connected services','usda','open food facts','mealie','recipe','search language','country','api key','credentials','username','password'],
+    connectedServices: ['food sources','connected services','usda','open food facts','mealie','cooktrace','recipe','recipes','pull','import','import all','bulk import','bulk','pantry','import pantry','read:recipes','read:pantry','search language','country','api key','credentials','username','password','bearer','token'],
     ai:                ['ai','trace','assistant','provider','model','custom model','model id','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','openai compatible','oai-compat','base url'],
     notifications:     ['notifications','reminders','water reminder','meal reminder','weigh-in','weigh in','gotify','apprise','ntfy','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
-    wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress','lifttrace','workout','calories burned','wearable'],
-    sharing:           ['sharing','share','group','catalogue','catalog','visibility','private','members','food sharing'],
+    wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress','lifttrace','workout','calories burned','wearable','mirror wellness weight','scale weight','body stats weight','weight mirror'],
+    sharing:           ['sharing','share','group','catalogue','catalog','visibility','private','everyone','members','food sharing','auto share','autoshare','automatic sharing','default visibility','default sharing','new items','new foods','new meals','new recipes','bulk share'],
     backup:            ['backup','full backup','restore','zip','images','clear data','reset','defaults','clear settings','danger zone'],
-    importExport:      ['import','export','import & export','json','csv','bulk import','foods bulk','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','migrate','migration','from another app','diary csv'],
+    importExport:      ['import','export','import & export','json','csv','bulk import','foods bulk','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','migrate','migration','from another app','diary csv','full nutrition csv','micronutrients export','vitamins export','custom nutrients export'],
     email:             ['email','smtp','mail','password reset','invites','notifications'],
     profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','avatar','log out','logout','sign out','password','change password','biometric','fingerprint','face unlock','face id'],
     users:             ['users','user management','accounts','login','admin','register','invite','revoke','pending invite','session','session duration','password policy','strong password','strong passwords','require strong','zxcvbn'],
     apiTokens:         ['api','api tokens','token','federation','cooktrace','lifttrace','bearer','integration','integrations','external','third-party','third party'],
+    webhooks:          ['webhooks','webhook','automation','n8n','home assistant','ifttt','push','event','integration','integrations','http post','callback url','signature','hmac','secret'],
     helpImprove:       ['diagnostics','logs','verbose','calibration','export','bug','report','troubleshoot'],
     updates:           ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose'],
     about:             ['about','version','nutritrace'],
@@ -480,7 +491,7 @@
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'ai')} class:active={currentSection === 'ai'} aria-current={currentSection === 'ai' ? 'page' : undefined} on:click={() => toggleSection('ai')}>
-    <span class="material-symbols-rounded si">bolt</span>
+    <span class="material-symbols-rounded si">smart_toy</span>
     <span>{$_('settings.ai.section')}</span>
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
@@ -555,7 +566,12 @@
     {#if $currentUser?.role === 'admin'}
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
         <span class="material-symbols-rounded si">key</span>
-        <span>API Tokens</span>
+        <span>{$_('settings.api_tokens.section')}</span>
+        <span class="material-symbols-rounded chevron">expand_more</span>
+      </button>
+      <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'webhooks')} class:active={currentSection === 'webhooks'} aria-current={currentSection === 'webhooks' ? 'page' : undefined} on:click={() => toggleSection('webhooks')}>
+        <span class="material-symbols-rounded si">webhook</span>
+        <span>{$_('settings.webhooks.section')}</span>
         <span class="material-symbols-rounded chevron">expand_more</span>
       </button>
     {/if}

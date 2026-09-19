@@ -61,6 +61,11 @@ let _disabled = false;       // permanent kill switch after init failure
 let _dbPath = null;          // resolved path for log messages
 let _isParquet = false;      // true when the mirror is the HF Parquet shape;
                              // controls which SQL + which JS adapter run
+// #186 — set when the parquet mirror carries the OFF popularity_key
+// column (present in the stock Hugging Face snapshot). Detected once
+// at init so searchByName can add it as a within-rank tiebreak
+// without binder-erroring on custom parquet files that lack it.
+let _hasPopularityKey = false;
 
 // Refresh state — mirrored back to the client via /api/off-local/status.
 // Single in-flight refresh at a time (mutex via _refreshPromise).
@@ -169,7 +174,17 @@ async function _init() {
         _instance = await DuckDBInstance.create(_dbPath, { access_mode: 'READ_ONLY' });
         _conn = await _instance.connect();
       }
-      logger.info(`[off-local] ready — mirror at ${_dbPath} (${_isParquet ? 'parquet via in-memory view' : 'native duckdb'})${process.env.OFF_LOCAL_ONLY ? ' (air-gap mode, remote disabled)' : ''}`);
+      // #186 — probe once for popularity_key so searchByName knows
+      // whether the within-rank popularity tiebreak is safe to emit.
+      // Stock HF snapshot has it; a custom parquet may not, and an
+      // unconditional reference would binder-error the query.
+      try {
+        const probe = await _conn.runAndReadAll(
+          `SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'popularity_key' LIMIT 1`
+        );
+        _hasPopularityKey = probe.getRowObjects().length > 0;
+      } catch { _hasPopularityKey = false; }
+      logger.info(`[off-local] ready — mirror at ${_dbPath} (${_isParquet ? 'parquet via in-memory view' : 'native duckdb'})${_hasPopularityKey ? ', popularity_key present' : ''}${process.env.OFF_LOCAL_ONLY ? ' (air-gap mode, remote disabled)' : ''}`);
       return _conn;
     } catch (e) {
       _disabled = true;
@@ -277,32 +292,109 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     .replace(/\s+/g, ' ')
     .trim();
   if (!q) return { hits: [], count: 0, page, page_size: pageSize };
-  const pattern = `%${q.toLowerCase().replace(/[%_]/g, c => '\\' + c)}%`;
-  const startPattern = `${q.toLowerCase().replace(/[%_]/g, c => '\\' + c)}%`;
+  // #190 (@systems-monitor): tokenize on whitespace and AND per-token
+  // matches so "dunkin croissant" and "croissant dunkin" both find a
+  // "Bacon Egg and Cheese Croissant (Dunkin')" hit. Previously the
+  // whole query was one `%q%` pattern, so multi-word searches were
+  // exact-phrase-and-adjacent, which silently missed most legitimate
+  // matches. The prefix-rank CASE keeps using the full phrase so
+  // exact-phrase starts still sort first.
+  const _escLike = t => t.toLowerCase().replace(/[%_]/g, c => '\\' + c);
+  const toks = q.split(/\s+/).filter(Boolean).map(t => `%${_escLike(t)}%`);
+  const startPattern = `${_escLike(q)}%`;
   const offset = Math.max(0, (page - 1) * pageSize);
   try {
     // Two SQL shapes — Parquet's product_name is LIST<{lang,text}> so we
     // need list_filter to LIKE-match any localized entry; legacy DuckDB's
     // product_name is a single string so the simple LIKE works directly.
+    // #186 (@systems-monitor): within-rank tiebreak. Prefix-match rank
+    // alone leaves table-scan order to fill the page, which on the
+    // stock HF snapshot buries the mainline product ("Nutella") under
+    // near-zero-popularity regional clones, and a parallel scan is not
+    // guaranteed stable so the order can even shift run-to-run. Sort
+    // by popularity_key when the column exists (stock snapshot does);
+    // fall back to code ASC for determinism on custom parquet files
+    // that lack it. Legacy .duckdb branch already had a length-based
+    // tiebreak so it stays untouched.
+    const parquetTiebreak = _hasPopularityKey
+      ? 'popularity_key DESC NULLS LAST'
+      : 'code ASC';
+    // #188 (@systems-monitor): match the code column too so typed or
+    // pasted barcodes resolve via the text-search endpoint. The
+    // scanner path uses a separate exact-code lookup, so without
+    // this a plain-HTTP install (no camera scanner) and any desktop
+    // user has no barcode path at all. LIKE preserves substring
+    // semantics so partial barcodes still match.
+    // #189 (@systems-monitor): append `code ASC` so both ORDER BY
+    // clauses are a total order. popularity_key isn't unique (many
+    // products share a score), and LENGTH(product_name) isn't
+    // either — without a unique final key, LIMIT/OFFSET across
+    // independent page queries can duplicate some rows across
+    // adjacent pages and silently drop others. `code` is unique
+    // per row so it makes the sort deterministic and pages
+    // partition cleanly.
+    // #190: parameters are [...toks, startPattern, pageSize, offset].
+    // $1..$N are the token patterns (each AND-joined against name /
+    // brands / code), $(N+1) is the full-phrase start-pattern used
+    // by the rank CASE, and $(N+2), $(N+3) are page + offset.
+    const tokWhereParquet = toks.map((_, i) =>
+      `(LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $${i+1} ESCAPE '\\')) > 0
+             OR LOWER(brands) LIKE $${i+1} ESCAPE '\\'
+             OR code LIKE $${i+1} ESCAPE '\\')`
+    ).join('\n         AND ');
+    const tokWhereLegacy = toks.map((_, i) =>
+      `(LOWER(product_name) LIKE $${i+1} ESCAPE '\\'
+             OR LOWER(brands) LIKE $${i+1} ESCAPE '\\'
+             OR code LIKE $${i+1} ESCAPE '\\')`
+    ).join('\n         AND ');
+    const startIdx = toks.length + 1;
+    const pageIdx  = toks.length + 2;
+    const offIdx   = toks.length + 3;
     const sql = _isParquet
       ? `SELECT *,
-              CASE WHEN LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $2 ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
+              CASE WHEN LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $${startIdx} ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
            FROM products
-          WHERE LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $1 ESCAPE '\\')) > 0
-             OR LOWER(brands) LIKE $1 ESCAPE '\\'
-          ORDER BY _rank ASC
-          LIMIT $3 OFFSET $4`
-      : `SELECT *, CASE WHEN LOWER(product_name) LIKE $2 ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
+          WHERE ${tokWhereParquet}
+          ORDER BY _rank ASC, ${parquetTiebreak}, code ASC
+          LIMIT $${pageIdx} OFFSET $${offIdx}`
+      : `SELECT *, CASE WHEN LOWER(product_name) LIKE $${startIdx} ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
            FROM products
-          WHERE LOWER(product_name) LIKE $1 ESCAPE '\\'
-             OR LOWER(brands) LIKE $1 ESCAPE '\\'
-          ORDER BY _rank ASC, LENGTH(COALESCE(product_name, '')) ASC
-          LIMIT $3 OFFSET $4`;
-    const reader = await conn.runAndReadAll(sql, [pattern, startPattern, pageSize, offset]);
+          WHERE ${tokWhereLegacy}
+          ORDER BY _rank ASC, LENGTH(COALESCE(product_name, '')) ASC, code ASC
+          LIMIT $${pageIdx} OFFSET $${offIdx}`;
+    // #189 (@systems-monitor): return the real match total. The
+    // envelope previously returned rows.length (page size), so the
+    // client's `hasMore = page * pageSize < totalHits` was always
+    // false and everything past the first page was unreachable
+    // even though the server supports OFFSET. Same predicates as
+    // the search itself, $1 only (the CASE parameter $2 is only
+    // for prefix-ranking within the matched set, not filtering).
+    // Cost: one extra full-scan predicate per search. Fine for
+    // stock-snapshot scale; if latency shows up on very large
+    // custom catalogs a per-query-string cache would amortize it.
+    // #191 (@systems-monitor): plain COUNT(*) so the total stays
+    // internally consistent with the rendered row count. The rare
+    // duplicate-code row from the stock OFF snapshot (60 dupes in
+    // 4.7M rows) is intentionally left visible instead of hidden
+    // via server-side dedup — sometimes two products genuinely
+    // share a barcode (data errors in OFF), and letting the user
+    // pick between them beats silently dropping one. The client's
+    // defensive each-key handles the renderer crash separately.
+    const countSql = _isParquet
+      ? `SELECT COUNT(*) AS n FROM products WHERE ${tokWhereParquet}`
+      : `SELECT COUNT(*) AS n FROM products WHERE ${tokWhereLegacy}`;
+    const [reader, countReader] = await Promise.all([
+      conn.runAndReadAll(sql,      [...toks, startPattern, pageSize, offset]),
+      conn.runAndReadAll(countSql, [...toks]),
+    ]);
     const rows = reader.getRowObjects();
+    // Number() unwraps the BigInt the @duckdb/node-api bindings return
+    // for COUNT — otherwise the response JSON would include a raw
+    // BigInt which JSON.stringify refuses and the whole response 500s.
+    const total = Number(countReader.getRowObjects()[0]?.n ?? rows.length);
     return {
       hits: rows.map(_toOffProduct),
-      count: rows.length,
+      count: total,
       page,
       page_size: pageSize,
     };
@@ -507,11 +599,39 @@ function _toOffProduct(row) {
   // product_name and broke the client's .trim() call (issue #22 followup
   // from @duplaja). Coerce to a real Array here so both branches see the
   // shape they expect.
-  const _asArray = v => Array.isArray(v)
-    ? v
-    : (v != null && typeof v !== 'string' && typeof v[Symbol.iterator] === 'function')
-      ? Array.from(v)
-      : null;
+  //
+  // #185 (@systems-monitor): under @duckdb/node-api ^1.4 the LIST value
+  // is a DuckDBListValue wrapper whose real array is under `.items`, and
+  // struct elements wrap their fields under `.entries`. Neither is
+  // iterable per Symbol.iterator, so the pre-fix _asArray returned null
+  // and _toOffProduct fell through to _maybeParseListString. That
+  // stringifies the wrapper into DuckDB's SQL-repr, which doubles single
+  // quotes (Dunkin'' inside the payload). Neither JSON.parse nor
+  // _pythonReprToJson accept that escape, both fail, product_name comes
+  // back "" and the client silently drops the row. Recursively unwrap
+  // .items and .entries so the modern parquet branch works with the 1.4
+  // bindings the same way it works with older ones. Downstream
+  // _readField already handles both `.get()` and plain `[key]` access,
+  // so returning plain objects here is safe.
+  const _unwrapDuck = e => {
+    if (e == null || typeof e !== 'object') return e;
+    if (Array.isArray(e)) return e.map(_unwrapDuck);
+    if (Array.isArray(e.items)) return e.items.map(_unwrapDuck);
+    if (e.entries != null && typeof e.entries === 'object' && !Array.isArray(e.entries)) {
+      const o = {};
+      for (const k of Object.keys(e.entries)) o[k] = _unwrapDuck(e.entries[k]);
+      return o;
+    }
+    return e;
+  };
+  const _asArray = v => {
+    const u = _unwrapDuck(v);
+    return Array.isArray(u)
+      ? u
+      : (u != null && typeof u !== 'string' && typeof u[Symbol.iterator] === 'function')
+        ? Array.from(u)
+        : null;
+  };
   // Every string column gets routed through _coerceString — see issue #53
   // for why a raw VARCHAR value reaching the client unconverted can crash
   // the whole search (.split / .trim on a Uint8Array throws and the
@@ -549,6 +669,14 @@ function _toOffProduct(row) {
       serving_quantity: row.serving_quantity != null ? _coerceString(row.serving_quantity) : '',
       quantity: _coerceString(row.quantity),
       nutriments: _unfoldNutrimentsList(nutrList || []),
+      // #187 — pass OFF's completeness score through so the client's
+      // quality-tier filter and result ranking can use it. Without
+      // this, every mirror row was bucketed as "Unknown" and any
+      // tier selection other than all-boxes-or-Unknown-only hid all
+      // results. Client (_bucketOff / _mapOFFProduct) tolerates
+      // presence and absence; undefined here matches "column not in
+      // this parquet".
+      completeness: typeof row.completeness === 'number' ? row.completeness : undefined,
     };
   }
   // Legacy native DuckDB shape (product_name is a plain string column)
@@ -567,6 +695,9 @@ function _toOffProduct(row) {
     serving_quantity: row.serving_quantity != null ? _coerceString(row.serving_quantity) : '',
     quantity: _coerceString(row.quantity),
     nutriments,
+    // Same #187 passthrough on the legacy .duckdb shape too — undefined
+    // when the pre-rc.39 snapshot didn't carry the column.
+    completeness: typeof row.completeness === 'number' ? row.completeness : undefined,
   };
 }
 

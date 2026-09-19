@@ -129,6 +129,23 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
   CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+
+  -- Outgoing webhooks. secret_encrypted is AES-256-GCM (token-crypto.js),
+  -- not hashed like api_tokens.token_hash, because the server needs the
+  -- plaintext back later to compute each delivery's HMAC.
+  CREATE TABLE IF NOT EXISTS webhooks (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    url                  TEXT NOT NULL,
+    secret_encrypted     TEXT NOT NULL,
+    events               TEXT NOT NULL DEFAULT '[]',  -- JSON array of event names
+    enabled              INTEGER NOT NULL DEFAULT 1,
+    last_delivery_at     TEXT,
+    last_delivery_status TEXT,                        -- 'success' | 'failed' | NULL
+    last_delivery_error  TEXT,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
 `);
 
 // ── Wellness tables ────────────────────────────────────────────────────────
@@ -422,6 +439,30 @@ if (!columnExists('wellness_data', 'device_model')) {
   db.exec(`ALTER TABLE wellness_data ADD COLUMN device_model TEXT DEFAULT NULL`);
 }
 
+// #206: prune Health Connect body-composition rows written as literal 0
+// by the pre-fix client. Same cleanup runs on the Android side (see
+// src/lib/db-native.js) so the local DB is clean; this pass handles
+// rows that were already pushed up to the server before the fix. None
+// of these metrics has a legitimate zero reading (0 kg lean mass or
+// 0 kcal BMR is nonsense), so the DELETE is safe. Runs once per boot
+// because the new client omits the key rather than writing zero, so
+// after the first run the DELETE is a no-op. If anyone opens a
+// stored-0 defence issue for a different metric, add it to this list.
+try {
+  db.prepare(`
+    DELETE FROM wellness_data
+     WHERE source = 'health_connect'
+       AND value  = 0
+       AND metric_type IN (
+         'bone_mass_kg', 'lean_mass_kg', 'basal_metabolic_rate',
+         'body_fat_pct', 'body_temperature', 'vo2_max',
+         'respiratory_rate', 'spo2_avg'
+       )
+  `).run();
+} catch (e) {
+  console.warn('[db] wellness_data zero-value prune skipped:', e?.message || e);
+}
+
 if (!columnExists('diary', 'user_id')) {
   db.exec(`
     ALTER TABLE diary ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
@@ -456,6 +497,63 @@ if (!columnExists('meals', 'visibility')) {
 if (!columnExists('meals', 'source_id')) {
   db.exec(`ALTER TABLE meals ADD COLUMN source_id INTEGER`);
 }
+
+// ── Cross-app federation source metadata (CT recipes into NT, and any
+//    future cross-app importers). source_id above is an INTEGER used by
+//    the "copy from group" flow and is not usable as a text external id.
+//    These columns give us a proper federation identity per meal plus a
+//    UI-visible warning list for imports where some ingredients arrived
+//    without nutrition data.
+//      source_app: 'cooktrace', 'lifttrace-recipe', etc.
+//                  null means created inside NT, unaffected.
+//      source_external_id: the source app's row id (string, so callers
+//                          can namespace freely without a schema change).
+//      source_url: deep link back to the source (recipe page, etc).
+//                  Rendered as a small link on the row.
+//      import_warnings: nullable JSON array of strings. CT's rollup
+//                       emits one warning per ingredient it couldn't
+//                       sum (missing nutrition, unit mismatch, etc);
+//                       those get shown on the NT recipe row so the
+//                       user knows the total is a lower bound.
+if (!columnExists('meals', 'source_app')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN source_app TEXT`);
+}
+if (!columnExists('meals', 'source_external_id')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN source_external_id TEXT`);
+}
+if (!columnExists('meals', 'source_url')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN source_url TEXT`);
+}
+if (!columnExists('meals', 'import_warnings')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN import_warnings TEXT`);
+}
+// Partial index so a pulled-from-CookTrace recipe can upsert by
+// (user, source, ext_id) without a scan when NT re-imports it.
+// WHERE clause keeps rows with no federation metadata out of the
+// index entirely so it stays tiny.
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_meals_source_ext
+    ON meals(user_id, source_app, source_external_id)
+    WHERE source_app IS NOT NULL AND source_external_id IS NOT NULL
+`);
+
+// Same federation identity on foods for the CT-pantry-into-NT-foods pull.
+// Only source_external_id namespaces the row on its source (e.g.
+// 'pantry:42'); source_app / source_url mirror the meals-side semantics.
+if (!columnExists('foods', 'source_app')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN source_app TEXT`);
+}
+if (!columnExists('foods', 'source_external_id')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN source_external_id TEXT`);
+}
+if (!columnExists('foods', 'source_url')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN source_url TEXT`);
+}
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_foods_source_ext
+    ON foods(user_id, source_app, source_external_id)
+    WHERE source_app IS NOT NULL AND source_external_id IS NOT NULL
+`);
 
 // ── Sync migrations (Phase 2) ──────────────────────────────────────────────
 // Add updated_at to tables that lack it (needed for differential sync)
@@ -508,6 +606,23 @@ if (!columnExists('diary', 'deleted_at')) {
 }
 if (!columnExists('diary', 'notes')) {
   db.exec(`ALTER TABLE diary ADD COLUMN notes TEXT DEFAULT NULL`);
+}
+// #207: per-day completion mark. NULL means unmarked; a timestamp means
+// the user explicitly closed the day (all meals + snacks logged). Purely
+// a visual affordance on the week strip and date picker, no calculations
+// depend on it.
+if (!columnExists('diary', 'completed_at')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN completed_at TEXT DEFAULT NULL`);
+}
+// #207 (per-meal companion): opt-in per-meal completion marks. JSON
+// array of meal slot indexes the user has explicitly marked complete
+// (e.g. [0, 2] means Breakfast + Dinner are closed). NULL when the
+// user has never touched a per-meal mark on this day. Gated on the
+// client side by the diaryShowMealCompletion setting; the column is
+// always present so a device with the setting on can sync to one that
+// has it off without schema drift.
+if (!columnExists('diary', 'completed_meals')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN completed_meals TEXT DEFAULT NULL`);
 }
 if (!columnExists('user_settings', 'deleted_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN deleted_at TEXT DEFAULT NULL`);
