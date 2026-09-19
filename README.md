@@ -11,12 +11,14 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
-  <a href="https://github.com/traceapps/nutritrace/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/traceapps/nutritrace?label=release&color=blue"></a>
-  <a href="https://github.com/traceapps/nutritrace/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/traceapps/nutritrace/total?label=downloads&color=blue"></a>
-  <a href="https://traceapps.github.io/docs/nutritrace/"><img alt="Documentation" src="https://img.shields.io/badge/docs-traceapps.github.io-4A90E2?logo=readthedocs&logoColor=white"></a>
-  <a href="https://github.com/traceapps/nutritrace/pkgs/container/nutritrace"><img alt="GHCR" src="https://img.shields.io/badge/ghcr.io-traceapps%2Fnutritrace-2496ED?logo=docker&logoColor=white"></a>
-  <a href="https://hub.docker.com/r/traceapps/nutritrace"><img alt="Docker Hub pulls" src="https://img.shields.io/docker/pulls/traceapps/nutritrace?logo=docker&logoColor=white&label=docker%20pulls"></a>
-  <a href="https://github.com/traceapps/nutritrace/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/traceapps/nutritrace?style=flat"></a>
+  <a href="https://github.com/traceapps/nutritrace/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/traceapps/nutritrace?label=release&color=orange"></a>
+  <a href="https://github.com/traceapps/nutritrace/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/traceapps/nutritrace/total?label=downloads&color=brightgreen"></a>
+  <a href="https://github.com/traceapps/nutritrace/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/traceapps/nutritrace?style=social"></a>
+  <a href="https://traceapps.github.io/docs/getting-started/compose/"><img alt="Platform" src="https://img.shields.io/badge/platform-Web%20%7C%20Android%20%7C%20Docker-lightgrey"></a>
+  <br/>
+  <a href="https://traceapps.github.io/docs/nutritrace/"><img alt="Documentation" src="https://img.shields.io/badge/docs-traceapps.github.io-8A2BE2?logo=readthedocs&logoColor=white"></a>
+  <a href="https://github.com/traceapps/nutritrace/pkgs/container/nutritrace"><img alt="GHCR" src="https://img.shields.io/badge/ghcr.io-traceapps%2Fnutritrace-181717?logo=github&logoColor=white"></a>
+  <a href="https://hub.docker.com/r/traceapps/nutritrace"><img alt="Docker Hub pulls" src="https://img.shields.io/docker/pulls/traceapps/nutritrace?logo=docker&logoColor=white&label=docker%20pulls&color=2496ED"></a>
 </p>
 
 <p align="center">
