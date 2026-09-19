@@ -38,7 +38,7 @@
     "cancel": "Abbrechen",
     "back": "Zurück",
     "close": "Schließen",
-    "delete": "Entfernen",
+    "delete": "Löschen",
     "signed_in": "Angemeldet",
     "signed_out": "Abgemeldet",
     "linked": "Verbunden",
@@ -135,7 +135,7 @@
       "section": "Ziele"
     },
     "body_stats": {
-      "section": "Körpermaße"
+      "section": "Körperwerte"
     },
     "statistics": {
       "section": "Statistiken",
@@ -711,7 +711,7 @@
       "field_distance_placeholder": "z. B. 10 km",
       "field_optional": "(optional)",
       "saving": "Wird hinzugefügt…",
-      "estimated_short": "geschätzt",
+      "estimated_short": "ca.",
       "wellness_hint": "Synchronisierte Trainings von deinem Gerät findest du unter Gesundheit",
       "not_counted": "Nicht gewertet – Daten vom Wearable verwendet",
       "policy_chip": "Regel: Wearable hat Vorrang. Anpassbar unter Einstellungen → Tagebuch.",
@@ -2021,7 +2021,7 @@
       "download": "Herunterladen",
       "restore": "Wiederherstellen",
       "share": "Teilen",
-      "delete_title": "Löschen",
+      "delete_title": "Backup löschen",
       "empty_server": "Noch keine Backups auf dem Server vorhanden.",
       "empty_local": "Noch keine lokalen Backups vorhanden – tippe auf „Backup erstellen“, um loszulegen.",
       "min_ago": "vor {n} Min",
