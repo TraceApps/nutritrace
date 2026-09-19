@@ -1323,7 +1323,7 @@
       "off_not_found": "Nicht in Open Food Facts gefunden",
       "off_refreshed": "Daten von Open Food Facts aktualisiert",
       "refresh_failed": "Aktualisierung fehlgeschlagen: {error}",
-      "label_read_failed": "Tabelle konnte nicht gelesen werden. Bitte versuche es mit einem deutlicheren Foto.",
+      "label_read_failed": "Nährwerttabelle konnte nicht gelesen werden. Bitte versuche es mit einem deutlicheren Foto.",
       "nutrition_extracted": "Nährwerte aus Tabelle erkannt",
       "scan_failed": "Scan fehlgeschlagen: {error}",
       "saved_copy": "Eine Kopie in deinen Katalog gespeichert",
@@ -1881,7 +1881,7 @@
       "test_failed": "Test fehlgeschlagen",
       "empty_response": "Keine Antwort von der KI erhalten"
     },
-    "provider_env_locked": "Über Umgebung gesperrt",
+    "provider_env_locked": "Über Umgebungsvariablen gesperrt",
     "env_lock_banner": "Über Umgebungsvariablen konfiguriert, Änderungen sind deaktiviert.",
     "labels": {
       "enable": "KI-Assistent aktivieren",
