@@ -20,8 +20,14 @@
   import { writable } from 'svelte/store';
 
   // Sync state — mirrored from the real sync store (dynamically imported)
+  // The browser's offline queue (web only); see src/lib/offline-api.js.
+  import { offlineState } from './lib/offline-api.js';
   const syncState = writable({ syncing: false, phase: '', progress: '', lastSync: null, error: null, online: true, connectionIssue: null, showErrorBanner: false });
   $: _syncModeActive = isNative && getNativeMode() === 'server';
+  // On the web the same badge reports the offline queue: amber while work is
+  // waiting to go up, red when the server answers but refuses the push.
+  $: _webOffline = !isNative && (!$offlineState.online || $offlineState.pending > 0 || !!$offlineState.error);
+  $: _webFailing = !isNative && !!$offlineState.error;
   $: _serverReachable = $syncState.online && !$syncState.connectionIssue;
   // The server answers but the sync is failing, as opposed to no network at all.
   $: _syncFailing = $syncState.online && !!$syncState.connectionIssue;
@@ -762,11 +768,12 @@
       aria-label="Open menu"
     >
       <span class="material-symbols-rounded">menu</span>
-      {#if _syncModeActive && !_serverReachable}
+      {#if (_syncModeActive && !_serverReachable) || _webOffline}
         <!-- Amber while simply offline (nothing lost, it just hasn't gone yet),
              red when the server is reachable but the sync is failing. -->
-        <span class="conn-badge" class:conn-failing={_syncFailing} class:conn-offline={!_syncFailing}>
-          <span class="material-symbols-rounded" style="font-size:10px">{_syncFailing ? 'cloud_alert' : 'cloud_off'}</span>
+        <span class="conn-badge" class:conn-failing={_syncFailing || _webFailing} class:conn-offline={!(_syncFailing || _webFailing)}
+          title={_webOffline ? $_('sync.pending_web', { values: { count: $offlineState.pending } }) : ''}>
+          <span class="material-symbols-rounded" style="font-size:10px">{(_syncFailing || _webFailing) ? 'cloud_alert' : 'cloud_off'}</span>
         </span>
       {/if}
     </button>

@@ -876,6 +876,13 @@ import { NtApiNative } from './api-native.js';
 // Dynamic proxy — resolves which implementation to use on EVERY call.
 // Three modes: web (HTTP), native standalone (local SQLite), native server (cached).
 import { NtApiCached } from './api-cached.js';
+import { createOfflineApi } from './offline-api.js';
+
+// The browser's API, wrapped so the diary keeps working without a connection
+// (#211). Built on first use, so a page that never calls the API never opens
+// IndexedDB.
+let _offlineHttp = null;
+const _webApi = () => (_offlineHttp ||= createOfflineApi(_NtApiHttp));
 
 export const NtApi = new Proxy({}, {
   get(_, prop) {
@@ -886,7 +893,7 @@ export const NtApi = new Proxy({}, {
 
     let impl, implName;
     if (!isNative) {
-      impl = _NtApiHttp;    implName = 'HTTP';       // Web PWA — always server
+      impl = _webApi();     implName = 'HTTP';       // Web PWA: server, with an offline mirror
     } else if (!getServerUrl()) {
       impl = NtApiNative;   implName = 'Native';     // Native standalone — always local
     } else {

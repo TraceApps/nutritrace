@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **The web app keeps working without a connection** ([#211](https://github.com/TraceApps/nutritrace/issues/211)). First part: your diary and your own food catalogue are kept in the browser, so in a dead zone the app still opens, the day still adds up, and you can log a food you already have. What you log is held and goes up on its own when the connection comes back, merged by the server exactly as the Android app's changes are, so logging on a phone and a laptop at the same time can't lose an entry. The menu button shows an amber cloud while anything is waiting, and red if your server refuses it. Signing out sends what's waiting first, then clears the copy held in the browser. Still needs a connection for now: Open Food Facts and USDA search, barcode lookups, photos, the wellness providers, Trace and anything admin. Deliberately not built on Background Sync, which Safari doesn't have, so this works the same on iPhone.
+
 ### Fixed
 
 - **Update checks are off until you turn them on, and your server does the asking.** Every browser and phone used to ask GitHub directly every 4 hours, whether or not anyone had asked for that. Setup now asks, and skipping the question leaves checks off, so a new install contacts nothing on its own. When checks are on, your server asks GitHub for the latest release and the Android app asks for the latest app version, and nothing about you or your instance is sent. If checks are off, the app says so once, so nobody assumes it will tell them about a release that fixes a security problem. Existing installs keep checking exactly as before; this is the new default for fresh installs. `UPDATE_CHECK=off` keeps checks off whatever the setting says. Reported on r/selfhosted.

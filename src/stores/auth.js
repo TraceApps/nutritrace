@@ -294,6 +294,17 @@ export async function logout() {
     try { localStorage.removeItem('nt:oidc_logout_hint'); } catch {}
   } catch {}
   try { await fetch(_apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include', headers: _authHeaders() }); } catch {}
+
+  // The browser's offline mirror and queue belong to the account that just
+  // signed out, so they go with it. Anything still waiting is sent first, so
+  // signing out on a flaky connection doesn't quietly drop a logged meal.
+  if (!isNative) {
+    try {
+      const { flushOutbox, clearOffline } = await import('../lib/offline-api.js');
+      await flushOutbox().catch(() => {});
+      await clearOffline();
+    } catch { /* never block sign-out */ }
+  }
   // Clear auth state — but keep cached data (foods, images, server URL)
   if (isNative) {
     const { setAuthToken } = await import('../lib/platform.js');
