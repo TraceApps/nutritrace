@@ -2181,6 +2181,7 @@
       "withings_with_user": "Sync Withings · User {user}"
     },
     "empty": {
+      "offline": "Wellness data comes from your provider through the server, so it needs a connection. It will be here when you are back online.",
       "no_integrations": "No integrations enabled",
       "no_integrations_desc": "Enable Fitbit or Withings in <strong>Settings → Wellness</strong> to start syncing health data.",
       "no_device": "No Device Connected",

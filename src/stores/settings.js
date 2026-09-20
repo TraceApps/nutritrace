@@ -196,7 +196,15 @@ export function scheduleSave(key, value) {
       }
     } catch (e) {
       console.warn(`[settings] direct push failed for ${key}:`, e.message);
-      // Leave as 'pending' in local SQLite — differential sync will push it later
+      // Native: leave it 'pending' in local SQLite, differential sync pushes
+      // it later. Web: the browser has no such table, so the change would be
+      // lost at the next pull; hand it to the offline queue instead (#211).
+      if (!isNative) {
+        try {
+          const { queueSetting } = await import('../lib/offline-api.js');
+          await queueSetting(key, value);
+        } catch { /* nothing more to try */ }
+      }
     }
   }, 600);
 }

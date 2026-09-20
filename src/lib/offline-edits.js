@@ -184,13 +184,25 @@ const _catalogRow = (op) => {
   return row;
 };
 
+/** Settings changed offline, one row per key, the last value winning. */
+export function collapseSettingOps(ops) {
+  const byKey = new Map();
+  for (const op of ops || []) {
+    if (!op || op.type !== 'setting' || !op.key) continue;
+    byKey.set(op.key, { key: op.key, value: op.data, updated_at: new Date(op.at || Date.now()).toISOString() });
+  }
+  return [...byKey.values()];
+}
+
 /** The /api/sync/push body for queued catalogue work. */
 export function buildCatalogPush(ops) {
   return {
     foods: collapseCatalogOps(ops, 'foods').map(_catalogRow),
     meals: collapseCatalogOps(ops, 'meals').map(_catalogRow),
     activity: collapseCatalogOps(ops, 'activity').map(_catalogRow),
-    diary: [], fasts: [], wellness: [], settings: [], workouts: [],
+    fasts: collapseCatalogOps(ops, 'fasts').map(_catalogRow),
+    settings: collapseSettingOps(ops),
+    diary: [], wellness: [], workouts: [],
   };
 }
 
@@ -198,7 +210,7 @@ export function buildCatalogPush(ops) {
 export function createdIds(response) {
   const tables = response?.tables || response || {};
   const map = {};
-  for (const name of ['foods', 'meals', 'activity']) {
+  for (const name of ['foods', 'meals', 'activity', 'fasts']) {
     for (const r of Array.isArray(tables[name]) ? tables[name] : []) {
       if (r && r.client_id != null && r.server_id != null && isTempId(r.client_id)) map[Number(r.client_id)] = Number(r.server_id);
     }
@@ -228,4 +240,55 @@ export function remapIds(value, map) {
     return v;
   };
   return walk(value);
+}
+
+// ── Fasting, without a connection ───────────────────────────────────
+//
+// A fast is one row with a start and, once it's over, an end, so it queues
+// like a catalogue row (table 'fasts'). What's queued is always the whole
+// row rather than the field that changed, because the server's merge writes
+// every column from what it's given.
+
+const _byNewest = (a, b) => String(b.start_at || '').localeCompare(String(a.start_at || ''));
+const _liveFasts = (rows, ops) =>
+  [...applyCatalogOps(rows, ops, 'fasts').values()].filter(f => f && !f.deleted_at);
+
+/** The fast still running, mirror plus queue, as /api/fasts/active answers. */
+export function activeFastRow(rows, ops) {
+  return _liveFasts(rows, ops).filter(f => !f.end_at).sort(_byNewest)[0] || null;
+}
+
+/** Recent fasts newest first, as /api/fasts answers. */
+export function fastList(rows, ops, limit = 60) {
+  return _liveFasts(rows, ops).sort(_byNewest).slice(0, Math.max(1, limit));
+}
+
+/**
+ * The row a fast started offline begins as, following the server's own rules:
+ * a goal it would accept, and a back-dated start only within the last day.
+ */
+export function newFastRow(body, now = Date.now()) {
+  const goal = Number(body?.goal_hours);
+  const asked = body?.start_at ? new Date(body.start_at).getTime() : NaN;
+  const backdated = Number.isFinite(asked) && asked <= now && asked > now - 24 * 3600 * 1000;
+  return {
+    start_at: new Date(backdated ? asked : now).toISOString(),
+    end_at: null,
+    goal_hours: Number.isFinite(goal) && goal > 0 && goal <= 168 ? Math.round(goal * 10) / 10 : 16,
+    notes: null,
+  };
+}
+
+/** The whole fast as it would be after this change, ready to queue. */
+export function fastWith(rows, ops, id, change) {
+  const current = applyCatalogOps(rows, ops, 'fasts').get(Number(id));
+  if (!current) return null;
+  const { _pending, id: _id, ...rest } = current;
+  return {
+    start_at: rest.start_at,
+    end_at: rest.end_at ?? null,
+    goal_hours: rest.goal_hours ?? 16,
+    notes: rest.notes ?? null,
+    ...change,
+  };
 }

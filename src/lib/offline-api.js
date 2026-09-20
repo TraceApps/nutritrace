@@ -21,6 +21,7 @@ import { writable, get } from 'svelte/store';
 import {
   applyDiaryOps, dayWithOps, buildDiaryPush, sentSeqs, pushError, isOfflineError, emptyDay,
   applyCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId,
+  activeFastRow, fastList, newFastRow, fastWith,
 } from './offline-edits.js';
 
 const RETRY_MIN_MS = 3_000;
@@ -53,7 +54,7 @@ function _db() {
   const name = _dbName();
   if (_dbPromise && _dbPromise.name === name) return _dbPromise;
   const p = new Promise((resolve) => {
-    const req = indexedDB.open(name, 1);
+    const req = indexedDB.open(name, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('diary')) db.createObjectStore('diary', { keyPath: 'date' });
@@ -61,6 +62,7 @@ function _db() {
       if (!db.objectStoreNames.contains('meals')) db.createObjectStore('meals', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('recipes')) db.createObjectStore('recipes', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('activity')) db.createObjectStore('activity', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('fasts')) db.createObjectStore('fasts', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('activity_sums')) db.createObjectStore('activity_sums', { keyPath: 'date' });
       if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'seq', autoIncrement: true });
     };
@@ -106,6 +108,7 @@ function _publish(extra = {}) {
 const _channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('nutritrace-offline') : null;
 _channel?.addEventListener('message', async (e) => {
   if (e.data?.type !== 'outbox') return;
+  if (e.data.ids) _swapped = { ..._swapped, ...e.data.ids };
   _ops = null;
   await _loadOps();
   _publish();
@@ -115,6 +118,17 @@ _channel?.addEventListener('message', async (e) => {
 });
 
 const _online = () => typeof navigator === 'undefined' || navigator.onLine !== false;
+
+/**
+ * What each temporary id became. A screen already open goes on showing the
+ * id a row was created with offline, so a change made right after the queue
+ * goes up would otherwise be queued against an id the server never had, and
+ * arrive as a second copy. Tabs share the map along with the outbox.
+ */
+let _swapped = {};
+const _realId = (id) => (id != null && _swapped[Number(id)] != null ? _swapped[Number(id)] : id);
+const _fixFastPath = (path) =>
+  String(path).replace(/^\/api\/fasts\/(-?\d+)/, (_all, id) => `/api/fasts/${_realId(id)}`);
 
 function _offlineError(message) {
   const err = new Error(message || 'This needs a connection.');
@@ -155,10 +169,46 @@ async function _queueCatalog(store, table, action, id, data) {
   return applyCatalogOps(await _all(store), ops, table).get(Number(id)) || null;
 }
 
+/**
+ * A setting changed with no connection. Settings do not go through the API
+ * wrapper (the settings store pushes them itself), so the store calls this
+ * when its own push fails. Keyed by name: the last value wins.
+ */
+export async function queueSetting(key, value) {
+  const ops = await _loadOps();
+  const op = { type: 'setting', key, data: value, at: Date.now() };
+  const seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  if (seq == null) return false;
+  op.seq = seq;
+  ops.push(op);
+  _publish();
+  _channel?.postMessage({ type: 'outbox' });
+  _scheduleFlush(_online() ? 0 : _retryMs);
+  return true;
+}
+
 // ── Sending ──────────────────────────────────────────────────────────
 let _http = null;
 let _retry = null;
 let _flushing = null;
+
+/**
+ * Send the push. The API wrapper is only built the first time a screen calls
+ * the API, and settings can be changed before that (Settings is reachable
+ * straight from a link), so fall back to a plain request rather than sitting
+ * on the queue forever.
+ */
+async function _post(path, body) {
+  if (_http) return _http.post(path, body);
+  const res = await fetch(path, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
 
 function _scheduleFlush(ms = 0) {
   clearTimeout(_retry);
@@ -186,17 +236,17 @@ async function _flushOnce() {
   _ops = null;
   const ops = await _loadOps();
   if (!ops.length) { _publish({ syncing: false, error: null, online: _online() }); return true; }
-  if (!_online() || !_http) { _scheduleFlush(_backoff()); return false; }
+  if (!_online()) { _scheduleFlush(_backoff()); return false; }
   _publish({ syncing: true });
 
   // Foods go first and on their own: a food made offline has a temporary id,
   // and the diary entries logged from it have to point at the real one before
   // they go up.
-  const foodOps = ops.filter(op => op.type === 'catalog');
+  const foodOps = ops.filter(op => op.type === 'catalog' || op.type === 'setting');
   if (foodOps.length) {
     let foodResponse;
     try {
-      foodResponse = await _http.post('/api/sync/push', buildCatalogPush(foodOps));
+      foodResponse = await _post('/api/sync/push', buildCatalogPush(foodOps));
     } catch (err) {
       const offline = isOfflineError(err);
       _publish({ syncing: false, online: offline ? false : _online(), error: offline ? null : (err.message || 'failed') });
@@ -211,8 +261,10 @@ async function _flushOnce() {
     }
     const map = createdIds(foodResponse);
     if (Object.keys(map).length) {
+      _swapped = { ..._swapped, ...map };
+      _channel?.postMessage({ type: 'outbox', ids: map });
       // The catalogue, the days already saved, and the diary still queued.
-      for (const store of ['foods', 'meals', 'recipes', 'activity']) {
+      for (const store of ['foods', 'meals', 'recipes', 'activity', 'fasts']) {
         for (const row of await _all(store)) {
           if (isTempId(row.id) && map[Number(row.id)] != null) {
             await _tx(store, 'readwrite', s => s.delete(Number(row.id)));
@@ -244,7 +296,7 @@ async function _flushOnce() {
   const mirror = await _all('diary');
   let response;
   try {
-    response = await _http.post('/api/sync/push', buildDiaryPush(diaryOps, mirror));
+    response = await _post('/api/sync/push', buildDiaryPush(diaryOps, mirror));
   } catch (err) {
     const offline = isOfflineError(err);
     _publish({ syncing: false, online: offline ? false : _online(), error: offline ? null : (err.message || 'failed') });
@@ -281,6 +333,7 @@ export async function clearOffline() {
   await _tx('meals', 'readwrite', s => s.clear());
   await _tx('recipes', 'readwrite', s => s.clear());
   await _tx('activity', 'readwrite', s => s.clear());
+  await _tx('fasts', 'readwrite', s => s.clear());
   await _tx('activity_sums', 'readwrite', s => s.clear());
   await _tx('outbox', 'readwrite', s => s.clear());
   _ops = [];
@@ -292,8 +345,7 @@ export async function clearOffline() {
  * Wrap the HTTP API so the diary keeps working without a connection.
  * Anything not named here is passed straight through.
  */
-export function createOfflineApi(http) {
-  _http = http;
+function _wire() {
   if (typeof window !== 'undefined' && !window.__ntOfflineWired) {
     window.__ntOfflineWired = true;
     window.addEventListener('online', () => { _resetBackoff(); _publish({ online: true }); _scheduleFlush(0); });
@@ -303,6 +355,50 @@ export function createOfflineApi(http) {
     });
     _loadOps().then(() => { _publish(); if (_ops.length) _scheduleFlush(0); });
   }
+}
+// Wired as soon as anything imports this, so a queue left from last time is
+// sent even if the first thing the user opens never calls the API.
+_wire();
+
+const _FASTS = /^\/api\/fasts(\/|\?|$)/;
+const _isActivePath = (path) => String(path).split('?')[0] === '/api/fasts/active';
+const _isFastOp = (op) => op?.type === 'catalog' && op.table === 'fasts';
+function _fastLimit(path) {
+  const q = String(path).includes('?') ? String(path).split('?')[1] : '';
+  const n = parseInt(new URLSearchParams(q).get('limit'));
+  return Number.isFinite(n) && n > 0 ? n : 60;
+}
+
+/** Nothing queued for the fasts table and the browser thinks it's online. */
+async function _canReachServer() {
+  return _online() && !(await _loadOps()).some(_isFastOp);
+}
+
+/** Queue the whole fast as it stands after this change. */
+async function _queueFast(id, change) {
+  const merged = fastWith(await _all('fasts'), await _loadOps(), id, change);
+  // A fast this browser has never seen can't be changed from here.
+  if (!merged) throw _offlineError();
+  return _queueCatalog('fasts', 'fasts', isTempId(id) ? 'create' : 'update', id, merged);
+}
+
+/**
+ * A call this layer doesn't handle. Still the server's job; offline, say that
+ * rather than letting a network error reach the screen.
+ */
+async function _through(http, name, path, args) {
+  try {
+    return await http[name](path, ...args);
+  } catch (err) {
+    if (!isOfflineError(err)) throw err;
+    _publish({ online: false });
+    throw _offlineError();
+  }
+}
+
+export function createOfflineApi(http) {
+  _http = http;
+  _wire();
 
   const impl = {
     async getDiaryDate(date) {
@@ -366,6 +462,7 @@ export function createOfflineApi(http) {
     },
 
     async updateFood(id, data) {
+      id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
         try {
@@ -381,6 +478,7 @@ export function createOfflineApi(http) {
     },
 
     async deleteFood(id) {
+      id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
         try {
@@ -415,6 +513,7 @@ export function createOfflineApi(http) {
     },
 
     async updateMeal(id, data) {
+      id = _realId(id);
       const ops = await _loadOps();
       const store = data?.is_recipe ? 'recipes' : 'meals';
       if (_online() && !ops.length && !isTempId(id)) {
@@ -431,6 +530,7 @@ export function createOfflineApi(http) {
     },
 
     async deleteMeal(id) {
+      id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
         try {
@@ -511,6 +611,7 @@ export function createOfflineApi(http) {
     },
 
     async updateActivity(id, data) {
+      id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
         try {
@@ -526,6 +627,7 @@ export function createOfflineApi(http) {
     },
 
     async deleteActivity(id) {
+      id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
         try {
@@ -555,6 +657,7 @@ export function createOfflineApi(http) {
     },
 
     async getFood(id) {
+      id = _realId(id);
       try {
         const food = await http.getFood(id);
         await _remember('foods', food);
@@ -580,6 +683,91 @@ export function createOfflineApi(http) {
         // Recipes are kept apart in the mirror, so only meals come back here.
         return [...applyCatalogOps(await _all('meals'), await _loadOps(), 'meals').values()].filter(m => !m.is_recipe);
       }
+    },
+
+    // ── Intermittent fasting ─────────────────────────────────────────
+    // The fasting widget talks to the server by path rather than through a
+    // named method, so these four take the fasting paths and hand everything
+    // else (wellness providers, admin, Trace) straight on.
+    async get(path, ...rest) {
+      if (!_FASTS.test(path)) return _through(http, 'get', path, rest);
+      const answer = async () => {
+        const [rows, ops] = [await _all('fasts'), await _loadOps()];
+        return _isActivePath(path) ? activeFastRow(rows, ops) : fastList(rows, ops, _fastLimit(path));
+      };
+      try {
+        const served = await http.get(path, ...rest);
+        await _remember('fasts', served || []);
+        return (await _loadOps()).some(_isFastOp) ? answer() : served;
+      } catch (err) {
+        if (!isOfflineError(err)) throw err;
+        _publish({ online: false });
+        return answer();
+      }
+    },
+
+    async post(path, body, ...rest) {
+      if (!_FASTS.test(path)) return _through(http, 'post', path, [body, ...rest]);
+      path = _fixFastPath(path);
+      if (await _canReachServer()) {
+        try {
+          const row = await http.post(path, body, ...rest);
+          await _remember('fasts', row);
+          return row;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      if (path === '/api/fasts/start') {
+        // The server refuses a second fast while one is running; so does this,
+        // or reconnecting would leave two of them open.
+        if (activeFastRow(await _all('fasts'), await _loadOps())) {
+          throw new Error('A fast is already in progress. End it before starting a new one.');
+        }
+        return _queueCatalog('fasts', 'fasts', 'create', newTempId(), newFastRow(body));
+      }
+      const ending = String(path).match(/^\/api\/fasts\/(-?\d+)\/end$/);
+      if (ending) return _queueFast(ending[1], { end_at: new Date().toISOString() });
+      throw _offlineError();
+    },
+
+    async patch(path, body, ...rest) {
+      if (!_FASTS.test(path)) return _through(http, 'patch', path, [body, ...rest]);
+      path = _fixFastPath(path);
+      if (await _canReachServer()) {
+        try {
+          const row = await http.patch(path, body, ...rest);
+          await _remember('fasts', row);
+          return row;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      const one = String(path).match(/^\/api\/fasts\/(-?\d+)$/);
+      if (one) return _queueFast(one[1], body || {});
+      throw _offlineError();
+    },
+
+    async del(path, ...rest) {
+      if (!_FASTS.test(path)) return _through(http, 'del', path, rest);
+      path = _fixFastPath(path);
+      if (await _canReachServer()) {
+        try {
+          const r = await http.del(path, ...rest);
+          const one = String(path).match(/^\/api\/fasts\/(-?\d+)$/);
+          if (one) await _tx('fasts', 'readwrite', s => s.delete(Number(one[1])));
+          return r;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      const one = String(path).match(/^\/api\/fasts\/(-?\d+)$/);
+      if (!one) throw _offlineError();
+      await _queueCatalog('fasts', 'fasts', 'delete', one[1], null);
+      return { ok: true };
     },
 
     // The Foods screen loads foods, meals and recipes together, so all three

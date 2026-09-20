@@ -198,3 +198,116 @@ test('a workout logged offline shows in the day it belongs to', () => {
   assert.equal(rows.get(-9).kcal, 180);
   assert.equal(rows.get(-9)._pending, true);
 });
+
+test('a setting changed offline goes up once, with the last value', () => {
+  const ops = [
+    { seq: 1, type: 'setting', key: 'diaryShowActivity', data: true, at: 1 },
+    { seq: 2, type: 'setting', key: 'diaryShowActivity', data: false, at: 2 },
+    { seq: 3, type: 'setting', key: 'weightUnit', data: 'lb', at: 3 },
+  ];
+  const rows = buildCatalogPush(ops).settings;
+  assert.equal(rows.length, 2);
+  assert.equal(rows.find(r => r.key === 'diaryShowActivity').value, false);
+  assert.equal(rows.find(r => r.key === 'weightUnit').value, 'lb');
+});
+
+// ── Fasting without a connection ────────────────────────────────────
+import { activeFastRow, fastList, newFastRow, fastWith } from '../src/lib/offline-edits.js';
+
+const past = (h) => new Date(Date.now() - h * 3600_000).toISOString();
+
+test('a fast started offline runs from now, with the goal the user asked for', () => {
+  const row = newFastRow({ goal_hours: 18 });
+  assert.equal(row.goal_hours, 18);
+  assert.equal(row.end_at, null);
+  assert.ok(Date.now() - new Date(row.start_at).getTime() < 5_000);
+});
+
+test('a goal the server would refuse falls back to sixteen hours', () => {
+  assert.equal(newFastRow({ goal_hours: 0 }).goal_hours, 16);
+  assert.equal(newFastRow({ goal_hours: 900 }).goal_hours, 16);
+  assert.equal(newFastRow({}).goal_hours, 16);
+});
+
+test('a back-dated start is kept, but only within the last day', () => {
+  const now = Date.now();
+  assert.equal(newFastRow({ start_at: new Date(now - 3 * 3600_000).toISOString() }, now).start_at,
+    new Date(now - 3 * 3600_000).toISOString());
+  // Two days back, and tomorrow, both become now, as the server does.
+  assert.equal(newFastRow({ start_at: new Date(now - 48 * 3600_000).toISOString() }, now).start_at, new Date(now).toISOString());
+  assert.equal(newFastRow({ start_at: new Date(now + 3600_000).toISOString() }, now).start_at, new Date(now).toISOString());
+});
+
+test('the running fast is the one with no end, queue included', () => {
+  const mirror = [{ id: 3, start_at: past(30), end_at: past(14), goal_hours: 16 }];
+  const started = fop(1, 'create', -5, { start_at: past(2), end_at: null, goal_hours: 18 }, 'fasts');
+  assert.equal(activeFastRow(mirror, []), null, 'nothing running on the server');
+  assert.equal(activeFastRow(mirror, [started]).id, -5);
+  assert.equal(activeFastRow(mirror, [started]).goal_hours, 18);
+});
+
+test('ending a fast offline clears it and leaves it in the history', () => {
+  const stopped = past(1);
+  const mirror = [{ id: 7, start_at: past(17), end_at: null, goal_hours: 16, notes: null }];
+  const ended = fop(1, 'update', 7, fastWith(mirror, [], 7, { end_at: stopped }), 'fasts');
+  assert.equal(activeFastRow(mirror, [ended]), null);
+  const list = fastList(mirror, [ended]);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].end_at, stopped);
+  assert.equal(list[0].goal_hours, 16, 'the rest of the row is kept');
+});
+
+test('the queued fast carries every column, because the merge writes them all', () => {
+  const mirror = [{ id: 7, start_at: past(17), end_at: null, goal_hours: 20, notes: 'hi', user_id: 2 }];
+  const row = fastWith(mirror, [], 7, { end_at: past(1) });
+  assert.deepEqual(Object.keys(row).sort(), ['end_at', 'goal_hours', 'notes', 'start_at']);
+  assert.equal(row.goal_hours, 20);
+  assert.equal(row.notes, 'hi');
+});
+
+test('a fast this browser never saw cannot be changed offline', () => {
+  assert.equal(fastWith([], [], 99, { end_at: past(1) }), null);
+});
+
+test('fasts are newest first and cut to the limit asked for', () => {
+  const mirror = [
+    { id: 1, start_at: past(72), end_at: past(60) },
+    { id: 2, start_at: past(48), end_at: past(30) },
+    { id: 3, start_at: past(20), end_at: null },
+  ];
+  assert.deepEqual(fastList(mirror, []).map(f => f.id), [3, 2, 1]);
+  assert.deepEqual(fastList(mirror, [], 2).map(f => f.id), [3, 2]);
+});
+
+test('a fast deleted offline drops out of the history', () => {
+  const mirror = [{ id: 4, start_at: past(30), end_at: past(14) }];
+  assert.deepEqual(fastList(mirror, [fop(1, 'delete', 4, null, 'fasts')]), []);
+});
+
+test('fasts ride on their own side of the push, and a new one gets a real id', () => {
+  const ops = [
+    fop(1, 'create', -5, { start_at: past(6), end_at: null, goal_hours: 18 }, 'fasts'),
+    fop(2, 'delete', 4, null, 'fasts'),
+  ];
+  const push = buildCatalogPush(ops);
+  assert.equal(push.fasts.length, 2);
+  assert.equal(push.foods.length, 0);
+  assert.equal(push.diary.length, 0);
+  const made = push.fasts.find(r => r.client_id === -5);
+  assert.equal(made.goal_hours, 18);
+  assert.equal(made.server_id, null);
+  assert.ok(push.fasts.find(r => r.server_id === 4).deleted_at);
+  assert.deepEqual(createdIds({ tables: { fasts: [{ client_id: -5, server_id: 12 }] } }), { '-5': 12 });
+});
+
+test('a fast started and ended offline goes up as one finished fast', () => {
+  const [began, stopped] = [past(18), past(1)];
+  const ops = [
+    fop(1, 'create', -5, { start_at: began, end_at: null, goal_hours: 16 }, 'fasts'),
+    fop(2, 'create', -5, { start_at: began, end_at: stopped, goal_hours: 16 }, 'fasts'),
+  ];
+  const rows = buildCatalogPush(ops).fasts;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].client_id, -5);
+  assert.equal(rows[0].end_at, stopped);
+});

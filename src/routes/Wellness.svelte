@@ -10,6 +10,7 @@
   import { localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { isNative, getServerUrl } from '../lib/platform.js';
+  import { offlineState } from '../lib/offline-api.js';
   import { portal } from '../lib/portal.js';
   import FitbitIcon from '../components/icons/FitbitIcon.svelte';
   import HealthConnectIcon from '../components/icons/HealthConnectIcon.svelte';
@@ -2165,7 +2166,11 @@
             <div class="empty-state">
               <span class="material-symbols-rounded" style="font-size:48px;opacity:0.18">monitor_heart</span>
               <p>No data for {isToday ? 'today' : fmtDate(dateStr)}.</p>
-              <p class="text-3 text-sm">Tap <strong>Sync</strong> to pull the latest from your device.</p>
+              {#if $offlineState.online === false}
+                <p class="text-3 text-sm">{$_('wellness_page.empty.offline')}</p>
+              {:else}
+                <p class="text-3 text-sm">Tap <strong>Sync</strong> to pull the latest from your device.</p>
+              {/if}
             </div>
           {/if}
         {/if}
@@ -2261,7 +2266,11 @@
             <div class="empty-state">
               <span class="material-symbols-rounded" style="font-size:48px;opacity:0.18">scale</span>
               <p>No body composition data for {isToday ? 'today' : fmtDate(dateStr)}.</p>
-              <p class="text-3 text-sm">Sync your scale or fitness tracker to see body stats here.</p>
+              {#if $offlineState.online === false}
+                <p class="text-3 text-sm">{$_('wellness_page.empty.offline')}</p>
+              {:else}
+                <p class="text-3 text-sm">Sync your scale or fitness tracker to see body stats here.</p>
+              {/if}
             </div>
           {/if}
 
