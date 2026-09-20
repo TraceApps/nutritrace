@@ -12,6 +12,7 @@ const api = read('../src/lib/api.js');
 const offline = read('../src/lib/offline-api.js');
 const app = read('../src/App.svelte');
 const auth = read('../src/stores/auth.js');
+const foods = read('../src/routes/Foods.svelte');
 const en = JSON.parse(read('../src/i18n/en.json'));
 
 test('the web API is the HTTP one wrapped for offline, and native is untouched', () => {
@@ -54,4 +55,19 @@ test('signing out sends what is waiting, then clears the mirror', () => {
   const i = auth.indexOf('flushOutbox');
   assert.ok(i > 0, 'logout flushes the outbox');
   assert.ok(auth.indexOf('clearOffline') > i, 'and clears only afterwards');
+});
+
+test('offline says why the other sources are empty, rather than showing zero', () => {
+  // Open Food Facts, USDA, Mealie and CookTrace all need the network.
+  assert.match(foods, /_sourcesOffline = \$offlineState\.online === false/);
+  assert.match(foods, /if \(_sourcesOffline\) \{/);
+  for (const key of ['foods.offline.source', 'foods.offline.search_hint', 'foods.offline.barcode', 'foods.offline.import']) {
+    assert.ok(foods.includes(`$_('${key}')`), `${key} is shown somewhere`);
+  }
+  assert.ok(en.foods.offline.source && en.foods.offline.search_hint && en.foods.offline.barcode && en.foods.offline.import);
+});
+
+test('a barcode scanned offline does not read as an unknown product', () => {
+  const scan = foods.slice(foods.indexOf('_normBarcode(code)'));
+  assert.ok(scan.indexOf("foods.offline.barcode") < scan.indexOf('Not in Open Food Facts'), 'the offline case is handled before the not-found message');
 });

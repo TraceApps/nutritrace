@@ -824,6 +824,12 @@
       "loading_more": "Loading more…",
       "still_searching_others": "Still searching other sources…"
     },
+    "offline": {
+      "source": "needs a connection",
+      "search_hint": "You're offline, so only your own foods were searched. Open Food Facts, USDA and the other sources need a connection.",
+      "barcode": "You're offline, so only your own foods were checked for this barcode.",
+      "import": "That import needs a connection. It will work once you're back online."
+    },
     "loading_library": "Loading…",
     "pagination": {
       "showing_x_of_y": "Showing {shown} of {total}",

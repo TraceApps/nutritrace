@@ -24,6 +24,7 @@
   import { Nutrition } from '../lib/nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
   import { CookTrace } from '../lib/cooktraceApi.js';
+  import { offlineState } from '../lib/offline-api.js';
   import { resolveAssetUrl } from '../lib/platform.js';
   import { offCountryTagToFlag, offCountryTagToName } from '../lib/off-country-flag.js';
   import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, offSearchCountry, offSearchLanguage, foodsDefaultSource, diaryDefaultField, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
@@ -386,6 +387,10 @@
   let offResults = [];
   let usdaResults = [];
   let mealieResults = [];
+  // Open Food Facts, USDA, Mealie and CookTrace all need the network. When
+  // it's gone, say so instead of showing an empty list that reads as "no
+  // such food" (#211).
+  $: _sourcesOffline = $offlineState.online === false;
   let cooktraceResults = [];
   let ctPantryResults = [];
   let loading = false;
@@ -813,6 +818,14 @@
     const src = searchSource;
     searchTimeout = setTimeout(async () => {
       if (activeTab !== 0 && src !== 'cooktrace' && src !== 'all') return;
+      if (_sourcesOffline) {
+        // Offline: your own foods still answer, the rest are left empty and
+        // the chips below say why.
+        apiResults = []; apiTotalHits = 0; apiHasMore = false;
+        offResults = []; usdaResults = []; mealieResults = []; cooktraceResults = []; ctPantryResults = [];
+        loading = false; mealieLoading = false; cooktraceLoading = false; ctPantryLoading = false;
+        return;
+      }
       if (src === 'off') {
         try {
           loading = true;
@@ -929,7 +942,7 @@
       const mapped = Mealie.mapRecipe(full);
       openEditor(mapped, 'foodList');
     } catch(e) {
-      showError('Failed to import from Mealie');
+      showError(_sourcesOffline ? $_('foods.offline.import') : 'Failed to import from Mealie');
     }
   }
 
@@ -946,7 +959,7 @@
       const mapped = CookTrace.mapRecipe(full);
       openMealEditor(mapped, true);
     } catch (e) {
-      showError('Failed to import from CookTrace');
+      showError(_sourcesOffline ? $_('foods.offline.import') : 'Failed to import from CookTrace');
     }
   }
 
@@ -1474,6 +1487,15 @@
       //    the user can enter the food manually and optionally contribute
       //    it back to OFF via the editor's Contribute button. Previously
       //    this just showed a dead-end "Barcode not found" toast.
+      if (_sourcesOffline) {
+        // Only the user's own foods could be checked, so don't let this read
+        // as "this barcode doesn't exist".
+        scannerOpen = false;
+        const { showInfo: si } = await import('../stores/toast.js');
+        si($_('foods.offline.barcode'));
+        openEditor({ barcode: code }, 'foodList');
+        return;
+      }
       _scanLookupCode   = code;
       _scanLookupActive = true;
       _armScanIndicator();
@@ -2150,7 +2172,7 @@
              turn silent 0s into visible signals (e.g. "OFF · 0" tells the
              user OFF didn't return anything, not that ALL is broken).
              Sentinel fires loadMoreAll() when it scrolls into view. #96. -->
-        {#if _allModeItems.length > 0 || _allOffTotal > 0 || _allUsdaTotal > 0 || _allMealieTotal > 0 || _allCooktraceTotal > 0 || _allCtPantryTotal > 0}
+        {#if _sourcesOffline || _allModeItems.length > 0 || _allOffTotal > 0 || _allUsdaTotal > 0 || _allMealieTotal > 0 || _allCooktraceTotal > 0 || _allCtPantryTotal > 0}
           {@const _localCount = (_ownList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).length}
           {@const _sharedCount = _tabHasShared ? (_groupList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).length : 0}
           <div class="all-source-counts">
@@ -2159,19 +2181,19 @@
               <span class="asc-chip"><span class="asc-dot asc-shared"></span>Shared · {_sharedCount}</span>
             {/if}
             {#if _mealieEnabled && activeTab === 0}
-              <span class="asc-chip"><span class="asc-dot asc-mealie"></span>Mealie · {mealieResults.length}{#if _allMealieTotal > mealieResults.length} of {_allMealieTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-mealie"></span>Mealie · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{mealieResults.length}{#if _allMealieTotal > mealieResults.length} of {_allMealieTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
             {#if _cooktraceEnabled && activeTab === 2}
-              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {cooktraceResults.length}{#if _allCooktraceTotal > cooktraceResults.length} of {_allCooktraceTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{cooktraceResults.length}{#if _allCooktraceTotal > cooktraceResults.length} of {_allCooktraceTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
             {#if _cooktraceEnabled && activeTab === 0}
-              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {ctPantryResults.length}{#if _allCtPantryTotal > ctPantryResults.length} of {_allCtPantryTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{ctPantryResults.length}{#if _allCtPantryTotal > ctPantryResults.length} of {_allCtPantryTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
             {#if $offEnabled}
-              <span class="asc-chip"><span class="asc-dot asc-off"></span>OFF · {offResults.length}{#if _allOffTotal > offResults.length} of {_allOffTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-off"></span>OFF · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{offResults.length}{#if _allOffTotal > offResults.length} of {_allOffTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
             {#if $usdaEnabled}
-              <span class="asc-chip"><span class="asc-dot asc-usda"></span>USDA · {usdaResults.length}{#if _allUsdaTotal > usdaResults.length} of {_allUsdaTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-usda"></span>USDA · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{usdaResults.length}{#if _allUsdaTotal > usdaResults.length} of {_allUsdaTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
           </div>
         {/if}
@@ -2218,7 +2240,9 @@
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search_off</span>
           <p>No matches for "{search}"</p>
-          {#if activeTab === 0}
+          {#if _sourcesOffline}
+            <p class="empty-state-hint">{$_('foods.offline.search_hint')}</p>
+          {:else if activeTab === 0}
             <p class="empty-state-hint">{$_('foods.search_empty_hint')}</p>
           {/if}
         </div>
