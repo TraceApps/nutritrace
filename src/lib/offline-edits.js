@@ -189,7 +189,8 @@ export function buildCatalogPush(ops) {
   return {
     foods: collapseCatalogOps(ops, 'foods').map(_catalogRow),
     meals: collapseCatalogOps(ops, 'meals').map(_catalogRow),
-    diary: [], activity: [], fasts: [], wellness: [], settings: [], workouts: [],
+    activity: collapseCatalogOps(ops, 'activity').map(_catalogRow),
+    diary: [], fasts: [], wellness: [], settings: [], workouts: [],
   };
 }
 
@@ -197,7 +198,7 @@ export function buildCatalogPush(ops) {
 export function createdIds(response) {
   const tables = response?.tables || response || {};
   const map = {};
-  for (const name of ['foods', 'meals']) {
+  for (const name of ['foods', 'meals', 'activity']) {
     for (const r of Array.isArray(tables[name]) ? tables[name] : []) {
       if (r && r.client_id != null && r.server_id != null && isTempId(r.client_id)) map[Number(r.client_id)] = Number(r.server_id);
     }

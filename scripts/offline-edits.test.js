@@ -175,3 +175,26 @@ test('ids created in either table are remapped together', () => {
   const day = { items: [{ id: -4 }, { id: -3, is_recipe: true }] };
   assert.deepEqual(remapIds(day, map).items.map(i => i.id), [40, 30]);
 });
+
+test('manual workouts queue onto the activity side of the push', () => {
+  const ops = [
+    fop(1, 'create', -9, { date: '2026-09-20', name: 'Walk', kcal: 180 }, 'activity'),
+    fop(2, 'delete', 4, null, 'activity'),
+  ];
+  const push = buildCatalogPush(ops);
+  assert.equal(push.activity.length, 2);
+  assert.equal(push.foods.length, 0);
+  const made = push.activity.find(r => r.client_id === -9);
+  assert.equal(made.name, 'Walk');
+  assert.equal(made.server_id, null);
+  const gone = push.activity.find(r => r.server_id === 4);
+  assert.ok(gone.deleted_at);
+});
+
+test('a workout logged offline shows in the day it belongs to', () => {
+  const rows = applyCatalogOps([{ id: 3, date: '2026-09-20', name: 'Row', kcal: 90 }],
+    [fop(1, 'create', -9, { date: '2026-09-20', name: 'Walk', kcal: 180 }, 'activity')], 'activity');
+  assert.equal(rows.size, 2);
+  assert.equal(rows.get(-9).kcal, 180);
+  assert.equal(rows.get(-9)._pending, true);
+});

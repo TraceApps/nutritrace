@@ -38,7 +38,8 @@ export const offlineState = writable({
 });
 
 // Reads answered from the mirror when the server can't be reached.
-const MIRRORED_READS = new Set(['getDiaryDate', 'getAllDiary', 'getFoods', 'getFood', 'getMeals', 'getRecipes']);
+const MIRRORED_READS = new Set(['getDiaryDate', 'getAllDiary', 'getFoods', 'getFood', 'getMeals', 'getRecipes',
+  'getActivity', 'getActivityRange', 'getActivitySum']);
 
 // ── IndexedDB ────────────────────────────────────────────────────────
 let _dbPromise = null;
@@ -59,6 +60,8 @@ function _db() {
       if (!db.objectStoreNames.contains('foods')) db.createObjectStore('foods', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meals')) db.createObjectStore('meals', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('recipes')) db.createObjectStore('recipes', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('activity')) db.createObjectStore('activity', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('activity_sums')) db.createObjectStore('activity_sums', { keyPath: 'date' });
       if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'seq', autoIncrement: true });
     };
     req.onsuccess = () => resolve(req.result);
@@ -209,7 +212,7 @@ async function _flushOnce() {
     const map = createdIds(foodResponse);
     if (Object.keys(map).length) {
       // The catalogue, the days already saved, and the diary still queued.
-      for (const store of ['foods', 'meals', 'recipes']) {
+      for (const store of ['foods', 'meals', 'recipes', 'activity']) {
         for (const row of await _all(store)) {
           if (isTempId(row.id) && map[Number(row.id)] != null) {
             await _tx(store, 'readwrite', s => s.delete(Number(row.id)));
@@ -277,6 +280,8 @@ export async function clearOffline() {
   await _tx('foods', 'readwrite', s => s.clear());
   await _tx('meals', 'readwrite', s => s.clear());
   await _tx('recipes', 'readwrite', s => s.clear());
+  await _tx('activity', 'readwrite', s => s.clear());
+  await _tx('activity_sums', 'readwrite', s => s.clear());
   await _tx('outbox', 'readwrite', s => s.clear());
   _ops = [];
   _publish({ syncing: false, error: null });
@@ -439,6 +444,100 @@ export function createOfflineApi(http) {
       }
       await _queueCatalog('meals', 'meals', 'delete', id, null);
       await _tx('recipes', 'readwrite', s => s.delete(Number(id)));
+      return { ok: true };
+    },
+
+    // Manual workouts. The day's list and its summary are loaded together by
+    // the activity store, so both answer offline or the list disappears.
+    async getActivity(date) {
+      try {
+        const rows = await http.getActivity(date);
+        await _remember('activity', (rows || []).map(r => ({ ...r, date })));
+        return [...applyCatalogOps(rows || [], await _loadOps(), 'activity').values()].filter(r => !r.date || r.date === date);
+      } catch (err) {
+        if (!isOfflineError(err)) throw err;
+        _publish({ online: false });
+        const rows = (await _all('activity')).filter(r => r.date === date);
+        return [...applyCatalogOps(rows, await _loadOps(), 'activity').values()].filter(r => !r.date || r.date === date);
+      }
+    },
+
+    async getActivityRange(from, to) {
+      try {
+        const rows = await http.getActivityRange(from, to);
+        await _remember('activity', rows);
+        return rows;
+      } catch (err) {
+        if (!isOfflineError(err)) throw err;
+        _publish({ online: false });
+        const rows = (await _all('activity')).filter(r => r.date >= from && r.date <= to);
+        return [...applyCatalogOps(rows, await _loadOps(), 'activity').values()];
+      }
+    },
+
+    async getActivitySum(date, policy) {
+      try {
+        const sum = await http.getActivitySum(date, policy);
+        await _remember('activity_sums', { ...sum, date });
+        return sum;
+      } catch (err) {
+        if (!isOfflineError(err)) throw err;
+        _publish({ online: false });
+        // The wearable half comes from your provider, so offline it is
+        // whatever was last known; the manual half is recomputed from the
+        // entries held here, including any waiting to go up.
+        const cached = (await _all('activity_sums')).find(s => s.date === date) || { manual: 0, wearable: 0, effective: 0, policy };
+        const rows = [...applyCatalogOps((await _all('activity')).filter(r => r.date === date), await _loadOps(), 'activity').values()];
+        const manual = rows.filter(r => !r.is_template).reduce((n, r) => n + (Number(r.kcal) || 0), 0);
+        const wearable = Number(cached.wearable) || 0;
+        const effective = (cached.policy || policy) === 'sum' ? manual + wearable : Math.max(manual, wearable);
+        return { ...cached, manual, wearable, effective, policy: cached.policy || policy, _stale: true };
+      }
+    },
+
+    async createActivity(data) {
+      const ops = await _loadOps();
+      if (_online() && !ops.length) {
+        try {
+          const row = await http.createActivity(data);
+          await _remember('activity', row);
+          return row;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      return _queueCatalog('activity', 'activity', 'create', newTempId(), data);
+    },
+
+    async updateActivity(id, data) {
+      const ops = await _loadOps();
+      if (_online() && !ops.length && !isTempId(id)) {
+        try {
+          const row = await http.updateActivity(id, data);
+          await _remember('activity', row);
+          return row;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      return _queueCatalog('activity', 'activity', 'update', id, data);
+    },
+
+    async deleteActivity(id) {
+      const ops = await _loadOps();
+      if (_online() && !ops.length && !isTempId(id)) {
+        try {
+          const r = await http.deleteActivity(id);
+          await _tx('activity', 'readwrite', s => s.delete(Number(id)));
+          return r;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      await _queueCatalog('activity', 'activity', 'delete', id, null);
       return { ok: true };
     },
 
