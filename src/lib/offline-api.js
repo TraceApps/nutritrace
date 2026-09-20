@@ -44,9 +44,18 @@ const MIRRORED_READS = new Set(['getDiaryDate', 'getAllDiary', 'getFoods', 'getF
 
 // ── IndexedDB ────────────────────────────────────────────────────────
 let _dbPromise = null;
+// Whose queue this is. If the app ever cannot confirm who is signed in (what
+// a reload with no connection looks like) and clears the id, the last one
+// this browser saw still names the database, so the queue is never orphaned
+// where nothing will read it. LiftTrace lost work exactly that way.
+const _USER_KEY = 'nt:offline-user';
 function _dbName() {
   let user = null;
-  try { user = localStorage.getItem('wl:userId'); } catch { /* private mode */ }
+  try {
+    user = localStorage.getItem('wl:userId');
+    if (user) localStorage.setItem(_USER_KEY, user);
+    else user = localStorage.getItem(_USER_KEY);
+  } catch { /* private mode */ }
   return `nutritrace-offline-${user || 'single'}`;
 }
 function _db() {
@@ -363,6 +372,8 @@ export async function clearOffline() {
   await _tx('activity_sums', 'readwrite', s => s.clear());
   await _tx('outbox', 'readwrite', s => s.clear());
   _ops = [];
+  _dbPromise = null;
+  try { localStorage.removeItem(_USER_KEY); } catch { /* private mode */ }
   _publish({ syncing: false, error: null });
 }
 

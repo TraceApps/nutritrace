@@ -146,3 +146,13 @@ test("a day's wellness figures stay on screen with no connection", () => {
   // Authorising a provider or asking it to sync is not kept.
   assert.ok(!/authorize|disconnect/.test(offline.match(/const _KEEP_READS = \[[\s\S]*?\];/)[0]));
 });
+
+test('the queue keeps its owner, even when the app cannot confirm who that is', () => {
+  // The database is named after the user. If the id is ever cleared (a reload
+  // with no connection looks exactly like a failed auth check) the queue would
+  // be orphaned in a database nothing reads. LiftTrace lost work this way.
+  assert.match(offline, /const _USER_KEY = 'nt:offline-user'/);
+  assert.match(offline, /else user = localStorage\.getItem\(_USER_KEY\)/);
+  // Sign-out is the one thing that forgets it.
+  assert.match(offline, /localStorage\.removeItem\(_USER_KEY\)/);
+});
