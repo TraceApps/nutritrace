@@ -118,9 +118,31 @@ test('a row created offline is changed by its real id after the queue goes up', 
   assert.match(offline, /if \(e\.data\.ids\) _swapped = /);
 });
 
-test('the fasts mirror is created for testers who already have the database', () => {
-  assert.match(offline, /indexedDB\.open\(name, 2\)/);
+test('new mirror stores reach testers who already have the database', () => {
+  // Bumped whenever a store is added, or onupgradeneeded never runs for them.
+  assert.match(offline, /indexedDB\.open\(name, 3\)/);
   assert.match(offline, /objectStoreNames\.contains\('fasts'\)/);
+  assert.match(offline, /objectStoreNames\.contains\('reads'\)/);
   // and sign-out clears it with the rest
   assert.match(offline, /_tx\('fasts', 'readwrite', s => s\.clear\(\)\)/);
+});
+
+test('the mirror forgets what the server no longer has', () => {
+  // A food deleted on another device used to live on in the browser's copy:
+  // gone while online, back the moment the connection dropped.
+  assert.match(offline, /async function _replace\(/);
+  for (const call of ["_replace('foods', foods)", "_replace('meals', meals)", "_replace('recipes', recipes)",
+                      "_replace('activity'", "_replace('diary', days"]) {
+    assert.ok(offline.includes(call), `${call} prunes the mirror`);
+  }
+  // Rows still waiting to go up are not the server's to forget.
+  assert.match(offline, /isTempId\(old\.id\)/);
+});
+
+test("a day's wellness figures stay on screen with no connection", () => {
+  assert.match(offline, /const _KEEP_READS = /);
+  assert.match(offline, /wellness\\\/\[\\w-\]\+\\\/data/);
+  assert.match(offline, /_tx\('reads', 'readwrite'/);
+  // Authorising a provider or asking it to sync is not kept.
+  assert.ok(!/authorize|disconnect/.test(offline.match(/const _KEEP_READS = \[[\s\S]*?\];/)[0]));
 });

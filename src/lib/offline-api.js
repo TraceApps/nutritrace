@@ -54,7 +54,7 @@ function _db() {
   const name = _dbName();
   if (_dbPromise && _dbPromise.name === name) return _dbPromise;
   const p = new Promise((resolve) => {
-    const req = indexedDB.open(name, 2);
+    const req = indexedDB.open(name, 3);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('diary')) db.createObjectStore('diary', { keyPath: 'date' });
@@ -64,6 +64,7 @@ function _db() {
       if (!db.objectStoreNames.contains('activity')) db.createObjectStore('activity', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('fasts')) db.createObjectStore('fasts', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('activity_sums')) db.createObjectStore('activity_sums', { keyPath: 'date' });
+      if (!db.objectStoreNames.contains('reads')) db.createObjectStore('reads', { keyPath: 'key' });
       if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'seq', autoIncrement: true });
     };
     req.onsuccess = () => resolve(req.result);
@@ -94,6 +95,30 @@ async function _remember(store, rows) {
   const list = (Array.isArray(rows) ? rows : [rows]).filter(r => r && (r.id != null || r.date));
   if (!list.length) return;
   await _tx(store, 'readwrite', s => { for (const r of list) s.put(r); });
+}
+
+/**
+ * The mirror IS what the server just sent, not what it sent plus whatever it
+ * used to send. Adding rows without ever dropping them meant something
+ * deleted on another device lived on here: gone online, back again the moment
+ * the connection dropped. `keep` decides which rows a partial answer leaves
+ * alone (a day's activity only speaks for that day).
+ */
+async function _replace(store, rows, keep = () => false) {
+  const list = (Array.isArray(rows) ? rows : [rows]).filter(r => r && (r.id != null || r.date));
+  await _tx(store, 'readwrite', (s) => {
+    const req = s.getAll();
+    req.onsuccess = () => {
+      const fresh = new Set(list.map(r => String(r.id ?? r.date)));
+      for (const old of req.result || []) {
+        const id = String(old.id ?? old.date);
+        // Rows still waiting to go up are not the server's to forget.
+        if (fresh.has(id) || isTempId(old.id) || keep(old)) continue;
+        s.delete(old.id ?? old.date);
+      }
+      for (const r of list) s.put(r);
+    };
+  });
 }
 
 // ── Outbox ───────────────────────────────────────────────────────────
@@ -334,6 +359,7 @@ export async function clearOffline() {
   await _tx('recipes', 'readwrite', s => s.clear());
   await _tx('activity', 'readwrite', s => s.clear());
   await _tx('fasts', 'readwrite', s => s.clear());
+  await _tx('reads', 'readwrite', s => s.clear());
   await _tx('activity_sums', 'readwrite', s => s.clear());
   await _tx('outbox', 'readwrite', s => s.clear());
   _ops = [];
@@ -359,6 +385,21 @@ function _wire() {
 // Wired as soon as anything imports this, so a queue left from last time is
 // sent even if the first thing the user opens never calls the API.
 _wire();
+
+/**
+ * Reads that are the server's to answer but are worth keeping a copy of, so
+ * a day's wellness figures stay on screen with no connection instead of the
+ * screen emptying. Anything that DOES something (authorising a provider,
+ * changing its settings, asking it to sync) is not kept.
+ */
+const _KEEP_READS = [
+  /^\/api\/wellness\/[\w-]+\/data(\?|$)/,
+  /^\/api\/wellness\/[\w-]+\/workouts(\?|$)/,
+  /^\/api\/wellness\/[\w-]+\/status$/,
+  /^\/api\/wellness\/calories-out(\?|$)/,
+  /^\/api\/wellness\/latest(\?|$)/,
+];
+const _keepsRead = (path) => _KEEP_READS.some(re => re.test(String(path)));
 
 const _FASTS = /^\/api\/fasts(\/|\?|$)/;
 const _isActivePath = (path) => String(path).split('?')[0] === '/api/fasts/active';
@@ -418,8 +459,11 @@ export function createOfflineApi(http) {
     async getAllDiary() {
       try {
         const days = await http.getAllDiary();
-        await _remember('diary', days);
-        return [...applyDiaryOps(days, await _loadOps()).values()];
+        const ops = await _loadOps();
+        // A day removed elsewhere goes from the mirror too, unless this
+        // browser still has something queued for it.
+        await _replace('diary', days, old => ops.some(o => o.date === old.date));
+        return [...applyDiaryOps(days, ops).values()];
       } catch (err) {
         if (!isOfflineError(err)) throw err;
         _publish({ online: false });
@@ -552,7 +596,8 @@ export function createOfflineApi(http) {
     async getActivity(date) {
       try {
         const rows = await http.getActivity(date);
-        await _remember('activity', (rows || []).map(r => ({ ...r, date })));
+        // Only this day's rows: the answer says nothing about any other day.
+        await _replace('activity', (rows || []).map(r => ({ ...r, date })), old => old.date !== date);
         return [...applyCatalogOps(rows || [], await _loadOps(), 'activity').values()].filter(r => !r.date || r.date === date);
       } catch (err) {
         if (!isOfflineError(err)) throw err;
@@ -646,7 +691,7 @@ export function createOfflineApi(http) {
     async getFoods() {
       try {
         const foods = await http.getFoods();
-        await _remember('foods', foods);
+        await _replace('foods', foods);
         const ops = await _loadOps();
         return ops.some(o => o.type === 'catalog') ? [...applyCatalogOps(foods, ops, 'foods').values()] : foods;
       } catch (err) {
@@ -674,7 +719,7 @@ export function createOfflineApi(http) {
     async getMeals() {
       try {
         const meals = await http.getMeals();
-        await _remember('meals', meals);
+        await _replace('meals', meals);
         const ops = await _loadOps();
         return ops.some(o => o.type === 'catalog') ? [...applyCatalogOps(meals, ops, 'meals').values()] : meals;
       } catch (err) {
@@ -690,7 +735,21 @@ export function createOfflineApi(http) {
     // named method, so these four take the fasting paths and hand everything
     // else (wellness providers, admin, Trace) straight on.
     async get(path, ...rest) {
-      if (!_FASTS.test(path)) return _through(http, 'get', path, rest);
+      if (!_FASTS.test(path)) {
+        if (!_keepsRead(path)) return _through(http, 'get', path, rest);
+        try {
+          const answer = await http.get(path, ...rest);
+          await _tx('reads', 'readwrite', s => s.put({ key: String(path), body: answer, at: Date.now() }));
+          return answer;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+          const kept = await _tx('reads', 'readonly', s => s.get(String(path)));
+          // Nothing seen for this day yet: the screen says it needs a connection.
+          if (!kept) throw _offlineError();
+          return kept.body;
+        }
+      }
       const answer = async () => {
         const [rows, ops] = [await _all('fasts'), await _loadOps()];
         return _isActivePath(path) ? activeFastRow(rows, ops) : fastList(rows, ops, _fastLimit(path));
@@ -775,7 +834,7 @@ export function createOfflineApi(http) {
     async getRecipes() {
       try {
         const recipes = await http.getRecipes();
-        await _remember('recipes', recipes);
+        await _replace('recipes', recipes);
         return recipes;
       } catch (err) {
         if (!isOfflineError(err)) throw err;
