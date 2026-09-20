@@ -73,6 +73,29 @@ export default defineConfig({
             }
           },
           {
+            // Food photos served by your own instance. Cache first: an image
+            // never changes under its filename, so this is what makes the
+            // diary and the food list look right offline instead of showing
+            // broken thumbnails (#211).
+            urlPattern: ({ url }) => url.pathname.includes('/uploads/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'uploads-cache',
+              expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            }
+          },
+          {
+            // Product photos for foods taken from Open Food Facts.
+            urlPattern: /^https:\/\/images\.openfoodfacts\.org\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'off-images-cache',
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
+            }
+          },
+          {
             urlPattern: /^https:\/\/world\.openfoodfacts\.org\/.*/i,
             handler: 'NetworkFirst',
             options: { cacheName: 'off-api-cache', expiration: { maxEntries: 50, maxAgeSeconds: 86400 } }
