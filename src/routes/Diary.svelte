@@ -1242,6 +1242,8 @@
   // ── Multi-select / bulk delete ──────────────────────────────────────────────
   let selectMode    = false;
   let selectedItems = new Set(); // stores _i (original item indices)
+  // Photos that failed to load, so a retry doesn't flicker on every redraw.
+  let _brokenThumbs = new Set(); // stores imgUrl
   let showMultiDeleteDialog = false;
 
   function enterSelectMode(item) {
@@ -2068,8 +2070,12 @@
                   </button>
                 {/if}
                 <button class="diary-item-btn" on:click={() => selectMode ? toggleItemSelect(item) : openEditItem(item)}>
-                  {#if $diaryShowThumbnails && item.imgUrl}
-                    <img class="item-thumb" src={resolveAssetUrl(item.imgUrl)} alt="" loading="lazy" />
+                  {#if $diaryShowThumbnails && item.imgUrl && !_brokenThumbs.has(item.imgUrl)}
+                    <!-- A photo that can't be fetched (offline, or removed on the
+                         server) falls back to the same placeholder an item with no
+                         picture gets, rather than a broken-image icon (#211). -->
+                    <img class="item-thumb" src={resolveAssetUrl(item.imgUrl)} alt="" loading="lazy"
+                      on:error={() => { _brokenThumbs = new Set([..._brokenThumbs, item.imgUrl]); }} />
                   {:else if $diaryShowThumbnails}
                     <div class="item-thumb-placeholder">
                       <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">restaurant</span>
