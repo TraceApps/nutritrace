@@ -37,12 +37,30 @@
   // step gets inserted so they can still set a display name. Multi-user
   // doesn't need it — the admin's full_name was captured on the usermgmt
   // step itself.
-  const BASE_STEPS = ['welcome','units','gender','dob','height','weight','target','activity','integrations','notifications','summary'];
+  const BASE_STEPS = ['welcome','units','gender','dob','height','weight','target','activity','integrations','notifications','updates','summary'];
   $: ALL_STEPS = _isNativeLocal
-    ? ['welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','summary']
+    ? ['welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','updates','summary']
     : (enableUserMgmt
         ? ['usermgmt', ...BASE_STEPS]
-        : ['usermgmt', 'welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','summary']);
+        : ['usermgmt', 'welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','updates','summary']);
+
+  // ── Update checks ────────────────────────────────────────────────────────
+  // Off unless it's answered here, so a new install contacts nothing on its
+  // own. Skipping the wizard leaves it off too, and Settings, Updates shows
+  // a one-time note saying so. An instance that already existed keeps
+  // checking (server/lib/update-check.js).
+  let updateChecks = false;
+
+  async function _saveUpdateChoice() {
+    try {
+      const { setAutoCheck } = await import('../lib/updates.js');
+      setAutoCheck(updateChecks);
+    } catch { /* storage unavailable */ }
+    try {
+      const { setServerUpdateCheck } = await import('../lib/updates.js');
+      await setServerUpdateCheck(updateChecks);
+    } catch { /* single-user or offline: the device answer still stands */ }
+  }
 
   let step = 0;
   let dir  = 1;
@@ -281,6 +299,10 @@
     }
     if (currentStepName === 'notifications') {
       await _saveNotifications();
+    }
+
+    if (currentStepName === 'updates') {
+      await _saveUpdateChoice();
     }
 
     dir = 1;
@@ -821,6 +843,27 @@
         </div>
 
       <!-- ── Notifications ── -->
+      {:else if currentStepName === 'updates'}
+        <div class="step-hero compact">
+          <span class="material-symbols-rounded hero-icon">system_update</span>
+          <h1 class="step-title">{$_('wizard.updates.title')}</h1>
+          <p class="step-desc">{$_('wizard.updates.desc')}</p>
+        </div>
+
+        <div class="int-cards">
+          <div class="int-card" class:int-card-skipped={!updateChecks}>
+            <div class="int-card-head">
+              <div class="int-card-icon">⬆️</div>
+              <div class="int-card-info">
+                <div class="int-card-title">{$_('wizard.updates.toggle')}</div>
+                <div class="int-card-sub">{$_('wizard.updates.toggle_sub')}</div>
+              </div>
+              <Toggle checked={updateChecks} on:change={e => updateChecks = e.detail} />
+            </div>
+          </div>
+          <p class="step-note">{$_('wizard.updates.note')}</p>
+        </div>
+
       {:else if currentStepName === 'notifications'}
         <div class="step-hero compact">
           <span class="material-symbols-rounded hero-icon">notifications</span>

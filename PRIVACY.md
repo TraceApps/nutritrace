@@ -38,6 +38,7 @@ NutriTrace is a self-hosted nutrition and wellness tracker. Your data is stored 
 
 NutriTrace connects to the following external services **only when you explicitly enable them**:
 
+- **GitHub.** Update checks, off until you turn them on: setup asks, and Settings, Updates can change it at any time. When on, your server asks github.com for the latest release every few hours, and the Android app asks for the latest app version, so you hear about new features, fixes and security updates. Nothing about you, your instance or your data is sent. Set `UPDATE_CHECK=off` to keep it off whatever the setting says.
 - **Open Food Facts.** Food product lookups by barcode or name. Subject to [OFF privacy policy](https://world.openfoodfacts.org/privacy). See [LICENSES.md](LICENSES.md) for ODbL attribution notes (including the opt-in local mirror obligations for multi-user operators).
 - **USDA FoodData Central.** Food nutrition lookups. Subject to [USDA privacy policy](https://www.usda.gov/privacy-policy).
 - **Mealie** (per user). Live queries against the user's own Mealie instance for recipe import. User provides URL + API token.

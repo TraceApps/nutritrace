@@ -53,6 +53,7 @@ import {
 } from './middleware/request-logging.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv } from './ai.js';
+import { initUpdateCheckSetting } from './lib/update-check.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { APP_VERSION } from './routes/version-source.js';
 
@@ -63,6 +64,8 @@ import { isPrivateUploadPath, UPLOAD_RESPONSE_HEADERS } from './lib/upload-paths
 // Seed config from env vars if provided (env vars take priority over UI)
 seedSmtpFromEnv();
 seedAiFromEnv();
+// Update checks: existing instances keep checking, fresh ones wait for setup to ask.
+initUpdateCheckSetting();
 seedOidcFromEnv();
 
 const app  = express();

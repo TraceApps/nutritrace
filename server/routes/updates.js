@@ -17,6 +17,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { APP_VERSION } from './version-source.js';
+import { updateCheckEnabled, setUpdateCheckEnabled, updateCheckAnswered, envLocksUpdateCheck } from '../lib/update-check.js';
 
 const router = Router();
 
@@ -101,6 +102,12 @@ router.get('/server-status', requireAuth, requireAdmin, wrap(async (req, res) =>
   // a new -dev.N was published would keep showing as "you're up to date"
   // for the rest of the 24h window even after `dev-latest` moved.
   const force = req.query.force === '1' || req.query.force === 'true';
+
+  // Off until someone says yes (the setup wizard asks), and UPDATE_CHECK=off
+  // keeps it off for good. Nothing is fetched from GitHub in that case.
+  if (!updateCheckEnabled()) {
+    return res.json({ disabled: true, envLocked: envLocksUpdateCheck(), answered: updateCheckAnswered(), current: APP_VERSION });
+  }
   const keys = CACHE_KEYS[channel];
 
   const now          = Date.now();
@@ -222,5 +229,21 @@ function _semverGt(a, b) {
   }
   return false;
 }
+
+/**
+ * The instance's answer to "may this ask GitHub about new releases?".
+ * The setup wizard writes it, Settings, Updates changes it, and
+ * UPDATE_CHECK=off in the environment overrides both.
+ */
+router.get('/config', requireAuth, requireAdmin, wrap(async (req, res) => {
+  res.json({ enabled: updateCheckEnabled(), answered: updateCheckAnswered(), envLocked: envLocksUpdateCheck() });
+}));
+
+router.put('/config', requireAuth, requireAdmin, wrap(async (req, res) => {
+  if (envLocksUpdateCheck()) return res.status(409).json({ error: 'Update checks are turned off by UPDATE_CHECK in the environment' });
+  const on = req.body?.enabled === true || req.body?.enabled === 1 || req.body?.enabled === '1';
+  setUpdateCheckEnabled(on);
+  res.json({ enabled: on, answered: true, envLocked: false });
+}));
 
 export default router;

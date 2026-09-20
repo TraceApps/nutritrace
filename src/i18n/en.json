@@ -330,6 +330,11 @@
     },
     "auto_check": "Automatically Check for Updates",
     "auto_check_desc": "Check for new releases in the background.",
+    "off_resting": "Off. Your server will not contact GitHub. Turn it on to hear about new features, fixes and security updates.",
+    "off_notice_title": "Update Checks Are Off",
+    "off_notice": "Nothing will tell you about new features, fixes or security updates. Turning checks on asks GitHub for the latest release every few hours, and sends nothing about you.",
+    "turn_on": "Turn On",
+    "not_now": "Not Now",
     "interval": {
       "label": "Check Frequency",
       "desc": "How often the app checks for a new release when open. Manual only turns off all auto-checks.",
@@ -591,6 +596,13 @@
     "notifications": {
       "title": "Stay on Track",
       "desc": "Get helpful reminders and celebrate your wins. You can customize all of these later in Settings."
+    },
+    "updates": {
+      "title": "Check For Updates",
+      "desc": "Your server can tell you when a new NutriTrace is out.",
+      "toggle": "Check for updates automatically",
+      "toggle_sub": "It's how you hear about new features, fixes and security updates",
+      "note": "Your server asks GitHub every few hours whether a newer NutriTrace is out. Nothing about you or your data is sent. You can change this any time in Settings, Updates."
     },
     "summary": {
       "title": "Your Daily Goals",
