@@ -58,10 +58,16 @@ function _dbName() {
   } catch { /* private mode */ }
   return `nutritrace-offline-${user || 'single'}`;
 }
+const _STORES = ['diary', 'foods', 'meals', 'recipes', 'activity', 'activity_sums', 'fasts', 'reads', 'outbox'];
+
 function _db() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
   const name = _dbName();
   if (_dbPromise && _dbPromise.name === name) return _dbPromise;
+  // The first reads of a page happen before the app knows who is signed in,
+  // so they are filed under the anonymous name. Once the id turns up, bring
+  // what was kept with it rather than leaving it in a database nothing reads.
+  const leaving = _dbPromise?.name && _dbPromise.name !== name ? _dbPromise.name : null;
   const p = new Promise((resolve) => {
     const req = indexedDB.open(name, 3);
     req.onupgradeneeded = () => {
@@ -82,7 +88,46 @@ function _db() {
   });
   p.name = name;
   _dbPromise = p;
+  if (leaving) p.then(db => _absorb(leaving, db));
   return p;
+}
+
+/** Move everything from an old database into this one, then drop it. */
+async function _absorb(oldName, db) {
+  if (!db) return;
+  const old = await new Promise((resolve) => {
+    const req = indexedDB.open(oldName);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = req.onblocked = () => resolve(null);
+  });
+  if (!old) return;
+  for (const store of _STORES) {
+    if (!old.objectStoreNames.contains(store) || !db.objectStoreNames.contains(store)) continue;
+    const rows = await new Promise((resolve) => {
+      try {
+        const q = old.transaction(store, 'readonly').objectStore(store).getAll();
+        q.onsuccess = () => resolve(q.result || []);
+        q.onerror = () => resolve([]);
+      } catch { resolve([]); }
+    });
+    if (!rows.length) continue;
+    await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(store, 'readwrite');
+        const s = tx.objectStore(store);
+        // The outbox is keyed by a running number, so queued work is re-added
+        // and given a new one rather than landing on top of something.
+        for (const row of rows) { if (store === 'outbox') { const { seq, ...rest } = row; s.add(rest); } else s.put(row); }
+        tx.oncomplete = tx.onerror = tx.onabort = () => resolve();
+      } catch { resolve(); }
+    });
+  }
+  old.close();
+  try { indexedDB.deleteDatabase(oldName); } catch { /* another tab has it open */ }
+  _ops = null;
+  await _loadOps();
+  _publish();
+  if (_ops.length) _scheduleFlush(0);
 }
 // Every read and write is wrapped: a blocked, full or private-mode database
 // resolves to null instead of throwing, and the app falls back to the server.

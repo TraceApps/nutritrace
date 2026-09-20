@@ -156,3 +156,12 @@ test('the queue keeps its owner, even when the app cannot confirm who that is', 
   // Sign-out is the one thing that forgets it.
   assert.match(offline, /localStorage\.removeItem\(_USER_KEY\)/);
 });
+
+test('what was kept before sign-in follows the user, rather than being stranded', () => {
+  // The first reads of a page land before the app knows who is signed in.
+  assert.match(offline, /async function _absorb\(/);
+  assert.match(offline, /if \(leaving\) p\.then\(db => _absorb\(leaving, db\)\)/);
+  assert.match(offline, /indexedDB\.deleteDatabase\(oldName\)/);
+  // Queued work is re-added so it cannot land on another row's number.
+  assert.match(offline, /const \{ seq, \.\.\.rest \} = row; s\.add\(rest\)/);
+});
