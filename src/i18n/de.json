@@ -1009,7 +1009,11 @@
     "schedule_goal": "Ziel des Zeitplans",
     "show_progress_bar": "Fortschrittsbalken für Tagesziele anzeigen",
     "show_progress_bar_desc": "Fortschrittsleiste am Ende des Tagebuchs, die anzeigt, wie viel deiner Tagesziele du erreicht hast",
-    "meal_names": "Mahlzeiten-Namen"
+    "meal_names": "Mahlzeiten-Namen",
+    "default_field": "Standard-Eingabefeld",
+    "default_field_desc": "In welchem Feld der Cursor startet, wenn du ein Lebensmittel hinzufügst oder einen Tagebucheintrag bearbeitest.",
+    "opt_num_servings": "Anzahl der Portionen",
+    "opt_serving_size": "Portionsgröße"
   },
   "settings_water": {
     "display_unit": "Anzeigeeinheit",
