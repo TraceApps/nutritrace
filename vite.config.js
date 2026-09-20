@@ -37,12 +37,23 @@ export default defineConfig({
       // for the Svelte-side bridge.
       registerType: 'prompt',
       workbox: {
-        // Precache the offline fallback page
-        globPatterns: ['offline.html'],
-        // navigateFallback explicitly disabled — navigation requests are
-        // handled by the NetworkFirst runtimeCaching route below.
-        navigateFallback: null,
-        navigateFallbackDenylist: [/.*/],
+        // Precache the whole app shell, not just the fallback page. Without
+        // this a reload with no connection loaded index.html and then failed
+        // to fetch its own JavaScript, so the installed app looked broken
+        // exactly when offline mode was supposed to carry it (#211).
+        globPatterns: ['**/*.{js,mjs,css,html,woff2,woff,ttf,png,svg,ico,webmanifest}'],
+        // The barcode scanner libraries are left out: scanning is only useful
+        // with a connection anyway. So are the install icons, which the browser
+        // fetches from the manifest. The icon font stays, or every button in the
+        // app would read as a word offline.
+        globIgnores: ['vendor/**', 'icons/**', '**/*.map'],
+        // Chart, zip and emoji chunks are over the 2 MiB default.
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+        // Navigation still prefers the network (see the NetworkFirst route
+        // below, 3s timeout) so a deploy is picked up at once; the precached
+        // index.html is what answers when the server can't be reached.
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//],
         cleanupOutdatedCaches: true,
         // Keep skipWaiting + clientsClaim: once WE call updateSW(true)
         // from the banner's Reload button, workbox activates immediately

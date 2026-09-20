@@ -77,3 +77,24 @@ test('a server being unreachable is told apart from a real answer', () => {
   assert.equal(isOfflineError(new Error('API error 400')), false);
   assert.equal(isOfflineError(null), false);
 });
+
+test('a deletion made offline survives a later edit of the same day', () => {
+  // Delete an item, then add another to the same day before going back online.
+  // The app clears its own pending-deletions list after the first save, so the
+  // second op carries none; without the union below the deleted item would be
+  // resurrected by the server, which keeps whatever the client doesn't mention.
+  const del = { seq: 1, type: 'diary', date: '2026-09-20', at: 1, day: { items: [{ uuid: 'keep' }], water: [], body_stats: {}, deleted_uuids: { items: ['gone'], water: ['spilled'] } } };
+  const add = { seq: 2, type: 'diary', date: '2026-09-20', at: 2, day: { items: [{ uuid: 'keep' }, { uuid: 'new' }], water: [], body_stats: {} } };
+  const row = buildDiaryPush([del, add], []).diary[0];
+  assert.equal(row.items.length, 2, 'the newest day content is sent');
+  assert.deepEqual(row.deleted_uuids.items, ['gone']);
+  assert.deepEqual(row.deleted_uuids.water, ['spilled']);
+});
+
+test('tombstones from different days do not mix', () => {
+  const a = { seq: 1, type: 'diary', date: '2026-09-20', at: 1, day: { items: [], water: [], body_stats: {}, deleted_uuids: { items: ['a'], water: [] } } };
+  const b = { seq: 2, type: 'diary', date: '2026-09-21', at: 2, day: { items: [], water: [], body_stats: {}, deleted_uuids: { items: ['b'], water: [] } } };
+  const rows = buildDiaryPush([a, b], []).diary;
+  assert.deepEqual(rows.find(r => r.date === '2026-09-20').deleted_uuids.items, ['a']);
+  assert.deepEqual(rows.find(r => r.date === '2026-09-21').deleted_uuids.items, ['b']);
+});

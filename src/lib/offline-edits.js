@@ -49,14 +49,31 @@ export function dayWithOps(days, ops, date) {
   return applyDiaryOps(days, ops).get(date) || emptyDay(date);
 }
 
-/** Only the last queued edit per day is worth sending. */
+/**
+ * Only the last queued edit per day is worth sending, because each one is the
+ * whole day. Deletions are the exception: the app clears its pending-deletions
+ * list once a save "succeeds", so a later edit of the same day carries none.
+ * Every tombstone queued for a day therefore rides along with the last edit,
+ * or an item deleted offline and followed by another change would come back
+ * from the server, which keeps whatever the client doesn't mention.
+ */
 export function collapseOps(ops) {
   const byDate = new Map();
+  const tombs = new Map();
   for (const op of ops || []) {
     if (!op || op.type !== 'diary' || !op.date) continue;
+    const t = tombs.get(op.date) || { items: new Set(), water: new Set() };
+    for (const uuid of op.day?.deleted_uuids?.items || []) t.items.add(uuid);
+    for (const uuid of op.day?.deleted_uuids?.water || []) t.water.add(uuid);
+    tombs.set(op.date, t);
     byDate.set(op.date, op);
   }
-  return [...byDate.values()].sort((a, b) => (a.seq || 0) - (b.seq || 0));
+  return [...byDate.values()]
+    .map(op => {
+      const t = tombs.get(op.date);
+      return { ...op, day: { ...op.day, deleted_uuids: { items: [...t.items], water: [...t.water] } } };
+    })
+    .sort((a, b) => (a.seq || 0) - (b.seq || 0));
 }
 
 /**
