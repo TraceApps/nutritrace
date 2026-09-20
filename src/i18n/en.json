@@ -59,6 +59,9 @@
   "sync": {
     "synced": "Synced",
     "sync_offline": "Offline",
+    "sign_out_waiting_title": "Changes are still waiting",
+    "sign_out_waiting": "{count, plural, one {# change has not reached your server yet. Signing out now discards it. Connect and try again to keep it.} other {# changes have not reached your server yet. Signing out now discards them. Connect and try again to keep them.}}",
+    "sign_out_anyway": "Sign Out Anyway",
     "pending_web": "{count, plural, =0 {Offline. Your diary still works and saves here.} one {Offline. # day is waiting to go up.} other {Offline. # days are waiting to go up.}}",
     "sync_failing": "Can't reach the server",
     "not_synced": "Not synced yet",

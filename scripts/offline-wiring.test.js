@@ -55,6 +55,15 @@ test('the header badge reports the queue on the web', () => {
   assert.ok(en.sync.pending_web, 'sync.pending_web copy exists');
 });
 
+test('signing out in a dead zone asks before discarding what is waiting', () => {
+  // Clearing the queue on a sign-out that could not send it would destroy work
+  // the user never saw fail.
+  assert.match(auth, /const sent = await flushOutbox\(\)\.catch\(\(\) => false\)/);
+  assert.match(auth, /if \(!sent && \(await pendingCount\(\)\) > 0\)/);
+  assert.match(auth, /if \(!ok\) return;/);
+  assert.ok(en.sync.sign_out_waiting && en.sync.sign_out_anyway, 'the copy exists');
+});
+
 test('signing out sends what is waiting, then clears the mirror', () => {
   const i = auth.indexOf('flushOutbox');
   assert.ok(i > 0, 'logout flushes the outbox');

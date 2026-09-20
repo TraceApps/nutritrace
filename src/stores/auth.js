@@ -300,8 +300,24 @@ export async function logout() {
   // signing out on a flaky connection doesn't quietly drop a logged meal.
   if (!isNative) {
     try {
-      const { flushOutbox, clearOffline } = await import('../lib/offline-api.js');
-      await flushOutbox().catch(() => {});
+      const { flushOutbox, clearOffline, pendingCount } = await import('../lib/offline-api.js');
+      const sent = await flushOutbox().catch(() => false);
+      // If it couldn't go up (signing out in a dead zone), ask first: clearing
+      // it would destroy work the user never saw fail.
+      if (!sent && (await pendingCount()) > 0) {
+        const waiting = await pendingCount();
+        const { confirmDialog } = await import('./confirmDialog.js');
+        const { get: getStore } = await import('svelte/store');
+        const { _: t } = await import('svelte-i18n');
+        const say = getStore(t);
+        const ok = await confirmDialog({
+          title: say('sync.sign_out_waiting_title'),
+          message: say('sync.sign_out_waiting', { values: { count: waiting } }),
+          confirmText: say('sync.sign_out_anyway'),
+          dangerous: true,
+        });
+        if (!ok) return;
+      }
       await clearOffline();
     } catch { /* never block sign-out */ }
   }
