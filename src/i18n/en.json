@@ -59,6 +59,7 @@
   "sync": {
     "synced": "Synced",
     "sync_offline": "Offline",
+    "refused": "Your server would not accept what is waiting: {reason}. It is kept here and will be tried again.",
     "sign_out_waiting_title": "Changes are still waiting",
     "sign_out_waiting": "{count, plural, one {# change has not reached your server yet. Signing out now discards it. Connect and try again to keep it.} other {# changes have not reached your server yet. Signing out now discards them. Connect and try again to keep them.}}",
     "sign_out_anyway": "Sign Out Anyway",

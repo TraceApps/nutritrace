@@ -334,6 +334,10 @@ async function _flushOnce() {
     }
     const foodFailed = pushError(foodResponse);
     if (foodFailed) {
+      // Your server answered and said no. Keep the work, and make sure the
+      // person who logged it hears about it: a red cloud on its own tells
+      // nobody why. Also into the log behind Settings, Diagnostics.
+      console.error(`[offline] your server refused what was waiting: ${foodFailed}`);
       _publish({ syncing: false, error: foodFailed, online: true });
       _scheduleFlush(_backoff());
       return false;
@@ -384,6 +388,7 @@ async function _flushOnce() {
   }
   const failed = pushError(response);
   if (failed) {
+    console.error(`[offline] your server refused what was waiting: ${failed}`);
     _publish({ syncing: false, error: failed, online: true });
     _scheduleFlush(_backoff());
     return false;

@@ -174,3 +174,11 @@ test('what was kept before sign-in follows the user, rather than being stranded'
   // Queued work is re-added so it cannot land on another row's number.
   assert.match(offline, /const \{ seq, \.\.\.rest \} = row; s\.add\(rest\)/);
 });
+
+test('a refusal from the server is said in words, not just a red cloud', () => {
+  assert.match(offline, /console\.error\(`\[offline\] your server refused what was waiting/);
+  assert.match(app, /sync\.refused/);
+  assert.ok(en.sync.refused, 'the copy exists');
+  // The work is kept and retried, never dropped on a refusal.
+  assert.match(offline, /_scheduleFlush\(_backoff\(\)\)/);
+});

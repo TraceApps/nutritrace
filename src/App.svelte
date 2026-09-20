@@ -28,6 +28,15 @@
   // waiting to go up, red when the server answers but refuses the push.
   $: _webOffline = !isNative && (!$offlineState.online || $offlineState.pending > 0 || !!$offlineState.error);
   $: _webFailing = !isNative && !!$offlineState.error;
+  // A red cloud on its own tells nobody why. Say it once, in words, when the
+  // server refuses what is waiting; the queue is kept and keeps trying.
+  let _toldRefusal = null;
+  $: if (_webFailing && $offlineState.error !== _toldRefusal) {
+    _toldRefusal = $offlineState.error;
+    const _why = $offlineState.error;
+    import('./stores/toast.js').then(({ showError }) => showError($_('sync.refused', { values: { reason: _why } })));
+  }
+  $: if (!_webFailing) _toldRefusal = null;
   $: _serverReachable = $syncState.online && !$syncState.connectionIssue;
   // The server answers but the sync is failing, as opposed to no network at all.
   $: _syncFailing = $syncState.online && !!$syncState.connectionIssue;
