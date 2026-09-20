@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   /**
    * SettingsEmail — SMTP form. Extracted from Settings.svelte to match
    * CookTrace + LiftTrace's per-component layout. Verbiage / classes
@@ -274,7 +275,7 @@
 </div>
 
 {#if showTestDialog}
-  <div class="test-dialog-overlay" on:click={closeTestDialog}
+  <div class="test-dialog-overlay" on:click={closeTestDialog} use:closeOnBack={closeTestDialog}
     on:keydown={(e) => e.key === 'Escape' && closeTestDialog()}>
     <div class="test-dialog" role="dialog" aria-labelledby="test-dialog-title"
       on:click|stopPropagation>

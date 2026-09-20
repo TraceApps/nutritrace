@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { push } from 'svelte-spa-router';
@@ -2609,7 +2610,7 @@
 <!-- Date picker calendar sheet -->
 {#if showDatePicker}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock) showDatePicker = false; }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock) showDatePicker = false; }} use:closeOnBack={() => showDatePicker = false} on:keydown={() => {}}>
     <div class="bs-sheet dp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <DatePicker bind:value={pickerDate} max={localDateStr()} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
@@ -2620,7 +2621,7 @@
 <!-- ── Workout Detail Modal ── -->
 {#if _showWorkoutDetail && _selectedWorkout}
   {@const w = _selectedWorkout}
-  <div class="workout-overlay" on:click|self={() => _showWorkoutDetail = false} use:portal>
+  <div class="workout-overlay" on:click|self={() => _showWorkoutDetail = false} use:portal use:closeOnBack={() => _showWorkoutDetail = false}>
     <div class="workout-detail">
       <div class="workout-detail-header">
         <div style="display:flex;align-items:center;gap:8px">
@@ -3388,6 +3389,10 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
     padding-bottom: var(--safe-bottom);
+    /* Never taller than the screen, and never up under the status bar (#228). */
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   /* Date picker sheet wrapper — calendar UI lives in DatePicker.svelte */
@@ -3452,7 +3457,7 @@
   }
   .workout-detail {
     background: var(--surface-1); border-radius: 16px;
-    width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+    width: 100%; max-width: 520px; max-height: min(90vh, calc(100dvh - 2 * var(--safe-top) - 16px)); overflow-y: auto;
     padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
   }
   .workout-detail-header {

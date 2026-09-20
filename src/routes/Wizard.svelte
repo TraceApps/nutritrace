@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { fly, fade } from 'svelte/transition';
@@ -952,7 +953,7 @@
 </div>
 
 {#if skipSetupConfirm}
-  <div class="skip-modal-backdrop" on:click|self={() => skipSetupConfirm = false}>
+  <div class="skip-modal-backdrop" on:click|self={() => skipSetupConfirm = false} use:closeOnBack={() => skipSetupConfirm = false}>
     <div class="skip-modal" on:click|stopPropagation>
       <h3 class="skip-modal-title">{$_('wizard.skip_modal.title')}</h3>
       <p class="skip-modal-desc">

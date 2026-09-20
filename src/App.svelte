@@ -2,6 +2,8 @@
   import { onMount }   from 'svelte';
   import { fade, slide } from 'svelte/transition';
   import { portal } from './lib/portal.js';
+  import { isPullSyncExempt } from './lib/pull-sync.js';
+  import { handleBack } from './lib/back-stack.js';
   import Router, { location } from 'svelte-spa-router';
 
   import BottomNav from './components/layout/BottomNav.svelte';
@@ -91,9 +93,10 @@
   function _startPullSync(event) {
     if (!_syncModeActive || needsLogin || showNativeSetup || sidebarOpen || _pullRefreshing) return;
     // Listen at window level because the fixed top bar and portalled offline
-    // banner both sit outside <main>. Dialogs, sheets, sidebars and bottom
-    // navigation retain their own touch handling.
-    if (event.target.closest?.('[role="dialog"], .sheet-backdrop, .sidebar-panel, .sidebar-backdrop, .bottom-nav, .bottom-dock')) return;
+    // banner both sit outside <main>. Dialogs, sheets, sidebars, the bottom
+    // bar and anything draggable (the Trace button, reorder handles) keep
+    // their own touch handling (#225). See src/lib/pull-sync.js.
+    if (isPullSyncExempt(event.target)) return;
     if (event.touches.length !== 1) return;
     // Walk up from the touch target to the nearest scrolling ancestor.
     // Editor pages have their own overflow container that sits on top of
@@ -402,6 +405,10 @@
       import('@capacitor/app').then(({ App }) => {
         let lastBack = 0;
         App.addListener('backButton', ({ canGoBack }) => {
+          // An open sheet, dialog or overlay closes first (#226), then the
+          // slide-out sidebar, and only then does back leave the page.
+          if (handleBack()) return;
+          if (sidebarOpen && !sidebarPinned) { sidebarOpen = false; return; }
           if (canGoBack) {
             window.history.back();
           } else {

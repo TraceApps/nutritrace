@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
@@ -1256,7 +1257,7 @@
        nutrients still stored with 'µg' as their unit. -->
   {@const _editUnit = _rawUnit === 'µg' ? 'mcg' : _rawUnit}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_gLock) editOpen = false; }} on:keydown={() => {}}>
+    on:click={() => { if (!_gLock) editOpen = false; }} use:closeOnBack={() => editOpen = false} on:keydown={() => {}}>
     <div class="sheet-panel" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header">
@@ -1359,7 +1360,7 @@
 <!-- ── Water goal edit sheet ── -->
 {#if editWaterOpen}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => editWaterOpen = false} on:keydown={() => {}}>
+    on:click={() => editWaterOpen = false} use:closeOnBack={() => editWaterOpen = false} on:keydown={() => {}}>
     <div class="sheet-panel" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header"><h3 class="sheet-title">{$_('goals_page.row.daily_water_goal')}</h3></div>
@@ -1377,7 +1378,7 @@
 <!-- ── Save template sheet ── -->
 {#if showSaveSheet}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => showSaveSheet = false} on:keydown={() => {}}>
+    on:click={() => showSaveSheet = false} use:closeOnBack={() => showSaveSheet = false} on:keydown={() => {}}>
     <div class="sheet-panel" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header"><h3 class="sheet-title">{$_('goals_page.templates.save_title')}</h3></div>
@@ -1400,7 +1401,7 @@
 <!-- ── Apply confirm sheet ── -->
 {#if showApplyConfirm}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => showApplyConfirm = null} on:keydown={() => {}}>
+    on:click={() => showApplyConfirm = null} use:closeOnBack={() => showApplyConfirm = null} on:keydown={() => {}}>
     <div class="sheet-panel" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header"><h3 class="sheet-title">{$_('goals_page.templates.apply_title')}</h3></div>
@@ -1571,7 +1572,7 @@
     background: var(--surface-1);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
-    max-height: 90dvh; display: flex; flex-direction: column;
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px)); display: flex; flex-direction: column;
     padding-bottom: var(--safe-bottom);
   }
   .sheet-handle {

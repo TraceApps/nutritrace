@@ -32,6 +32,7 @@ export const USER_PREFS = new Set([
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
   'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes','warnUnitMismatch','showUnitMetadata',
   'diaryShowCompletion',
+  'diaryDefaultField',
   'diaryShowActivity','manualActivityPolicy','activityAutoEstimate','calorieAdjustFromActivity',
   'showQuickCalories','quickCaloriesDisplay',
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
@@ -529,6 +530,9 @@ export const diaryShowNotes         = createSettingStore('diaryShowNotes',      
 // summary hooks activate on the server / native side too. Off: every
 // surface reverts to what NT looked like before #207 landed.
 export const diaryShowCompletion = createSettingStore('diaryShowCompletion', false);
+// #224: which box the add and edit sheets put the cursor in, 'servings'
+// (Number of Servings) or 'portion' (Serving Size).
+export const diaryDefaultField = createSettingStore('diaryDefaultField', 'servings');
 
 // Desktop diary redesign — right-rail widget visibility. Each widget
 // can be independently hidden by the user. Defaults show everything so

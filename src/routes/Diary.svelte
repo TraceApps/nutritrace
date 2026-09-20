@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -51,7 +52,7 @@
            fastingEnabled,
            wellnessEnabled,
            notifMealReminders,
-           diaryShowCompletion,
+           diaryShowCompletion, diaryDefaultField,
            diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
            diaryRailShowActivity as diaryRailShowActivityWidget,
            diaryRailShowNotes,
@@ -66,6 +67,7 @@
   import { readBodyStat, tagBodyStats, LENGTH_KEYS } from '../lib/body-stats-unit.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { pageScrollTop } from '../lib/scroll-anchor.js';
+  import { focusDefaultField } from '../lib/default-field.js';
 
   let addMealIdx = 0;
   let showAddAction = false;
@@ -116,9 +118,9 @@
   // value so typing replaces it instead of appending. Matches the
   // Body Stats weight-edit pattern.
   $: if (showEditSheet) tick().then(() => {
-    const _first = _editSheetEl?.querySelector('input[inputmode="numeric"], input[inputmode="decimal"]');
-    _first?.focus();
-    _first?.select?.();
+    // #224: Serving Size or Number of Servings per Default Field; the
+    // Quick Calories branch has neither, so its first number box is used.
+    focusDefaultField(_editSheetEl, $diaryDefaultField);
   });
   function _onEditSheetKey(e) {
     if (e.key !== 'Enter') return;
@@ -2410,7 +2412,7 @@
      auto — the app's scroll container). Rendered only when the
      overlay is actually open so widgets don't double-mount. -->
 {#if _railMode === 'hidden' && _railOverlay && _wideViewport}
-  <aside use:portal class="diary-right-col diary-right-col-overlay">
+  <aside use:portal class="diary-right-col diary-right-col-overlay" use:closeOnBack={() => _railOverlay = false}>
     {@render railWidgets()}
   </aside>
 {/if}
@@ -2756,7 +2758,7 @@
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">{$_('diary_deep.serving_size')}</label>
-          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editPortion} style="width:100%" />
+          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editPortion} data-field="portion" style="width:100%" />
         </div>
         <div style="width:100px">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">Unit</label>
@@ -2766,7 +2768,7 @@
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">{$_('diary_deep.num_servings')}</label>
-          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editQuantity} style="width:100%" />
+          <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={editQuantity} data-field="servings" style="width:100%" />
         </div>
         {#if !_editChildContext && $diaryShowTimestamps}
           <div style="width:130px">
@@ -2892,7 +2894,7 @@
      locally overridden to z-200 in Diary which would have buried the
      calendar; this one stays at z-90 to let z-100 nested Sheets win. -->
 {#if showCopySheet}
-  <div use:portal class="copy-to-backdrop" role="dialog" aria-modal="true"
+  <div use:portal class="copy-to-backdrop" role="dialog" aria-modal="true" use:closeOnBack={() => showCopySheet = false}
     on:click={() => { if (!_sheetLock) showCopySheet = false; }} on:keydown={() => {}}>
     <div class="bs-sheet copy-date-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
@@ -2932,7 +2934,7 @@
 <!-- Save as meal sheet -->
 {#if showSaveAsMeal}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock && !saveAsMealSaving) showSaveAsMeal = false; }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock && !saveAsMealSaving) showSaveAsMeal = false; }} use:closeOnBack={() => { if (!saveAsMealSaving) showSaveAsMeal = false; }} on:keydown={() => {}}>
     <div class="bs-sheet copy-date-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <p class="sheet-title">Save {actionMealIdx != null ? meals[actionMealIdx] : 'meal'} to library</p>
@@ -2957,7 +2959,7 @@
 <!-- Date Picker Calendar Sheet -->
 {#if showDatePicker}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock) showDatePicker = false; }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock) showDatePicker = false; }} use:closeOnBack={() => showDatePicker = false} on:keydown={() => {}}>
     <div class="bs-sheet dp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <DatePicker bind:value={pickerDate} completedDays={pickerCompletedDays} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
@@ -2968,7 +2970,7 @@
 <!-- Body Stats Sheet -->
 {#if $diaryShowBodyStats}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock) diaryShowBodyStats.set(false); }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock) diaryShowBodyStats.set(false); }} use:closeOnBack={() => diaryShowBodyStats.set(false)} on:keydown={() => {}}>
     <div class="bs-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header-row">
@@ -3034,7 +3036,7 @@
 {#if $diaryShowNutritionSummary}
   {@const _nsTotEnergy = Nutrition.displayEnergy(totals.calories || 0, $energyUnit)}
   <div use:portal class="sheet-backdrop" role="dialog" aria-modal="true"
-    on:click={() => { if (!_sheetLock) diaryShowNutritionSummary.set(false); }} on:keydown={() => {}}>
+    on:click={() => { if (!_sheetLock) diaryShowNutritionSummary.set(false); }} use:closeOnBack={() => diaryShowNutritionSummary.set(false)} on:keydown={() => {}}>
     <div class="ns-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <div class="sheet-header-row">
@@ -4355,6 +4357,19 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
     padding-bottom: var(--safe-bottom);
+    /* #228: never taller than the screen above the keyboard, and never up
+       under the status bar. With no cap, Body Stats plus the keyboard it
+       opens pushed the sheet's top (and its close button) under the
+       status bar. 90dvh matches the shared Sheet; the safe-top term keeps
+       it clear where the status bar is taller than the other 10%. */
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - 8px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* The title and close button stay in reach when the fields scroll. */
+  .bs-sheet .sheet-header-row {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--surface-1);
   }
   .bs-sheet-body  { padding: 8px 20px 0; display: flex; flex-direction: column; gap: 12px; }
   .bs-sheet-footer { padding: 16px 20px; }
@@ -4385,7 +4400,7 @@
     background: var(--surface-1);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     width: 100%; max-width: 600px; margin: 0 auto;
-    max-height: 85dvh; display: flex; flex-direction: column;
+    max-height: min(85dvh, calc(100dvh - var(--safe-top) - 8px)); display: flex; flex-direction: column;
     padding-bottom: var(--safe-bottom);
   }
   .ns-body { flex: 1; overflow-y: auto; padding: 0 16px 16px; }

@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
@@ -868,7 +869,7 @@
 
     <!-- Camera popup -->
     {#if showCamera}
-      <div class="cam-overlay" role="dialog" aria-modal="true" use:portal>
+      <div class="cam-overlay" role="dialog" aria-modal="true" use:portal use:closeOnBack={stopCamera}>
         <div class="cam-popup">
           <div class="cam-header">
             <span class="cam-title">{$_('food_editor.take_photo')}</span>

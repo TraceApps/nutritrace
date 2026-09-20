@@ -1,4 +1,5 @@
 <script>
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
@@ -2068,7 +2069,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
          On desktop the panel sits over content like a companion widget. -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
-      class="ai-backdrop"
+      class="ai-backdrop" use:closeOnBack={() => panelOpen = false}
       transition:fade={{ duration: 200 }}
       on:click={() => panelOpen = false}
       on:keydown={() => {}}

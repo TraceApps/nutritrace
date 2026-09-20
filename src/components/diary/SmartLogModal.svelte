@@ -12,6 +12,7 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
+  import { closeOnBack } from '../../lib/back-stack.js';
   import { mealNames, energyUnit, smartLogVoiceLang } from '../../stores/settings.js';
 
   // Resolve the configured voice-input language. 'auto' (default) means
@@ -273,7 +274,7 @@
   }
 </script>
 
-<div class="ql-backdrop" transition:fade={{ duration: 150 }} on:click={close}></div>
+<div class="ql-backdrop" transition:fade={{ duration: 150 }} on:click={close} use:closeOnBack={close}></div>
 <div class="ql-sheet" transition:fly={{ y: 400, duration: 280 }}>
   <div class="ql-handle"></div>
   <div class="ql-header">
@@ -452,7 +453,7 @@
     border-top: 1px solid var(--border);
     border-radius: 20px 20px 0 0;
     z-index: 601;
-    max-height: 88vh;
+    max-height: min(88vh, calc(100dvh - var(--safe-top) - 8px));
     display: flex;
     flex-direction: column;
     box-shadow: 0 -8px 40px rgba(0,0,0,0.45);

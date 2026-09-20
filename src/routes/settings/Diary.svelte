@@ -8,7 +8,7 @@
     mealNames,
     diaryShowBrands, diaryShowTimestamps, diaryShowThumbnails, diaryShowAllNutrients,
     diaryShowNutritionUnits, diaryShowMacroSummary, diaryPromptQuantity,
-    diaryShowPortionSize, warnUnitMismatch, showUnitMetadata, diaryShowNotes, diaryShowCompletion,
+    diaryShowPortionSize, warnUnitMismatch, showUnitMetadata, diaryShowNotes, diaryShowCompletion, diaryDefaultField,
     diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
     showQuickCalories, quickCaloriesDisplay,
     diaryShowNutritionBar,
@@ -110,6 +110,14 @@
     </SettingRow>
     <SettingRow label={$_('settings_diary.ask_quantity')} desc={$_('settings_diary.ask_quantity_desc')}>
       <Toggle checked={$diaryPromptQuantity} on:change={e => diaryPromptQuantity.set(e.detail)} />
+    </SettingRow>
+    <SettingRow label={$_('settings_diary.default_field')} desc={$_('settings_diary.default_field_desc')}>
+      <div class="select-wrap" style="width:170px">
+        <select class="select sel-sm" value={$diaryDefaultField} on:change={e => diaryDefaultField.set(e.currentTarget.value)}>
+          <option value="servings">{$_('settings_diary.opt_num_servings')}</option>
+          <option value="portion">{$_('settings_diary.opt_serving_size')}</option>
+        </select>
+      </div>
     </SettingRow>
     <SettingRow label={$_('settings_diary.show_progress_bar')} desc={$_('settings_diary.show_progress_bar_desc')}>
       <Toggle checked={$diaryShowNutritionBar} on:change={e => diaryShowNutritionBar.set(e.detail)} />

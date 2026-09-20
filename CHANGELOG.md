@@ -9,6 +9,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.1] - 2026-09-20
+
+Patch release. A Default Field setting for the add and edit sheets, and a round of Android fixes: the back button closes what's open first, dragging the Trace button no longer refreshes the page, Settings categories open at their top, and sheets and dialogs stay below the status bar.
+
+### Changed
+
+- **Choose which box the cursor starts in when adding food** ([#224](https://github.com/TraceApps/nutritrace/issues/224)). Since 1.3.0 the add and edit sheets put the cursor in the first box, Serving Size, so changing the number of servings took an extra tap every time. Settings, Diary, Default Field picks Number of Servings or Serving Size for adding a food, adding several at once, and editing a diary entry. It defaults to Number of Servings and follows your account across devices. Thanks @nomad64 for the report.
+
+### Fixed
+
+- **Moving the Trace button no longer refreshes the page** ([#225](https://github.com/TraceApps/nutritrace/issues/225)). In the Android app connected to a server, dragging the Trace button downward while the page was scrolled to the top was treated as pull-to-refresh and synced. The same could happen when dragging a reorder handle down (meal names, nutrients, body stats, Statistics categories, Meal Editor ingredients) or moving the photo cropper. Dragging those no longer counts as a pull; pulling down anywhere else still refreshes as before. Thanks @nomad64 for the report.
+- **The Android back button closes what's open first** ([#226](https://github.com/TraceApps/nutritrace/issues/226)). Back only knew how to go back a page, so with a sheet like Body Stats open it did nothing visible, and elsewhere it could leave the page with a sheet or dialog still up. Back now closes the newest sheet, dialog, menu, picker or panel first, one at a time, the same as its own close button (a dialog closes as Cancel, and a camera stops). The sync merge questions still need an answer, so back leaves them open. It also closes the slide-out sidebar if that's showing. With nothing open, back goes back a page and then offers to exit, as before. Thanks @nomad64 for the report.
+- **A Settings category now opens at its top** ([#227](https://github.com/TraceApps/nutritrace/issues/227)). On a phone, picking a category from lower down the Settings list (Import & Export, for example) opened it at the bottom, because the category kept the list's scroll position. Categories now open at their top, and going back to the list returns you to where you were on it. A setting found through Settings search still scrolls straight to its match. Thanks @nomad64 for the report.
+- **Body Stats no longer slides under the status bar** ([#228](https://github.com/TraceApps/nutritrace/issues/228)). In the Android app, opening Body Stats from the Diary brings up the keyboard, and the sheet grew taller than the space above it, so its title and close button ended up under the status bar where they couldn't be tapped. The sheet now stays below the status bar and scrolls its fields instead, with the title and close button always in reach. The other Diary sheets built the same way (Save to Library, Copy To, the date picker) and the Wellness date picker got the same limit. Thanks @nomad64 for the report.
+- **Other sheets and dialogs stay below the status bar too.** Found while fixing #228: the shared sheet used across the app, the Goals sheets, the nutrition summary, the Statistics calendar, the Wellness workout details and Smart Log. The Android app draws under the status bar, and these were capped only at a share of the screen, so one that filled its cap (a tall one, or any with the keyboard up) could start under the status bar. They now always stop below it and scroll their content instead. Nothing changes where there's room, or on a computer.
+
+### Translations
+
+- **German wording updates** on [Weblate](https://hosted.weblate.org/projects/nutritrace) by KAiSER: clearer labels for Delete, Body Stats, estimated values, the nutrition label reader and backup deletion. The new Default Field setting shows in English until it's translated.
+
+### Security
+
+- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
+
+NutriTrace is free and always will be. The [iOS fund](https://ko-fi.com/traceapps) is raising $1,300 toward a Mac and an iPhone, so the Trace apps can run properly on iPhone.
+
+---
+
+## [1.3.1-dev01] - 2026-09-19 (pre-release)
+
+First dev pre-release of the 1.3.1 patch cycle. Adds a Default Field setting for the add and edit sheets, and a round of Android fixes: the back button closes what's open first, dragging the Trace button no longer refreshes the page, Settings categories open at their top, and sheets and dialogs stay below the status bar.
+
+### Changed
+
+- **Choose which box the cursor starts in when adding food** ([#224](https://github.com/TraceApps/nutritrace/issues/224)). Since 1.3.0 the add and edit sheets put the cursor in the first box, Serving Size, so changing the number of servings took an extra tap every time. Settings, Diary, Default Field picks Number of Servings or Serving Size for adding a food, adding several at once, and editing a diary entry. It defaults to Number of Servings and follows your account across devices. Thanks @nomad64 for the report.
+
+### Fixed
+
+- **Moving the Trace button no longer refreshes the page** ([#225](https://github.com/TraceApps/nutritrace/issues/225)). In the Android app connected to a server, dragging the Trace button downward while the page was scrolled to the top was treated as pull-to-refresh and synced. The same could happen when dragging a reorder handle down (meal names, nutrients, body stats, Statistics categories, Meal Editor ingredients) or moving the photo cropper. Dragging those no longer counts as a pull; pulling down anywhere else still refreshes as before. Thanks @nomad64 for the report.
+- **The Android back button closes what's open first** ([#226](https://github.com/TraceApps/nutritrace/issues/226)). Back only knew how to go back a page, so with a sheet like Body Stats open it did nothing visible, and elsewhere it could leave the page with a sheet or dialog still up. Back now closes the newest sheet, dialog, menu, picker or panel first, one at a time, the same as its own close button (a dialog closes as Cancel, and a camera stops). The sync merge questions still need an answer, so back leaves them open. It also closes the slide-out sidebar if that's showing. With nothing open, back goes back a page and then offers to exit, as before. Thanks @nomad64 for the report.
+- **A Settings category now opens at its top** ([#227](https://github.com/TraceApps/nutritrace/issues/227)). On a phone, picking a category from lower down the Settings list (Import & Export, for example) opened it at the bottom, because the category kept the list's scroll position. Categories now open at their top, and going back to the list returns you to where you were on it. A setting found through Settings search still scrolls straight to its match. Thanks @nomad64 for the report.
+- **Body Stats no longer slides under the status bar** ([#228](https://github.com/TraceApps/nutritrace/issues/228)). In the Android app, opening Body Stats from the Diary brings up the keyboard, and the sheet grew taller than the space above it, so its title and close button ended up under the status bar where they couldn't be tapped. The sheet now stays below the status bar and scrolls its fields instead, with the title and close button always in reach. The other Diary sheets built the same way (Save to Library, Copy To, the date picker) and the Wellness date picker got the same limit. Thanks @nomad64 for the report.
+- **Other sheets and dialogs stay below the status bar too.** Found while fixing #228: the shared sheet used across the app, the Goals sheets, the nutrition summary, the Statistics calendar, the Wellness workout details and Smart Log. The Android app draws under the status bar, and these were capped only at a share of the screen, so one that filled its cap (a tall one, or any with the keyboard up) could start under the status bar. They now always stop below it and scroll their content instead. Nothing changes where there's room, or on a computer.
+
+### Translations
+
+- **German wording updates** on [Weblate](https://hosted.weblate.org/projects/nutritrace) by KAiSER: clearer labels for Delete, Body Stats, estimated values, the nutrition label reader and backup deletion. The new Default Field setting shows in English until it's translated.
+
+### Security
+
+- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
+
+---
+
 ## [1.3.0] - 2026-09-19
 
 Minor release. Big themes: recipes and pantry items from CookTrace, an opt-in way to mark diary days complete, new ways to reach your data from your own tools (a REST API, outgoing webhooks and more MCP tools), Cronometer imports working again, a round of iPhone fixes, better Open Food Facts search, and several security fixes worth updating for.
