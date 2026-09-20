@@ -908,7 +908,8 @@ real user feedback on what (if anything) they ask for here.
 
 Bring NoteTrace's browser offline model here, so the installed web app works in a
 dead zone the way the Android app does. This is set for every Trace app once the
-next main release is out.
+next main release is out. Order agreed 2026-09-20: NutriTrace first, then
+LiftTrace, then CookTrace.
 
 The pattern to copy (NoteTrace `src/lib/offline-api.js` + `offline-edits.js`):
 Workbox caches the app shell, an IndexedDB mirror answers reads when the server
