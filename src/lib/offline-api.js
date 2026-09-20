@@ -20,6 +20,7 @@
 import { writable, get } from 'svelte/store';
 import {
   applyDiaryOps, dayWithOps, buildDiaryPush, sentSeqs, pushError, isOfflineError, emptyDay,
+  applyFoodOps, buildFoodsPush, createdFoodIds, remapFoodIds, newTempId, isTempId,
 } from './offline-edits.js';
 
 const RETRY_MIN_MS = 3_000;
@@ -133,6 +134,21 @@ async function _queueDay(date, day) {
   return dayWithOps(await _all('diary'), ops, date);
 }
 
+async function _queueFood(action, id, data) {
+  const ops = await _loadOps();
+  const op = { type: 'food', action, id: Number(id), data, at: Date.now() };
+  const seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  if (seq == null) throw _offlineError();
+  op.seq = seq;
+  ops.push(op);
+  if (action === 'delete') await _tx('foods', 'readwrite', s => s.delete(Number(id)));
+  else await _remember('foods', applyFoodOps(await _all('foods'), [op]).get(Number(id)));
+  _publish();
+  _channel?.postMessage({ type: 'outbox' });
+  _scheduleFlush(_online() ? 0 : _retryMs);
+  return applyFoodOps(await _all('foods'), ops).get(Number(id)) || null;
+}
+
 // ── Sending ──────────────────────────────────────────────────────────
 let _http = null;
 let _retry = null;
@@ -166,10 +182,62 @@ async function _flushOnce() {
   if (!ops.length) { _publish({ syncing: false, error: null, online: _online() }); return true; }
   if (!_online() || !_http) { _scheduleFlush(_backoff()); return false; }
   _publish({ syncing: true });
+
+  // Foods go first and on their own: a food made offline has a temporary id,
+  // and the diary entries logged from it have to point at the real one before
+  // they go up.
+  const foodOps = ops.filter(op => op.type === 'food');
+  if (foodOps.length) {
+    let foodResponse;
+    try {
+      foodResponse = await _http.post('/api/sync/push', buildFoodsPush(foodOps));
+    } catch (err) {
+      const offline = isOfflineError(err);
+      _publish({ syncing: false, online: offline ? false : _online(), error: offline ? null : (err.message || 'failed') });
+      _scheduleFlush(_backoff());
+      return false;
+    }
+    const foodFailed = pushError(foodResponse);
+    if (foodFailed) {
+      _publish({ syncing: false, error: foodFailed, online: true });
+      _scheduleFlush(_backoff());
+      return false;
+    }
+    const map = createdFoodIds(foodResponse);
+    if (Object.keys(map).length) {
+      // The catalogue, the days already saved, and the diary still queued.
+      const foods = await _all('foods');
+      for (const f of foods) {
+        if (isTempId(f.id) && map[Number(f.id)] != null) {
+          await _tx('foods', 'readwrite', s => s.delete(Number(f.id)));
+          await _remember('foods', { ...f, id: map[Number(f.id)] });
+        }
+      }
+      for (const day of await _all('diary')) await _remember('diary', remapFoodIds(day, map));
+      for (const op of ops) {
+        if (op.type !== 'diary') continue;
+        const fixed = remapFoodIds(op, map);
+        await _tx('outbox', 'readwrite', s => s.put(fixed));
+        Object.assign(op, fixed);
+      }
+    }
+    const foodSeqs = new Set(foodOps.map(op => op.seq));
+    await _tx('outbox', 'readwrite', s => { for (const seq of foodSeqs) s.delete(seq); });
+    _ops = ops.filter(op => !foodSeqs.has(op.seq));
+  }
+
+  const diaryOps = (_ops || ops).filter(op => op.type === 'diary');
+  if (!diaryOps.length) {
+    _resetBackoff();
+    _publish({ syncing: false, error: null, online: true });
+    _channel?.postMessage({ type: 'outbox', synced: true });
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nt:offline-synced'));
+    return true;
+  }
   const mirror = await _all('diary');
   let response;
   try {
-    response = await _http.post('/api/sync/push', buildDiaryPush(ops, mirror));
+    response = await _http.post('/api/sync/push', buildDiaryPush(diaryOps, mirror));
   } catch (err) {
     const offline = isOfflineError(err);
     _publish({ syncing: false, online: offline ? false : _online(), error: offline ? null : (err.message || 'failed') });
@@ -182,7 +250,7 @@ async function _flushOnce() {
     _scheduleFlush(_backoff());
     return false;
   }
-  const done = new Set(sentSeqs(ops));
+  const done = new Set(sentSeqs(diaryOps));
   await _tx('outbox', 'readwrite', s => { for (const seq of done) s.delete(seq); });
   _ops = ops.filter(op => !done.has(op.seq));
   _resetBackoff();
@@ -271,15 +339,64 @@ export function createOfflineApi(http) {
       return _queueDay(date, data);
     },
 
+    async createFood(data) {
+      const ops = await _loadOps();
+      if (_online() && !ops.length) {
+        try {
+          const food = await http.createFood(data);
+          await _remember('foods', food);
+          return food;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      // A temporary id so the diary can log it straight away; it becomes the
+      // server's id when the queue goes up.
+      return _queueFood('create', newTempId(), data);
+    },
+
+    async updateFood(id, data) {
+      const ops = await _loadOps();
+      if (_online() && !ops.length && !isTempId(id)) {
+        try {
+          const food = await http.updateFood(id, data);
+          await _remember('foods', food);
+          return food;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      return _queueFood('update', id, data);
+    },
+
+    async deleteFood(id) {
+      const ops = await _loadOps();
+      if (_online() && !ops.length && !isTempId(id)) {
+        try {
+          const r = await http.deleteFood(id);
+          await _tx('foods', 'readwrite', s => s.delete(Number(id)));
+          return r;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      await _queueFood('delete', id, null);
+      return { ok: true };
+    },
+
     async getFoods() {
       try {
         const foods = await http.getFoods();
         await _remember('foods', foods);
-        return foods;
+        const ops = await _loadOps();
+        return ops.some(o => o.type === 'food') ? [...applyFoodOps(foods, ops).values()] : foods;
       } catch (err) {
         if (!isOfflineError(err)) throw err;
         _publish({ online: false });
-        return _all('foods');
+        return [...applyFoodOps(await _all('foods'), await _loadOps()).values()];
       }
     },
 
