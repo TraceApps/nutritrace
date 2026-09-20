@@ -20,7 +20,7 @@
 import { writable, get } from 'svelte/store';
 import {
   applyDiaryOps, dayWithOps, buildDiaryPush, sentSeqs, pushError, isOfflineError, emptyDay,
-  applyFoodOps, buildFoodsPush, createdFoodIds, remapFoodIds, newTempId, isTempId,
+  applyCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId,
 } from './offline-edits.js';
 
 const RETRY_MIN_MS = 3_000;
@@ -134,19 +134,22 @@ async function _queueDay(date, day) {
   return dayWithOps(await _all('diary'), ops, date);
 }
 
-async function _queueFood(action, id, data) {
+// store: which mirror the row lives in ('foods', 'meals', 'recipes').
+// table: which side of the sync push carries it ('foods' or 'meals'); the
+// server keeps recipes in the meals table with a flag.
+async function _queueCatalog(store, table, action, id, data) {
   const ops = await _loadOps();
-  const op = { type: 'food', action, id: Number(id), data, at: Date.now() };
+  const op = { type: 'catalog', table, action, id: Number(id), data, at: Date.now() };
   const seq = await _tx('outbox', 'readwrite', s => s.add(op));
   if (seq == null) throw _offlineError();
   op.seq = seq;
   ops.push(op);
-  if (action === 'delete') await _tx('foods', 'readwrite', s => s.delete(Number(id)));
-  else await _remember('foods', applyFoodOps(await _all('foods'), [op]).get(Number(id)));
+  if (action === 'delete') await _tx(store, 'readwrite', s => s.delete(Number(id)));
+  else await _remember(store, applyCatalogOps(await _all(store), [op], table).get(Number(id)));
   _publish();
   _channel?.postMessage({ type: 'outbox' });
   _scheduleFlush(_online() ? 0 : _retryMs);
-  return applyFoodOps(await _all('foods'), ops).get(Number(id)) || null;
+  return applyCatalogOps(await _all(store), ops, table).get(Number(id)) || null;
 }
 
 // ── Sending ──────────────────────────────────────────────────────────
@@ -186,11 +189,11 @@ async function _flushOnce() {
   // Foods go first and on their own: a food made offline has a temporary id,
   // and the diary entries logged from it have to point at the real one before
   // they go up.
-  const foodOps = ops.filter(op => op.type === 'food');
+  const foodOps = ops.filter(op => op.type === 'catalog');
   if (foodOps.length) {
     let foodResponse;
     try {
-      foodResponse = await _http.post('/api/sync/push', buildFoodsPush(foodOps));
+      foodResponse = await _http.post('/api/sync/push', buildCatalogPush(foodOps));
     } catch (err) {
       const offline = isOfflineError(err);
       _publish({ syncing: false, online: offline ? false : _online(), error: offline ? null : (err.message || 'failed') });
@@ -203,20 +206,21 @@ async function _flushOnce() {
       _scheduleFlush(_backoff());
       return false;
     }
-    const map = createdFoodIds(foodResponse);
+    const map = createdIds(foodResponse);
     if (Object.keys(map).length) {
       // The catalogue, the days already saved, and the diary still queued.
-      const foods = await _all('foods');
-      for (const f of foods) {
-        if (isTempId(f.id) && map[Number(f.id)] != null) {
-          await _tx('foods', 'readwrite', s => s.delete(Number(f.id)));
-          await _remember('foods', { ...f, id: map[Number(f.id)] });
+      for (const store of ['foods', 'meals', 'recipes']) {
+        for (const row of await _all(store)) {
+          if (isTempId(row.id) && map[Number(row.id)] != null) {
+            await _tx(store, 'readwrite', s => s.delete(Number(row.id)));
+            await _remember(store, { ...row, id: map[Number(row.id)] });
+          }
         }
       }
-      for (const day of await _all('diary')) await _remember('diary', remapFoodIds(day, map));
+      for (const day of await _all('diary')) await _remember('diary', remapIds(day, map));
       for (const op of ops) {
         if (op.type !== 'diary') continue;
-        const fixed = remapFoodIds(op, map);
+        const fixed = remapIds(op, map);
         await _tx('outbox', 'readwrite', s => s.put(fixed));
         Object.assign(op, fixed);
       }
@@ -353,7 +357,7 @@ export function createOfflineApi(http) {
       }
       // A temporary id so the diary can log it straight away; it becomes the
       // server's id when the queue goes up.
-      return _queueFood('create', newTempId(), data);
+      return _queueCatalog('foods', 'foods', 'create', newTempId(), data);
     },
 
     async updateFood(id, data) {
@@ -368,7 +372,7 @@ export function createOfflineApi(http) {
           _publish({ online: false });
         }
       }
-      return _queueFood('update', id, data);
+      return _queueCatalog('foods', 'foods', 'update', id, data);
     },
 
     async deleteFood(id) {
@@ -383,7 +387,58 @@ export function createOfflineApi(http) {
           _publish({ online: false });
         }
       }
-      await _queueFood('delete', id, null);
+      await _queueCatalog('foods', 'foods', 'delete', id, null);
+      return { ok: true };
+    },
+
+    // Meals and recipes live in the same table on the server; a recipe is a
+    // meal with is_recipe set, so both queue onto the meals side of the push.
+    async createMeal(data) {
+      const ops = await _loadOps();
+      const store = data?.is_recipe ? 'recipes' : 'meals';
+      if (_online() && !ops.length) {
+        try {
+          const meal = await http.createMeal(data);
+          await _remember(store, meal);
+          return meal;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      return _queueCatalog(store, 'meals', 'create', newTempId(), data);
+    },
+
+    async updateMeal(id, data) {
+      const ops = await _loadOps();
+      const store = data?.is_recipe ? 'recipes' : 'meals';
+      if (_online() && !ops.length && !isTempId(id)) {
+        try {
+          const meal = await http.updateMeal(id, data);
+          await _remember(store, meal);
+          return meal;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      return _queueCatalog(store, 'meals', 'update', id, data);
+    },
+
+    async deleteMeal(id) {
+      const ops = await _loadOps();
+      if (_online() && !ops.length && !isTempId(id)) {
+        try {
+          const r = await http.deleteMeal(id);
+          for (const store of ['meals', 'recipes']) await _tx(store, 'readwrite', s => s.delete(Number(id)));
+          return r;
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      await _queueCatalog('meals', 'meals', 'delete', id, null);
+      await _tx('recipes', 'readwrite', s => s.delete(Number(id)));
       return { ok: true };
     },
 
@@ -392,11 +447,11 @@ export function createOfflineApi(http) {
         const foods = await http.getFoods();
         await _remember('foods', foods);
         const ops = await _loadOps();
-        return ops.some(o => o.type === 'food') ? [...applyFoodOps(foods, ops).values()] : foods;
+        return ops.some(o => o.type === 'catalog') ? [...applyCatalogOps(foods, ops, 'foods').values()] : foods;
       } catch (err) {
         if (!isOfflineError(err)) throw err;
         _publish({ online: false });
-        return [...applyFoodOps(await _all('foods'), await _loadOps()).values()];
+        return [...applyCatalogOps(await _all('foods'), await _loadOps(), 'foods').values()];
       }
     },
 
@@ -418,11 +473,13 @@ export function createOfflineApi(http) {
       try {
         const meals = await http.getMeals();
         await _remember('meals', meals);
-        return meals;
+        const ops = await _loadOps();
+        return ops.some(o => o.type === 'catalog') ? [...applyCatalogOps(meals, ops, 'meals').values()] : meals;
       } catch (err) {
         if (!isOfflineError(err)) throw err;
         _publish({ online: false });
-        return _all('meals');
+        // Recipes are kept apart in the mirror, so only meals come back here.
+        return [...applyCatalogOps(await _all('meals'), await _loadOps(), 'meals').values()].filter(m => !m.is_recipe);
       }
     },
 
@@ -436,7 +493,7 @@ export function createOfflineApi(http) {
       } catch (err) {
         if (!isOfflineError(err)) throw err;
         _publish({ online: false });
-        return _all('recipes');
+        return [...applyCatalogOps(await _all('recipes'), await _loadOps(), 'meals').values()].filter(m => m.is_recipe !== false);
       }
     },
   };

@@ -100,9 +100,9 @@ test('tombstones from different days do not mix', () => {
 });
 
 // ── Foods made without a connection ─────────────────────────────────
-import { applyFoodOps, collapseFoodOps, buildFoodsPush, createdFoodIds, remapFoodIds, newTempId, isTempId } from '../src/lib/offline-edits.js';
+import { applyCatalogOps, collapseCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId } from '../src/lib/offline-edits.js';
 
-const fop = (seq, action, id, data) => ({ seq, type: 'food', action, id, data, at: 1_700_000_000_000 });
+const fop = (seq, action, id, data, table = 'foods') => ({ seq, type: 'catalog', table, action, id, data, at: 1_700_000_000_000 });
 
 test('a temporary id cannot be mistaken for a server one', () => {
   const a = newTempId(), b = newTempId();
@@ -111,7 +111,7 @@ test('a temporary id cannot be mistaken for a server one', () => {
 });
 
 test('a food created offline shows in the catalogue at once', () => {
-  const list = applyFoodOps([{ id: 5, name: 'Oats' }], [fop(1, 'create', -7, { name: 'Bread' })]);
+  const list = applyCatalogOps([{ id: 5, name: 'Oats' }], [fop(1, 'create', -7, { name: 'Bread' })]);
   assert.equal(list.get(-7).name, 'Bread');
   assert.equal(list.get(-7)._pending, true);
   assert.equal(list.get(5).name, 'Oats');
@@ -119,7 +119,7 @@ test('a food created offline shows in the catalogue at once', () => {
 
 test('editing a food created offline goes up as one create, not two rows', () => {
   const ops = [fop(1, 'create', -7, { name: 'Bread', portion: 40 }), fop(2, 'update', -7, { portion: 45 })];
-  const rows = buildFoodsPush(ops).foods;
+  const rows = buildCatalogPush(ops).foods;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].client_id, -7);
   assert.equal(rows[0].server_id, null);
@@ -128,17 +128,17 @@ test('editing a food created offline goes up as one create, not two rows', () =>
 });
 
 test('a food created and then deleted offline never goes up', () => {
-  assert.deepEqual(collapseFoodOps([fop(1, 'create', -7, { name: 'Oops' }), fop(2, 'delete', -7, null)]), []);
+  assert.deepEqual(collapseCatalogOps([fop(1, 'create', -7, { name: 'Oops' }), fop(2, 'delete', -7, null)]), []);
 });
 
 test('deleting a food that exists on the server sends a deletion', () => {
-  const row = buildFoodsPush([fop(1, 'delete', 12, null)]).foods[0];
+  const row = buildCatalogPush([fop(1, 'delete', 12, null)]).foods[0];
   assert.equal(row.server_id, 12);
   assert.ok(row.deleted_at);
 });
 
 test('editing an existing food keeps its server id', () => {
-  const row = buildFoodsPush([fop(1, 'update', 12, { name: 'Renamed' })]).foods[0];
+  const row = buildCatalogPush([fop(1, 'update', 12, { name: 'Renamed' })]).foods[0];
   assert.equal(row.server_id, 12);
   assert.equal(row.client_id, null);
   assert.equal(row.deleted_at, null);
@@ -146,10 +146,10 @@ test('editing an existing food keeps its server id', () => {
 });
 
 test('diary entries follow a new food to its real id', () => {
-  const map = createdFoodIds({ tables: { foods: [{ client_id: -7, server_id: 99 }] } });
+  const map = createdIds({ tables: { foods: [{ client_id: -7, server_id: 99 }] } });
   assert.deepEqual(map, { '-7': 99 });
   const day = { date: '2026-09-20', items: [{ uuid: 'a', id: -7, food_server_id: -7, name: 'Bread' }, { uuid: 'b', id: 5 }] };
-  const fixed = remapFoodIds(day, map);
+  const fixed = remapIds(day, map);
   assert.equal(fixed.items[0].id, 99);
   assert.equal(fixed.items[0].food_server_id, 99);
   assert.equal(fixed.items[1].id, 5, 'server ids are left alone');
@@ -157,5 +157,21 @@ test('diary entries follow a new food to its real id', () => {
 
 test('remapping does nothing when the server created nothing', () => {
   const day = { items: [{ id: -7 }] };
-  assert.equal(remapFoodIds(day, {}), day);
+  assert.equal(remapIds(day, {}), day);
+});
+
+test('meals and recipes queue onto the meals side of the push', () => {
+  const ops = [fop(1, 'create', -3, { name: 'Chilli', is_recipe: true }, 'meals'), fop(2, 'create', -4, { name: 'Bread' }, 'foods')];
+  const push = buildCatalogPush(ops);
+  assert.equal(push.meals.length, 1);
+  assert.equal(push.foods.length, 1);
+  assert.equal(push.meals[0].name, 'Chilli');
+  assert.equal(push.foods[0].name, 'Bread');
+});
+
+test('ids created in either table are remapped together', () => {
+  const map = createdIds({ tables: { foods: [{ client_id: -4, server_id: 40 }], meals: [{ client_id: -3, server_id: 30 }] } });
+  assert.deepEqual(map, { '-4': 40, '-3': 30 });
+  const day = { items: [{ id: -4 }, { id: -3, is_recipe: true }] };
+  assert.deepEqual(remapIds(day, map).items.map(i => i.id), [40, 30]);
 });
