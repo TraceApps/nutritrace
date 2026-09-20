@@ -23,7 +23,7 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
 
 <p align="center">
   <b>iOS fund:</b> the Trace apps have no iOS app yet, because building one needs a Mac and an iPhone.
-  <a href="https://traceapps.github.io/docs/support/">See the goal</a> or <a href="https://ko-fi.com/traceapps">chip in</a>. Self-hosting stays free either way.
+  <a href="https://ko-fi.com/traceapps">Chip in on Ko-fi</a>. Self-hosting stays free either way.
 </p>
 
 ---
