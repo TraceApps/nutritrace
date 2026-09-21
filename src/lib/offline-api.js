@@ -21,7 +21,7 @@ import { writable, get } from 'svelte/store';
 import {
   applyDiaryOps, dayWithOps, buildDiaryPush, sentSeqs, pushError, isOfflineError, emptyDay,
   applyCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId,
-  activeFastRow, fastList, newFastRow, fastWith,
+  activeFastRow, fastList, newFastRow, fastWith, staleReadKeys,
 } from './offline-edits.js';
 
 const RETRY_MIN_MS = 3_000;
@@ -223,10 +223,40 @@ function _offlineError(message) {
   return err;
 }
 
+// How many provider readings to keep. A season of wellness days is plenty,
+// and a database that never fills is what keeps the outbox writable: a full
+// one would refuse what you log, which matters far more than a copy of
+// something you can read again later.
+const KEEP_READS = 300;
+let _sinceTrim = 0;
+
+async function _rememberRead(key, body) {
+  await _tx('reads', 'readwrite', s => s.put({ key, body, at: Date.now() }));
+  if (++_sinceTrim >= 25) {
+    _sinceTrim = 0;
+    const stale = staleReadKeys(await _all('reads'), KEEP_READS);
+    if (stale.length) await _tx('reads', 'readwrite', s => { for (const key of stale) s.delete(key); });
+  }
+}
+
+/**
+ * Add to the outbox, making room if the database is full: what you have
+ * logged matters more than a copy of something you can read again.
+ */
+async function _addOp(op) {
+  let seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  if (seq == null) {
+    await _tx('reads', 'readwrite', s => s.clear());
+    await _tx('activity_sums', 'readwrite', s => s.clear());
+    seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  }
+  return seq;
+}
+
 async function _queueDay(date, day) {
   const ops = await _loadOps();
   const op = { type: 'diary', date, day, at: Date.now() };
-  const seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  const seq = await _addOp(op);
   // No database to queue into (private mode, no space): say so rather than
   // pretending the day was saved.
   if (seq == null) throw _offlineError();
@@ -244,7 +274,7 @@ async function _queueDay(date, day) {
 async function _queueCatalog(store, table, action, id, data) {
   const ops = await _loadOps();
   const op = { type: 'catalog', table, action, id: Number(id), data, at: Date.now() };
-  const seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  const seq = await _addOp(op);
   if (seq == null) throw _offlineError();
   op.seq = seq;
   ops.push(op);
@@ -269,7 +299,7 @@ async function _queueCatalog(store, table, action, id, data) {
 async function _queueRequest(kind, key, method, path, body) {
   const ops = await _loadOps();
   const op = { type: 'request', kind, key, method, path, body, at: Date.now() };
-  const seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  const seq = await _addOp(op);
   if (seq == null) throw _offlineError();
   op.seq = seq;
   ops.push(op);
@@ -282,7 +312,7 @@ async function _queueRequest(kind, key, method, path, body) {
 export async function queueSetting(key, value) {
   const ops = await _loadOps();
   const op = { type: 'setting', key, data: value, at: Date.now() };
-  const seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  const seq = await _addOp(op);
   if (seq == null) return false;
   op.seq = seq;
   ops.push(op);
@@ -921,7 +951,7 @@ export function createOfflineApi(http) {
         if (!_keepsRead(path)) return _through(http, 'get', path, rest);
         try {
           const answer = await http.get(path, ...rest);
-          await _tx('reads', 'readwrite', s => s.put({ key: String(path), body: answer, at: Date.now() }));
+          await _rememberRead(String(path), answer);
           return answer;
         } catch (err) {
           if (!isOfflineError(err)) throw err;

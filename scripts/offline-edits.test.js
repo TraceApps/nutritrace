@@ -100,7 +100,7 @@ test('tombstones from different days do not mix', () => {
 });
 
 // ── Foods made without a connection ─────────────────────────────────
-import { applyCatalogOps, collapseCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId } from '../src/lib/offline-edits.js';
+import { applyCatalogOps, collapseCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId, staleReadKeys } from '../src/lib/offline-edits.js';
 
 const fop = (seq, action, id, data, table = 'foods') => ({ seq, type: 'catalog', table, action, id, data, at: 1_700_000_000_000 });
 
@@ -310,4 +310,11 @@ test('a fast started and ended offline goes up as one finished fast', () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].client_id, -5);
   assert.equal(rows[0].end_at, stopped);
+});
+
+test('the readings this browser keeps have a ceiling, oldest let go first', () => {
+  const rows = [{ key: '/a', at: 300 }, { key: '/b', at: 100 }, { key: '/c', at: 200 }, { key: '/d', at: 400 }];
+  assert.deepEqual(staleReadKeys(rows, 2).sort(), ['/b', '/c']);
+  assert.deepEqual(staleReadKeys(rows, 4), [], 'nothing goes while there is room');
+  assert.deepEqual(staleReadKeys([{ key: '/x' }, { key: '/y', at: 5 }], 1), ['/x']);
 });
