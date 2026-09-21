@@ -311,11 +311,26 @@ async function _send(method, path, body) {
   const res = await fetch(path, {
     method,
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: _headers(),
     body: body == null ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
+}
+
+/**
+ * The headers a write needs when it goes out without the API layer (nothing
+ * on screen has built it yet). The server refuses a cookie-authenticated
+ * write with no CSRF token, so leaving it out means the queue can never go
+ * up: it would retry forever behind a red cloud.
+ */
+function _headers() {
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const csrf = localStorage.getItem('nt:csrf');
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+  } catch { /* private mode */ }
+  return headers;
 }
 
 async function _post(path, body) {
@@ -323,7 +338,7 @@ async function _post(path, body) {
   const res = await fetch(path, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: _headers(),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -463,7 +478,13 @@ async function _flushOnce() {
   _publish({ syncing: false, error: null, online: true });
   _channel?.postMessage({ type: 'outbox', synced: true });
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nt:offline-synced'));
-  // Anything queued while this push was in flight goes next.
+  // Anything logged while this push was in flight is in the database but not
+  // in the copy this run started from, and a flush asked for while one is
+  // running is answered with the running one. Read it back and go again, or
+  // that work waits for something else to happen to notice it.
+  _ops = null;
+  await _loadOps();
+  _publish();
   if (_ops.length) _scheduleFlush(0);
   return !_ops.length;
 }
