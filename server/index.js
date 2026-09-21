@@ -111,6 +111,15 @@ router.use('/api/ai/chat',     express.json({ limit: '12mb' }));
 router.use('/api/diary',       express.json({ limit: '5mb' }));
 // Global cap: 1 MB. Prevents a single authed user from filling memory with
 // repeated large requests. Anything above belongs on a per-route opt-in.
+// A picture taken with no connection travels inside the row it belongs to,
+// since there is nowhere to upload it to, and is turned into a file on
+// arrival. The web app keeps those well under a megabyte; these routes allow
+// headroom so one is never refused for its size after the person has already
+// been told it was saved.
+const EMBEDDED_PHOTO_LIMIT = '6mb';
+for (const path of ['/api/foods', '/api/meals', '/api/auth/profile']) {
+  router.use(path, express.json({ limit: EMBEDDED_PHOTO_LIMIT }));
+}
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
 

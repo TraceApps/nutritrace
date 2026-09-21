@@ -17,9 +17,20 @@
 
 const MAX_DIM = 1600;
 const QUALITY = 0.82;
-// Well under the server's ceiling, so a photo is never taken and then
-// refused on arrival.
-export const MAX_EMBEDDED_BYTES = 8 * 1024 * 1024;
+// A photo travels inside an ordinary request, and a server will not read an
+// endless one: this is the ceiling everything here works to. Well under what
+// the servers accept, so a photo is never kept and then refused on arrival
+// with "request entity too large", which is exactly what happened before
+// this was enforced.
+export const MAX_EMBEDDED_BYTES = 1_200_000;
+// Steps to try, in order, before giving up: shrink, then shrink further,
+// then lean on quality. A phone photo lands in the first or second.
+const STEPS = [
+  { dim: MAX_DIM, quality: QUALITY },
+  { dim: 1200, quality: 0.78 },
+  { dim: 900, quality: 0.72 },
+  { dim: 700, quality: 0.65 },
+];
 // What the server will store as it stands.
 const KNOWN = /^image\/(jpeg|png|webp|gif|avif)$/i;
 
@@ -76,9 +87,6 @@ export async function embeddableDataUrl(file) {
   }
 
   const { naturalWidth: w, naturalHeight: h } = img;
-  const oversized = !w || !h || w > MAX_DIM || h > MAX_DIM;
-  const heavy = (file.size || 0) > MAX_EMBEDDED_BYTES / 2;
-  const unknownFormat = !KNOWN.test(declared);
 
   // An animated GIF cannot be redrawn without losing every frame but the
   // first, so it travels as it is or not at all.
@@ -89,24 +97,28 @@ export async function embeddableDataUrl(file) {
     return original;
   }
 
-  let out = original;
-  if (oversized || heavy || unknownFormat) {
-    const scale = oversized && w && h ? Math.min(1, MAX_DIM / Math.max(w, h)) : 1;
+  // Small enough already, and in a format the server stores? Keep it as it is.
+  if (KNOWN.test(declared) && original.length <= MAX_EMBEDDED_BYTES
+      && w && h && w <= MAX_DIM && h <= MAX_DIM) {
+    return original;
+  }
+
+  let out = null;
+  for (const step of STEPS) {
+    const scale = w && h ? Math.min(1, step.dim / Math.max(w, h)) : 1;
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round((w || MAX_DIM) * scale));
-    canvas.height = Math.max(1, Math.round((h || MAX_DIM) * scale));
+    canvas.width = Math.max(1, Math.round((w || step.dim) * scale));
+    canvas.height = Math.max(1, Math.round((h || step.dim) * scale));
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     // A drawing keeps its transparency; a photograph does not need it.
     out = _hasTransparency(ctx, canvas.width, canvas.height)
       ? canvas.toDataURL('image/png')
-      : canvas.toDataURL('image/jpeg', QUALITY);
+      : canvas.toDataURL('image/jpeg', step.quality);
+    if (out.length <= MAX_EMBEDDED_BYTES) return out;
   }
 
-  if (out.length > MAX_EMBEDDED_BYTES) {
-    throw _needsConnection('That picture is too large to keep until you are back online. Take it again once you have a connection.');
-  }
-  return out;
+  throw _needsConnection('That picture is too large to keep until you are back online. Take it again once you have a connection.');
 }
 
 /** Is this an image kept in a row rather than a path to one? */
