@@ -58,7 +58,7 @@ function _dbName() {
   } catch { /* private mode */ }
   return `nutritrace-offline-${user || 'single'}`;
 }
-const _STORES = ['diary', 'foods', 'meals', 'recipes', 'activity', 'activity_sums', 'fasts', 'reads', 'outbox'];
+const _STORES = ['diary', 'foods', 'meals', 'recipes', 'activity', 'activity_sums', 'fasts', 'reads', 'outbox', 'meta'];
 
 function _db() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -69,7 +69,7 @@ function _db() {
   // what was kept with it rather than leaving it in a database nothing reads.
   const leaving = _dbPromise?.name && _dbPromise.name !== name ? _dbPromise.name : null;
   const p = new Promise((resolve) => {
-    const req = indexedDB.open(name, 3);
+    const req = indexedDB.open(name, 4);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('diary')) db.createObjectStore('diary', { keyPath: 'date' });
@@ -80,6 +80,7 @@ function _db() {
       if (!db.objectStoreNames.contains('fasts')) db.createObjectStore('fasts', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('activity_sums')) db.createObjectStore('activity_sums', { keyPath: 'date' });
       if (!db.objectStoreNames.contains('reads')) db.createObjectStore('reads', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
       if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'seq', autoIncrement: true });
     };
     req.onsuccess = () => resolve(req.result);
@@ -206,6 +207,13 @@ const _online = () => typeof navigator === 'undefined' || navigator.onLine !== f
  */
 let _swapped = {};
 const _realId = (id) => (id != null && _swapped[Number(id)] != null ? _swapped[Number(id)] : id);
+// Kept on disk as well as in memory, so a screen reopened later still knows
+// what a row created offline became. NoteTrace has always done this.
+async function _loadSwapped() {
+  const kept = await _tx('meta', 'readonly', s => s.get('idMap'));
+  if (kept) _swapped = { ...kept, ..._swapped };
+  return _swapped;
+}
 const _fixFastPath = (path) =>
   String(path).replace(/^\/api\/fasts\/(-?\d+)/, (_all, id) => `/api/fasts/${_realId(id)}`);
 
@@ -399,6 +407,7 @@ async function _flushOnce() {
     const map = createdIds(foodResponse);
     if (Object.keys(map).length) {
       _swapped = { ..._swapped, ...map };
+      await _tx('meta', 'readwrite', s => s.put(_swapped, 'idMap'));
       _channel?.postMessage({ type: 'outbox', ids: map });
       // The catalogue, the days already saved, and the diary still queued.
       for (const store of ['foods', 'meals', 'recipes', 'activity', 'fasts']) {
@@ -476,6 +485,7 @@ export async function clearOffline() {
   await _tx('activity_sums', 'readwrite', s => s.clear());
   await _tx('outbox', 'readwrite', s => s.clear());
   _ops = [];
+  _swapped = {};
   _dbPromise = null;
   try { localStorage.removeItem(_USER_KEY); } catch { /* private mode */ }
   _publish({ syncing: false, error: null });
@@ -494,6 +504,7 @@ function _wire() {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') _scheduleFlush(0);
     });
+    _loadSwapped().catch(() => {});
     _loadOps().then(() => { _publish(); if (_ops.length) _scheduleFlush(0); });
   }
 }

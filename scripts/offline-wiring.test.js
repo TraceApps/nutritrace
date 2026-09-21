@@ -129,9 +129,10 @@ test('a row created offline is changed by its real id after the queue goes up', 
 
 test('new mirror stores reach testers who already have the database', () => {
   // Bumped whenever a store is added, or onupgradeneeded never runs for them.
-  assert.match(offline, /indexedDB\.open\(name, 3\)/);
+  assert.match(offline, /indexedDB\.open\(name, 4\)/);
   assert.match(offline, /objectStoreNames\.contains\('fasts'\)/);
   assert.match(offline, /objectStoreNames\.contains\('reads'\)/);
+  assert.match(offline, /objectStoreNames\.contains\('meta'\)/);
   // and sign-out clears it with the rest
   assert.match(offline, /_tx\('fasts', 'readwrite', s => s\.clear\(\)\)/);
 });
@@ -200,4 +201,12 @@ test('your profile and its picture work the same way here as in the sibling apps
   assert.match(profile, /\$: _isLocal = /);
   const auth = readFileSync(new URL('../server/routes/auth.js', import.meta.url), 'utf8');
   assert.match(auth, /await localizeImage\(req\.body\?\.avatar_url\)/);
+});
+
+test('what a row created offline became is remembered on disk, not just in memory', () => {
+  // A flush that stops halfway leaves queued work pointing at a row the
+  // server has just created. NoteTrace has always kept this map; the others
+  // now do too.
+  assert.match(offline, /async function _loadSwapped\(\)/);
+  assert.match(offline, /_tx\('meta', 'readwrite', s => s\.put\(_swapped, 'idMap'\)\)/);
 });
