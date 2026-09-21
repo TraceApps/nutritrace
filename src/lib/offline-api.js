@@ -108,7 +108,13 @@ async function _absorb(oldName, db) {
     req.onerror = req.onblocked = () => resolve(null);
   });
   if (!old) return;
-  for (const store of _STORES) {
+  // The work waiting to go up and what each temporary id became always come
+  // across. Copies of what was read only come if nothing has been changed
+  // yet in this session: this runs late, after a change may already have
+  // tidied them up, and bringing a stale one back resurrects what was
+  // deleted.
+  const stores = _changedSomething ? ['outbox', 'meta'] : _STORES;
+  for (const store of stores) {
     if (!old.objectStoreNames.contains(store) || !db.objectStoreNames.contains(store)) continue;
     const rows = await new Promise((resolve) => {
       try {
@@ -235,6 +241,9 @@ function _offlineError(message) {
 // something you can read again later.
 const KEEP_READS = 300;
 let _sinceTrim = 0;
+// Has anything been changed since this page opened? Decides whether copies
+// kept before the account was known are still safe to carry over.
+let _changedSomething = false;
 
 async function _rememberRead(key, body) {
   await _tx('reads', 'readwrite', s => s.put({ key, body, at: Date.now() }));
@@ -250,6 +259,7 @@ async function _rememberRead(key, body) {
  * logged matters more than a copy of something you can read again.
  */
 async function _addOp(op) {
+  _changedSomething = true;
   let seq = await _tx('outbox', 'readwrite', s => s.add(op));
   if (seq == null) {
     await _tx('reads', 'readwrite', s => s.clear());
@@ -316,6 +326,7 @@ async function _queueRequest(kind, key, method, path, body) {
 }
 
 export async function queueSetting(key, value) {
+  _changedSomething = true;
   const ops = await _loadOps();
   const op = { type: 'setting', key, data: value, at: Date.now() };
   const seq = await _addOp(op);
@@ -655,6 +666,7 @@ export function createOfflineApi(http) {
     },
 
     async saveDiaryDate(date, data) {
+      _changedSomething = true;
       const ops = await _loadOps();
       // Anything already waiting goes first, so days keep their order.
       if (_online() && !ops.length) {
@@ -672,6 +684,7 @@ export function createOfflineApi(http) {
     },
 
     async createFood(data) {
+      _changedSomething = true;
       const ops = await _loadOps();
       if (_online() && !ops.length) {
         try {
@@ -689,6 +702,7 @@ export function createOfflineApi(http) {
     },
 
     async updateFood(id, data) {
+      _changedSomething = true;
       id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
@@ -705,6 +719,7 @@ export function createOfflineApi(http) {
     },
 
     async deleteFood(id) {
+      _changedSomething = true;
       id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
@@ -724,6 +739,7 @@ export function createOfflineApi(http) {
     // Meals and recipes live in the same table on the server; a recipe is a
     // meal with is_recipe set, so both queue onto the meals side of the push.
     async createMeal(data) {
+      _changedSomething = true;
       const ops = await _loadOps();
       const store = data?.is_recipe ? 'recipes' : 'meals';
       if (_online() && !ops.length) {
@@ -740,6 +756,7 @@ export function createOfflineApi(http) {
     },
 
     async updateMeal(id, data) {
+      _changedSomething = true;
       id = _realId(id);
       const ops = await _loadOps();
       const store = data?.is_recipe ? 'recipes' : 'meals';
@@ -757,6 +774,7 @@ export function createOfflineApi(http) {
     },
 
     async deleteMeal(id) {
+      _changedSomething = true;
       id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
@@ -824,6 +842,7 @@ export function createOfflineApi(http) {
     },
 
     async createActivity(data) {
+      _changedSomething = true;
       const ops = await _loadOps();
       if (_online() && !ops.length) {
         try {
@@ -839,6 +858,7 @@ export function createOfflineApi(http) {
     },
 
     async updateActivity(id, data) {
+      _changedSomething = true;
       id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
@@ -855,6 +875,7 @@ export function createOfflineApi(http) {
     },
 
     async deleteActivity(id) {
+      _changedSomething = true;
       id = _realId(id);
       const ops = await _loadOps();
       if (_online() && !ops.length && !isTempId(id)) {
@@ -905,6 +926,7 @@ export function createOfflineApi(http) {
 
     /** Your own profile, including a picture chosen with no connection. */
     async updateProfile(data) {
+      _changedSomething = true;
       const ops = await _loadOps();
       if (_online() && !ops.length) {
         try {
@@ -983,6 +1005,7 @@ export function createOfflineApi(http) {
     },
 
     async post(path, body, ...rest) {
+      _changedSomething = true;
       if (!_FASTS.test(path)) return _through(http, 'post', path, [body, ...rest]);
       path = _fixFastPath(path);
       if (await _canReachServer()) {
@@ -1009,6 +1032,7 @@ export function createOfflineApi(http) {
     },
 
     async patch(path, body, ...rest) {
+      _changedSomething = true;
       if (!_FASTS.test(path)) return _through(http, 'patch', path, [body, ...rest]);
       path = _fixFastPath(path);
       if (await _canReachServer()) {
@@ -1027,6 +1051,7 @@ export function createOfflineApi(http) {
     },
 
     async del(path, ...rest) {
+      _changedSomething = true;
       if (!_FASTS.test(path)) return _through(http, 'del', path, rest);
       path = _fixFastPath(path);
       if (await _canReachServer()) {

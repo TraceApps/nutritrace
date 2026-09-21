@@ -113,13 +113,9 @@ test('the fasting widget works offline, by path', () => {
 test('a row created offline is changed by its real id after the queue goes up', () => {
   assert.match(offline, /const _realId = /);
   // Every change by id, and the fasting paths, go through the map.
-  for (const m of ['async updateFood(id, data) {\n      id = _realId(id);',
-                   'async deleteFood(id) {\n      id = _realId(id);',
-                   'async updateMeal(id, data) {\n      id = _realId(id);',
-                   'async deleteMeal(id) {\n      id = _realId(id);',
-                   'async updateActivity(id, data) {\n      id = _realId(id);',
-                   'async deleteActivity(id) {\n      id = _realId(id);']) {
-    assert.ok(offline.includes(m), `${m.split('(')[0]} translates the id`);
+  for (const m of ['updateFood', 'deleteFood', 'updateMeal', 'deleteMeal', 'updateActivity', 'deleteActivity']) {
+    const body = offline.slice(offline.indexOf(`async ${m}(`), offline.indexOf(`async ${m}(`) + 220);
+    assert.match(body, /id = _realId\(id\);/, `${m} translates the id`);
   }
   assert.equal(offline.match(/path = _fixFastPath\(path\);/g).length, 3, 'post, patch and delete');
   // Other tabs learn the new ids with the outbox message.
