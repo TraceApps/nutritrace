@@ -610,10 +610,26 @@
         mod.startNetworkMonitor();
         mod.fullSync(); // Initial automatic sync; failure stays in compact status
         // Periodic sync every 30 seconds (silent — only shows bar if changes found)
-        setInterval(() => mod.fullSync(true), 30000);
+        // Only while the app is actually in front of you. A WebView keeps its
+        // timers running when the app is backgrounded and the screen is off,
+        // and an app still on top with the screen off is not frozen, so an
+        // ungated interval keeps waking the radio with nobody looking.
+        // Stopping loses nothing: coming back fires a sync of its own.
+        let poll = null;
+        const startPolling = () => {
+          if (poll == null) poll = setInterval(() => mod.fullSync(true), 30000);
+        };
+        const stopPolling = () => {
+          if (poll != null) { clearInterval(poll); poll = null; }
+        };
+        startPolling();
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) stopPolling(); else startPolling();
+        });
         // Sync on app resume (visible)
         import('@capacitor/app').then(({ App }) => {
-          App.addListener('resume', () => mod.fullSync());
+          App.addListener('resume', () => { startPolling(); mod.fullSync(); });
+          App.addListener('pause', () => stopPolling());
         });
       });
     }
