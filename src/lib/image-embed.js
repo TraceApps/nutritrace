@@ -80,6 +80,15 @@ export async function embeddableDataUrl(file) {
   const heavy = (file.size || 0) > MAX_EMBEDDED_BYTES / 2;
   const unknownFormat = !KNOWN.test(declared);
 
+  // An animated GIF cannot be redrawn without losing every frame but the
+  // first, so it travels as it is or not at all.
+  if (/^image\/gif$/i.test(declared)) {
+    if (original.length > MAX_EMBEDDED_BYTES) {
+      throw _needsConnection('That animation is too large to keep until you are back online.');
+    }
+    return original;
+  }
+
   let out = original;
   if (oversized || heavy || unknownFormat) {
     const scale = oversized && w && h ? Math.min(1, MAX_DIM / Math.max(w, h)) : 1;
