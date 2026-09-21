@@ -253,6 +253,24 @@ async function _queueCatalog(store, table, action, id, data) {
  * wrapper (the settings store pushes them itself), so the store calls this
  * when its own push fails. Keyed by name: the last value wins.
  */
+/**
+ * A write that isn't part of the sync push: your own profile, for instance.
+ * It is kept as the request the app tried to make and repeated as-is when
+ * the connection returns, before anything else goes up.
+ */
+async function _queueRequest(kind, key, method, path, body) {
+  const ops = await _loadOps();
+  const op = { type: 'request', kind, key, method, path, body, at: Date.now() };
+  const seq = await _tx('outbox', 'readwrite', s => s.add(op));
+  if (seq == null) throw _offlineError();
+  op.seq = seq;
+  ops.push(op);
+  _publish();
+  _channel?.postMessage({ type: 'outbox' });
+  _scheduleFlush(_online() ? 0 : _retryMs);
+  return op;
+}
+
 export async function queueSetting(key, value) {
   const ops = await _loadOps();
   const op = { type: 'setting', key, data: value, at: Date.now() };
@@ -277,6 +295,21 @@ let _flushing = null;
  * straight from a link), so fall back to a plain request rather than sitting
  * on the queue forever.
  */
+async function _send(method, path, body) {
+  if (_http) {
+    const verb = { PUT: 'put', POST: 'post', PATCH: 'patch', DELETE: 'del' }[method] || 'post';
+    return verb === 'del' ? _http.del(path) : _http[verb](path, body);
+  }
+  const res = await fetch(path, {
+    method,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: body == null ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
 async function _post(path, body) {
   if (_http) return _http.post(path, body);
   const res = await fetch(path, {
@@ -317,6 +350,27 @@ async function _flushOnce() {
   if (!ops.length) { _publish({ syncing: false, error: null, online: _online() }); return true; }
   if (!_online()) { _scheduleFlush(_backoff()); return false; }
   _publish({ syncing: true });
+
+  // Plain requests first: they are what they say they are, and nothing else
+  // in the queue depends on them. One per thing, so a profile saved three
+  // times offline goes up once.
+  const requests = [...new Map(ops.filter(op => op.type === 'request').map(op => [op.key, op])).values()];
+  if (requests.length) {
+    for (const op of requests) {
+      try {
+        await _send(op.method, op.path, op.body);
+      } catch (err) {
+        const offline = isOfflineError(err);
+        _publish({ syncing: false, online: offline ? false : _online(), error: offline ? null : (err.message || 'failed') });
+        if (!offline) console.error(`[offline] your server refused ${op.kind}: ${err.message}`);
+        _scheduleFlush(_backoff());
+        return false;
+      }
+    }
+    const sent = new Set(ops.filter(op => op.type === 'request').map(op => op.seq));
+    await _tx('outbox', 'readwrite', s => { for (const seq of sent) s.delete(seq); });
+    _ops = ops.filter(op => !sent.has(op.seq));
+  }
 
   // Foods go first and on their own: a food made offline has a temporary id,
   // and the diary entries logged from it have to point at the real one before
@@ -760,6 +814,41 @@ export function createOfflineApi(http) {
         _publish({ online: false });
         return [...applyCatalogOps(await _all('foods'), await _loadOps(), 'foods').values()];
       }
+    },
+
+    /**
+     * A picture with no server to send it to. Rather than refusing, it is
+     * scaled down and handed back as a data URL, so it travels inside
+     * whatever row it belongs to (a profile, a food) and the server turns
+     * it into a file when it arrives.
+     */
+    async uploadImage(file) {
+      const ops = await _loadOps();
+      if (_online() && !ops.length) {
+        try {
+          return await http.uploadImage(file);
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      const { embeddableDataUrl } = await import('./image-embed.js');
+      return embeddableDataUrl(file);
+    },
+
+    /** Your own profile, including a picture chosen with no connection. */
+    async updateProfile(data) {
+      const ops = await _loadOps();
+      if (_online() && !ops.length) {
+        try {
+          return await http.updateProfile(data);
+        } catch (err) {
+          if (!isOfflineError(err)) throw err;
+          _publish({ online: false });
+        }
+      }
+      await _queueRequest('your profile', 'profile', 'PUT', '/api/auth/profile', data);
+      return { user: { ...data }, queued: true, offline: true };
     },
 
     async getFood(id) {

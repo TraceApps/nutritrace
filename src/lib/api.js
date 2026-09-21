@@ -856,6 +856,11 @@ const _NtApiHttp = {
   updateActivity(id, data)   { return this.put(`/api/activity/${id}`, data); },
   deleteActivity(id)         { return this.del(`/api/activity/${id}`); },
 
+  // Your own profile. Through here rather than a raw fetch, so the offline
+  // layer sees it and a picture chosen with no connection is kept until
+  // there is one. Same shape in LiftTrace and CookTrace.
+  updateProfile(data)        { return this.put('/api/auth/profile', data); },
+
   // Upload
   async uploadImage(file) {
     const form = new FormData();

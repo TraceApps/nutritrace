@@ -182,3 +182,22 @@ test('a refusal from the server is said in words, not just a red cloud', () => {
   // The work is kept and retried, never dropped on a refusal.
   assert.match(offline, /_scheduleFlush\(_backoff\(\)\)/);
 });
+
+test('your profile and its picture work the same way here as in the sibling apps', () => {
+  // One shape in all three: the picture goes through the API layer, which
+  // embeds it when there is no connection; the save goes through the API
+  // layer, so the queue sees it; the server turns the embedded picture into
+  // a file at the route.
+  assert.match(api, /updateProfile\(data\)\s+\{ return this\.put\('\/api\/auth\/profile', data\); \}/);
+  assert.match(offline, /async updateProfile\(data\)/);
+  assert.match(offline, /embeddableDataUrl\(file\)/);
+  assert.match(offline, /_queueRequest\('your profile', 'profile', 'PUT', '\/api\/auth\/profile', data\)/);
+  const profile = readFileSync(new URL('../src/routes/Profile.svelte', import.meta.url), 'utf8');
+  assert.match(profile, /await NtApi\.updateProfile\(/);
+  assert.ok(!/fetch\(apiUrl\('\/api\/auth\/profile'\)/.test(profile), 'no raw fetch around the API layer');
+  // And the screen decides local mode reactively, so opening it before the
+  // auth check answers cannot write a profile to local settings instead.
+  assert.match(profile, /\$: _isLocal = /);
+  const auth = readFileSync(new URL('../server/routes/auth.js', import.meta.url), 'utf8');
+  assert.match(auth, /await localizeImage\(req\.body\?\.avatar_url\)/);
+});

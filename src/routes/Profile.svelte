@@ -22,7 +22,11 @@
   // mode without user management enabled (single-user instance). In both,
   // name/nickname/birthday/gender/avatar are stored in user_settings under
   // localUser* keys + dob + gender (same keys the wizard writes).
-  const _isLocal = (isNative && !getServerUrl()) || !get(userMgmtActive);
+  // Reactive, not a snapshot: this screen can be opened before the auth
+  // check has answered, and a one-time read said "local mode" then, so a
+  // profile saved in that moment was written to local settings and never
+  // reached the server.
+  $: _isLocal = (isNative && !getServerUrl()) || !$userMgmtActive;
   import DateInput from '../components/ui/DateInput.svelte';
   import Toggle from '../components/settings/Toggle.svelte';
   import { biometricLoginEnabled } from '../stores/settings.js';
@@ -162,15 +166,11 @@
         saving = false;
         return;
       }
-      const res = await fetch(apiUrl('/api/auth/profile'), {
-        method: 'PUT',
-        credentials: 'include',
-        headers: _headers(),
-        body: JSON.stringify({ full_name, nickname, birthday, gender, avatar_url, email }),
-      });
-      const data = await res.json();
-      if (!res.ok) { showError(data.error || $_('profile.errors.save_failed')); return; }
-      currentUser.set(data.user);
+      // Through the API layer rather than a raw fetch, so a profile saved
+      // with no connection is queued like everything else and goes up when
+      // the connection returns (lib/offline-api.js).
+      const data = await NtApi.updateProfile({ full_name, nickname, birthday, gender, avatar_url, email });
+      if (data?.user) currentUser.set(data.user);
       showSuccess($_('profile.saved'));
     } catch(e) {
       showError($_('profile.errors.save_failed'));

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { localizeImage } from '../lib/image-localizer.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import db from '../db.js';
@@ -198,8 +199,12 @@ router.post('/register', wrap((req, res) => {
 }));
 
 // ── Update own profile ─────────────────────────────────────────────────────
-router.put('/profile', requireAuth, wrap((req, res) => {
-  const { full_name, nickname, birthday, gender, avatar_url, email } = req.body;
+router.put('/profile', requireAuth, wrap(async (req, res) => {
+  const { full_name, nickname, birthday, gender, email } = req.body;
+  // A picture chosen with no connection arrives embedded in this request,
+  // since there was nowhere to upload it to. It becomes a file here, the
+  // same way a food's photo does.
+  const avatar_url = await localizeImage(req.body?.avatar_url);
   db.prepare(
     `UPDATE users SET full_name=?, nickname=?, birthday=?, gender=?, avatar_url=?, email=? WHERE id=?`
   ).run(full_name || null, nickname || null, birthday || null, gender || null, avatar_url || null,
