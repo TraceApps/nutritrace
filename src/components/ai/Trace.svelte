@@ -2391,7 +2391,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     backdrop-filter: blur(12px) saturate(180%);
     -webkit-backdrop-filter: blur(12px) saturate(180%);
     cursor: pointer;
-    z-index: 400;
+    /* Below the lowest sheet (90) and above the bottom bar (50), so the
+       button never draws over an open sheet or dialog (#233). */
+    z-index: 80;
     display: flex;
     align-items: center;
     justify-content: center;

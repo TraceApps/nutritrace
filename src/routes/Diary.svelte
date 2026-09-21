@@ -4385,7 +4385,10 @@
   .meal-menu-btn:active { color: var(--text-1); }
 
   /* Copy meal to another date sheet */
-  .copy-date-sheet { padding: 0 20px 20px; }
+  /* The bottom padding has to carry the safe-area inset the .bs-sheet rule
+     sets, or this shorthand drops it and the buttons land under Android's
+     navigation bar (#233). */
+  .copy-date-sheet { padding: 0 20px calc(20px + var(--safe-bottom)); }
   .copy-date-sheet .sheet-title { padding: 4px 0 12px; }
   .copy-date-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-2); }
   .copy-date-input {
