@@ -369,6 +369,8 @@
     "banner_cta": "Tap to view what's new and install.",
     "banner_view": "View",
     "available_generic": "A New Version Is Available",
+    "ready_headline": "Update Ready",
+    "ready_cta": "Reload to get the latest version.",
     "banner_reload": "Reload",
     "storage": {
       "heading": "Cached Update APKs",

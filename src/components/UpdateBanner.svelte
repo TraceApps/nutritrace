@@ -154,13 +154,23 @@
     <span class="material-symbols-rounded icon" aria-hidden="true">system_update</span>
     <div class="body">
       <div class="title">
-        {#if latest}
+        <!-- A waiting bundle and a published release are two different
+             facts, and the banner has to say the one it means. Reloading
+             takes a bundle that is already downloaded; installing a release
+             is the Android path, and a page cannot do it. -->
+        {#if $pwaUpdateReady}
+          {$_('updates.ready_headline', { default: 'Update Ready' })}
+        {:else if latest}
           {$_('updates.available_headline', { values: { version: latest.version } })}
         {:else}
           {$_('updates.available_generic', { default: 'A New Version Is Available' })}
         {/if}
       </div>
-      <div class="sub">{$_('updates.banner_cta')}</div>
+      <div class="sub">
+        {$pwaUpdateReady
+          ? $_('updates.ready_cta', { default: 'Reload to get the latest version.' })
+          : $_('updates.banner_cta')}
+      </div>
     </div>
     <button class="btn primary" on:click={goToUpdates}>
       {$pwaUpdateReady ? $_('updates.banner_reload', { default: 'Reload' }) : $_('updates.banner_view')}
