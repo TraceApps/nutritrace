@@ -2,6 +2,7 @@
  * api.js - External API calls (Open Food Facts)
  */
 import { rankOFFResults } from './off-rank.js';
+import { offProductName } from './off-name.js';
 
 // In native mode, call external APIs directly (no CORS in WebView).
 // In web mode, go through the server proxy to avoid CORS.
@@ -386,7 +387,10 @@ const API = {
   },
 
   _mapOFFProduct(p) {
-    if (!p || !p.product_name) return null;
+    // #238: product_name is blank on products whose main language has no
+    // name, even when other languages do. See off-name.js for the order.
+    const name = offProductName(p, _getOffSearchLanguage());
+    if (!p || !name) return null;
     const n = p.nutriments || {};
     // Per-serving import: enabled by the user via Settings → Connected Services →
     // Open Food Facts → Import Portion As, and only when the product actually
@@ -474,7 +478,7 @@ const API = {
                    || (Array.isArray(p.manufacturing_places_tags) && p.manufacturing_places_tags[0])
                    || null;
     return {
-      name:      (p.product_name || '').trim(),
+      name,
       brand:     (Array.isArray(p.brands) ? (p.brands[0] || '') : (p.brands || '').split(',')[0] || '').trim(),
       barcode:   p.code || p._id || p.id || '',
       unit,
