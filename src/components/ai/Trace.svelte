@@ -1641,6 +1641,12 @@ LOGGING QUICK CALORIES — When the user gives a kcal number WITH NO FOOD NAME (
 - If the user named a food ("apple", "banana", "chicken breast"), use log_food NOT log_quick_calories.
 - Tool refuses kcal=0 and refuses if the user has disabled Quick Calories in Settings — relay any error message verbatim.
 
+CREATING A FOOD WITHOUT LOGGING IT (no photo): when the user asks you to add a food to their FOODS LIBRARY rather than to their diary ("create a food called X", "add X to my foods", "save X as a food but don't log it", "make a food entry for my protein shake"), call propose_food. Rules:
+- propose_food is the ONLY tool that can create a food. log_food writes a diary entry, so it is the wrong tool here even though the user named a food.
+- If the user says anything like "don't log it", "don't add it to my diary", "just save it", then the card's Save to Foods button is the whole point. Tell them to tap it and stop there. Do NOT call log_food afterwards, and do not treat their refusal as a reason to skip the card.
+- Pass the user's own numbers when they give them. If they describe the food instead, estimate it under the honesty rules below and say the numbers are an estimate they can correct on the card.
+- Ask for the serving size when the user has not said one and you cannot infer it. A food row saved against the wrong portion basis is worse than one more question.
+
 PHOTO MEAL HANDLING — When the user attaches a MEAL PHOTO, never write to the diary directly. The user's intent decides which of these four paths you take:
 
 1. INFO ONLY ("what is this?", "how many calories in this?", "is this healthy?", "tell me about this"): do NOT call any propose_* or log_* tool. Just describe what you see and give a brief nutrition estimate in plain text. The user is asking a question, not logging anything.
@@ -1780,18 +1786,25 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       // "use propose_X instead of log_X" prose in the system prompt
       // when the user's verb matches a write tool's purpose.
       //
-      // Text-only turn: REMOVE the propose_* tools so a mini model that
-      // saw a previous propose_* call in chat history doesn't re-call
-      // them on a follow-up text question ("kept showing me the
-      // nutrition card" — the propose card kept re-rendering because
-      // the chat history primed the model to keep calling propose_*).
-      // Stripping the tools from the schema is bulletproof; the model
-      // physically cannot call a tool that isn't in the schema this
-      // round.
+      // Text-only turn: propose_quick_calories is the photo estimate
+      // path, and log_quick_calories covers "log 200 kcal" in text, so
+      // it stays out. propose_food must stay IN. Stripping it left no
+      // tool that can create a food without writing to the diary, so
+      // "save this as a food, don't log it" fell through to log_food and
+      // the user got a diary entry they had explicitly refused.
+      //
+      // It comes out only while an uncommitted card is still on screen.
+      // That is the case the blanket strip was for: a mini model that saw
+      // a propose_* call in chat history re-called it on the next text
+      // question, and the card appeared to keep coming back. Stripping the
+      // tool from the schema is bulletproof, because the model physically
+      // cannot call a tool that isn't there this round, but it has to be
+      // aimed at that case alone.
+      const _cardAwaitingUser = !!_pendingProposal || !!_pendingFoodProposal;
       const toolsForRound = image
         ? TOOLS.filter(t => t.name !== 'log_quick_calories')
         : TOOLS.filter(t => t.name !== 'propose_quick_calories'
-                         && t.name !== 'propose_food');
+                         && !(t.name === 'propose_food' && _cardAwaitingUser));
       const reply = aiEnvLocked
         ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall })
         : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall });

@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **A saved meal that logs a food you deleted now says so.** A meal keeps its own copy of each ingredient, which is what stops editing a food from rewriting meals you already logged, but it also meant a meal could go on adding a food that was no longer in your catalogue, with nothing to tell you. Adding that meal now names the ingredients that have lost their food, so you know which ones to fix.
+- **Trace can create a food without adding it to your diary.** Asking it to save something to your foods, and saying not to log it, got you a diary entry anyway: the only tool that can create a food was withheld on any message without a photo, so the nearest thing left to Trace was the one that logs. It now offers the review card with its Save to Foods button, which writes the food and nothing else.
 - **One ingredient failing no longer swallows the rest of the meal.** If a write failed partway through, the remaining ingredients were dropped with no message and no sign anything had gone wrong. Every ingredient is attempted now, and anything that did not make it is named.
 
 ---
