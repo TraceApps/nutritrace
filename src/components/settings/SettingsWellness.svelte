@@ -161,7 +161,7 @@
     { id: 'sleep_deep_min',           label: 'Deep Sleep'          },
     { id: 'sleep_light_min',          label: 'Light Sleep'         },
     { id: 'sleep_rem_min',            label: 'REM Sleep'           },
-    { id: 'sleep_awake_min',          label: 'Wake Time'           },
+    { id: 'sleep_wake_min',           label: 'Wake Time'           },
     { id: 'spo2_avg',                 label: 'SpO2'                },
     { id: 'steps',                    label: 'Steps'               },
     { id: 'vo2_max',                  label: 'Cardio Fitness'      },

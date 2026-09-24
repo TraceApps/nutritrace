@@ -259,32 +259,32 @@ class HealthConnectSyncWorker(
             }
         }
 
-        // Sleep session — look back 24h for last night's sleep
+        // Sleep: every session of the night, not just the last one (#236).
+        // SleepDerivation is a port of src/lib/sleep-sessions.js, the code the
+        // foreground sync runs, and both are held to the same fixtures, so
+        // this path and the foreground one store the same numbers. The window
+        // opens at yesterday's midnight so a night that began yesterday
+        // evening is read whole.
         if (granted.contains(HealthPermission.getReadPermission(SleepSessionRecord::class))) {
             tryRead {
-                val sleepStart = end.minus(24, ChronoUnit.HOURS)
+                val zone = ZoneId.systemDefault()
+                val day = start.atZone(zone).toLocalDate()
+                val sleepFrom = day.minusDays(1).atStartOfDay(zone).toInstant()
                 val records = client.readRecords(
-                    ReadRecordsRequest(SleepSessionRecord::class, TimeRangeFilter.between(sleepStart, end))
+                    ReadRecordsRequest(SleepSessionRecord::class, TimeRangeFilter.between(sleepFrom, end))
                 ).records
-                records.lastOrNull()?.let { sleep ->
-                    val durMs = sleep.endTime.toEpochMilli() - sleep.startTime.toEpochMilli()
-                    out["sleep_duration_min"] = (durMs / 60000).toInt()
-                    var deep = 0L; var rem = 0L; var light = 0L; var awake = 0L
-                    for (stage in sleep.stages) {
-                        val durMin = (stage.endTime.toEpochMilli() - stage.startTime.toEpochMilli()) / 60000
-                        when (stage.stage) {
-                            SleepSessionRecord.STAGE_TYPE_DEEP -> deep += durMin
-                            SleepSessionRecord.STAGE_TYPE_REM -> rem += durMin
-                            SleepSessionRecord.STAGE_TYPE_LIGHT -> light += durMin
-                            SleepSessionRecord.STAGE_TYPE_AWAKE,
-                            SleepSessionRecord.STAGE_TYPE_AWAKE_IN_BED -> awake += durMin
+                val sessions = records.map { r ->
+                    SleepDerivation.RawSession(
+                        id = r.metadata.id,
+                        origin = r.metadata.dataOrigin.packageName,
+                        start = r.startTime.toEpochMilli(),
+                        end = r.endTime.toEpochMilli(),
+                        stages = r.stages.map {
+                            SleepDerivation.RawStage(it.stage, it.startTime.toEpochMilli(), it.endTime.toEpochMilli())
                         }
-                    }
-                    if (deep > 0) out["sleep_deep_min"] = deep.toInt()
-                    if (rem > 0) out["sleep_rem_min"] = rem.toInt()
-                    if (light > 0) out["sleep_light_min"] = light.toInt()
-                    if (awake > 0) out["sleep_awake_min"] = awake.toInt()
+                    )
                 }
+                out.putAll(SleepDerivation.derive(sessions, day.toString(), zone))
             }
         }
 
