@@ -16,7 +16,8 @@
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { scaleFactor as _unitScaleFactor, unitSystem as _unitSystem, amountAndUnit } from '../lib/units.js';
   import { diaryPromptQuantity, warnUnitMismatch, showUnitMetadata, forceMobileLayout } from '../stores/settings.js';
-  import { showSuccess, showError } from '../stores/toast.js';
+  import { showSuccess, showError, showToast } from '../stores/toast.js';
+  import { staleIngredientNames } from '../lib/stale-ingredients.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import { DB, localDateStr } from '../lib/db.js';
   import { loadEntry } from '../stores/diary.js';
@@ -1142,6 +1143,19 @@
     await _addFoodToDiary(food, 1);
   }
 
+  // Ingredients of a saved meal whose source food is no longer in the
+  // catalogue. The meal still logs correctly, because name, portion and
+  // nutrition are snapshotted onto each ingredient when the meal is saved,
+  // but the saved list is stale: it keeps logging a food the user can no
+  // longer find or edit, and the usage bump for it 404s. Naming those
+  // ingredients is the only signal the user gets that the meal needs
+  // repairing. A failed load reports nothing rather than accusing every
+  // ingredient at once.
+  function _staleIngredientNames(meal) {
+    if (loadError) return [];
+    return staleIngredientNames(meal?.items, [localFoods, localMeals, localRecipes]);
+  }
+
   async function _expandMealToDiary(meal) {
     if (_addingToDiary) return;
     _addingToDiary = true;
@@ -1155,14 +1169,42 @@
       if (typeof meal.id === 'number') {
         NtApi.markMealUsed(meal.id, pickDate || undefined).catch(() => {});
       }
+      // One failed ingredient used to abort the loop and leave the rest of
+      // the meal unlogged, with no toast and no navigation, so the user saw
+      // a half-added meal and nothing saying so. Every ingredient is
+      // attempted now, and whatever did not make it is named.
+      const failed = [];
       for (const item of meal.items) {
-        await addDiaryItem(
-          { ...item, quantity: item.quantity || 1 },
-          Number(pickMeal) || 0,
-          pickDate || undefined
-        );
+        try {
+          await addDiaryItem(
+            { ...item, quantity: item.quantity || 1 },
+            Number(pickMeal) || 0,
+            pickDate || undefined
+          );
+        } catch (e) {
+          console.error('[foods] ingredient failed to log:', item?.name, e);
+          failed.push(item?.name || '');
+        }
       }
-      import('../stores/toast.js').then(m => m.showSuccess('Added to diary'));
+      if (meal.items.length && failed.length === meal.items.length) {
+        // Nothing landed. Stay on the page so the user can try again.
+        showError($_('foods.toast.meal_none_added'));
+        return;
+      }
+      // One toast, not two. The stale notice already says the meal was
+      // added, and it gets a longer dwell because it asks for an action.
+      const stale = _staleIngredientNames(meal);
+      if (failed.length) {
+        showError($_('foods.toast.meal_partly_added', {
+          values: { names: failed.filter(Boolean).join(', ') },
+        }));
+      } else if (stale.length) {
+        showToast($_('foods.toast.meal_stale_ingredients', {
+          values: { names: stale.join(', ') },
+        }), 6000, 'info');
+      } else {
+        showSuccess($_('foods.toast.added_to_diary'));
+      }
       editorState.lastMealAdded = Number(pickMeal) || 0;
       history.back();
     } finally {
@@ -1192,7 +1234,7 @@
     _addingToDiary = true;
     try {
       await _addFoodToDiaryNoNav(food, qty);
-      import('../stores/toast.js').then(m => m.showSuccess('Added to diary'));
+      import('../stores/toast.js').then(m => m.showSuccess($_('foods.toast.added_to_diary')));
       editorState.lastMealAdded = Number(pickMeal) || 0;
       history.back();
     } finally {

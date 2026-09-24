@@ -843,7 +843,11 @@
     },
     "toast": {
       "deleted": "Deleted",
-      "cloned": "Cloned"
+      "cloned": "Cloned",
+      "added_to_diary": "Added to diary",
+      "meal_partly_added": "Some ingredients could not be added: {names}",
+      "meal_none_added": "Could not add this meal. Check your connection and try again.",
+      "meal_stale_ingredients": "Added to diary. These ingredients are no longer in your foods: {names}. Edit the meal to fix them."
     }
   },
   "trace": {

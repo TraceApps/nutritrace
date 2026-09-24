@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A saved meal that logs a food you deleted now says so.** A meal keeps its own copy of each ingredient, which is what stops editing a food from rewriting meals you already logged, but it also meant a meal could go on adding a food that was no longer in your catalogue, with nothing to tell you. Adding that meal now names the ingredients that have lost their food, so you know which ones to fix.
+- **One ingredient failing no longer swallows the rest of the meal.** If a write failed partway through, the remaining ingredients were dropped with no message and no sign anything had gone wrong. Every ingredient is attempted now, and anything that did not make it is named.
+
 ---
 
 ## [1.4.0-dev01] - 2026-09-22 (pre-release)
