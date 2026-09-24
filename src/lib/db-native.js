@@ -9,6 +9,7 @@
 
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { hydrateWithoutFoods } from './diary-hydration.js';
+import { parseAltUnits } from './units.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -885,7 +886,11 @@ async function _hydrateItems(items) {
       if (!src) return await _hydrateSplitChildren(it);
       const out = { ...it };
       for (const k of _HYDRATE_FIELDS) {
-        if (src[k] != null && it[k] == null) out[k] = src[k];
+        if (src[k] == null || it[k] != null) continue;
+        // #237: the column is a JSON string; hand back the array the rest
+        // of the app reads, same as the server's hydrateItems.
+        const v = k === 'alt_units' ? parseAltUnits(src[k]) : src[k];
+        if (v != null) out[k] = v;
       }
       return await _hydrateSplitChildren(out);
     }));

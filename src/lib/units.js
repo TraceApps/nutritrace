@@ -154,18 +154,39 @@ export function unitToGrams(unit) {
 }
 
 /**
+ * alt_units as an array, whatever shape it arrived in. The foods column
+ * stores a JSON string. /api/foods parses it, but diary items hydrated from
+ * that column (server and Android) carried the raw string, so a household
+ * unit never resolved and 66 g of a food logged by the slice scaled as 66
+ * slices (#237). Android already holds diary days with the string stored
+ * in them, so this must accept it whatever hydration does now.
+ * Returns null for anything that is not a list.
+ */
+export function parseAltUnits(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string' && v) {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch { return null; }
+  }
+  return null;
+}
+
+/**
  * Lookup grams-per-unit on a food-specific alt_units list. Used by
  * scaleFactor to turn "1 slice" into "35 g" for an OFF-imported bread.
  * Issues #69 + #70.
  *
- * `altUnits` is the array shape produced by db-native's _parseFoodRow:
- *   [{ abbr: 'slice', grams: 35 }, ...]
+ * `altUnits` is [{ abbr: 'slice', grams: 35 }, ...], or that list as the
+ * JSON string the foods column stores (see parseAltUnits).
  * Returns null when not found or when the entry is malformed.
  */
 function altUnitGrams(altUnits, unit) {
-  if (!Array.isArray(altUnits) || altUnits.length === 0 || !unit) return null;
+  const list = parseAltUnits(altUnits);
+  if (!list || list.length === 0 || !unit) return null;
   const u = String(unit).toLowerCase();
-  for (const r of altUnits) {
+  for (const r of list) {
     if (r && String(r.abbr || '').toLowerCase() === u) {
       const g = Number(r.grams);
       if (Number.isFinite(g) && g > 0) return g;

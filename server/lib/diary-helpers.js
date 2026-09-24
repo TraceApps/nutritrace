@@ -78,6 +78,23 @@ const _norm = s => String(s || '').trim().toLowerCase();
  * fields, so the meal lookup is a no-op — splitRecipeItem falls back to
  * NtApi.getMeal(recipeId) on demand for ingredient data.
  */
+// #237: the foods column stores alt_units as a JSON string. Hand diary items
+// the same array /api/foods returns (routes/foods.js parses it the same way),
+// or the diary's unit scaler cannot find a household unit and "66 g" of a
+// food logged by the slice scales as 66 slices. src/lib/units.js has the
+// client-side twin (parseAltUnits); it is not imported here because the
+// server image only ships the src/lib files its Dockerfile names.
+function _altUnitsArray(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string' && v) {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch { return null; }
+  }
+  return null;
+}
+
 const HYDRATE_FIELDS = ['nutrition_basis', 'alt_units', 'density_g_ml', 'category', 'barcode'];
 export function hydrateItems(items) {
   if (!Array.isArray(items) || !items.length) return items;
@@ -104,7 +121,9 @@ export function hydrateItems(items) {
       if (!src) return _hydrateSplitChildren(it);
       const out = { ...it };
       for (const k of HYDRATE_FIELDS) {
-        if (src[k] != null && it[k] == null) out[k] = src[k];
+        if (src[k] == null || it[k] != null) continue;
+        const v = k === 'alt_units' ? _altUnitsArray(src[k]) : src[k];
+        if (v != null) out[k] = v;
       }
       return _hydrateSplitChildren(out);
     });
