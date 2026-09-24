@@ -57,7 +57,6 @@ First dev pre-release of the 1.4.0 minor. The headline is offline mode: your dia
 
 ## [1.3.1] - 2026-09-20
 
-
 Patch release. A Default Field setting for the add and edit sheets, and a round of Android fixes: the back button closes what's open first, dragging the Trace button no longer refreshes the page, Settings categories open at their top, and sheets and dialogs stay below the status bar.
 
 ### Changed
@@ -79,8 +78,6 @@ Patch release. A Default Field setting for the add and edit sheets, and a round 
 ### Security
 
 - No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
-
-NutriTrace is free and always will be. The [iOS fund](https://ko-fi.com/traceapps) is raising $1,300 toward a Mac and an iPhone, so the Trace apps can run properly on iPhone.
 
 ---
 
@@ -1990,8 +1987,6 @@ Aggregate feature surface (everything below is shipped):
 
 ### Fixed
 - **Trace FAB invisible on desktop PWA after viewport changes.** The FAB position is persisted in `localStorage` (`wl:aiFabPos`), but clamping was only applied during a drag — never on load or window resize. A position dragged on a wider monitor (or saved at a different viewport size) could end up off-screen on a smaller one, with no way to recover short of clearing localStorage. Mobile devices weren't affected because they have separate localStorage origins. Fix: added `_clampFabPos()` helper that clamps to current viewport bounds; runs on mount (writes back the corrected value) and inside `_updatePanelPos` on every resize. LiftTrace already had this guard — NutriTrace was the lone outlier.
-
-
 
 ### Added
 - **Collapsible "Yesterday's Meals" + "Saved Meals" sections** in Foods → Meals tab. Each section header is now a clickable row with a chevron; collapse state persists per-section (`foodsYesterdayCollapsed`, `foodsSavedCollapsed`, both default expanded). The new "Saved Meals" header only renders when "Yesterday's Meals" is also visible — acts as a divider between the two parallel sections rather than a redundant label on a single tab. Search behavior unchanged: typing hides both headers and results take over; user-set collapse state preserved across search clears.
