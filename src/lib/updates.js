@@ -31,6 +31,7 @@
 import { writable } from 'svelte/store';
 import { APP_VERSION } from './version.js';
 import { isNative } from './platform.js';
+import { pickApkAsset } from './apk-asset.js';
 import { DB } from './db.js';
 
 const GH_OWNER = 'TraceApps';
@@ -306,9 +307,9 @@ export async function checkForUpdate({ force = false } = {}) {
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);
       data = await res.json();
     }
-    const apkAsset = (data.assets || []).find(a =>
-      a.name && a.name.toLowerCase().endsWith('.apk')
-    );
+    // The phone's build, never the watch one beside it: they share a package
+    // id, so the wrong pick installs over this app.
+    const apkAsset = pickApkAsset(data.assets);
     const result = {
       version:     data.tag_name || data.name || '',
       name:        data.name || '',
