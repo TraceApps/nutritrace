@@ -57,10 +57,12 @@
   // prior pending food card. Commit path is one of:
   //   _commitFoodCatalogOnly  — create food row, no diary write
   //   _commitFoodAndLog       — create food row AND log it to diary
-  let _pendingFoodProposal = null; // { name, brand, portion, unit, nutrition, meal_hint }
+  let _pendingFoodProposal = null; // { name, brand, portion, unit, nutrition, notes }
   let _foodProposalCommitted = false;
   let _foodProposalCommittedKind = '';   // 'catalog' | 'logged'
-  let _foodProposalCommittedMealIdx = 0;
+  // null = Don't Log. The card starts there: saving a food must never
+  // quietly pick a meal for a diary entry nobody asked for.
+  let _foodProposalCommittedMealIdx = null;
   let fileInput;
   let _cameraInput;
   let _showAttachMenu = false;
@@ -794,7 +796,6 @@
           const portionRaw = Number(args?.portion);
           const portion = Number.isFinite(portionRaw) && portionRaw > 0 ? Math.round(portionRaw) : 100;
           const unit  = (typeof args?.unit === 'string' && args.unit.trim()) ? args.unit.trim().slice(0, 16) : 'g';
-          const mealHint = args?.meal_hint != null ? Math.max(0, Math.min(3, Math.round(Number(args.meal_hint)))) : 3;
           const notes    = typeof args?.notes === 'string' ? args.notes.trim().slice(0, 120) : '';
           const knownIds = new Set(NUTRIMENTS.map(n => n.id));
           const clean = {};
@@ -803,11 +804,11 @@
             const n = Number(v);
             if (Number.isFinite(n) && n >= 0) clean[k] = Math.round(n * 10) / 10;
           }
-          const payload = { name, brand, portion, unit, nutrition: clean, meal_hint: mealHint, notes };
+          const payload = { name, brand, portion, unit, nutrition: clean, notes };
           _pendingFoodProposal = payload;
           _foodProposalCommitted = false;
           _foodProposalCommittedKind = '';
-          _foodProposalCommittedMealIdx = mealHint;
+          _foodProposalCommittedMealIdx = null;
           _pendingProposal = null;
           return { ok: true, kind: 'food_proposal', ...payload };
         }
@@ -1902,7 +1903,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     _pendingFoodProposal = null;
     _foodProposalCommitted = false;
     _foodProposalCommittedKind = '';
-    _foodProposalCommittedMealIdx = 0;
+    _foodProposalCommittedMealIdx = null;
   }
 
   function quickAsk(q) { input = q; send(); }
@@ -1980,7 +1981,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
    *  at the meal they picked on the card. Two steps because diary items
    *  need an existing food row (the diary item references the food). */
   async function _commitFoodAndLog() {
-    if (!_pendingFoodProposal) return;
+    // No meal chosen means Don't Log; the button is disabled then, and this
+    // guard keeps a stray call from logging to a meal nobody picked.
+    if (!_pendingFoodProposal || _foodProposalCommittedMealIdx == null) return;
     try {
       const food = await _saveProposedFood();
       const p    = _pendingFoodProposal;
@@ -2272,8 +2275,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                     forceShowAll={true} />
                   <div class="proposal-meal-picker">
                     <label>
-                      If logging, meal:
+                      {$_('trace.food_card.log_to')}
                       <select bind:value={_foodProposalCommittedMealIdx}>
+                        <option value={null}>{$_('trace.food_card.dont_log')}</option>
                         {#each (mealNames.get() || ['Breakfast','Lunch','Dinner','Snacks']) as mn, mi}
                           <option value={mi}>{mn}</option>
                         {/each}
@@ -2288,7 +2292,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                       <span class="material-symbols-rounded" style="font-size:16px">bookmark_add</span>
                       Save to Foods
                     </button>
-                    <button class="btn btn-primary btn-sm" on:click={_commitFoodAndLog}>
+                    <button class="btn btn-primary btn-sm" on:click={_commitFoodAndLog}
+                      disabled={_foodProposalCommittedMealIdx == null}>
                       <span class="material-symbols-rounded" style="font-size:16px">add</span>
                       Save & Add to Diary
                     </button>
@@ -2968,8 +2973,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   .proposal-brand {
     font-weight: 400; color: var(--text-3); font-size: 12px;
   }
-  /* Meal selector that lets the user override the AI's meal guess
-     before the food is logged. */
+  /* Log to: starts on Don't Log, and choosing a meal is what enables
+     Save & Add to Diary. */
   .proposal-meal-picker {
     margin-top: 10px;
     display: flex; align-items: center;

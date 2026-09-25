@@ -220,7 +220,6 @@ export const TOOLS = [
         portion:   { type: 'number', description: 'STRONGLY RECOMMENDED: estimated weight in grams of the photographed portion (e.g. 250 for a typical chicken pot pie slice). The nutrition values you pass are PER this portion. Falls back to 100 (per 100 g/ml) only if you have no basis to estimate.' },
         unit:      { type: 'string', description: 'Portion unit, defaults to "g". Common: g, ml, piece, slice, cup, oz. Prefer "g" for solid foods so the user can correct it numerically.' },
         nutrition: NUTRITION_SCHEMA,
-        meal_hint: { type: 'number', description: 'OPTIONAL meal-index suggestion (0=breakfast, 1=lunch, 2=dinner, 3=snacks) the user can apply on the card if they choose "Save & Log". Defaults to 3 (snacks).' },
         notes:     { type: 'string', description: 'OPTIONAL human-friendly serving descriptor saved to the food\'s Notes field (e.g. "14 chips", "1/4 cup uncooked", "1 medium slice", "approx 1 cup cooked"). Lets the user see what the per-portion weight actually corresponds to in everyday terms. Shown in the diary when "Show item notes" is enabled in Settings. Skip when the portion + unit already says everything that needs saying.' },
       },
       required: ['name', 'nutrition'],

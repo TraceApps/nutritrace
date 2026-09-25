@@ -70,3 +70,22 @@ test('the catalogue-only commit path does not touch the diary', () => {
   assert.doesNotMatch(body, /addDiaryItem/, 'Save to Foods writes the food row and nothing else');
   assert.match(body, /_saveProposedFood\(\)/);
 });
+
+test('the food card starts on Don\'t Log, with no meal picked for you', () => {
+  assert.match(trace, /let _foodProposalCommittedMealIdx = null;/);
+  const handler = trace.slice(trace.indexOf("case 'propose_food': {"), trace.indexOf("default:", trace.indexOf("case 'propose_food': {")));
+  assert.match(handler, /_foodProposalCommittedMealIdx = null;/);
+  assert.doesNotMatch(handler, /meal_hint|mealHint/, 'the old default fell back to Snacks');
+  const picker = trace.slice(trace.indexOf('<div class="proposal-meal-picker">'), trace.indexOf('<div class="proposal-actions proposal-actions-wide">'));
+  assert.match(picker, /<option value=\{null\}>\{\$_\('trace\.food_card\.dont_log'\)\}<\/option>\s*\{#each/, "Don't Log comes first");
+});
+
+test('Save & Add to Diary stays off until a meal is chosen', () => {
+  assert.match(trace, /on:click=\{_commitFoodAndLog\}\s*disabled=\{_foodProposalCommittedMealIdx == null\}/);
+  const fn = trace.slice(trace.indexOf('async function _commitFoodAndLog'));
+  assert.match(fn.slice(0, 400), /if \(!_pendingFoodProposal \|\| _foodProposalCommittedMealIdx == null\) return;/);
+});
+
+test('propose_food no longer asks the model for a meal to preselect', () => {
+  assert.doesNotMatch(desc('propose_food') + JSON.stringify(TOOLS.find(t => t.name === 'propose_food').parameters), /meal_hint/);
+});

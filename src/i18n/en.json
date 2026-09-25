@@ -851,6 +851,10 @@
     }
   },
   "trace": {
+    "food_card": {
+      "log_to": "Log to",
+      "dont_log": "Don't Log"
+    },
     "panel_label": "AI Coach Chat",
     "ask_placeholder": "Ask me anything…",
     "clear_conversation": "Clear Conversation",

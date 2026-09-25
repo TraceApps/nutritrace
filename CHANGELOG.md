@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Trace's new-food card no longer picks a meal for you.** It starts on Don't Log, so saving a food touches only your foods, and Save & Add to Diary turns on once you choose a meal under Log to.
+
 ---
 
 ## [1.4.0-dev02] - 2026-09-25 (pre-release)
