@@ -8,7 +8,8 @@
   import { pop, push } from 'svelte-spa-router';
   import { NtApi } from '../lib/api.js';
   import { NUTRIMENTS } from '../lib/nutrition.js';
-  import { showSuccess, showError } from '../stores/toast.js';
+  import { showSuccess, showError, showInfo } from '../stores/toast.js';
+  import { offlineState } from '../lib/offline-api.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import Toggle from '../components/settings/Toggle.svelte';
   import UnitPicker from '../components/ui/UnitPicker.svelte';
@@ -385,25 +386,34 @@
 
   async function downloadFromOFF() {
     if (!food.barcode) return;
+    // Offline, the lookup fails and used to read as "Not found in Open Food
+    // Facts". Say what is actually wrong.
+    if ($offlineState.online === false) { showInfo($_('food_editor.toast.off_offline')); return; }
     downloading = true; downloadSuccess = false;
     try {
       const { API } = await import('../lib/api.js');
-      const result = await API.lookupBarcode(food.barcode);
+      // live: past a local OFF mirror, which may predate an edit made on OFF.
+      const result = await API.lookupBarcode(food.barcode, { live: true });
       if (!result) { showError($_('food_editor.toast.off_not_found')); return; }
-      // Only fill empty fields (smart mode)
-      if (!food.name && result.name)   food.name  = result.name;
-      if (!food.brand && result.brand) food.brand = result.brand;
-      if (result.nutrition) {
-        for (const n of NUTRIMENTS) {
-          const v = result.nutrition[n.id];
-          if ((food[n.id] === '' || food[n.id] == null) && v != null) food[n.id] = v;
-        }
+      // #241: bring the nutrition up to what OFF has now, converted to this
+      // food's portion. It used to fill empty fields only, so a refresh
+      // never changed a number. See off-refresh.js.
+      const { applyOffRefresh } = await import('../lib/off-refresh.js');
+      const { food: next, changed, reason } = applyOffRefresh(food, result, NUTRIMENTS.map(n => n.id));
+      food = next;
+      if (reason === 'updated') {
+        downloadSuccess = true;
+        setTimeout(() => downloadSuccess = false, 2500);
+        showSuccess($_('food_editor.toast.off_updated', { values: { count: changed } }));
+      } else if (reason === 'up_to_date') {
+        showSuccess($_('food_editor.toast.off_up_to_date'));
+      } else if (reason === 'prepared_only') {
+        showInfo($_('food_editor.toast.off_prepared_only'));
+      } else if (reason === 'units_differ') {
+        showInfo($_('food_editor.toast.off_units_differ', { values: { unit: food.unit } }));
+      } else {
+        showInfo($_('food_editor.toast.off_no_nutrition'));
       }
-      if (!food.imgUrl && result.imgUrl) food.imgUrl = result.imgUrl;
-      food = { ...food };
-      downloadSuccess = true;
-      setTimeout(() => downloadSuccess = false, 2500);
-      showSuccess($_('food_editor.toast.off_refreshed'));
     } catch(e) {
       showError($_('food_editor.toast.refresh_failed', { values: { error: e.message } }));
     } finally { downloading = false; }
@@ -413,7 +423,7 @@
   // Camera flow: user taps the icon in the Nutrition card header, takes a photo
   // of the food's nutrition label, the configured AI provider extracts values,
   // and OVERWRITES the form's nutrition fields (the label is the source of
-  // truth in this moment, distinct from Refresh from OFF which smart-fills).
+  // truth in this moment, unlike Refresh from OFF, which updates only what OFF has).
   // Gated on $aiEffectivelyEnabled — button is hidden when AI isn't configured.
   let scanningLabel = false;
   let scanLabelFileInput;

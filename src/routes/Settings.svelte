@@ -1473,12 +1473,6 @@
       align-items: start;
     }
 
-    /* Snapped to the fold: the crease is the divider, so the rail reaches it
-       and the section starts on the other side of it. */
-    :global(html:not(.force-mobile-layout)) .settings-two-pane.fold-snap {
-      grid-template-columns: var(--rail-w) minmax(0, 1fr);
-      gap: var(--hinge);
-    }
 
     /* Left rail — sticky below the header + search bar, own scroll
        if the section list overflows. Uses :global(*) on children
@@ -1729,5 +1723,33 @@
     font-size: 12px;
     color: var(--text-3);
     line-height: 1.4;
+  }
+
+  /* Half open like a book, at any width. The two-pane layout above waits for
+     a desktop-sized viewport, which a foldable's inner display never reaches,
+     so this turns it on from the crease instead and brings the rail with it.
+     Same reasoning as the notes grid and the recipe layout. */
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap {
+    display: grid;
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+    gap: var(--hinge);
+    align-items: start;
+  }
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap .settings-nav-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: sticky;
+    top: calc(var(--page-top, var(--safe-top)) + 12px);
+    max-height: calc(100dvh - var(--page-top, var(--safe-top)) - var(--nav-h, 0px) - var(--safe-bottom, 0px) - 24px);
+    overflow-y: auto;
+    padding: 10px 8px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-sizing: border-box;
+  }
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap .settings-mobile-index {
+    display: none;
   }
 </style>

@@ -15,7 +15,12 @@ import { offProductName } from './off-name.js';
 // strictly opt-in — users who haven't enabled the mirror see no behavior
 // change. Standalone native (no server) keeps the direct call because
 // there's no proxy to route through. Issue #22.
-async function _extFetch(url) {
+// `live`: ask Open Food Facts itself even when the server has a local OFF
+// mirror (#241). The mirror is a periodic dump, so a product edited on OFF
+// since then comes back old; Refresh from OFF is the one place that must see
+// the edit. An air-gapped server (OFF_LOCAL_ONLY) still answers from the mirror.
+async function _extFetch(url, { live = false } = {}) {
+  const proxyPath = '/api/proxy?url=' + encodeURIComponent(url) + (live ? '&live=1' : '');
   if (isNative) {
     const { CapacitorHttp } = await import('@capacitor/core');
     const { apiUrl, getServerUrl, getAuthToken } = await import('./platform.js');
@@ -28,7 +33,7 @@ async function _extFetch(url) {
     if (envLockedOffLocal && getServerUrl()) {
       // Server-connected native + admin enabled local OFF mirror: route
       // through /api/proxy on the server so the local DB intercept fires.
-      const proxyUrl = apiUrl('/api/proxy?url=' + encodeURIComponent(url));
+      const proxyUrl = apiUrl(proxyPath);
       const headers = { 'Accept': 'application/json' };
       const token = getAuthToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -51,7 +56,7 @@ async function _extFetch(url) {
   // Lazy-import to avoid an early-load circular reference; apiUrl() prefixes
   // the path with the BASE_URL when running at a subpath.
   const { apiUrl } = await import('./platform.js');
-  return fetch(apiUrl('/api/proxy?url=' + encodeURIComponent(url)));
+  return fetch(apiUrl(proxyPath));
 }
 
 // Read the user's saved OFF country-filter preference from localStorage.
@@ -146,10 +151,49 @@ function _isOffSuccess(data) {
   return !!data.product;
 }
 
+// OFF nutriment keys behind each NutriTrace nutrient, with the factor that
+// turns OFF's unit into ours (g to mg is 1000, g to mcg 1000000). Calories
+// are handled separately (kcal, or kJ / 4.184).
+const _OFF_NUTRIENTS = [
+  ['kilojoules', 'energy'],
+  ['fat', 'fat'],
+  ['saturated-fat', 'saturated-fat'],
+  ['trans-fat', 'trans-fat'],
+  ['polyunsaturated-fat', 'polyunsaturated-fat'],
+  ['monounsaturated-fat', 'monounsaturated-fat'],
+  ['carbohydrates', 'carbohydrates'],
+  ['sugars', 'sugars'],
+  ['added-sugars', 'added-sugars'],
+  ['fiber', 'fiber'],
+  ['proteins', 'proteins'],
+  ['salt', 'salt'],
+  ['sodium', 'sodium', 1000],
+  ['potassium', 'potassium', 1000],
+  ['cholesterol', 'cholesterol', 1000],
+  ['caffeine', 'caffeine', 1000],
+  ['alcohol', 'alcohol'],
+  ['calcium', 'calcium', 1000],
+  ['iron', 'iron', 1000],
+  ['magnesium', 'magnesium', 1000],
+  ['vitamin-c', 'vitamin-c', 1000],
+  ['vitamin-a', 'vitamin-a', 1000000],
+  ['vitamin-d', 'vitamin-d', 1000000],
+  ['vitamin-e', 'vitamin-e', 1000],
+  ['vitamin-k', 'vitamin-k', 1000000],
+  ['b1', 'vitamin-b1', 1000],
+  ['b2', 'vitamin-b2', 1000],
+  ['b3', 'vitamin-b3', 1000],
+  ['b6', 'vitamin-b6', 1000],
+  ['b9', 'vitamin-b9', 1000000],
+  ['b12', 'vitamin-b12', 1000000],
+  ['zinc', 'zinc', 1000],
+  ['phosphorus', 'phosphorus', 1000],
+];
+
 const API = {
   OFF_BASE: 'https://world.openfoodfacts.org',
 
-  async lookupBarcode(barcode) {
+  async lookupBarcode(barcode, { live = false } = {}) {
     try {
       const lc = _getOffSearchLanguage();
       // v3 is the current canonical product endpoint. v0/v2 still work
@@ -160,7 +204,7 @@ const API = {
       // { status: 1 } — accept both so a mirror hit and a live v3 hit
       // are treated the same.
       const url = `${this.OFF_BASE}/api/v3/product/${barcode}?lc=${encodeURIComponent(lc)}`;
-      const res = await _extFetch(url);
+      const res = await _extFetch(url, { live });
       if (!res.ok) return null;
       const data = await res.json();
       if (!_isOffSuccess(data)) return null;
@@ -464,6 +508,24 @@ const API = {
     // surface higher than sparse ones) and to render a small quality dot
     // next to each result so the user can pick informed. All fields are
     // optional; anything missing degrades gracefully to null / undefined.
+    // #241: which nutrients OFF actually has for this product. g() turns a
+    // missing value into 0, and Refresh from OFF must not write that 0 over
+    // a real number, so the refresh only updates what is listed here.
+    const has = (baseKey) => n[baseKey + '_modifier'] !== '~'
+      && n[baseKey + suffix] !== undefined && n[baseKey + suffix] !== null && n[baseKey + suffix] !== '';
+    const nutrition = { calories: Math.round(kcal * 10) / 10 };
+    const present = new Set();
+    if (has('energy-kcal') || has('energy')) present.add('calories');
+    for (const [id, key, mult] of _OFF_NUTRIENTS) {
+      nutrition[id] = g(key, mult);
+      if (has(key)) present.add(id);
+    }
+    // Salt and sodium are one datum; deriveSodiumSalt fills either from the other.
+    if (present.has('salt') || present.has('sodium')) { present.add('salt'); present.add('sodium'); }
+    // No as-sold values at all, but "as prepared" ones: say so rather than
+    // reporting an empty product.
+    const preparedOnly = present.size === 0
+      && Object.keys(n).some(k => k.endsWith('_prepared' + suffix) && n[k] !== '' && n[k] != null);
     const completeness = typeof p.completeness === 'number' ? p.completeness : null;
     const nutriscore   = (p.nutriscore_grade || p.nutrition_grades || '').toLowerCase() || null;
     const nova         = typeof p.nova_group === 'number' ? p.nova_group : null;
@@ -477,7 +539,7 @@ const API = {
     const originTag = (Array.isArray(p.origins_tags) && p.origins_tags[0])
                    || (Array.isArray(p.manufacturing_places_tags) && p.manufacturing_places_tags[0])
                    || null;
-    return {
+    const mapped = {
       name,
       brand:     (Array.isArray(p.brands) ? (p.brands[0] || '') : (p.brands || '').split(',')[0] || '').trim(),
       barcode:   p.code || p._id || p.id || '',
@@ -493,43 +555,11 @@ const API = {
       nutriscore,
       nova,
       originTag,
-      nutrition: Nutrition.deriveSodiumSalt({
-        calories:        Math.round(kcal * 10) / 10,
-        kilojoules:      g('energy'),
-        fat:                   g('fat'),
-        'saturated-fat':       g('saturated-fat'),
-        'trans-fat':           g('trans-fat'),
-        'polyunsaturated-fat': g('polyunsaturated-fat'),
-        'monounsaturated-fat': g('monounsaturated-fat'),
-        carbohydrates:         g('carbohydrates'),
-        sugars:          g('sugars'),
-        'added-sugars':  g('added-sugars'),
-        fiber:           g('fiber'),
-        proteins:        g('proteins'),
-        salt:            g('salt'),
-        sodium:          g('sodium', 1000),
-        potassium:       g('potassium', 1000),
-        cholesterol:     g('cholesterol', 1000),
-        caffeine:        g('caffeine', 1000),
-        alcohol:         g('alcohol'),
-        calcium:         g('calcium', 1000),
-        iron:            g('iron', 1000),
-        magnesium:       g('magnesium', 1000),
-        'vitamin-c':     g('vitamin-c', 1000),
-        'vitamin-a':     g('vitamin-a', 1000000),
-        'vitamin-d':     g('vitamin-d', 1000000),
-        'vitamin-e':     g('vitamin-e', 1000),
-        'vitamin-k':     g('vitamin-k', 1000000),
-        b1:              g('vitamin-b1', 1000),
-        b2:              g('vitamin-b2', 1000),
-        b3:              g('vitamin-b3', 1000),
-        b6:              g('vitamin-b6', 1000),
-        b9:              g('vitamin-b9', 1000000),
-        b12:             g('vitamin-b12', 1000000),
-        zinc:            g('zinc', 1000),
-        phosphorus:      g('phosphorus', 1000),
-      })
+      nutrition: Nutrition.deriveSodiumSalt(nutrition),
     };
+    Object.defineProperty(mapped, '_offPresent', { value: [...present], enumerable: false });
+    Object.defineProperty(mapped, '_offPreparedOnly', { value: preparedOnly, enumerable: false });
+    return mapped;
   }
 };
 const _USDA_BASE = 'https://api.nal.usda.gov/fdc/v1';
