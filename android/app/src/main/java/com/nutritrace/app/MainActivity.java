@@ -7,6 +7,9 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Custom plugins must be registered BEFORE super.onCreate so the
+        // bridge picks them up when it builds its plugin handle map.
+        registerPlugin(FoldPlugin.class);
         super.onCreate(savedInstanceState);
         // Enqueue/cancel periodic background workers based on current settings.
         // Reminder worker is always enqueued (it gates per-type internally).

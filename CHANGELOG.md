@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Foldables use the crease.** Half open like a book, Settings puts its section list on one side and the section on the other, dialogs, sheets, pickers and Trace keep off the fold, and a menu opened near it takes the roomier side rather than being cut in half by the hinge. In laptop posture Trace sits on the half lying flat, leaving the day readable on the half standing up. The diary, charts and photos still cross the fold freely: an opened foldable is a bigger screen to read a day on.
+
 ### Changed
 
 - **Trace's new-food card no longer picks a meal for you.** It starts on Don't Log, so saving a food touches only your foods, and Save & Add to Diary turns on once you choose a meal under Log to.

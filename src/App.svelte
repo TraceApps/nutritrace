@@ -2,6 +2,7 @@
   import { onMount }   from 'svelte';
   import { fade, slide } from 'svelte/transition';
   import { portal } from './lib/portal.js';
+  import { initFold } from './lib/fold.js';
   import { isPullSyncExempt } from './lib/pull-sync.js';
   import { handleBack } from './lib/back-stack.js';
   import Router, { location } from 'svelte-spa-router';
@@ -337,6 +338,7 @@
   }
 
   onMount(async () => {
+    initFold();
     // Update checks: a device that was already using the app keeps checking,
     // a fresh one stays quiet until setup asks. Runs first so nothing above
     // can skip it (see lib/updates.js).

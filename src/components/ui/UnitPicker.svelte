@@ -13,6 +13,9 @@
    * scaling falls back to the pure portion ratio.
    */
   import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
+  import { get } from 'svelte/store';
+  import { fold } from '../../lib/fold.js';
+  import { placeAnchoredMenu } from '../../lib/fold-core.js';
   import { fade } from 'svelte/transition';
   import { unitGroupsWithCustoms } from '../../lib/units.js';
   import { customUnits } from '../../stores/settings.js';
@@ -105,13 +108,15 @@
     const POP_MIN_W = 220;
     const EDGE = 8;
     const GAP = 4;
-    const spaceBelow = vh - r.bottom - EDGE;
-    const spaceAbove = r.top - EDGE;
-    const placeAbove = spaceBelow < 200 && spaceAbove > spaceBelow;
-    const top = placeAbove
-      ? Math.max(EDGE, r.top - GAP - Math.min(POP_MAX_H, spaceAbove))
-      : r.bottom + GAP;
-    const maxH = placeAbove ? Math.min(POP_MAX_H, spaceAbove) : Math.min(POP_MAX_H, spaceBelow);
+    // Prefer below, flip above when the room is short. On a foldable lying
+    // open the crease counts as the end of the room, so the list is never cut
+    // in half by the hinge.
+    const place = placeAnchoredMenu({
+      anchorTop: r.top, anchorBottom: r.bottom, viewportHeight: vh,
+      maxHeight: POP_MAX_H, gap: GAP, margin: EDGE, fold: get(fold),
+    });
+    const top = place.top;
+    const maxH = place.maxHeight;
 
     // Horizontal: the popover wants at least POP_MIN_W. Anchor to the input's
     // left edge by default; if that would overflow the right side, slide it
