@@ -7,16 +7,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.4.0-dev02] - 2026-09-25 (pre-release)
+
+Second dev pre-release of 1.4.0, all fixes: food logged through MCP no longer doubles when you save the day, Health Connect counts a whole night's sleep, and more fixes from tester reports.
+
+### Changed
+
+- Chinese (Simplified) translation updated through Weblate.
+
 ### Fixed
 
-- **The updater can no longer offer a phone the watch build.** Both APKs ship in one release under the same package id, and the updater took whichever was listed first. It now picks the phone's build by name.
-- **Food logged through MCP, the API or a diet import no longer appears twice after you save the day in the app** ([#239](https://github.com/TraceApps/nutritrace/issues/239)). Those entries were stored without the id the app matches on, so saving the day kept a second copy, and they could not be deleted from the app. Entries already stored are repaired when the server starts, and restoring an old export is fixed too. Thanks @Chrristin for the report and the fix it builds on.
-- **Open Food Facts products with no name in their main language are found** ([#238](https://github.com/TraceApps/nutritrace/issues/238)). They were reported as not in Open Food Facts, even with a name in other languages. NutriTrace falls back to those, then to the generic name, and shows your chosen Open Food Facts language when the product has one. Thanks @meggiman for the report.
+- **Food logged through MCP, the API or a diet import no longer appears twice after you save the day** ([#239](https://github.com/TraceApps/nutritrace/issues/239)). Saving the day in the app kept a second copy of each entry, and those entries could not be deleted from the app. Entries already stored are repaired when the server starts, but duplicates that already happened need deleting by hand. Restoring an old export is fixed too. Thanks @Chrristin for the report and the fix it builds on.
+- **Health Connect counts every part of a night's sleep, and sleep stages show up** ([#236](https://github.com/TraceApps/nutritrace/issues/236)). Samsung Health splits a night wherever you woke, and only the last piece counted, so 00:46-05:00 plus 05:45-06:53 read as 68 minutes. Every piece counts now, a night recorded by two apps counts once, and a nap no longer replaces it. Deep, Light, REM and the Sleep Quality cards now fill in when you sync from the app, not just from the hourly background sync. Thanks @kgenerozov for the report and the analysis behind it.
 - **Changing a diary entry from a household unit to grams converts instead of multiplying** ([#237](https://github.com/TraceApps/nutritrace/issues/237)). A slice of bread changed to 66 g read about 8,700 kcal instead of 159. Entries already saved on Android are fixed too. Thanks @herver1971 for the report, the root cause and the test.
-- **Health Connect counts every part of a night's sleep, and its sleep stages show up** ([#236](https://github.com/TraceApps/nutritrace/issues/236)). Samsung Health splits a night wherever you woke, and only the last piece counted: 00:46-05:00 plus 05:45-06:53 read as 68 minutes. Every session counts now, a night recorded twice counts once, and a nap does not replace it. Deep, Light, REM and Sleep Quality also fill in from the app's own sync, which never recognized a stage. Thanks @kgenerozov for the report and the analysis behind it.
-- **A saved meal that logs a food you deleted now says so**, naming the ingredients that have lost their food, rather than silently adding nothing.
-- **Trace can create a food without adding it to your diary.** Asking it to save a food and not log it got you a diary entry anyway. It now offers the review card with its Save to Foods button.
-- **One ingredient failing no longer swallows the rest of the meal.** Every ingredient is attempted, and anything that did not make it is named.
+- **Open Food Facts products with no name in their main language are found** ([#238](https://github.com/TraceApps/nutritrace/issues/238)). They were reported as missing even with a name in another language, and some dropped out of searches. If you picked a language other than English for Open Food Facts, names show in that language when a product has one. Thanks @meggiman for the report.
+- **Trace can create a food without adding it to your diary.** Asking it to save a food and not log it got you a diary entry anyway. It now shows the review card with Save to Foods.
+- **A saved meal that logs a food you've since deleted now tells you which ingredients those are**, so you can fix the meal.
+- **One ingredient failing no longer drops the rest of the meal.** Every ingredient is attempted, and anything that didn't make it is named.
+
+### Security
+
+- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, there are no open Dependabot alerts, and no dependencies changed since 1.4.0-dev01.
 
 ---
 
