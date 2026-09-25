@@ -3,7 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
-import { mergeEntries, ensureUuids } from '../lib/diary-merge.js';
+import { mergeEntries } from '../lib/diary-merge.js';
 import { dispatchWebhookEvent } from '../lib/webhooks.js';
 import { getGoalsCore } from '../lib/mcp/tools/goals.js';
 import { dailyTotalsCore } from '../lib/mcp/tools/daily-totals.js';
@@ -134,9 +134,9 @@ router.put('/:date', wrap((req, res) => {
   // Merge. Any client entry with a uuid we've already tombstoned is
   // dropped; any server entry not mentioned by the client is preserved.
   const { merged: mergedItems, newTombstoneUuids: newItemTombstones } =
-    mergeEntries(serverItems, ensureUuids(items || []), deletedItemUuids, priorItemTombstones);
+    mergeEntries(serverItems, items || [], deletedItemUuids, priorItemTombstones);
   const { merged: mergedWater, newTombstoneUuids: newWaterTombstones } =
-    mergeEntries(serverWater, ensureUuids(water || []), deletedWaterUuids, priorWaterTombstones);
+    mergeEntries(serverWater, water || [], deletedWaterUuids, priorWaterTombstones);
 
   // body_stats: same empty-guard as before (issue #81).
   const incomingBsEmpty = !body_stats || (typeof body_stats === 'object' && Object.keys(body_stats).length === 0);

@@ -972,6 +972,55 @@ try {
   console.warn('[db] diary uuid backfill failed:', e.message || e);
 }
 
+// ── Diary uuid backfill, second pass (#239) ────────────────────────────────
+// v1 ran once, but MCP and REST writes, the diet import and restores of old
+// exports went on storing items without a uuid after it. The app's save
+// merges per uuid, so each of those was kept twice, and deleting one in the
+// app could not tombstone it. Those writers now assign uuids; this pass
+// gives one to everything they left behind.
+//
+// Same rules as v1: in place, WITHOUT bumping updated_at, so /sync/pull does
+// not treat every row as changed and clobber unpushed Android edits. A copy
+// a device still holds without a uuid is matched to its twin by the merge
+// (lib/diary-merge.js), so leaving those copies alone is safe.
+try {
+  const done = db.prepare(`SELECT value FROM app_config WHERE key = 'diary_uuid_backfill_v2'`).get();
+  if (!done) {
+    const rows = db.prepare(`SELECT id, items, water FROM diary WHERE deleted_at IS NULL`).all();
+    const update = db.prepare(`UPDATE diary SET items = ?, water = ? WHERE id = ?`);
+    let changedRows = 0, addedItemIds = 0, addedWaterIds = 0;
+    db.transaction(() => {
+      for (const row of rows) {
+        let items, water;
+        try { items = JSON.parse(row.items || '[]'); } catch { continue; }
+        try { water = JSON.parse(row.water || '[]'); } catch { continue; }
+        let changed = false;
+        if (Array.isArray(items)) {
+          for (const it of items) {
+            if (it && typeof it === 'object' && !(typeof it.uuid === 'string' && it.uuid)) { it.uuid = randomUUID(); addedItemIds++; changed = true; }
+          }
+        }
+        if (Array.isArray(water)) {
+          for (const w of water) {
+            if (w && typeof w === 'object' && !(typeof w.uuid === 'string' && w.uuid)) { w.uuid = randomUUID(); addedWaterIds++; changed = true; }
+          }
+        }
+        if (changed) {
+          update.run(JSON.stringify(items), JSON.stringify(water), row.id);
+          changedRows++;
+        }
+      }
+      db.prepare(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('diary_uuid_backfill_v2', ?)`)
+        .run(new Date().toISOString());
+    })();
+    if (changedRows > 0) {
+      console.log(`[db] diary uuid backfill v2: ${changedRows} rows updated (${addedItemIds} items + ${addedWaterIds} water entries)`);
+    }
+  }
+} catch (e) {
+  console.warn('[db] diary uuid backfill v2 failed:', e.message || e);
+}
+
 // ── Foods nutriment-key canonicalization (issue #103 followup) ────────────
 // The MCP create_food tool used to accept non-canonical nutriment keys
 // (`protein` instead of `proteins`, `vitamin-b12` instead of `b12`) that

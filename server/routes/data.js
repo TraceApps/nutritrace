@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
+import { ensureUuids } from '../lib/diary-merge.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -114,9 +115,11 @@ router.post('/import', wrap((req, res) => {
       if (!e.date) continue;
       insDiary.run(
         u, e.date,
-        JSON.stringify(e.items || []),
+        // #239: exports from before per-item uuids carry none; give them one
+        // on the way in, or the app's first save of each day doubles it.
+        JSON.stringify(ensureUuids(e.items || [])),
         JSON.stringify(e.bodyStats || e.body_stats || {}),
-        JSON.stringify(e.water || []),
+        JSON.stringify(ensureUuids(e.water || [])),
         (typeof e.notes === 'string' && e.notes.trim()) ? e.notes : null
       );
     }

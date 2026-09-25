@@ -19,6 +19,7 @@
  */
 import db from '../../db.js';
 import { safeJson } from './_util.js';
+import { ensureUuids } from '../diary-merge.js';
 
 /**
  * Sentinel error thrown when the target day is tombstoned. The tools
@@ -69,6 +70,13 @@ export function mutateDiaryDay(userId, date, mutator) {
       notes:     raw?.notes ?? null,
     };
     const next = mutator(current);
+
+    // #239: nothing leaves here without a uuid. The app's save merges per
+    // uuid, and an item stored without one was matched to nothing and kept
+    // twice. This also gives a uuid to anything already on the day without
+    // one, so one MCP write repairs the whole day.
+    next.items = ensureUuids(next.items ?? []);
+    next.water = ensureUuids(next.water ?? []);
 
     const itemsJson     = JSON.stringify(next.items ?? []);
     const waterJson     = JSON.stringify(next.water ?? []);
