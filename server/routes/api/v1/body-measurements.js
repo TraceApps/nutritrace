@@ -50,6 +50,7 @@ import { Router } from 'express';
 import db from '../../../db.js';
 import { wrap } from '../../../logger.js';
 import { requireScope } from '../../../middleware/bearer-auth.js';
+import { getBodyCompositionCore } from '../../../lib/mcp/tools/get-body-composition.js';
 
 const router = Router();
 
@@ -129,6 +130,20 @@ function _measurementDate(iso) {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+router.get('/', requireScope('read:body-measurements'), wrap((req, res) => {
+  try {
+    const result = getBodyCompositionCore(req.apiUser.id, {
+      start: req.query.start,
+      end: req.query.end,
+      source: req.query.source,
+    });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+}));
 
 router.post('/', requireScope('write:body-measurements'), wrap((req, res) => {
   const body = req.body || {};
