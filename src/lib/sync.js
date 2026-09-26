@@ -156,6 +156,7 @@ function _publishConnectionIssue(issue, showErrorBanner = false) {
 }
 
 async function _probeServer(showErrorBanner = false) {
+  const _probeStartedAt = Date.now();
   try {
     const res = await fetch(apiUrl('/api/health'), {
       headers: _headers(),
@@ -180,7 +181,11 @@ async function _probeServer(showErrorBanner = false) {
     _lastOfflineAt = Date.now();
     const network = await _networkSnapshot();
     const issue = _connectionIssue({ network, error });
-    console.warn(`[sync] server unreachable: host=${issue.host} network=${issue.connectionType} error=${error?.message || String(error)}`);
+    // `name` is the field that tells these apart: a deadline we set reports
+    // TimeoutError/"signal timed out", while a DNS, TLS or CORS failure reports
+    // TypeError/"Failed to fetch" whatever the real cause. The elapsed time
+    // separates a fast refusal from a request that hung until the OS killed it.
+    console.warn(`[sync] server unreachable: host=${issue.host} network=${issue.connectionType} after=${Date.now() - _probeStartedAt}ms name=${error?.name || 'Error'} error=${error?.message || String(error)}`);
     _publishConnectionIssue(issue, showErrorBanner);
     return false;
   }
