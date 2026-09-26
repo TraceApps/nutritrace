@@ -564,7 +564,9 @@
     // exactly on top of the reserved cell.
     const gridRect = _diaryContentEl.getBoundingClientRect();
     const colWidth = _railFixedWidthPx; // 360, the explicit grid track
-    const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
+    // gridRect.right is the padded edge; the track ends one padding in.
+    const padRight = parseFloat(getComputedStyle(_diaryContentEl).paddingRight || '0') || 0;
+    const leftPx = Math.max(0, Math.round(gridRect.right - padRight - colWidth));
 
     // Vertical anchor: the aside's natural top when NOT taken out of
     // flow. Since we're already position:fixed, we can't read that
@@ -4724,5 +4726,41 @@
     flex-direction: column;
     gap: 12px;
     min-width: 0;
+  }
+
+  /* A foldable open flat is about 852px: room for the day's meals beside the
+     summary rail (440 + 360), though not for the meal/snack column dealing
+     the 1280 tier adds inside the main column. Only the outer split is
+     lifted here; everything else stays on desktop. */
+  @media (max-width: 1279px) {
+    :global(html.wide-content) .diary-content {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      column-gap: 20px;
+      align-items: start;
+    }
+    :global(html.wide-content) .diary-right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: fixed;
+      top: calc(var(--page-top, var(--safe-top)) + var(--diary-rail-top, 210px) + var(--hamburger-row, 0px));
+      left: var(--diary-rail-left, auto);
+      width: var(--diary-rail-width, 360px);
+      z-index: 5;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - var(--diary-rail-top, 210px)
+        - 10px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+      padding-right: 4px;
+    }
+    :global(html.wide-content) .diary-right-col > :global(*) { flex-shrink: 0; }
   }
 </style>

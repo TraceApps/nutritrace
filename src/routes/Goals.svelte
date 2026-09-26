@@ -1928,4 +1928,28 @@
     }
   }
 
+
+  /* A foldable open flat is about 852px. The three-column desktop tier
+     (260 + 1fr + 360) leaves no usable middle here, but the goals content is
+     short and the page has room to spare, so the preview rail earns the
+     space: you see the ring while you set the targets. The section nav rail
+     stays on desktop, where there is room for both. */
+  @media (max-width: 1279px) {
+    :global(html.wide-content) .goals-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      column-gap: 20px;
+      align-items: start;
+    }
+    :global(html.wide-content) .goals-right-rail {
+      display: block;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 72px + var(--hamburger-row, 0px));
+      align-self: start;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+    }
+  }
 </style>
