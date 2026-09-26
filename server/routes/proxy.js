@@ -40,7 +40,11 @@ router.get('/', async (req, res) => {
     // air-gap mode — return whatever the local mirror says, even if empty).
     // See server/lib/off-local.js for the lookup semantics and DEPLOY.md
     // for the full setup recipe. Issue #22 (duplaja).
-    if (isLocalOffEnabled() && isApiHost) {
+    // `live=1` (Refresh from OFF, #241) skips the mirror: it is a periodic
+    // dump, and the whole point of a refresh is an edit made on OFF since.
+    // An air-gapped server still answers from the mirror.
+    const wantLive = req.query.live === '1' && !isLocalOffOnly();
+    if (isLocalOffEnabled() && isApiHost && !wantLive) {
       const local = await _tryLocalOff(parsed);
       if (local !== undefined) {
         return res.json(local);

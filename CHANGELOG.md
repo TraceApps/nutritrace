@@ -15,6 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Trace's new-food card no longer picks a meal for you.** It starts on Don't Log, so saving a food touches only your foods, and Save & Add to Diary turns on once you choose a meal under Log to.
 
+### Fixed
+
+- **Refresh from OFF brings a food up to date with Open Food Facts** ([#241](https://github.com/TraceApps/nutritrace/issues/241)). It only filled empty fields, so a value changed on Open Food Facts never came through, and a server with a local Open Food Facts mirror answered from its older copy. It now updates the values Open Food Facts has, converted to the food's own portion, leaves the rest alone, and says when there is nothing it can use, such as a product with only "as prepared" values. Thanks @fatman00 for the report.
+
 ---
 
 ## [1.4.0-dev02] - 2026-09-25 (pre-release)
