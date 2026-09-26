@@ -1472,16 +1472,19 @@
      Right column (fills) — Ingredients + Nutrition Totals summary.
      Ingredients is where meal/recipe editing spends its time, so
      it gets the wider column. Gated by force-mobile-layout. */
-  @media (min-width: 1024px) {
-    :global(html:not(.force-mobile-layout)) .editor-content {
+  /* 340px + the rest fits a foldable open flat (about 852px, so 340 + 460),
+     it just never reached a 1024px viewport. Gated on the room available
+     instead; html.wide-content already excludes Force Mobile Layout. */
+  @media all {
+    :global(html.wide-content) .editor-content {
       display: grid;
       grid-template-columns: 340px minmax(0, 1fr);
       column-gap: 16px;
       row-gap: 0;
       align-items: start;
     }
-    :global(html:not(.force-mobile-layout)) .editor-left-col,
-    :global(html:not(.force-mobile-layout)) .editor-right-col {
+    :global(html.wide-content) .editor-left-col,
+    :global(html.wide-content) .editor-right-col {
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -1493,7 +1496,7 @@
        internal scroll: if the left stack exceeds viewport, sticky
        un-sticks against .editor-content's bottom and the whole
        column is still reachable via page scroll. */
-    :global(html:not(.force-mobile-layout)) .editor-left-col {
+    :global(html.wide-content) .editor-left-col {
       position: sticky;
       top: calc(var(--safe-top, 0px) + 76px);
       align-self: start;
