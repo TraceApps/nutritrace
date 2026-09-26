@@ -3916,4 +3916,18 @@
      override that inset them 452px to clear the pane is no longer
      needed and was making the buttons look adrift in the middle
      of wide screens on the user's report. */
+
+  /* A foldable open flat is about 852px: wide enough for two food cards
+     side by side, but not for the rail and preview pane the 1280/1440 tiers
+     add. Widening the list is a pure gain because it does not change what a
+     tap does, the food sheet still opens exactly as it does on a phone. */
+  @media (max-width: 1279px) {
+    :global(html.wide-content) :global(.food-list) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+    :global(html.wide-content) :global(.food-item) { min-width: 0; }
+  }
 </style>
