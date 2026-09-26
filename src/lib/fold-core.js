@@ -124,3 +124,25 @@ export function placeAnchoredMenu({
   const top = openAbove ? aboveEnd - height : belowStart;
   return { top: Math.round(top), maxHeight: Math.round(height), above: openAbove };
 }
+
+/**
+ * A grid template with an empty track where the crease is, or the fallback.
+ *
+ * `columnsAcrossFold` says how many card columns fit either side; this turns
+ * that into the template, and `columnForIndex` puts each card in a column that
+ * is not the hinge. Cards keep their reading order across the two pages, and
+ * without a fold nothing changes.
+ */
+export function gridTemplateAcrossFold(split, fallback) {
+  if (!split) return fallback;
+  return `repeat(${split.left}, minmax(0, 1fr)) ${split.hinge}px repeat(${split.right}, minmax(0, 1fr))`;
+}
+
+/** Which column a card takes, counting past the hinge track. */
+export function columnForIndex(index, split) {
+  if (!split) return 'auto';
+  const perRow = split.left + split.right;
+  const place = index % perRow;
+  // Tracks are 1-based and the hinge is the one after the left-hand page.
+  return String(place < split.left ? place + 1 : place + 2);
+}

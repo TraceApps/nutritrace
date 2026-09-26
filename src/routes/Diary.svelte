@@ -1,6 +1,7 @@
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
+  import { fold } from '../lib/fold.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import DatePicker from '../components/ui/DatePicker.svelte';
@@ -1688,6 +1689,31 @@
       if (_onSyncComplete) window.removeEventListener('nt:sync-complete', _onSyncComplete);
     };
   });
+
+  // Half open like a book, the day's meals fall onto the two pages: the
+  // columns the diary already deals into, with the crease as the gutter
+  // between them. The two-column layout below waits for a desktop-sized
+  // viewport, which a foldable's inner display never reaches, so this turns
+  // the same thing on from the crease, and only when both pages are wide
+  // enough for a meal card.
+  let mealColsEl, mealColsLeft = 0, mealColsW = 0;
+  function measureMealCols() {
+    const box = mealColsEl?.getBoundingClientRect();
+    mealColsLeft = box?.left ?? 0;
+    mealColsW = box?.width ?? 0;
+  }
+  onMount(() => {
+    measureMealCols();
+    const ro = new ResizeObserver(measureMealCols);
+    if (mealColsEl) ro.observe(mealColsEl);
+    return () => ro.disconnect();
+  });
+  $: if ($fold !== undefined && mealColsEl) measureMealCols();
+  $: mealFoldLeftW = $fold?.posture === 'book' && mealColsW > 0 ? $fold.start - mealColsLeft : null;
+  $: mealHinge = $fold?.posture === 'book' ? Math.max(0, $fold.end - $fold.start) : 0;
+  $: mealFoldSnap = mealFoldLeftW != null
+    && mealFoldLeftW >= 280
+    && mealColsW - mealFoldLeftW - mealHinge >= 280;
 </script>
 
 <!-- Rail widgets snippet. Defined at the top level so it's in
@@ -2251,7 +2277,9 @@
          at initial page mount, not on every re-render). Fade honors
          the disableAnimations setting. -->
     {#key $currentDate}
-      <div class="meal-cols" in:fade|local={{ duration: $disableAnimations ? 0 : 180 }}>
+      <div class="meal-cols" class:fold-snap={mealFoldSnap} bind:this={mealColsEl}
+        style={mealFoldSnap ? `--meal-left-w:${mealFoldLeftW}px; --meal-hinge:${mealHinge}px` : ''}
+        in:fade|local={{ duration: $disableAnimations ? 0 : 180 }}>
         <div class="meal-col">
           {#each mealsLeft as m (m.mealIdx)}
             {@render mealCard(m)}
@@ -4680,4 +4708,21 @@
     padding: 4px 14px 10px;
   }
 
+
+  /* Half open like a book: one page of meals either side of the crease. The
+     columns are the ones the diary already deals into, so this only has to
+     stop them flattening and put the gutter where the hinge is. */
+  :global(html.fold-book) .meal-cols.fold-snap {
+    display: grid;
+    grid-template-columns: var(--meal-left-w) minmax(0, 1fr);
+    column-gap: var(--meal-hinge);
+    row-gap: 12px;
+    align-items: start;
+  }
+  :global(html.fold-book) .meal-cols.fold-snap .meal-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
 </style>
