@@ -107,13 +107,15 @@ test('the food passed in is not modified', () => {
 // loudly rather than passing quietly.
 function realMapper() {
   const src = read('../src/lib/api.js');
-  const a = src.indexOf('  _mapOFFProduct(p) {');
+  const head = src.match(/\n  _mapOFFProduct\(p[^)]*\) \{/);
+  assert.ok(head, 'api.js still has _mapOFFProduct');
+  const a = head.index + head[0].length;
   const b = src.indexOf('\n  }\n', a);
   const t = src.indexOf('const _OFF_NUTRIENTS = [');
-  assert.ok(a > 0 && b > a && t > 0, 'api.js still has _mapOFFProduct and _OFF_NUTRIENTS');
+  assert.ok(b > a && t > 0, 'and _OFF_NUTRIENTS');
   const table = src.slice(t, src.indexOf('];', t) + 2);
-  const fn = new Function('p', 'offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', table + '\n' + src.slice(a + 21, b));
-  return (p) => fn(p, offProductName, () => 'en', { getItem: () => null }, Nutrition);
+  const fn = new Function('p', 'full', 'offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', '_rememberOffInfo', table + '\n' + src.slice(a, b));
+  return (p) => fn(p, true, offProductName, () => 'en', { getItem: () => null }, Nutrition, () => {});
 }
 
 test('the reported product: the mapper sees no as-sold values and flags "as prepared"', () => {

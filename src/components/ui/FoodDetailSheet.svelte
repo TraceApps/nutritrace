@@ -51,6 +51,11 @@
 
   export let open = false;
   export let food = null;
+  // #241: 'ok' unless this is an Open Food Facts product with no "as sold"
+  // values ('prepared' | 'implausible' | 'none', see off-nutrition.js). The
+  // label would read 0 kcal and Add to Diary would log it, so both give way
+  // to a notice, and Edit is where the user fills the values in.
+  export let offStatus = 'ok';
   // Embedded mode: render the detail content inline (no Sheet
   // wrapper), used by the Foods desktop right pane. Skips the
   // slide-up modal chrome and lets the parent decide layout.
@@ -105,6 +110,8 @@
   // Calories headline for the pill below the food name. Stored kcal
   // converts to the user's preferred energy unit (kcal or kJ) for display.
   $: energyChip = (() => {
+    // #241: no "as sold" values means no real calorie figure, not 0.
+    if (offStatus !== 'ok') return null;
     const v = _displayFood?.nutrition?.calories;
     if (v == null || v === '') return null;
     const d = Nutrition.displayEnergy(v, $energyUnit);
@@ -128,6 +135,7 @@
   }
 
   function onAddToDiaryTap() {
+    if (offStatus !== 'ok') return;
     if (_transitioning) return;
     // Open the meal picker; don't close the detail sheet underneath so
     // the user can still see what they're logging while choosing the meal.
@@ -228,13 +236,20 @@
            Diary primary button. The label's first line already shows
            Serving Size, so no separate stat card above it. -->
       <div class="col-data">
-        <div class="nutrition-wrap">
-          <NutritionFactsBox
-            nutrition={_displayFood.nutrition || {}}
-            servingDescription={servingDescription} />
-        </div>
-
+        {#if offStatus === 'ok'}
+          <div class="nutrition-wrap">
+            <NutritionFactsBox
+              nutrition={_displayFood.nutrition || {}}
+              servingDescription={servingDescription} />
+          </div>
+        {:else}
+          <div class="off-missing" role="status">
+            <span class="material-symbols-rounded" aria-hidden="true">info</span>
+            <p>{$_(offStatus === 'none' ? 'foods.detail.off_none' : offStatus === 'implausible' ? 'foods.detail.off_implausible' : 'foods.detail.off_prepared_only')}</p>
+          </div>
+        {/if}
         <button class="btn btn-primary add-btn"
+                disabled={offStatus !== 'ok'}
                 on:click={onAddToDiaryTap}
                 aria-label={$_('foods.detail.add_to_diary_aria')}>
           <span class="material-symbols-rounded">add</span>
@@ -300,12 +315,20 @@
         </div>
       </div>
       <div class="col-data">
-        <div class="nutrition-wrap">
-          <NutritionFactsBox
-            nutrition={_displayFood.nutrition || {}}
-            servingDescription={servingDescription} />
-        </div>
+        {#if offStatus === 'ok'}
+          <div class="nutrition-wrap">
+            <NutritionFactsBox
+              nutrition={_displayFood.nutrition || {}}
+              servingDescription={servingDescription} />
+          </div>
+        {:else}
+          <div class="off-missing" role="status">
+            <span class="material-symbols-rounded" aria-hidden="true">info</span>
+            <p>{$_(offStatus === 'none' ? 'foods.detail.off_none' : offStatus === 'implausible' ? 'foods.detail.off_implausible' : 'foods.detail.off_prepared_only')}</p>
+          </div>
+        {/if}
         <button class="btn btn-primary add-btn"
+                disabled={offStatus !== 'ok'}
                 on:click={onAddToDiaryTap}
                 aria-label={$_('foods.detail.add_to_diary_aria')}>
           <span class="material-symbols-rounded">add</span>
@@ -528,4 +551,12 @@
     margin: 0;
     font-size: 13px;
   }
+  /* #241: an OFF product with no "as sold" values. */
+  .off-missing {
+    display: flex; gap: 8px; align-items: flex-start;
+    padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface-2); color: var(--text-2); font-size: 13px;
+  }
+  .off-missing > .material-symbols-rounded { font-size: 18px; color: var(--accent); flex-shrink: 0; }
+  .off-missing p { margin: 0; line-height: 1.4; }
 </style>

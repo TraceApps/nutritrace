@@ -190,8 +190,31 @@ const _OFF_NUTRIENTS = [
   ['phosphorus', 'phosphorus', 1000],
 ];
 
+// #241: what Open Food Facts actually has for each product seen this session,
+// by barcode. The OFF mapper turns missing values into 0, so a product with no
+// "as sold" values arrives looking like a real 0 kcal food. Screens copy
+// product objects around (spreads drop the hidden markers on them), so they
+// ask here by barcode instead. In memory only: nothing here is ever saved.
+// A full product lookup always beats a search hit, which carries less.
+const _OFF_INFO_MAX = 500;
+const _offInfo = new Map();
+function _rememberOffInfo(code, info) {
+  if (!code) return;
+  const key = String(code);
+  const prior = _offInfo.get(key);
+  if (prior && prior.full && !info.full) return;
+  _offInfo.delete(key);
+  if (_offInfo.size >= _OFF_INFO_MAX) _offInfo.delete(_offInfo.keys().next().value);
+  _offInfo.set(key, info);
+}
+
 const API = {
   OFF_BASE: 'https://world.openfoodfacts.org',
+
+  /** What OFF has for a product seen this session, or null (see _offInfo). */
+  offNutritionInfo(barcode) {
+    return barcode ? (_offInfo.get(String(barcode)) || null) : null;
+  },
 
   async lookupBarcode(barcode, { live = false } = {}) {
     try {
@@ -208,7 +231,7 @@ const API = {
       if (!res.ok) return null;
       const data = await res.json();
       if (!_isOffSuccess(data)) return null;
-      return this._mapOFFProduct(data.product);
+      return this._mapOFFProduct(data.product, { full: true });
     } catch(e) {
       console.error('Barcode lookup failed:', e);
       return null;
@@ -247,7 +270,7 @@ const API = {
       if (!res.ok) return null;
       const data = await res.json();
       if (!_isOffSuccess(data)) return null;
-      const mapped = this._mapOFFProduct(data.product);
+      const mapped = this._mapOFFProduct(data.product, { full: true });
       if (mapped) {
         if (this._offHydrateCache.size >= this._OFF_HYDRATE_MAX) {
           const oldest = this._offHydrateCache.keys().next().value;
@@ -430,7 +453,7 @@ const API = {
     }
   },
 
-  _mapOFFProduct(p) {
+  _mapOFFProduct(p, { full = false } = {}) {
     // #238: product_name is blank on products whose main language has no
     // name, even when other languages do. See off-name.js for the order.
     const name = offProductName(p, _getOffSearchLanguage());
@@ -526,6 +549,34 @@ const API = {
     // reporting an empty product.
     const preparedOnly = present.size === 0
       && Object.keys(n).some(k => k.endsWith('_prepared' + suffix) && n[k] !== '' && n[k] != null);
+    // Only for a product with no "as sold" values at all: its "as prepared"
+    // ones, so the user can choose them. Never used unasked: for a drink
+    // powder they describe the finished drink, not the powder you weigh.
+    let prepared = null;
+    if (preparedOnly) {
+      const pn = (key) => n[key + '_prepared_100g'];
+      const pHas = (key) => n[key + '_prepared_modifier'] !== '~' && pn(key) !== undefined && pn(key) !== null && pn(key) !== '';
+      const pg = (key, mult) => pHas(key) ? (parseFloat(pn(key)) || 0) * (mult || 1) : 0;
+      const pNutrition = { calories: 0 };
+      const pPresent = new Set();
+      const pKcal = pHas('energy-kcal') ? pg('energy-kcal') : (pHas('energy') ? pg('energy') / 4.184 : 0);
+      pNutrition.calories = Math.round(pKcal * 10) / 10;
+      if (pHas('energy-kcal') || pHas('energy')) pPresent.add('calories');
+      for (const [id, key, mult] of _OFF_NUTRIENTS) {
+        pNutrition[id] = pg(key, mult);
+        if (pHas(key)) pPresent.add(id);
+      }
+      if (pPresent.has('salt') || pPresent.has('sodium')) { pPresent.add('salt'); pPresent.add('sodium'); }
+      if (pPresent.size) {
+        const per = String(p.nutrition_data_prepared_per || '').toLowerCase();
+        prepared = {
+          nutrition: Nutrition.deriveSodiumSalt(pNutrition),
+          present: [...pPresent],
+          portion: 100,
+          unit: per === '100ml' ? 'ml' : 'g',
+        };
+      }
+    }
     const completeness = typeof p.completeness === 'number' ? p.completeness : null;
     const nutriscore   = (p.nutriscore_grade || p.nutrition_grades || '').toLowerCase() || null;
     const nova         = typeof p.nova_group === 'number' ? p.nova_group : null;
@@ -559,6 +610,8 @@ const API = {
     };
     Object.defineProperty(mapped, '_offPresent', { value: [...present], enumerable: false });
     Object.defineProperty(mapped, '_offPreparedOnly', { value: preparedOnly, enumerable: false });
+    Object.defineProperty(mapped, '_offPrepared', { value: prepared, enumerable: false });
+    _rememberOffInfo(mapped.barcode, { present: [...present], preparedOnly, prepared, full });
     return mapped;
   }
 };

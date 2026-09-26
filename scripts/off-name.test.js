@@ -78,7 +78,7 @@ test('fields that only look like language names are ignored', () => {
 
 test('the OFF mapper uses it for both the check and the name it stores', () => {
   const api = readFileSync(new URL('../src/lib/api.js', import.meta.url), 'utf8');
-  const fn = api.slice(api.indexOf('  _mapOFFProduct(p) {'));
+  const fn = api.slice(api.indexOf('  _mapOFFProduct(p'));
   assert.match(fn, /const name = offProductName\(p, _getOffSearchLanguage\(\)\);\s*if \(!p \|\| !name\) return null;/);
   assert.match(fn, /\n      name,\n/);
   assert.doesNotMatch(fn.slice(0, fn.indexOf('\n  }\n')), /p\.product_name/, 'nothing reads product_name directly any more');

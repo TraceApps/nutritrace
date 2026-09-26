@@ -10,6 +10,7 @@
   import { NUTRIMENTS } from '../lib/nutrition.js';
   import { showSuccess, showError, showInfo } from '../stores/toast.js';
   import { offlineState } from '../lib/offline-api.js';
+  import { offNutritionStatus, needsFullLookup, applyOffPrepared } from '../lib/off-nutrition.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import Toggle from '../components/settings/Toggle.svelte';
   import UnitPicker from '../components/ui/UnitPicker.svelte';
@@ -384,6 +385,26 @@
     food = food; // trigger Svelte reactivity
   }
 
+  // #241: when OFF has no "as sold" values for this product, say so rather
+  // than let a 0 pass for real data, and offer its "as prepared" values as an
+  // explicit choice. Never applied unasked: see off-nutrition.js.
+  let _offNotice = null; // { status, kcal, unit, info }
+  function _showOffNotice(barcode, info) {
+    const status = offNutritionStatus({ barcode }, info);
+    const p = info?.prepared;
+    _offNotice = status === 'ok' ? null
+      : { status, kcal: p ? Math.round(Number(p.nutrition?.calories) || 0) : null, unit: p?.unit || 'g', info };
+  }
+  function usePreparedValues() {
+    if (!_offNotice?.info) return;
+    const { food: next, changed } = applyOffPrepared(food, _offNotice.info, NUTRIMENTS.map(n => n.id), $_('food_editor.off_prepared.note'));
+    food = next;
+    _offNotice = null;
+    showSuccess(changed
+      ? $_('food_editor.toast.off_prepared_used', { values: { count: changed } })
+      : $_('food_editor.toast.off_up_to_date'));
+  }
+
   async function downloadFromOFF() {
     if (!food.barcode) return;
     // Offline, the lookup fails and used to read as "Not found in Open Food
@@ -401,18 +422,19 @@
       const { applyOffRefresh } = await import('../lib/off-refresh.js');
       const { food: next, changed, reason } = applyOffRefresh(food, result, NUTRIMENTS.map(n => n.id));
       food = next;
+      if (reason === 'updated' || reason === 'up_to_date') _offNotice = null;
       if (reason === 'updated') {
         downloadSuccess = true;
         setTimeout(() => downloadSuccess = false, 2500);
         showSuccess($_('food_editor.toast.off_updated', { values: { count: changed } }));
       } else if (reason === 'up_to_date') {
         showSuccess($_('food_editor.toast.off_up_to_date'));
-      } else if (reason === 'prepared_only') {
-        showInfo($_('food_editor.toast.off_prepared_only'));
       } else if (reason === 'units_differ') {
         showInfo($_('food_editor.toast.off_units_differ', { values: { unit: food.unit } }));
       } else {
-        showInfo($_('food_editor.toast.off_no_nutrition'));
+        // prepared_only or no_nutrition: the notice under the buttons says
+        // which, and offers the "as prepared" values when there are any.
+        _showOffNotice(food.barcode, API.offNutritionInfo(food.barcode));
       }
     } catch(e) {
       showError($_('food_editor.toast.refresh_failed', { values: { error: e.message } }));
@@ -569,6 +591,21 @@
       // Flatten nested nutrition into top-level fields for editing
       const flatNutrition = (prefill.nutrition && typeof prefill.nutrition === 'object') ? { ...prefill.nutrition } : {};
       food = { ...food, ...prefill, ...flatNutrition };
+      if (!(params && params.id) && typeof prefill.id !== 'number' && prefill.barcode) {
+        const { API } = await import('../lib/api.js');
+        let info = API.offNutritionInfo(prefill.barcode);
+        if (needsFullLookup(info)) {
+          await API.fetchProductByCode(prefill.barcode).catch(() => null);
+          info = API.offNutritionInfo(prefill.barcode);
+        }
+        _showOffNotice(prefill.barcode, info);
+        // Its values are the mapper's stand-in zeros, not data: start the
+        // fields empty so they read as "fill me in", not as 0 kcal.
+        if (_offNotice) {
+          for (const n of NUTRIMENTS) if (Number(food[n.id]) === 0) food[n.id] = '';
+          food = { ...food };
+        }
+      }
     } else if (params && params.id) {
       const existing = await NtApi.getFood(params.id).catch(() => null);
       if (existing) {
@@ -1066,6 +1103,21 @@
               {downloading ? 'Loading…' : downloadSuccess ? 'Updated!' : 'Refresh from OFF'}
             </button>
           </div>
+          {#if _offNotice}
+            <div class="off-prepared-notice" role="status">
+              <span class="material-symbols-rounded" aria-hidden="true">info</span>
+              <div class="off-prepared-body">
+                {#if _offNotice.status === 'prepared'}
+                  <p>{$_('food_editor.off_prepared.only_prepared', { values: { kcal: _offNotice.kcal, unit: _offNotice.unit } })}</p>
+                  <button class="btn btn-secondary btn-sm" on:click={usePreparedValues}>{$_('food_editor.off_prepared.use')}</button>
+                {:else if _offNotice.status === 'implausible'}
+                  <p>{$_('food_editor.off_prepared.implausible', { values: { kcal: _offNotice.kcal, unit: _offNotice.unit } })}</p>
+                {:else}
+                  <p>{$_('food_editor.off_prepared.none')}</p>
+                {/if}
+              </div>
+            </div>
+          {/if}
           {#if offSuccess}
             <div class="off-verify-row">
               {#if offVerified === null}
@@ -1442,6 +1494,17 @@
     font-size: 14px;
   }
   .alt-unit-add:hover { text-decoration: underline; }
+  /* #241: OFF has no "as sold" values; offers the "as prepared" ones. */
+  .off-prepared-notice {
+    display: flex; gap: 8px; align-items: flex-start;
+    margin-top: 10px; padding: 10px 12px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 13px; color: var(--text-2);
+  }
+  .off-prepared-notice > .material-symbols-rounded { font-size: 18px; color: var(--accent); flex-shrink: 0; }
+  .off-prepared-body { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0; }
+  .off-prepared-body p { margin: 0; line-height: 1.4; }
   .off-verify-row {
     display: flex; align-items: center; justify-content: space-between;
     gap: 8px; font-size: 12px; padding: 6px 2px 0;

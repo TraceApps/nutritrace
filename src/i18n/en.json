@@ -763,6 +763,8 @@
     }
   },
   "foods": {
+    "off_no_values_listed": "No values listed",
+    "off_skipped": "Left out, since Open Food Facts has no values \"as sold\" for them: {names}. Add them under Foods with the values from the label.",
     "category_all": "All",
     "saved_meals": "Saved Meals",
     "search_empty_hint": "Try searching Open Food Facts or USDA above",
@@ -808,6 +810,9 @@
       "add_to_diary": "Add to Diary",
       "add_to_diary_aria": "Add to diary",
       "add_to_which_meal": "Add to which meal?",
+      "off_prepared_only": "Open Food Facts only lists \"as prepared\" values for this product. Tap Edit to see them and choose whether to use them.",
+      "off_implausible": "Open Food Facts only lists \"as prepared\" values for this product, and they can't be right. Tap Edit to enter the values from the label.",
+      "off_none": "Open Food Facts has no nutrition values for this product. Tap Edit to enter them from the label.",
       "per_serving": "per serving",
       "barcode": "Barcode",
       "added_to": "Added to {meal}",
@@ -1196,6 +1201,7 @@
     "cancel": "Cancel"
   },
   "smart_log": {
+    "off_no_values": "Open Food Facts has no values \"as sold\" for this product, so it won't be logged. Swap it or remove it.",
     "placeholder": "for breakfast I had 2 eggs and toast",
     "title": "Smart Log",
     "badge_local": "Local",
@@ -1324,6 +1330,13 @@
     "lookup": "Look Up"
   },
   "food_editor": {
+    "off_prepared": {
+      "only_prepared": "Open Food Facts only lists this product \"as prepared\": {kcal} kcal per 100 {unit}. That is how it is served (made up, drained or cooked), which may not be how you weigh it.",
+      "use": "Use These Values",
+      "implausible": "Open Food Facts only lists this product \"as prepared\", and those values can't be right ({kcal} kcal per 100 {unit}). Enter the values from the label.",
+      "none": "Open Food Facts has no nutrition values for this product. Enter them from the label.",
+      "note": "Nutrition values are \"as prepared\" (from Open Food Facts)."
+    },
     "name_placeholder": "Food name",
     "brand_placeholder": "Brand (optional)",
     "saved": "Saved",
@@ -1365,6 +1378,7 @@
       "off_units_differ": "This food is measured in {unit}, which Open Food Facts values can't be converted to, so nothing was changed",
       "off_no_nutrition": "Open Food Facts has no nutrition values for this product yet",
       "off_offline": "Refreshing from Open Food Facts needs a connection. It will work once you're back online.",
+      "off_prepared_used": "{count, plural, one {Used # \"as prepared\" value} other {Used # \"as prepared\" values}}. Save to keep them.",
       "refresh_failed": "Refresh failed: {error}",
       "label_read_failed": "Could not read the label. Try a clearer photo.",
       "nutrition_extracted": "Nutrition extracted from label",
@@ -1420,7 +1434,8 @@
       "per_serving_label": "Per serving:"
     },
     "errors": {
-      "no_ingredients": "Please add at least one ingredient"
+      "no_ingredients": "Please add at least one ingredient",
+      "off_no_values": "Open Food Facts has no values \"as sold\" for {name}. Add it under Foods with the values from the label, then pick it here."
     }
   },
   "settings_wellness": {

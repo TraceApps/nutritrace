@@ -26,6 +26,7 @@
   import { Mealie } from '../lib/mealieApi.js';
   import { CookTrace } from '../lib/cooktraceApi.js';
   import { offlineState } from '../lib/offline-api.js';
+  import { offNutritionStatus, needsFullLookup } from '../lib/off-nutrition.js';
   import { resolveAssetUrl } from '../lib/platform.js';
   import { offCountryTagToFlag, offCountryTagToName } from '../lib/off-country-flag.js';
   import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, offSearchCountry, offSearchLanguage, foodsDefaultSource, diaryDefaultField, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
@@ -392,6 +393,34 @@
   // it's gone, say so instead of showing an empty list that reads as "no
   // such food" (#211).
   $: _sourcesOffline = $offlineState.online === false;
+  // #241: an Open Food Facts product with no "as sold" values would show and
+  // add as 0 kcal. The sheets say so instead; see off-nutrition.js.
+  $: _detailOffStatus = offNutritionStatus(detailSheetFood, detailSheetFood ? API.offNutritionInfo(detailSheetFood.barcode) : null);
+  $: _paneOffStatus = offNutritionStatus(_paneFood, _paneFood ? API.offNutritionInfo(_paneFood.barcode) : null);
+  // A search result with no "as sold" values says so rather than 0 kcal. The
+  // search index leaves values out, so the full product may still have some:
+  // "listed" is what is true of the result itself.
+  const _offNoValues = (f) => !!f && offNutritionStatus(f, API.offNutritionInfo(f.barcode)) !== 'ok';
+  // Ticked results added together skip pickFood, so they are checked here: a
+  // result with no values is looked up in full (and takes its values if it
+  // has them); one that still has none is left out and named.
+  async function _resolveOffPicks(foods) {
+    const keep = [], skipped = [];
+    for (let food of foods) {
+      if (typeof food.id !== 'number' && food.barcode) {
+        let info = API.offNutritionInfo(food.barcode);
+        if (needsFullLookup(info) && offNutritionStatus(food, info) !== 'ok') {
+          const full = await API.fetchProductByCode(food.barcode).catch(() => null);
+          info = API.offNutritionInfo(food.barcode);
+          if (full && offNutritionStatus(full, info) === 'ok') food = { ...food, ...full };
+        }
+        if (offNutritionStatus(food, info) !== 'ok') { skipped.push(food.name); continue; }
+      }
+      keep.push(food);
+    }
+    if (skipped.length) showError($_('foods.off_skipped', { values: { names: skipped.join(', ') } }));
+    return keep;
+  }
   let cooktraceResults = [];
   let ctPantryResults = [];
   let loading = false;
@@ -1087,6 +1116,14 @@
         if (hydrated) food = { ...food, ...hydrated };
       } catch { /* fall through with the un-hydrated hit */ }
     }
+    // #241: in pick mode a tap adds straight to the meal, and an OFF product
+    // with no "as sold" values would go in as 0 kcal. The editor says why,
+    // offers the "as prepared" values if OFF has them, and adds the food to
+    // this meal once it is saved.
+    if (pickMode && sourceHint === 'off' && activeTab === 0
+        && offNutritionStatus(food, API.offNutritionInfo(food.barcode)) !== 'ok') {
+      return openEditor(food, 'foodList');
+    }
     if (!pickMode) {
       // Meals/Recipes open the meal editor; Foods open the read-only
       // detail sheet (Phase 2 of the NutritionFactsBox rollout). The sheet
@@ -1250,7 +1287,7 @@
 
   async function confirmMultiAdd() {
     if (selectedFoods.size === 0 || multiAdding) return;
-    const foods = [...selectedFoods];
+    let foods = [...selectedFoods];
 
     // Meals always expand ingredients — no portion prompt even if setting is on
     if (activeTab === 1) {
@@ -1269,6 +1306,9 @@
     }
 
     // Foods & Recipes: if prompt setting on, show single stacked portion sheet
+    foods = await _resolveOffPicks(foods);
+    if (!foods.length) return;
+
     if ($diaryPromptQuantity) {
       multiPortionItems = foods.map(food => ({
         food,
@@ -2172,7 +2212,7 @@
                     {#if item.brand}<span class="food-brand text-3 text-sm">{item.brand}</span>{/if}
                     {#if _foodEnergy}
                       <span class="food-kcal text-sm">
-                        {_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}
+                        {#if source === 'off' && _offNoValues(item)}{$_('foods.off_no_values_listed')}{:else}{_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}{/if}
                         <!-- OFF completeness dot -->
                         {#if source === 'off' && typeof item.completeness === 'number'}
                           <span class="off-quality-dot"
@@ -2443,7 +2483,7 @@
                     </span>
                     {#if food.brand}<span class="food-brand text-3 text-sm">{food.brand}</span>{/if}
                     <span class="food-kcal text-sm">
-                      {_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}
+                      {#if searchSource === 'off' && _offNoValues(food)}{$_('foods.off_no_values_listed')}{:else}{_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}{/if}
                       {#if searchSource === 'off' && typeof food.completeness === 'number'}
                         <!-- OFF data-completeness dot. Green when the entry has most
                              nutriment fields filled in, yellow when partial, grey when
@@ -2602,6 +2642,7 @@
       <FoodDetailSheet
         embedded={true}
         food={_paneFood}
+        offStatus={_paneOffStatus}
         onDismiss={() => _paneFood = null}
         on:edit={onDetailEdit}
         on:addToDiary={onDetailAddToDiary}
@@ -2661,6 +2702,7 @@
 <FoodDetailSheet
   bind:open={detailSheetOpen}
   food={detailSheetFood}
+  offStatus={_detailOffStatus}
   on:edit={onDetailEdit}
   on:addToDiary={onDetailAddToDiary}
   on:deleted={() => { detailSheetFood = null; load(); }} />

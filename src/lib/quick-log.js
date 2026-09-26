@@ -14,6 +14,7 @@
 import { get } from 'svelte/store';
 import { DB } from './db.js';
 import { API, NtApi } from './api.js';
+import { offNutritionStatus, needsFullLookup } from './off-nutrition.js';
 import { callAI, callAIProxy } from './aiChat.js';
 import { envLocks } from '../stores/settings.js';
 
@@ -306,7 +307,21 @@ async function _matchFood(parsedItem) {
     const offResults = await API.searchByName(query, 1);
     if (Array.isArray(offResults) && offResults.length > 0) {
       out.candidates = offResults.slice(0, 5);
-      out.best = offResults[0];
+      // #241: prefer the first result that has "as sold" values; one without
+      // would be logged as 0 kcal. The top result is still the match whenever
+      // it has values. Search results leave some values out, so when none
+      // shows any, ask for the top one's full product before giving up.
+      const usable = (f) => offNutritionStatus(f, API.offNutritionInfo(f.barcode)) === 'ok';
+      let best = out.candidates.find(usable) || offResults[0];
+      if (!usable(best) && needsFullLookup(API.offNutritionInfo(best.barcode))) {
+        const full = await API.fetchProductByCode(best.barcode).catch(() => null);
+        if (full && usable(full)) {
+          const i = out.candidates.indexOf(best);
+          best = { ...best, ...full };
+          if (i >= 0) out.candidates[i] = best;
+        }
+      }
+      out.best = best;
       out.source = 'off';
       return out;
     }
@@ -518,6 +533,10 @@ export async function saveItems(matchedList, { date, defaultMealSlot = 0 }) {
 
     // ── Single food / recipe (local / off / unknown / recipe) ────────────
     let food = m.food;
+
+    // #241: never save an OFF product with no "as sold" values as 0 kcal. The
+    // review row already said it would not be logged.
+    if (m.source === 'off' && !food.id && offNutritionStatus(food, API.offNutritionInfo(food.barcode)) !== 'ok') continue;
 
     // If the food came from OFF, persist it to the local foods table first so
     // future quick-log calls find it via the local-search fast path.

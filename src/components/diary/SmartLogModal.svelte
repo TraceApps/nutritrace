@@ -27,6 +27,11 @@
   import { amountAndUnit } from '../../lib/units.js';
   import { showError, showSuccess } from '../../stores/toast.js';
   import { parseInput, matchItems, saveItems, resolveMealSlot } from '../../lib/quick-log.js';
+  import { API } from '../../lib/api.js';
+  import { offNutritionStatus } from '../../lib/off-nutrition.js';
+  // #241: an OFF match with no "as sold" values is shown but never logged
+  // (saveItems skips it), so the Add button does not count it either.
+  const _loggable = (m) => !!m.food && !(m.source === 'off' && offNutritionStatus(m.food, API.offNutritionInfo(m.food.barcode)) !== 'ok');
   import { isNative } from '../../lib/platform.js';
 
   export let date;                  // 'YYYY-MM-DD'
@@ -376,6 +381,9 @@
                     {/each}
                   </div>
                 </details>
+              {:else if m.food && m.source === 'off' && offNutritionStatus(m.food, API.offNutritionInfo(m.food.barcode)) !== 'ok'}
+                <!-- #241: not 0 kcal, just no "as sold" values on OFF. -->
+                <div class="ql-row-meta">{$_('smart_log.off_no_values')}</div>
               {:else if m.food}
                 {@const _kcal = (m.food.nutrition?.calories || 0) * (m.quantity / (m.food.portion || 100))}
                 {@const _e2 = Nutrition.displayEnergy(_kcal, $energyUnit)}
@@ -423,9 +431,9 @@
         <div class="ql-error">{errorMsg}</div>
       {/if}
       <div class="ql-actions">
-        <button class="btn btn-primary" on:click={commitAll} disabled={matchedItems.filter(m => m.food).length === 0}>
+        <button class="btn btn-primary" on:click={commitAll} disabled={matchedItems.filter(_loggable).length === 0}>
           <span class="material-symbols-rounded" style="font-size:16px">check</span>
-          Add {matchedItems.filter(m => m.food).length} to Diary
+          Add {matchedItems.filter(_loggable).length} to Diary
         </button>
       </div>
     </div>

@@ -1,5 +1,6 @@
 <script>
   import { closeOnBack } from '../../lib/back-stack.js';
+  import { offNutritionStatus, needsFullLookup } from '../../lib/off-nutrition.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
@@ -668,10 +669,37 @@
             const exactOff = offHits.find(h => _norm(h.name) === qNorm);
             const pickedOff = exactOff || (offHits.length === 1 ? offHits[0] : null);
             if (pickedOff) {
+              // #241: an OFF product with no "as sold" values used to be logged
+              // as 0 kcal and reported as a success. Search results leave some
+              // values out, so check the full product: log its values if it has
+              // them, and otherwise log nothing and say why.
+              let chosenOff = pickedOff;
+              {
+                const { API } = await import('../../lib/api.js');
+                let info = API.offNutritionInfo(pickedOff.barcode);
+                if (needsFullLookup(info)) {
+                  const full = await API.fetchProductByCode(pickedOff.barcode).catch(() => null);
+                  info = API.offNutritionInfo(pickedOff.barcode);
+                  if (full && offNutritionStatus(full, info) === 'ok') chosenOff = { ...pickedOff, ...full };
+                }
+                const offStatus = offNutritionStatus(chosenOff, info);
+                if (offStatus !== 'ok') {
+                  const preparedOnly = offStatus === 'prepared' || offStatus === 'implausible';
+                  return {
+                    no_nutrition: true,
+                    food_name: chosenOff.name,
+                    as_prepared_only: preparedOnly,
+                    message: `Open Food Facts has no "as sold" nutrition values for "${chosenOff.name}"`
+                      + (preparedOnly ? ', only "as prepared" ones (for example made up with milk or water), which may not match what the user weighs.' : '.')
+                      + ' Nothing was logged. Tell the user, and suggest adding it under Foods, where they can enter the values from the label'
+                      + (preparedOnly ? ' or choose to use the "as prepared" ones.' : '.'),
+                  };
+                }
+              }
               try {
                 // Create in local catalog so future asks hit local tier and
                 // the food row exists for the diary item to reference.
-                const saved = await NtApi.createFood({ ...pickedOff, created_at: new Date().toISOString() });
+                const saved = await NtApi.createFood({ ...chosenOff, created_at: new Date().toISOString() });
                 const item = {
                   ...saved,
                   portion: portionOverride ?? saved.portion ?? 100,
@@ -1631,6 +1659,7 @@ LOGGING A REAL FOOD — When the user wants to add a NAMED food to their diary (
 - For "200g of X" — pass portion=200, unit="g". For "two apples" — pass quantity=2 (and leave portion/unit as defaults).
 - If the tool returns \`candidates\`, present the names back to the user and ask which one; then call log_food again with the chosen name as the \`food\` field.
 - If the tool returns \`no_match\`, tell the user to add it via the Foods tab (barcode scan or manual entry) and then try again.
+- If the tool returns \`no_nutrition\`, Open Food Facts has the product but no "as sold" values, so nothing was logged. Relay its message. Do not use log_quick_calories or any other tool to force the food in.
 - DO NOT use log_quick_calories when the user names a food. Quick Calories is ONLY for kcal-number asks.
 - When the tool returns ok:true, confirm using the \`meal_name\` and \`food_name\` from the tool result — do not assume the meal name from the index you passed. This is how you avoid telling the user "I added X to snacks" when it actually went to a different meal.
 - MANUAL ESTIMATE PATH: if the user EXPLICITLY asks you to estimate ("don't search, just estimate it", "skip the database, estimate it yourself", "you estimate it and log it"), skip log_food and use propose_food instead. Pass a full nutrition estimate you're confident about. The user gets a review card and picks the meal and Save & Add to Diary. This is the ONLY sanctioned bypass — do not use it when the user hasn't explicitly opted out of the search.

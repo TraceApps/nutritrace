@@ -4,6 +4,7 @@
   import { pop } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { NtApi, API, USDA } from '../lib/api.js';
+  import { offNutritionStatus, needsFullLookup } from '../lib/off-nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
   import { DB } from '../lib/db.js';
@@ -588,6 +589,21 @@
         return mine;
       }
       if (_pickerSource === 'off' || _pickerSource === 'usda' || _pickerSource === 'mealie') {
+        if (_pickerSource === 'off') {
+          // #241: an OFF product with no "as sold" values would become a
+          // 0 kcal ingredient. Search results leave some values out, so ask
+          // for the full product first: if it has them, use them.
+          let info = API.offNutritionInfo(food.barcode);
+          if (needsFullLookup(info)) {
+            const full = await API.fetchProductByCode(food.barcode).catch(() => null);
+            info = API.offNutritionInfo(food.barcode);
+            if (full && offNutritionStatus(full, info) === 'ok') food = { ...food, ...full };
+          }
+          if (offNutritionStatus(food, info) !== 'ok') {
+            showError($_('meal_editor.errors.off_no_values', { values: { name: food.name } }));
+            return null;
+          }
+        }
         // OFF / USDA / Mealie items arrive without a numeric id — strip
         // whatever placeholder is there and createFood to mint a real row.
         const { id: _drop, ...rest } = food;
