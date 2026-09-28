@@ -196,6 +196,7 @@ function restoreFromZip(zip) {
     db.prepare('DELETE FROM invite_tokens').run();
     db.prepare('DELETE FROM food_shares').run();
     db.prepare('DELETE FROM meal_shares').run();
+    db.prepare('DELETE FROM goal_history').run();
     db.prepare('DELETE FROM user_settings').run();
     db.prepare('DELETE FROM app_config').run();
     db.prepare('DELETE FROM diary').run();
@@ -262,6 +263,15 @@ function restoreFromZip(zip) {
       INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at, deleted_at) VALUES (@user_id, @key, @value, COALESCE(@updated_at, datetime('now')), @deleted_at)
     `);
     for (const s of data.user_settings || []) insSettings.run({ updated_at: null, deleted_at: null, ...s });
+
+    const insGoalHistory = db.prepare(`
+      INSERT OR IGNORE INTO goal_history
+        (user_id, effective_date, snapshot, changed_at, updated_at, source)
+      VALUES (@user_id, @effective_date, @snapshot, @changed_at, COALESCE(@updated_at, @changed_at), @source)
+    `);
+    for (const h of data.goal_history || []) {
+      insGoalHistory.run({ updated_at: null, source: null, ...h });
+    }
 
     const insConfig = db.prepare(`
       INSERT OR REPLACE INTO app_config (key, value) VALUES (@key, @value)
@@ -421,6 +431,7 @@ function dumpDatabase() {
     meal_shares:      db.prepare('SELECT * FROM meal_shares').all(),
     diary:            db.prepare('SELECT * FROM diary').all(),
     user_settings:    db.prepare('SELECT * FROM user_settings').all(),
+    goal_history:     db.prepare('SELECT * FROM goal_history').all(),
     app_config:       db.prepare('SELECT * FROM app_config').all(),
     ai_chat_history:  db.prepare('SELECT * FROM ai_chat_history').all(),
     // wellness_data holds BOTH raw wearable metrics AND Trace-computed

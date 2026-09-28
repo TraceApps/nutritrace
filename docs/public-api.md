@@ -61,13 +61,44 @@ token lacking the required scope returns `403`.
 |---|---|---|
 | GET | `/api/v1/diary/:date` | One day's logged food items. `date` defaults to today. |
 | GET | `/api/v1/diary/:date/totals` | Summed nutrition (calories, macros, any micronutrients present) plus total water for that day. |
-| GET | `/api/v1/goals` | The user's current macro/micronutrient/water goal targets. |
+| GET | `/api/v1/goals` | Current goals (legacy-compatible response). Add `?date=YYYY-MM-DD` for one effective day, or `?start=YYYY-MM-DD&end=YYYY-MM-DD` for an inclusive historical range. |
 | GET | `/api/v1/meals/search?query=&limit=&include_recipes=` | Search the saved meals catalog by name, or list all when `query` is omitted. Recipes excluded by default. |
 | GET | `/api/v1/meals/recent?limit=&include_recipes=&start=&end=` | Most-recently-used saved meals. Optional inclusive `YYYY-MM-DD` `start`/`end` filter by the date each meal was last used; either can be left out. |
 | GET | `/api/v1/meals/:id` | One saved meal's full contents, including every item. |
 | GET | `/api/v1/steps?start=&end=&source=` | Persisted daily step observations from wellness data, one row per source. Inclusive `YYYY-MM-DD` bounds; a supplied bound leaves the other side open, both omitted means the last 90 days. `source` filters to one provider. Sources are never merged and missing days are not zeros. |
 | GET | `/api/v1/body-composition?start=&end=&source=` | Persisted body-composition observations from `wellness_data`. Inclusive `YYYY-MM-DD` bounds; a supplied bound leaves the other side open, both omitted means the last 90 days. `source` is an optional exact filter. Metrics are grouped by `date` + `source`; observations from different sources remain separate, and missing observations are omitted rather than synthesized. |
 | GET | `/api/v1/profile` | The user's gender and date of birth as set on the Profile page or during onboarding. Either field is `null` when unset. |
+
+### Goal history and effective dates
+
+`GET /api/v1/goals` with no query parameters preserves the existing response.
+
+For historical reporting, ask NutriTrace to resolve the effective target instead
+of applying today's settings to an old diary day:
+
+```
+GET /api/v1/goals?date=2026-09-23
+GET /api/v1/goals?start=2026-09-21&end=2026-09-27
+```
+
+Historical dates are **user-local calendar dates**. A snapshot is effective from
+its `effective_from` date (inclusive) until the next snapshot. Multiple edits on
+one calendar day collapse to the final complete configuration for that day. Goal
+templates are recorded as one bulk update, so goals and water cannot appear as
+a partial template state.
+
+Historical responses include the stored configuration plus `resolved_goals`,
+`calorie_target_kcal`, `calorie_basis`, and
+`activity_adjustment_kcal`. Resolution follows NutriTrace's own weekday-goal,
+percentage-macro, Dynamic, Adaptive, and activity-adjustment rules. Callers
+should use these resolved values rather than reimplementing the formulas.
+
+History begins when this feature is installed (or the first snapshot is
+recorded). NutriTrace does **not** invent older history from today's settings.
+A date before the first recorded snapshot returns `known: false` with
+`reason: "before_first_recorded_snapshot"` and
+`history_available_from`. Range responses expose whether every day was known
+through `history_complete`.
 
 ### Write (require `mcp:write` and `PUBLIC_API_WRITE_ENABLED=1`)
 

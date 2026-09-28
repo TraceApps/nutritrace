@@ -100,6 +100,18 @@ db.exec(`
     PRIMARY KEY (user_id, key)
   );
 
+  CREATE TABLE IF NOT EXISTS goal_history (
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    effective_date TEXT NOT NULL,
+    snapshot       TEXT NOT NULL,
+    changed_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    source         TEXT DEFAULT NULL,
+    PRIMARY KEY (user_id, effective_date)
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_history_user_date
+    ON goal_history(user_id, effective_date);
+
   CREATE TABLE IF NOT EXISTS app_config (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -633,6 +645,74 @@ if (!columnExists('diary', 'completed_meals')) {
 }
 if (!columnExists('user_settings', 'deleted_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN deleted_at TEXT DEFAULT NULL`);
+}
+
+// Historical nutrition goals start at deployment time. We deliberately do
+// not invent pre-migration history from the current settings row: the first
+// baseline says "this configuration is known from this local calendar date".
+try {
+  const _goalDefaults = {
+    goals: {},
+    water_goal_ml: 2000,
+    calorie_goal_mode: 'fixed',
+    calorie_goal_factor: 1,
+    calorie_adjust_from_activity: false,
+    diary_show_activity: false,
+    manual_activity_policy: 'wearable_wins',
+    lifttrace_overlap_fill: true,
+  };
+  const _goalKeys = [
+    'goals', 'waterGoalMl', 'calorieGoalMode', 'calorieGoalFactor',
+    'calorieAdjustFromActivity', 'diaryShowActivity', 'manualActivityPolicy', 'lifttraceOverlapFill', 'timezone',
+  ];
+  const _dateInTz = (tz) => {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).formatToParts(new Date());
+      const val = Object.fromEntries(parts.map(p => [p.type, p.value]));
+      return `${val.year}-${val.month}-${val.day}`;
+    } catch {
+      return new Date().toISOString().slice(0, 10);
+    }
+  };
+  for (const { id: userId } of db.prepare('SELECT id FROM users').all()) {
+    const exists = db.prepare('SELECT 1 FROM goal_history WHERE user_id = ? LIMIT 1').get(userId);
+    if (exists) continue;
+    const rows = db.prepare(
+      `SELECT key, value FROM user_settings
+        WHERE user_id = ? AND deleted_at IS NULL
+          AND key IN (${_goalKeys.map(() => '?').join(',')})`
+    ).all(userId, ..._goalKeys);
+    const byKey = new Map();
+    for (const row of rows) {
+      try { byKey.set(row.key, JSON.parse(row.value)); } catch {}
+    }
+    const factor = Number(byKey.get('calorieGoalFactor'));
+    const water = byKey.get('waterGoalMl');
+    const snapshot = {
+      ..._goalDefaults,
+      goals: byKey.get('goals') && typeof byKey.get('goals') === 'object' ? byKey.get('goals') : {},
+      water_goal_ml: typeof water === 'number' && Number.isFinite(water) ? water : 2000,
+      calorie_goal_mode: ['fixed', 'dynamic', 'adaptive'].includes(byKey.get('calorieGoalMode'))
+        ? byKey.get('calorieGoalMode') : 'fixed',
+      calorie_goal_factor: Number.isFinite(factor) && factor > 0 ? factor : 1,
+      calorie_adjust_from_activity: byKey.get('calorieAdjustFromActivity') === true,
+      diary_show_activity: byKey.get('diaryShowActivity') === true,
+      manual_activity_policy: ['wearable_wins', 'manual_wins', 'additive'].includes(byKey.get('manualActivityPolicy'))
+        ? byKey.get('manualActivityPolicy') : 'wearable_wins',
+      lifttrace_overlap_fill: byKey.get('lifttraceOverlapFill') !== false,
+    };
+    const effectiveDate = _dateInTz(typeof byKey.get('timezone') === 'string' ? byKey.get('timezone') : 'UTC');
+    const changedAt = new Date().toISOString();
+    db.prepare(
+      `INSERT OR IGNORE INTO goal_history
+         (user_id, effective_date, snapshot, changed_at, updated_at, source)
+       VALUES (?, ?, ?, ?, datetime('now'), 'migration_baseline')`
+    ).run(userId, effectiveDate, JSON.stringify(snapshot), changedAt);
+  }
+} catch (e) {
+  console.warn('[db] goal_history baseline migration skipped:', e.message);
 }
 
 // Issue #37: single-user mode (user_id IS NULL) accumulated duplicate diary

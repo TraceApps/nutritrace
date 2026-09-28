@@ -100,7 +100,7 @@ test('tombstones from different days do not mix', () => {
 });
 
 // ── Foods made without a connection ─────────────────────────────────
-import { applyCatalogOps, collapseCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId, staleReadKeys } from '../src/lib/offline-edits.js';
+import { applyCatalogOps, collapseCatalogOps, buildCatalogPush, collapseGoalHistoryOps, createdIds, remapIds, newTempId, isTempId, staleReadKeys } from '../src/lib/offline-edits.js';
 
 const fop = (seq, action, id, data, table = 'foods') => ({ seq, type: 'catalog', table, action, id, data, at: 1_700_000_000_000 });
 
@@ -209,6 +209,19 @@ test('a setting changed offline goes up once, with the last value', () => {
   assert.equal(rows.length, 2);
   assert.equal(rows.find(r => r.key === 'diaryShowActivity').value, false);
   assert.equal(rows.find(r => r.key === 'weightUnit').value, 'lb');
+});
+
+test('PWA offline goal history preserves different dates and collapses same-day edits', () => {
+  const ops = [
+    { seq: 1, type: 'goal_history', effective_date: '2026-09-24', snapshot: { goals: { calories: { max: 2000 } } }, at: Date.parse('2026-09-24T08:00:00Z') },
+    { seq: 2, type: 'goal_history', effective_date: '2026-09-25', snapshot: { goals: { calories: { max: 2200 } } }, at: Date.parse('2026-09-25T08:00:00Z') },
+    { seq: 3, type: 'goal_history', effective_date: '2026-09-25', snapshot: { goals: { calories: { max: 2300 } } }, at: Date.parse('2026-09-25T10:00:00Z') },
+  ];
+  const rows = collapseGoalHistoryOps(ops);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].effective_date, '2026-09-24');
+  assert.equal(rows[1].snapshot.goals.calories.max, 2300);
+  assert.equal(buildCatalogPush(ops).goal_history.length, 2);
 });
 
 // ── Fasting without a connection ────────────────────────────────────

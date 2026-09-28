@@ -31,9 +31,11 @@ const LB_TO_KG = 1 / 2.20462;
 const DEFAULT_WINDOW_DAYS = 35;
 const MIN_VALID_DAYS = 21;
 
-/** ISO date string for `daysAgo` days before today (UTC). */
-function _isoDaysAgo(daysAgo) {
-  const d = new Date();
+/** ISO date string for `daysAgo` days before an anchor calendar date (UTC).
+ * The optional anchor lets historical goal queries reconstruct Adaptive TDEE
+ * using only observations available through that date instead of today's window. */
+function _isoDaysAgo(daysAgo, anchorDate = null) {
+  const d = anchorDate ? new Date(anchorDate + 'T12:00:00Z') : new Date();
   d.setUTCHours(12, 0, 0, 0);
   d.setUTCDate(d.getUTCDate() - daysAgo);
   return d.toISOString().slice(0, 10);
@@ -108,8 +110,11 @@ function _linReg(points) {
 export function computeAdaptiveTdee(userId, opts = {}) {
   const windowDays = opts.windowDays || DEFAULT_WINDOW_DAYS;
   const minValid   = opts.minValidDays || MIN_VALID_DAYS;
-  const startDate  = _isoDaysAgo(windowDays - 1);
-  const endDate    = _isoDaysAgo(0);
+  const endDate    = opts.endDate || _isoDaysAgo(0);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate) || Number.isNaN(Date.parse(endDate + 'T12:00:00Z'))) {
+    throw new Error('endDate must be YYYY-MM-DD');
+  }
+  const startDate  = _isoDaysAgo(windowDays - 1, endDate);
 
   // --- Diary: intake + manual weight ---
   const diaryRows = db.prepare(
@@ -151,7 +156,7 @@ export function computeAdaptiveTdee(userId, opts = {}) {
   const series = []; // [{ date, intake, weight, weightSource }]
   let usedWellness = false, usedManual = false;
   for (let i = 0; i < windowDays; i++) {
-    const date = _isoDaysAgo(windowDays - 1 - i);
+    const date = _isoDaysAgo(windowDays - 1 - i, endDate);
     const intake = intakeByDate.get(date) ?? null;
     let weight = null, weightSource = null;
     const wellness = wellnessByDate.get(date);

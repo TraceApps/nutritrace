@@ -108,8 +108,15 @@ export const TOOLS = [
   },
   {
     name: 'get_goals',
-    description: 'Get the user\'s nutrition and wellness goals. Returns calorie, macro, and other nutrient targets.',
-    parameters: { type: 'object', properties: {} },
+    description: 'Get the user\'s nutrition and wellness goals. With no arguments returns current goals. Pass date for goals effective on one YYYY-MM-DD calendar day, or start + end for the inclusive historical range. For any historical intake-vs-goal comparison, request goals for the same date or range instead of using today\'s goals.',
+    parameters: {
+      type: 'object',
+      properties: {
+        date:  { type: 'string', description: 'Optional single calendar date YYYY-MM-DD. Do not combine with start/end.' },
+        start: { type: 'string', description: 'Optional historical range start YYYY-MM-DD; use together with end.' },
+        end:   { type: 'string', description: 'Optional historical range end YYYY-MM-DD; use together with start.' },
+      },
+    },
   },
   {
     name: 'add_activity_entry',

@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Historical nutrition goals for MCP and the public API.** NutriTrace now keeps effective-dated goal snapshots so weekly reports can compare each day with the targets that were actually in effect then. `get_goals` and `/api/v1/goals` accept one date or an inclusive date range while the existing current-goals response remains compatible. Android sync and full backups preserve the history.
+
 ---
 
 ## [1.4.0-dev03] - 2026-09-27 (pre-release)

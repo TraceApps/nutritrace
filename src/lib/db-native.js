@@ -163,6 +163,20 @@ const SCHEMA = `
     UNIQUE(user_id, key)
   );
 
+  CREATE TABLE IF NOT EXISTS goal_history (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER DEFAULT 1,
+    effective_date TEXT NOT NULL,
+    snapshot       TEXT NOT NULL,
+    changed_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    source         TEXT DEFAULT NULL,
+    sync_status    TEXT DEFAULT 'synced',
+    UNIQUE(user_id, effective_date)
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_history_user_date
+    ON goal_history(user_id, effective_date);
+
   CREATE TABLE IF NOT EXISTS sync_meta (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -1789,6 +1803,110 @@ export async function dbUpsertSetting(key, value) {
     [LOCAL_USER_ID, key, JSON.stringify(value), updatedAt]
   );
   return updatedAt;
+}
+
+const GOAL_HISTORY_KEYS = [
+  'goals', 'waterGoalMl', 'calorieGoalMode', 'calorieGoalFactor',
+  'calorieAdjustFromActivity', 'diaryShowActivity', 'manualActivityPolicy', 'lifttraceOverlapFill',
+];
+
+function _settingJson(rows, key, fallback) {
+  const row = rows.find(r => r.key === key && !r.deleted_at);
+  if (!row || row.value == null) return fallback;
+  try { return JSON.parse(row.value); } catch { return fallback; }
+}
+
+export async function dbCaptureGoalHistory(effectiveDate) {
+  const db = await getDb();
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(effectiveDate || ''))) {
+    throw new Error('effectiveDate must be YYYY-MM-DD');
+  }
+  const q = GOAL_HISTORY_KEYS.map(() => '?').join(',');
+  const r = await db.query(
+    `SELECT key, value, deleted_at FROM user_settings
+      WHERE user_id = ? AND key IN (${q})`,
+    [LOCAL_USER_ID, ...GOAL_HISTORY_KEYS]
+  );
+  const rows = _rows(r);
+  const factor = Number(_settingJson(rows, 'calorieGoalFactor', 1));
+  const water = _settingJson(rows, 'waterGoalMl', 2000);
+  const snapshot = {
+    goals: _settingJson(rows, 'goals', {}) || {},
+    water_goal_ml: typeof water === 'number' && Number.isFinite(water) ? water : 2000,
+    calorie_goal_mode: _settingJson(rows, 'calorieGoalMode', 'fixed') || 'fixed',
+    calorie_goal_factor: Number.isFinite(factor) && factor > 0 ? factor : 1,
+    calorie_adjust_from_activity: _settingJson(rows, 'calorieAdjustFromActivity', false) === true,
+    diary_show_activity: _settingJson(rows, 'diaryShowActivity', false) === true,
+    manual_activity_policy: _settingJson(rows, 'manualActivityPolicy', 'wearable_wins') || 'wearable_wins',
+    lifttrace_overlap_fill: _settingJson(rows, 'lifttraceOverlapFill', true) !== false,
+  };
+  const changedAt = _now();
+  await db.run(
+    `INSERT INTO goal_history
+       (user_id, effective_date, snapshot, changed_at, updated_at, source, sync_status)
+     VALUES (?, ?, ?, ?, ?, 'native', 'pending')
+     ON CONFLICT(user_id, effective_date) DO UPDATE SET
+       snapshot=excluded.snapshot,
+       changed_at=excluded.changed_at,
+       updated_at=excluded.updated_at,
+       source='native',
+       sync_status='pending'`,
+    [LOCAL_USER_ID, effectiveDate, JSON.stringify(snapshot), changedAt, changedAt]
+  );
+  return { effective_date: effectiveDate, changed_at: changedAt, snapshot };
+}
+
+export async function dbGetPendingGoalHistory() {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT * FROM goal_history WHERE user_id = ? AND sync_status = 'pending' ORDER BY effective_date`,
+    [LOCAL_USER_ID]
+  );
+  return _rows(r);
+}
+
+export async function dbMarkGoalHistorySynced(rows) {
+  if (!rows || !rows.length) return;
+  const db = await getDb();
+  for (const r of rows) {
+    await db.run(
+      `UPDATE goal_history SET sync_status = 'synced'
+        WHERE user_id = ? AND effective_date = ? AND changed_at = ?`,
+      [LOCAL_USER_ID, r.effective_date, r.changed_at]
+    );
+  }
+}
+
+export async function dbUpsertGoalHistoryFromServer(record) {
+  const db = await getDb();
+  const existing = _row(await db.query(
+    `SELECT changed_at, sync_status FROM goal_history
+      WHERE user_id = ? AND effective_date = ?`,
+    [LOCAL_USER_ID, record.effective_date]
+  ));
+  if (existing?.sync_status === 'pending' && String(existing.changed_at || '') > String(record.changed_at || '')) {
+    return;
+  }
+  const snapshot = typeof record.snapshot === 'string' ? record.snapshot : JSON.stringify(record.snapshot || {});
+  await db.run(
+    `INSERT INTO goal_history
+       (user_id, effective_date, snapshot, changed_at, updated_at, source, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, 'synced')
+     ON CONFLICT(user_id, effective_date) DO UPDATE SET
+       snapshot=excluded.snapshot,
+       changed_at=excluded.changed_at,
+       updated_at=excluded.updated_at,
+       source=excluded.source,
+       sync_status='synced'`,
+    [
+      LOCAL_USER_ID,
+      record.effective_date,
+      snapshot,
+      record.changed_at,
+      record.updated_at || record.changed_at,
+      record.source || 'server',
+    ]
+  );
 }
 
 export async function dbUpsertSettingFromServer(record) {

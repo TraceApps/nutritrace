@@ -3,9 +3,19 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
+import { GOAL_HISTORY_SETTING_KEYS, captureGoalSnapshot, isGoalHistoryDate } from '../lib/goal-history.js';
 
 const router = Router();
 router.use(requireAuth);
+
+function _effectiveDate(req) {
+  const supplied = req.body?.effective_date;
+  if (supplied != null) {
+    if (!isGoalHistoryDate(supplied)) throw new Error("effective_date must be YYYY-MM-DD");
+    return supplied;
+  }
+  return new Date().toISOString().slice(0, 10);
+}
 
 // GET /api/settings — return all user settings (empty object in single-user mode)
 // SECURITY: server-only keys (OAuth secrets, admin config) are filtered out.
@@ -27,9 +37,15 @@ router.put('/', wrap((req, res) => {
   const { key, value } = req.body;
   if (!key) return res.status(400).json({ error: 'key required' });
   if (isServerOnlyKey(key)) return res.status(403).json({ error: 'forbidden key' });
-  db.prepare(`INSERT INTO user_settings (user_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
-    ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now'), deleted_at = NULL`)
-    .run(req.user.id, key, JSON.stringify(value));
+  const effectiveDate = GOAL_HISTORY_SETTING_KEYS.has(key) ? _effectiveDate(req) : null;
+  db.transaction(() => {
+    db.prepare(`INSERT INTO user_settings (user_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now'), deleted_at = NULL`)
+      .run(req.user.id, key, JSON.stringify(value));
+    if (effectiveDate) {
+      captureGoalSnapshot(req.user.id, { effectiveDate, source: 'settings' });
+    }
+  })();
   res.json({ ok: true });
 }));
 
@@ -48,11 +64,16 @@ router.put('/bulk', wrap((req, res) => {
      ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now'), deleted_at = NULL`
   );
   let written = 0, skipped = 0;
+  const hasGoalChange = Object.keys(settings).some(key => GOAL_HISTORY_SETTING_KEYS.has(key) && !isServerOnlyKey(key));
+  const effectiveDate = hasGoalChange ? _effectiveDate(req) : null;
   db.transaction(() => {
     for (const [key, value] of Object.entries(settings)) {
       if (isServerOnlyKey(key)) { skipped++; continue; }
       upsert.run(req.user.id, key, JSON.stringify(value));
       written++;
+    }
+    if (effectiveDate) {
+      captureGoalSnapshot(req.user.id, { effectiveDate, source: 'settings_bulk' });
     }
   })();
   res.json({ ok: true, written, skipped });
@@ -61,7 +82,11 @@ router.put('/bulk', wrap((req, res) => {
 // DELETE /api/settings — clear all settings for the current user
 router.delete('/', wrap((req, res) => {
   if (userMgmtActive() && req.user) {
-    db.prepare(`UPDATE user_settings SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ?`).run(req.user.id);
+    const effectiveDate = _effectiveDate(req);
+    db.transaction(() => {
+      db.prepare(`UPDATE user_settings SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ?`).run(req.user.id);
+      captureGoalSnapshot(req.user.id, { effectiveDate, source: 'settings_reset' });
+    })();
   }
   res.json({ ok: true });
 }));

@@ -194,6 +194,23 @@ export function collapseSettingOps(ops) {
   return [...byKey.values()];
 }
 
+/** Effective-dated goal snapshots changed offline, one final snapshot per date. */
+export function collapseGoalHistoryOps(ops) {
+  const byDate = new Map();
+  for (const op of ops || []) {
+    if (!op || op.type !== 'goal_history' || !op.effective_date) continue;
+    const prev = byDate.get(op.effective_date);
+    if (!prev || (op.seq || 0) >= (prev.seq || 0)) byDate.set(op.effective_date, op);
+  }
+  return [...byDate.values()]
+    .sort((a, b) => String(a.effective_date).localeCompare(String(b.effective_date)))
+    .map(op => ({
+      effective_date: op.effective_date,
+      snapshot: op.snapshot || {},
+      changed_at: new Date(op.at || Date.now()).toISOString(),
+    }));
+}
+
 /** The /api/sync/push body for queued catalogue work. */
 export function buildCatalogPush(ops) {
   return {
@@ -202,6 +219,7 @@ export function buildCatalogPush(ops) {
     activity: collapseCatalogOps(ops, 'activity').map(_catalogRow),
     fasts: collapseCatalogOps(ops, 'fasts').map(_catalogRow),
     settings: collapseSettingOps(ops),
+    goal_history: collapseGoalHistoryOps(ops),
     diary: [], wellness: [], workouts: [],
   };
 }

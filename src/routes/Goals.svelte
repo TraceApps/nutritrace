@@ -7,7 +7,7 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { portal } from '../lib/portal.js';
-  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, calorieGoalMode, calorieGoalFactor } from '../stores/settings.js';
+  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, calorieGoalMode, calorieGoalFactor, bulkSet } from '../stores/settings.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
@@ -149,9 +149,12 @@
     return next;
   }
 
-  function applyTemplate(tpl) {
-    goals.set(_migrateKilojoulesGoal({ ...tpl.goals }));
-    if (tpl.waterGoalMl != null) waterGoalMl.set(tpl.waterGoalMl);
+  async function applyTemplate(tpl) {
+    const next = { goals: _migrateKilojoulesGoal({ ...tpl.goals }) };
+    if (tpl.waterGoalMl != null) next.waterGoalMl = tpl.waterGoalMl;
+    // One bulk write means one effective-date snapshot: an external coach can
+    // never observe the template's goals without its matching water target.
+    await bulkSet(next);
     showApplyConfirm = null;
     activeTab = 'yours';
     showSuccess($_('goals.toast.template_applied', { values: { name: tpl.name } }));
