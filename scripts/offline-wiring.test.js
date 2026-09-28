@@ -87,7 +87,7 @@ test('a barcode scanned offline does not read as an unknown product', () => {
 
 test('a setting changed offline is queued rather than lost', () => {
   // Settings push themselves, so they never pass through the API wrapper.
-  assert.match(settings, /const \{ queueSetting \} = await import\('\.\.\/lib\/offline-api\.js'\)/);
+  assert.match(settings, /const \{[^}]*\bqueueSetting\b[^}]*\} = await import\('\.\.\/lib\/offline-api\.js'\)/);
   assert.match(settings, /if \(!isNative\) \{/);
 });
 

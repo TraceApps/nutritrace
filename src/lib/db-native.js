@@ -1818,7 +1818,7 @@ function _settingJson(rows, key, fallback) {
 
 export async function dbCaptureGoalHistory(effectiveDate) {
   const db = await getDb();
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(effectiveDate || ''))) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate || ''))) {
     throw new Error('effectiveDate must be YYYY-MM-DD');
   }
   const q = GOAL_HISTORY_KEYS.map(() => '?').join(',');
