@@ -22,6 +22,7 @@ import './styles/forms.css';
 import './styles/fold.css';
 import App from './App.svelte';
 import { DB } from './lib/db.js';
+import { waitLocale } from 'svelte-i18n';
 import { initI18n } from './i18n/index.js';
 
 // Pick browser-detected locale for first paint; the App-level subscription to
@@ -48,6 +49,10 @@ DB.init()
       const { loadImageMap } = await import('./lib/platform.js');
       await loadImageMap();
     }
+    // The locale file loads asynchronously. Mounting before it resolves
+    // makes the first $_() throw and the boot catch reports a fake
+    // database error.
+    await waitLocale();
     new App({ target: document.getElementById('app') });
   })
   .catch(err => {
