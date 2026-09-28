@@ -12,6 +12,7 @@
    * Rendered only inside .diary-right-col which is ≥1280px only.
    */
   import { slide } from 'svelte/transition';
+  import { _ } from 'svelte-i18n';
   import { decimalInput, parseDecimal } from '../../lib/decimal-input.js';
 
   export let logs         = [];
@@ -82,10 +83,10 @@
 <section class="water-widget card">
   <header class="ww-header">
     <span class="material-symbols-rounded ww-icon">water_drop</span>
-    <span class="ww-title">Water</span>
-    <span class="ww-total">{displayTotal} <span class="ww-of">of {displayGoal}</span></span>
+    <span class="ww-title">{$_('diary_deep.water')}</span>
+    <span class="ww-total">{displayTotal} <span class="ww-of">{$_('diary_rail.of_goal', { values: { value: displayGoal } })}</span></span>
     {#if onOpen}
-      <button class="ww-open" on:click={onOpen} title="Open water sheet" aria-label="Open water sheet">
+      <button class="ww-open" on:click={onOpen} title={$_('diary_rail.open_water')} aria-label={$_('diary_rail.open_water')}>
         <span class="material-symbols-rounded">open_in_full</span>
       </button>
     {/if}
@@ -104,7 +105,7 @@
       </button>
     {/each}
     <button class="ww-btn ww-btn-ghost ww-btn-full" on:click={openCustom} class:active={customOpen}>
-      + Custom
+      {$_('diary_rail.custom')}
     </button>
   </div>
 
@@ -120,7 +121,7 @@
         placeholder={unit === 'ml' ? 'ml' : unit === 'oz' ? 'fl oz' : unit}
         class="input ww-custom-input"
       />
-      <button class="ww-custom-save btn btn-primary" on:click={commitCustom}>Add</button>
+      <button class="ww-custom-save btn btn-primary" on:click={commitCustom}>{$_('diary.water.add')}</button>
     </div>
   {/if}
 
@@ -133,8 +134,8 @@
           <button
             class="ww-log-remove"
             on:click={() => onRemove(i)}
-            title="Remove this entry"
-            aria-label="Remove entry"
+            title={$_('diary_rail.remove_entry')}
+            aria-label={$_('diary_rail.remove_entry_label')}
           >
             <span class="material-symbols-rounded">close</span>
           </button>

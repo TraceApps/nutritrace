@@ -1,5 +1,5 @@
 <script>
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
   import { DB } from '../../lib/db.js';
   import { AVAILABLE_LOCALES } from '../../i18n/index.js';
   import { scheduleSave } from '../../stores/settings.js';
@@ -7,9 +7,12 @@
     language, dateFormat, timeFormat, energyUnit,
   } from '../../stores/settings.js';
 
-  const ENERGY_OPTS = [
+  $: ENERGY_OPTS = $locale ? [
+    { value: 'kcal', label: $_('settings.regional.energy_kcal') },
+    { value: 'kJ',   label: $_('settings.regional.energy_kj') },
+  ] : [
     { value: 'kcal', label: 'Calories (kcal)' },
-    { value: 'kJ',   label: 'Kilojoules (kJ)'  },
+    { value: 'kJ',   label: 'Kilojoules (kJ)' },
   ];
 
   // Save-on-change helper — matches parent's `set()` helper.
@@ -31,8 +34,8 @@
 <div class="section-body">
 
   <!-- Group: Language & Formats -->
-  <p class="settings-group-heading">Language &amp; Formats</p>
-  <p class="settings-group-sub">Interface language and how dates and times are shown.</p>
+  <p class="settings-group-heading">{$_('settings.regional.formats_heading')}</p>
+  <p class="settings-group-sub">{$_('settings.regional.formats_sub')}</p>
   <div class="card settings-card">
     <div class="setting-row">
       <span class="setting-label">{$_('settings.regional.language')}</span>
@@ -67,8 +70,8 @@
   </div>
 
   <!-- Group: Units — metric / imperial preferences across the app -->
-  <p class="settings-group-heading">Units</p>
-  <p class="settings-group-sub">Unit choices apply everywhere the value shows.</p>
+  <p class="settings-group-heading">{$_('settings.regional.units_heading')}</p>
+  <p class="settings-group-sub">{$_('settings.regional.units_sub')}</p>
   <div class="card settings-card">
     <div class="setting-row">
       <span class="setting-label">{$_('settings.regional.energy')}</span>

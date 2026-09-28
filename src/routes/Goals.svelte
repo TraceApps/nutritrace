@@ -2,7 +2,8 @@
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick } from 'svelte';
   import { slide } from 'svelte/transition';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../lib/i18n-label.js';
   import { push } from 'svelte-spa-router';
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
@@ -23,17 +24,17 @@
   // adding a new source doesn't silently disable the button.
   $: _hasWearable = $fitbitFamilyEnabled || $garminEnabled;
 
-  const BODY_STATS = [
-    { id: 'weight',     label: 'Weight',     isBody: true },
-    { id: 'neck',       label: 'Neck',       isBody: true },
-    { id: 'waist',      label: 'Waist',      isBody: true },
-    { id: 'hips',       label: 'Hips',       isBody: true },
-    { id: 'chest',      label: 'Chest',      isBody: true },
-    { id: 'thighs',     label: 'Thighs',     isBody: true },
-    { id: 'biceps',     label: 'Biceps',     isBody: true },
-    { id: 'calves',     label: 'Calves',     isBody: true },
-    { id: 'body_fat',   label: 'Body Fat',   isBody: true, unit: '%' },
-    { id: 'body_water', label: 'Body Water', isBody: true, unit: '%' },
+  $: BODY_STATS = [
+    { id: 'weight',     label: tr('body_metrics', 'weight', 'Weight', $locale),     isBody: true },
+    { id: 'neck',       label: tr('body_metrics', 'neck', 'Neck', $locale),         isBody: true },
+    { id: 'waist',      label: tr('body_metrics', 'waist', 'Waist', $locale),       isBody: true },
+    { id: 'hips',       label: tr('body_metrics', 'hips', 'Hips', $locale),         isBody: true },
+    { id: 'chest',      label: tr('body_metrics', 'chest', 'Chest', $locale),       isBody: true },
+    { id: 'thighs',     label: tr('body_metrics', 'thighs', 'Thighs', $locale),     isBody: true },
+    { id: 'biceps',     label: tr('body_metrics', 'biceps', 'Biceps', $locale),     isBody: true },
+    { id: 'calves',     label: tr('body_metrics', 'calves', 'Calves', $locale),     isBody: true },
+    { id: 'body_fat',   label: tr('body_metrics', 'body_fat', 'Body Fat', $locale), isBody: true, unit: '%' },
+    { id: 'body_water', label: tr('body_metrics', 'body_water', 'Body Water', $locale), isBody: true, unit: '%' },
   ];
 
   $: wUnit = $weightUnit || 'kg';
@@ -50,24 +51,24 @@
     if (n.id === 'kilojoules' && ($energyUnit||'kcal') === 'kcal') return false;
     if (n.id === 'calories'   && ($energyUnit||'kcal') === 'kJ') return false;
     return true;
-  });
+  }).map(n => ({ ...n, label: tr('nutriments', n.id, n.label, $locale) }));
 
   // Wellness goal fields (shown when wellness is enabled)
-  const WELLNESS_GOALS = [
+  $: WELLNESS_GOALS = [
     // Fitbit — Movement
-    { id: 'steps',              label: 'Daily Steps',       unit: 'steps', isWellness: true },
-    { id: 'active_minutes',     label: 'Active Minutes',    unit: 'min',   isWellness: true },
-    { id: 'floors',             label: 'Floors Climbed',    unit: 'floors',isWellness: true },
-    { id: 'calories_out',       label: 'Calories Burned',   unit: 'kcal',  isWellness: true },
+    { id: 'steps',              label: tr('wellness_goals', 'steps', 'Daily Steps', $locale),             unit: 'steps', isWellness: true },
+    { id: 'active_minutes',     label: tr('wellness_goals', 'active_minutes', 'Active Minutes', $locale), unit: 'min',   isWellness: true },
+    { id: 'floors',             label: tr('wellness_goals', 'floors', 'Floors Climbed', $locale),         unit: 'floors',isWellness: true },
+    { id: 'calories_out',       label: tr('wellness_goals', 'calories_out', 'Calories Burned', $locale),   unit: 'kcal',  isWellness: true },
     // Fitbit — Sleep
-    { id: 'sleep_duration_min', label: 'Sleep Duration',    unit: 'min',   isWellness: true },
-    { id: 'sleep_efficiency',   label: 'Sleep Efficiency',  unit: '%',     isWellness: true },
+    { id: 'sleep_duration_min', label: tr('wellness_goals', 'sleep_duration_min', 'Sleep Duration', $locale), unit: 'min', isWellness: true },
+    { id: 'sleep_efficiency',   label: tr('wellness_goals', 'sleep_efficiency', 'Sleep Efficiency', $locale), unit: '%', isWellness: true },
     // Fitbit — Heart
-    { id: 'hrv_daily_rmssd',    label: 'HRV (RMSSD)',       unit: 'ms',    isWellness: true },
+    { id: 'hrv_daily_rmssd',    label: tr('wellness_goals', 'hrv_daily_rmssd', 'HRV (RMSSD)', $locale),   unit: 'ms',    isWellness: true },
     // Withings — Body
-    { id: 'weight_kg',          label: 'Target Weight',     unit: 'kg',    isWellness: true },
-    { id: 'body_fat_pct',       label: 'Target Body Fat',   unit: '%',     isWellness: true },
-    { id: 'muscle_mass_kg',     label: 'Target Muscle Mass',unit: 'kg',    isWellness: true },
+    { id: 'weight_kg',          label: tr('wellness_goals', 'weight_kg', 'Target Weight', $locale),       unit: 'kg',    isWellness: true },
+    { id: 'body_fat_pct',       label: tr('wellness_goals', 'body_fat_pct', 'Target Body Fat', $locale),  unit: '%',     isWellness: true },
+    { id: 'muscle_mass_kg',     label: tr('wellness_goals', 'muscle_mass_kg', 'Target Muscle Mass', $locale), unit: 'kg', isWellness: true },
   ];
 
   // All fields for goal-setting: all body stats + all nutrients + wellness if enabled
@@ -670,13 +671,13 @@
   <!-- Tabs -->
   <div class="tab-bar">
     <button class="tab-btn" class:active={activeTab==='yours'} on:click={() => activeTab='yours'}>
-      Your Goals
+      {$_('goals_page.tabs.yours')}
     </button>
     <button class="tab-btn" class:active={activeTab==='all'} on:click={() => activeTab='all'}>
-      All Fields
+      {$_('goals_page.tabs.all')}
     </button>
     <button class="tab-btn" class:active={activeTab==='templates'} on:click={() => activeTab='templates'}>
-      Templates
+      {$_('goals_page.tabs.templates')}
     </button>
   </div>
 
@@ -687,18 +688,18 @@
 
     <!-- ─── LEFT RAIL (desktop only) ────────────────────────────────────── -->
     <aside class="goals-left-rail">
-      <div class="goals-rail-heading">Navigate</div>
+      <div class="goals-rail-heading">{$_('goals_page.rail.navigate')}</div>
       <button class="goals-rail-nav" class:active={activeTab === 'yours'} on:click={() => activeTab = 'yours'}>
         <span class="material-symbols-rounded">flag</span>
-        Your Goals
+        {$_('goals_page.tabs.yours')}
       </button>
       <button class="goals-rail-nav" class:active={activeTab === 'all'} on:click={() => activeTab = 'all'}>
         <span class="material-symbols-rounded">list</span>
-        All Fields
+        {$_('goals_page.tabs.all')}
       </button>
       <button class="goals-rail-nav" class:active={activeTab === 'templates'} on:click={() => activeTab = 'templates'}>
         <span class="material-symbols-rounded">bookmark</span>
-        Templates
+        {$_('goals_page.tabs.templates')}
       </button>
 
       <div class="goals-rail-heading" style="margin-top:16px">{$_('settings_goals.calorie_goal_mode')}</div>
@@ -834,33 +835,33 @@
       <div class="card goals-macro-card">
         <div class="goals-macro-head">
           <div>
-            <div class="font-medium">Macros</div>
+            <div class="font-medium">{$_('goals_page.macros.title')}</div>
           </div>
         </div>
         <div class="goals-macro-grid">
-          <button class="goals-macro-cell" on:click={() => openEdit({ id: 'proteins',      label: 'Protein', unit: 'g' })}>
-            <span class="gm-lbl">Protein</span>
+          <button class="goals-macro-cell" on:click={() => openEdit({ id: 'proteins', label: $_('nutriments.proteins'), unit: 'g' })}>
+            <span class="gm-lbl">{$_('nutriments.proteins')}</span>
             <span class="gm-val">{_proteinGoalG ?? '—'}<span class="gm-u">g</span></span>
             <span class="gm-pct">{_macroPct.p}%</span>
           </button>
-          <button class="goals-macro-cell" on:click={() => openEdit({ id: 'carbohydrates', label: 'Carbohydrates', unit: 'g' })}>
-            <span class="gm-lbl">Carbs</span>
+          <button class="goals-macro-cell" on:click={() => openEdit({ id: 'carbohydrates', label: $_('nutriments.carbohydrates'), unit: 'g' })}>
+            <span class="gm-lbl">{$_('nutriments.carbohydrates')}</span>
             <span class="gm-val">{_carbsGoalG ?? '—'}<span class="gm-u">g</span></span>
             <span class="gm-pct">{_macroPct.c}%</span>
           </button>
-          <button class="goals-macro-cell" on:click={() => openEdit({ id: 'fat',           label: 'Fat', unit: 'g' })}>
-            <span class="gm-lbl">Fat</span>
+          <button class="goals-macro-cell" on:click={() => openEdit({ id: 'fat', label: $_('nutriments.fat'), unit: 'g' })}>
+            <span class="gm-lbl">{$_('nutriments.fat')}</span>
             <span class="gm-val">{_fatGoalG ?? '—'}<span class="gm-u">g</span></span>
             <span class="gm-pct">{_macroPct.f}%</span>
           </button>
         </div>
         <div class="goals-macro-presets">
-          <button class="chip" class:chip-active={_currentPreset === 'Balanced'} on:click={() => applyMacroPreset('balanced')}>Balanced 30/40/30</button>
-          <button class="chip" class:chip-active={_currentPreset === 'Keto'} on:click={() => applyMacroPreset('keto')}>Keto 25/5/70</button>
-          <button class="chip" class:chip-active={_currentPreset === 'High-Protein'} on:click={() => applyMacroPreset('high-protein')}>High-Protein 40/30/30</button>
+          <button class="chip" class:chip-active={_currentPreset === 'Balanced'} on:click={() => applyMacroPreset('balanced')}>{$_('goals_page.macros.balanced')}</button>
+          <button class="chip" class:chip-active={_currentPreset === 'Keto'} on:click={() => applyMacroPreset('keto')}>{$_('goals_page.macros.keto')}</button>
+          <button class="chip" class:chip-active={_currentPreset === 'High-Protein'} on:click={() => applyMacroPreset('high-protein')}>{$_('goals_page.macros.high_protein')}</button>
           {#if _currentPreset}
-            <span class="goals-macro-current" title="Ratio matches this preset (±2% tolerance)">
-              Currently: <strong>{_currentPreset}</strong>
+            <span class="goals-macro-current" title={$_('goals_page.macros.preset_match_hint')}>
+              {$_('goals_page.macros.currently')} <strong>{_currentPreset === 'Balanced' ? $_('goals_page.macros.name_balanced') : _currentPreset === 'Keto' ? $_('goals_page.macros.name_keto') : $_('goals_page.macros.name_high_protein')}</strong>
             </span>
           {/if}
         </div>
@@ -1217,9 +1218,9 @@
 
       <div class="goals-preview-macrobar" title="Macro split by kcal">
         {#if _macroKcalSum > 0}
-          <div class="gp-seg gp-p" style="width:{_macroPct.p}%" title="Protein {_macroPct.p}%"></div>
-          <div class="gp-seg gp-c" style="width:{_macroPct.c}%" title="Carbs {_macroPct.c}%"></div>
-          <div class="gp-seg gp-f" style="width:{_macroPct.f}%" title="Fat {_macroPct.f}%"></div>
+          <div class="gp-seg gp-p" style="width:{_macroPct.p}%" title={$_('common.macro_pct.protein', { values: { pct: _macroPct.p } })}></div>
+          <div class="gp-seg gp-c" style="width:{_macroPct.c}%" title={$_('common.macro_pct.carbs', { values: { pct: _macroPct.c } })}></div>
+          <div class="gp-seg gp-f" style="width:{_macroPct.f}%" title={$_('common.macro_pct.fat', { values: { pct: _macroPct.f } })}></div>
         {:else}
           <div class="gp-seg gp-empty" style="width:100%"></div>
         {/if}

@@ -2,7 +2,8 @@
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick } from 'svelte';
   import { slide } from 'svelte/transition';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../lib/i18n-label.js';
 
   import { portal } from '../lib/portal.js';
   import { pop, push } from 'svelte-spa-router';
@@ -1214,10 +1215,10 @@
           in:slide|local={{ duration: $disableAnimations ? 0 : 180 }}
           out:slide|local={{ duration: $disableAnimations ? 0 : 140 }}>
           <label class="form-label">
-            {_kjMode ? 'Energy' : n.label} ({_kjMode ? 'kJ' : n.unit})
+            {_kjMode ? $_('food_editor.energy') : tr('nutriments', n.id, n.label, $locale)} ({_kjMode ? 'kJ' : n.unit})
             {#if (n.id === 'sodium' || n.id === 'salt') && food._derived && food._derived[n.id]}
               <span class="material-symbols-rounded" style="font-size:14px;color:var(--text-3);vertical-align:middle;margin-left:2px"
-                title={n.id === 'sodium' ? 'Auto-calculated from salt (× 400 mg/g)' : 'Auto-calculated from sodium (÷ 400)'}>calculate</span>
+                title={n.id === 'sodium' ? $_('food_editor.derived.sodium_from_salt') : $_('food_editor.derived.salt_from_sodium')}>calculate</span>
             {/if}
           </label>
           {#if _kjMode}
