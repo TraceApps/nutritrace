@@ -15,6 +15,7 @@
    * open_in_full button opens the full sheet for the drill-in view of
    * every nutrient / contributors.
    */
+  import { _ } from 'svelte-i18n';
   import MacroRing from './MacroRing.svelte';
   import { macroLegendMode } from '../../stores/settings.js';
 
@@ -43,17 +44,17 @@
     <button
       class="dsw-legend-toggle"
       on:click={() => macroLegendMode.set($macroLegendMode === 'grams' ? 'percent' : 'grams')}
-      aria-label="Toggle macro display between percent and grams"
-      title="Toggle percent / grams">
+      aria-label={$_('diary_rail.toggle_macros_label')}
+      title={$_('diary_rail.toggle_macros')}>
       <span class="dsw-lt-opt" class:dsw-lt-active={$macroLegendMode === 'percent'}>%</span>
       <span class="dsw-lt-opt" class:dsw-lt-active={$macroLegendMode === 'grams'}>g</span>
     </button>
     {#if onOpenTrends}
-      <button class="dsw-open dsw-trend" on:click={onOpenTrends} title="View trend">
+      <button class="dsw-open dsw-trend" on:click={onOpenTrends} title={$_('diary_rail.view_trend')}>
         <span class="material-symbols-rounded">trending_up</span>
       </button>
     {/if}
-    <button class="dsw-open" on:click={onOpenSummary} title="Open full nutrition summary">
+    <button class="dsw-open" on:click={onOpenSummary} title={$_('diary_rail.open_summary')}>
       <span class="material-symbols-rounded">open_in_full</span>
     </button>
   </header>
@@ -76,19 +77,19 @@
       <span class="dsw-macro-val">
         {Math.round(protein)}{#if $macroLegendMode === 'grams' && proteinGoal != null}/{Math.round(proteinGoal)}{/if}g
       </span>
-      <span class="dsw-macro-lbl">Protein</span>
+      <span class="dsw-macro-lbl">{$_('diary_deep.protein')}</span>
     </div>
     <div class="dsw-macro-pill" style="--pill-bg:var(--macro-carbs-dim);--pill-fg:var(--macro-carbs)">
       <span class="dsw-macro-val">
         {Math.round(carbs)}{#if $macroLegendMode === 'grams' && carbGoal != null}/{Math.round(carbGoal)}{/if}g
       </span>
-      <span class="dsw-macro-lbl">Carbs</span>
+      <span class="dsw-macro-lbl">{$_('diary_deep.carbs')}</span>
     </div>
     <div class="dsw-macro-pill" style="--pill-bg:var(--macro-fat-dim);--pill-fg:var(--macro-fat)">
       <span class="dsw-macro-val">
         {Math.round(fat)}{#if $macroLegendMode === 'grams' && fatGoal != null}/{Math.round(fatGoal)}{/if}g
       </span>
-      <span class="dsw-macro-lbl">Fat</span>
+      <span class="dsw-macro-lbl">{$_('diary_deep.fat')}</span>
     </div>
   </div>
 </section>

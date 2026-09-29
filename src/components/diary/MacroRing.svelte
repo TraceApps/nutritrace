@@ -154,7 +154,7 @@
     <span class="ring-cals">{_displayCals.value.toLocaleString()}</span>
     <span class="ring-unit">{_displayCals.unit}</span>
     {#if caloriesGoal}
-      <span class="ring-goal">of {_displayGoal.value.toLocaleString()}</span>
+      <span class="ring-goal">{$_('diary_rail.of_goal', { values: { value: _displayGoal.value.toLocaleString() } })}</span>
     {/if}
   </div>
 

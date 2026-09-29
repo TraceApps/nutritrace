@@ -86,8 +86,8 @@ test('WeekStrip pulls last 7 days from getAllDiary and shows kcal per day', () =
   assert.match(weekStripSrc, /NtApi\.getAllDiary\(\)/);
   // 7-column layout
   assert.match(weekStripSrc, /grid-template-columns:\s*repeat\(7,\s*1fr\)/);
-  // Full weekday names (not single-letter abbreviations)
-  assert.match(weekStripSrc, /'Sunday',\s*'Monday'/);
+  // Full weekday names (not single-letter abbreviations), in the app language
+  assert.match(weekStripSrc, /weekday:\s*'long'/);
 });
 
 test('WeekStrip respects disableAnimations in the popover fade', () => {

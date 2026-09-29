@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **More of the app can be translated.** The desktop Diary side panel, the Diary nutrition bar, Goals, Statistics, the food editor, and the names of nutrients, body measurements and wellness goals now come from the language files. Weekday names, dates and Today / Yesterday in the Diary follow the app language instead of the browser's.
+
+### Fixed
+
+- **The app no longer reports a database error on start while a language file is still loading.** In a language other than English, the first screen could mount before its strings had arrived.
+
 ---
 
 ## [1.4.0-dev03] - 2026-09-27 (pre-release)
