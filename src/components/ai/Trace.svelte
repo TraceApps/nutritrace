@@ -1874,21 +1874,40 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   }
 
   function _attachImage() {
-    if (isNative) {
-      import('@capacitor/camera').then(({ Camera, CameraResultType, CameraSource }) => {
-        Camera.getPhoto({ quality: 80, resultType: CameraResultType.Base64, source: CameraSource.Prompt, width: 1024 })
-          .then(photo => { attachedImage = { base64: photo.base64String, mimeType: `image/${photo.format || 'jpeg'}`, preview: `data:image/${photo.format || 'jpeg'};base64,${photo.base64String}` }; })
-          .catch(() => {});
-      });
-    } else if (_hasCamera) {
+    if (isNative || _hasCamera) {
       _showAttachMenu = !_showAttachMenu;
     } else {
       fileInput?.click();
     }
   }
 
-  function _attachFromCamera() { _showAttachMenu = false; _cameraInput?.click(); }
-  function _attachFromFile()   { _showAttachMenu = false; fileInput?.click(); }
+  async function _attachNativeImage(fromCamera) {
+    try {
+      const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera');
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        resultType: CameraResultType.Base64,
+        source: fromCamera ? CameraSource.Camera : CameraSource.Photos,
+        width: 1024,
+      });
+      const mimeType = `image/${photo.format || 'jpeg'}`;
+      attachedImage = { base64: photo.base64String, mimeType, preview: `data:${mimeType};base64,${photo.base64String}` };
+    } catch {
+      // Closing the native picker leaves the current attachment unchanged.
+    }
+  }
+
+  function _attachFromCamera() {
+    _showAttachMenu = false;
+    if (isNative) _attachNativeImage(true);
+    else _cameraInput?.click();
+  }
+
+  function _attachFromFile() {
+    _showAttachMenu = false;
+    if (isNative) _attachNativeImage(false);
+    else fileInput?.click();
+  }
 
   function _onFileSelected(e) {
     const file = e.target.files?.[0];
@@ -2932,6 +2951,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     align-items: center;
     gap: 8px;
     width: 100%;
+    min-height: 48px;
     padding: 10px 14px;
     background: none;
     border: none;
