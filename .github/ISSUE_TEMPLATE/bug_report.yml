@@ -10,6 +10,13 @@ body:
       Thanks for taking the time to report this. Only a few fields are required, but the more you fill in, the faster it gets fixed.
 
       **The most useful thing you can add is a log.** In NutriTrace, open **Settings > Diagnostics**, turn on **Diagnostic Mode**, make the problem happen, then open **View Diagnostic Logs** and paste it below. Self-hosting questions may already be answered in the [troubleshooting guide](https://traceapps.github.io/docs/reference/troubleshooting/).
+- type: checkboxes
+  id: searched
+  attributes:
+    label: Before You Post
+    options:
+    - label: I searched the open and closed [issues](https://github.com/TraceApps/nutritrace/issues?q=is%3Aissue) and [pull requests](https://github.com/TraceApps/nutritrace/pulls?q=is%3Apr), and nobody has reported this yet. A closed one may already have the fix, waiting for the next release.
+      required: true
 - type: dropdown
   id: platform
   attributes:

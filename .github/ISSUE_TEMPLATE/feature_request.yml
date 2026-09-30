@@ -7,7 +7,14 @@ body:
 - type: markdown
   attributes:
     value: |
-      Thanks for the idea. Describing the problem you want solved helps more than describing a specific button or screen, since there's often a way to solve it that fits the rest of the app better. It's also worth a quick look at the [roadmap](https://github.com/TraceApps/nutritrace/blob/main/ROADMAP.md) and [existing issues](https://github.com/TraceApps/nutritrace/issues?q=is%3Aissue) first.
+      Thanks for the idea. Describing the problem you want solved helps more than describing a specific button or screen, since there's often a way to solve it that fits the rest of the app better.
+- type: checkboxes
+  id: searched
+  attributes:
+    label: Before You Post
+    options:
+    - label: I searched the open and closed [issues](https://github.com/TraceApps/nutritrace/issues?q=is%3Aissue) and the [roadmap](https://github.com/TraceApps/nutritrace/blob/main/ROADMAP.md), and nobody has asked for this yet.
+      required: true
 - type: textarea
   id: problem
   attributes:
