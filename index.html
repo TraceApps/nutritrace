@@ -2,6 +2,22 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!--
+    Workbox also precaches the build-time index so an installed app can open
+    offline. That document has no Express-injected config. A controlled page
+    can recover the same mount path from its active worker's URL before the
+    app's module graph reads __NT_CONFIG__; a server-injected value remains
+    authoritative on network responses.
+  -->
+  <script data-base-path-fallback>
+    (function() {
+      if (window.__NT_CONFIG__ || !navigator.serviceWorker) return;
+      var controller = navigator.serviceWorker.controller;
+      if (!controller || !controller.scriptURL) return;
+      var basePath = new URL('.', controller.scriptURL).pathname.replace(/\/$/, '');
+      window.__NT_CONFIG__ = { basePath: basePath === '/' ? '' : basePath };
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
