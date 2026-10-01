@@ -1,5 +1,5 @@
 import { writable, get, derived } from 'svelte/store';
-import { DB } from '../lib/db.js';
+import { DB, localDateStr } from '../lib/db.js';
 
 // Verbose settings sync logs gated on dev OR opt-in verbose mode
 // (Settings → Diagnostics → Verbose diagnostic logging).
@@ -95,6 +95,33 @@ export const DEVICE_PREFS = new Set([
 // Backwards-compat alias — keeps existing .has(key) checks working without
 // touching every call site. Equivalent to USER_PREFS.
 const SERVER_SETTINGS = USER_PREFS;
+const GOAL_HISTORY_KEYS = new Set([
+  'goals','waterGoalMl','calorieGoalMode','calorieGoalFactor',
+  'calorieAdjustFromActivity','diaryShowActivity','manualActivityPolicy','lifttraceOverlapFill',
+]);
+
+function _currentGoalSnapshot() {
+  const goalsValue = DB.getSetting('goals', {});
+  const water = DB.getSetting('waterGoalMl', 2000);
+  const factor = Number(DB.getSetting('calorieGoalFactor', 1));
+  return {
+    goals: goalsValue && typeof goalsValue === 'object' ? goalsValue : {},
+    water_goal_ml: typeof water === 'number' && Number.isFinite(water) ? water : 2000,
+    calorie_goal_mode: DB.getSetting('calorieGoalMode', 'fixed') || 'fixed',
+    calorie_goal_factor: Number.isFinite(factor) && factor > 0 ? factor : 1,
+    calorie_adjust_from_activity: DB.getSetting('calorieAdjustFromActivity', false) === true,
+    diary_show_activity: DB.getSetting('diaryShowActivity', false) === true,
+    manual_activity_policy: DB.getSetting('manualActivityPolicy', 'wearable_wins') || 'wearable_wins',
+    lifttrace_overlap_fill: DB.getSetting('lifttraceOverlapFill', true) !== false,
+  };
+}
+
+async function _nativeSettingWrite(key, value) {
+  const { dbUpsertSetting, dbCaptureGoalHistory } = await import('../lib/db-native.js');
+  const updatedAt = await dbUpsertSetting(key, value);
+  if (GOAL_HISTORY_KEYS.has(key)) await dbCaptureGoalHistory(localDateStr());
+  return updatedAt;
+}
 
 import { isNative, getServerUrl, getAuthToken, apiUrl } from '../lib/platform.js';
 
@@ -179,7 +206,7 @@ export function scheduleSave(key, value) {
         method: 'PUT',
         credentials: 'include',
         headers: _authHeaders(),
-        body: JSON.stringify({ key, value }),
+        body: JSON.stringify({ key, value, effective_date: localDateStr() }),
         signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
@@ -201,8 +228,11 @@ export function scheduleSave(key, value) {
       // lost at the next pull; hand it to the offline queue instead (#211).
       if (!isNative) {
         try {
-          const { queueSetting } = await import('../lib/offline-api.js');
+          const { queueSetting, queueGoalHistory } = await import('../lib/offline-api.js');
           await queueSetting(key, value);
+          if (GOAL_HISTORY_KEYS.has(key)) {
+            await queueGoalHistory(localDateStr(), _currentGoalSnapshot());
+          }
         } catch { /* nothing more to try */ }
       }
     }
@@ -250,10 +280,13 @@ export async function bulkSet(settingsObj) {
   const snapshotByKey = new Map();
   if (isNative && userPrefEntries.length > 0) {
     try {
-      const { dbUpsertSetting } = await import('../lib/db-native.js');
+      const { dbUpsertSetting, dbCaptureGoalHistory } = await import('../lib/db-native.js');
       for (const [key, value] of userPrefEntries) {
         const updatedAt = await dbUpsertSetting(key, value);
         snapshotByKey.set(key, updatedAt);
+      }
+      if (userPrefEntries.some(([key]) => GOAL_HISTORY_KEYS.has(key))) {
+        await dbCaptureGoalHistory(localDateStr());
       }
     } catch (e) {
       console.warn('[settings] bulk native upsert failed:', e.message);
@@ -274,7 +307,7 @@ export async function bulkSet(settingsObj) {
       method: 'PUT',
       credentials: 'include',
       headers: _authHeaders(),
-      body: JSON.stringify({ settings: bulkObj }),
+      body: JSON.stringify({ settings: bulkObj, effective_date: localDateStr() }),
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw new Error(`Server responded ${res.status}`);
@@ -291,7 +324,16 @@ export async function bulkSet(settingsObj) {
     }
   } catch (e) {
     console.warn('[settings] bulk push failed:', e.message);
-    // Leave as 'pending' in local SQLite — differential sync will push them later
+    if (!isNative) {
+      try {
+        const { queueSetting, queueGoalHistory } = await import('../lib/offline-api.js');
+        for (const [key, value] of userPrefEntries) await queueSetting(key, value);
+        if (userPrefEntries.some(([key]) => GOAL_HISTORY_KEYS.has(key))) {
+          await queueGoalHistory(localDateStr(), _currentGoalSnapshot());
+        }
+      } catch {}
+    }
+    // Native rows remain pending in local SQLite; differential sync pushes them later.
   }
 }
 
@@ -398,7 +440,7 @@ if (typeof window !== 'undefined') {
     _recentlyChanged.set(key, Date.now());
     // Native: write to local SQLite immediately (marks as pending for sync protection)
     if (isNative) {
-      import('../lib/db-native.js').then(({ dbUpsertSetting }) => dbUpsertSetting(key, value)).catch(() => {});
+      _nativeSettingWrite(key, value).catch(() => {});
     }
     scheduleSave(key, value);
   });
@@ -438,7 +480,7 @@ function createSettingStore(key, defaultValue) {
       _recentlyChanged.set(key, Date.now());
       // On native: write to local SQLite immediately (marks as pending for sync protection)
       if (isNative && SERVER_SETTINGS.has(key)) {
-        import('../lib/db-native.js').then(({ dbUpsertSetting }) => dbUpsertSetting(key, value)).catch(() => {});
+        _nativeSettingWrite(key, value).catch(() => {});
       }
       scheduleSave(key, value);
     },

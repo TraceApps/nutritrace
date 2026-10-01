@@ -17,6 +17,7 @@ import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
+import { GOAL_HISTORY_SETTING_KEYS, captureGoalSnapshot, isGoalHistoryDate } from '../lib/goal-history.js';
 
 // #199 (@tellis82): the POST /api/foods and POST /api/meals routes
 // localize incoming data URLs to /uploads/ (via image-localizer). This
@@ -136,6 +137,14 @@ router.get('/pull', wrap((req, res) => {
     ? db.prepare('SELECT * FROM user_settings WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at').all(sinceSql, u)
         .filter(s => !isServerOnlyKey(s.key)) // SECURITY: never push admin keys to clients
     : [];
+  const goal_history = u != null
+    ? db.prepare('SELECT * FROM goal_history WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at').all(sinceSql, u)
+        .map(r => {
+          let snapshot = {};
+          try { snapshot = JSON.parse(r.snapshot || '{}'); } catch {}
+          return { ...r, snapshot };
+        })
+    : [];
 
   // Wellness data — pull only (server-generated from Fitbit/Withings/Garmin syncs)
   const wellnessParams = u != null ? [sinceSql, u] : [sinceSql];
@@ -169,7 +178,7 @@ router.get('/pull', wrap((req, res) => {
 
   logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length} diary_tombstones=${diary_tombstones.length}`);
 
-  res.json({ foods, meals, diary, diary_tombstones, activity, fasts, settings, wellness, workouts, chat_history, server_time: serverTime });
+  res.json({ foods, meals, diary, diary_tombstones, activity, fasts, settings, goal_history, wellness, workouts, chat_history, server_time: serverTime });
 }));
 
 // ── POST /push ───────────────────────────────────────────────────────────────
@@ -178,8 +187,8 @@ router.get('/pull', wrap((req, res) => {
 // Returns a mapping of client_id → server_id for newly created records.
 router.post('/push', wrap(async (req, res) => {
   const u = uid(req);
-  const { foods = [], meals = [], diary = [], activity = [], fasts = [], wellness = [], settings = [], workouts = [] } = req.body;
-  const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [], workouts: [] };
+  const { foods = [], meals = [], diary = [], activity = [], fasts = [], wellness = [], settings = [], goal_history = [], workouts = [] } = req.body;
+  const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [], goal_history: [], workouts: [] };
 
   // #199 (@tellis82): localize any inbound img_url data URLs to
   // /uploads/ files before the sync transaction. Direct POST /api/foods
@@ -555,9 +564,11 @@ router.post('/push', wrap(async (req, res) => {
       result.workouts.push({ client_id: w.client_id, server_id: existing?.id ?? r.lastInsertRowid });
     }
 
-    // ── Settings (keyed by key, not ID) ──────────────────────────────────
+    // ── Settings + effective-dated goal history ─────────────────────────
     // SECURITY: server-only keys are rejected — clients can't overwrite admin config.
     if (u != null) {
+      let fallbackGoalDate = null;
+      let fallbackGoalChangedAt = null;
       for (const s of settings) {
         if (isServerOnlyKey(s.key)) continue; // silently skip; don't tell client what's protected
         if (s.deleted_at) {
@@ -569,14 +580,51 @@ router.post('/push', wrap(async (req, res) => {
              ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now'), deleted_at = NULL`
           ).run(u, s.key, JSON.stringify(s.value));
         }
+        if (GOAL_HISTORY_SETTING_KEYS.has(s.key) && s.updated_at) {
+          const d = String(s.updated_at).slice(0, 10);
+          const changed = String(s.updated_at);
+          if (isGoalHistoryDate(d) && (!fallbackGoalChangedAt || changed >= fallbackGoalChangedAt)) {
+            fallbackGoalDate = d;
+            fallbackGoalChangedAt = changed;
+          }
+        }
         result.settings.push({ key: s.key });
+      }
+
+      for (const h of goal_history) {
+        if (!isGoalHistoryDate(h.effective_date)) continue;
+        const changedAt = Number.isFinite(Date.parse(h.changed_at)) ? new Date(h.changed_at).toISOString() : new Date().toISOString();
+        db.prepare(
+          `INSERT INTO goal_history (user_id, effective_date, snapshot, changed_at, updated_at, source)
+           VALUES (?, ?, ?, ?, datetime('now'), 'native_sync')
+           ON CONFLICT(user_id, effective_date) DO UPDATE SET
+             snapshot=excluded.snapshot,
+             changed_at=excluded.changed_at,
+             updated_at=datetime('now'),
+             source='native_sync'
+           WHERE excluded.changed_at >= goal_history.changed_at`
+        ).run(u, h.effective_date, JSON.stringify(h.snapshot || {}), changedAt);
+        result.goal_history.push({ effective_date: h.effective_date });
+      }
+
+      // Current user_settings are server-authoritative after this request.
+      // Re-capture the latest changed local date with server receipt order so
+      // same-day conflicts cannot leave history disagreeing with current state
+      // merely because two devices' clocks differ. Older dated history rows
+      // still use their original client changed_at and are not touched here.
+      if (fallbackGoalDate) {
+        captureGoalSnapshot(u, {
+          effectiveDate: fallbackGoalDate,
+          changedAt: new Date().toISOString(),
+          source: goal_history.length ? 'native_sync_current' : 'native_settings_fallback',
+        });
       }
     }
   });
 
   run();
 
-  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} wellness=${wellness.length} settings=${settings.length} workouts=${workouts.length}`);
+  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} wellness=${wellness.length} settings=${settings.length} goal_history=${goal_history.length} workouts=${workouts.length}`);
   res.json({ ok: true, ...result });
 }));
 

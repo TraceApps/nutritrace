@@ -339,6 +339,25 @@ export async function queueSetting(key, value) {
   return true;
 }
 
+/**
+ * Preserve one complete nutrition-goal snapshot per user-local calendar date.
+ * Unlike setting ops this must not collapse across dates: a Monday reconnect
+ * still needs Friday/Saturday/Sunday's effective targets.
+ */
+export async function queueGoalHistory(effectiveDate, snapshot) {
+  _changedSomething = true;
+  const ops = await _loadOps();
+  const op = { type: 'goal_history', effective_date: effectiveDate, snapshot, at: Date.now() };
+  const seq = await _addOp(op);
+  if (seq == null) return false;
+  op.seq = seq;
+  ops.push(op);
+  _publish();
+  _channel?.postMessage({ type: 'outbox' });
+  _scheduleFlush(_online() ? 0 : _retryMs);
+  return true;
+}
+
 // ── Sending ──────────────────────────────────────────────────────────
 let _http = null;
 let _retry = null;
@@ -445,7 +464,7 @@ async function _flushOnce() {
   // Foods go first and on their own: a food made offline has a temporary id,
   // and the diary entries logged from it have to point at the real one before
   // they go up.
-  const foodOps = ops.filter(op => op.type === 'catalog' || op.type === 'setting');
+  const foodOps = ops.filter(op => op.type === 'catalog' || op.type === 'setting' || op.type === 'goal_history');
   if (foodOps.length) {
     let foodResponse;
     try {

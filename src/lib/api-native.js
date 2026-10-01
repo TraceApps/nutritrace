@@ -294,6 +294,7 @@ export const NtApiNative = {
       await db.run('DELETE FROM diary WHERE user_id = 1');
       await db.run('DELETE FROM wellness_data WHERE user_id = 1');
       await db.run('DELETE FROM workouts WHERE user_id = 1');
+      await db.run('DELETE FROM goal_history WHERE user_id = 1');
       await db.run('DELETE FROM user_settings WHERE user_id = 1');
       await db.run('DELETE FROM fasts WHERE user_id = 1');
       await db.run('DELETE FROM sync_meta');

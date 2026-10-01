@@ -56,6 +56,7 @@ import { seedAiFromEnv } from './ai.js';
 import { initUpdateCheckSetting } from './lib/update-check.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { APP_VERSION } from './routes/version-source.js';
+import { getGoalsCore } from './lib/mcp/tools/goals.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -329,6 +330,23 @@ function _readBoolSetting(userId, key, defaultValue) {
   } catch { return defaultValue; }
 }
 router.use('/api/sync',             syncRoutes);
+
+// Effective-dated nutrition goals for the built-in Trace assistant.
+// This is the authenticated app-facing sibling of MCP/public get_goals:
+// no args = current goals, date = one calendar day, start+end = inclusive range.
+router.get('/api/goals/effective', (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Historical goals require a signed-in user.' });
+  try {
+    res.json(getGoalsCore(userId, {
+      date: req.query.date,
+      start: req.query.start,
+      end: req.query.end,
+    }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 
 // Adaptive TDEE — compute on demand from 35-day intake + weight trend.
 router.get('/api/goals/adaptive-tdee', async (req, res) => {
