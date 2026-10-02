@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **API tokens for every user.** Any signed-in user can create and revoke their own API tokens in Settings → API Tokens, so connecting a personal MCP client no longer needs an admin account. Webhooks stay admin-only.
+
 ---
 
 ## [1.4.0-dev04] - 2026-09-29 (pre-release)

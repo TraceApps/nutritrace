@@ -32,7 +32,7 @@ ignore unknown fields.
 ## Authentication
 
 Bearer token. Tokens are generated per-user in the NutriTrace UI
-(Settings → Admin → API Tokens), shown to the user once at creation,
+(Settings → API Tokens), shown to the user once at creation,
 and stored as a SHA-256 hash on the server.
 
 ```

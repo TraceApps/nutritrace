@@ -1,31 +1,31 @@
 /**
- * /api/admin/api-tokens — CRUD for federation API tokens.
+ * /api/tokens — CRUD for federation API tokens.
  *
  * Mounted INSIDE the regular /api authentication (cookie/Bearer for
  * the user session), not the federation Bearer auth. This is for the
  * Settings UI to manage tokens, not for federation clients to use
  * tokens.
  *
- * Restricted to admins; non-admins get 403. requireAuth/requireAdmin
- * both pass single-user-mode requests through unconditionally (there's
- * no meaningful non-admin in that mode) — but single-user mode has
- * zero rows in `users`, so req.user is null there, not a synthetic
- * "LOCAL_USER". A token needs a real owner (api_tokens.user_id is NOT
- * NULL), so the guard below refuses cleanly instead of crashing on
- * req.user.id when this is hit without a real signed-in admin.
+ * Mounted at /api/tokens (legacy alias /api/admin/api-tokens). Any
+ * signed-in user manages only their own tokens. requireAuth passes
+ * single-user-mode requests through unconditionally — but single-user
+ * mode has zero rows in `users`, so req.user is null there, not a
+ * synthetic "LOCAL_USER". A token needs a real owner (api_tokens.user_id
+ * is NOT NULL), so the guard below refuses cleanly instead of crashing
+ * on req.user.id when this is hit without a real signed-in account.
  */
 import { Router } from 'express';
 import { wrap } from '../logger.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 import { createToken, listTokens, revokeToken, KNOWN_SCOPES, SCOPE_DESCRIPTIONS } from '../lib/api-tokens.js';
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth);
 
 router.use((req, res, next) => {
   if (!req.user) {
     return res.status(400).json({
-      error: 'API tokens require a signed-in account. Enable user management and sign in as an admin first.',
+      error: 'API tokens require a signed-in account. Enable user management and sign in first.',
     });
   }
   next();
@@ -43,7 +43,7 @@ router.get('/', wrap((req, res) => {
     tokens,
     known_scopes: Array.from(KNOWN_SCOPES),
     scope_descriptions: SCOPE_DESCRIPTIONS,
-    // Surface MCP flag state so the UI can show admins whether a token
+    // Surface MCP flag state so the UI can show the user whether a token
     // holding mcp:write / mcp:destroy will actually work on this server.
     // Flags are captured at boot (env vars); change needs a restart.
     mcp_state: {

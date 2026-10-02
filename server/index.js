@@ -213,7 +213,9 @@ router.use('/api/auth',   authRoutes);
 // the right ordering (no admin UI before the first user).
 router.use('/api/admin/oidc', oidcAdminRoutes);
 // Federation API token management (the Settings UI, not the federation
-// clients themselves). Admin-only.
+// clients themselves). Any signed-in user manages their own tokens.
+// /api/admin/api-tokens is a legacy alias for older native Android builds.
+router.use('/api/tokens', apiTokensRoutes);
 router.use('/api/admin/api-tokens', apiTokensRoutes);
 // Outgoing webhook management (the Settings UI, not the delivery path
 // itself, that's dispatchWebhookEvent in server/lib/webhooks.js).
