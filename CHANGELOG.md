@@ -7,6 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Signing in through SSO with an email that already has an account no longer creates a second account.** When the identity provider doesn't mark the email verified (Authentik's default since 2025.10), the sign-in is refused with a pointer to link the provider from your profile, instead of landing you in a new, empty account.
+- **SSO works with Authelia 4.39 and later out of the box.** Email, username and groups are read from the provider's userinfo when the ID token leaves them out.
+- **The SSO callback also works without the provider number, and at `/api/oidc/callback`**, the address older docs gave. Both used to end on a blank page.
+- **`OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings.** It was ignored unless a provider was also defined through env vars.
+
+### Security
+
+- **The Android app's SSO sign-in no longer passes the session token through the `nutritrace://` link**, which another app could intercept. The link carries a single-use code that only the app that started the sign-in can redeem.
+
 ---
 
 ## [1.4.0-dev04] - 2026-09-29 (pre-release)

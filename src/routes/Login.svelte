@@ -90,8 +90,9 @@
       // the server to redirect via the nutritrace://oidc-callback deep
       // link instead of setting an HttpOnly cookie + SPA hash redirect.
       const { Browser } = await import('@capacitor/browser');
+      const { appChallengeParam } = await import('../lib/oidc-app-handoff.js');
       await Browser.open({
-        url: apiUrl(`/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}`),
+        url: apiUrl(`/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}${await appChallengeParam()}`),
         presentationStyle: 'popover',
       });
       return;

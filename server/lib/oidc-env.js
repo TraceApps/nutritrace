@@ -126,8 +126,27 @@ function _findDefinedPrefixes() {
 
 // ── Boot-time seeder ───────────────────────────────────────────────────────
 
+// Seed the SSO-only flag from env: OIDC_ENABLE_EMAIL_PASSWORD_LOGIN.
+// Accepts truthy forms (1|true|yes|on) to enable password login (default),
+// falsy forms (0|false|no|off) to disable it. When unset, the module-level
+// env-lock flag stays false so admin UI keeps control. Runs whether or not
+// any provider is defined through env: it used to sit after the "no env
+// providers" early return, so it was silently ignored for providers added
+// in Settings.
+function _seedPasswordLoginFromEnv() {
+  _passwordLoginEnvLocked = false;
+  const rawFlag = process.env.OIDC_ENABLE_EMAIL_PASSWORD_LOGIN;
+  if (rawFlag != null && rawFlag !== '') {
+    const enabled = /^(1|true|yes|on)$/i.test(String(rawFlag).trim());
+    setPasswordLoginEnabled(enabled);
+    _passwordLoginEnvLocked = true;
+    logger.info(`[oidc-env] Password login ${enabled ? 'enabled' : 'disabled'} via OIDC_ENABLE_EMAIL_PASSWORD_LOGIN`);
+  }
+}
+
 export function seedOidcFromEnv() {
   _envLockedIds.clear();
+  _seedPasswordLoginFromEnv();
 
   const prefixes = _findDefinedPrefixes();
   if (!prefixes.length) return;
@@ -210,24 +229,5 @@ export function seedOidcFromEnv() {
 
   if (count) {
     logger.info(`[oidc-env] Loaded ${count} OIDC provider${count === 1 ? '' : 's'} from environment (IDs: ${getEnvLockedProviderIds().join(', ')})`);
-  }
-
-  // Seed the SSO-only flag from env: OIDC_ENABLE_EMAIL_PASSWORD_LOGIN.
-  // Accepts truthy forms (1|true|yes|on) to enable password login (default),
-  // falsy forms (0|false|no|off) to disable it. When unset, the module-level
-  // env-lock flag stays false so admin UI keeps control.
-  //
-  // Matches the shape of other NT env-lock patterns: writing to app_config
-  // means the value survives restarts; the in-memory lock flag prevents
-  // the admin API from mutating it while the env var remains set. Reboot
-  // with the env unset → lock flag clears → admin UI regains control at
-  // whatever value was last written.
-  _passwordLoginEnvLocked = false;
-  const rawFlag = process.env.OIDC_ENABLE_EMAIL_PASSWORD_LOGIN;
-  if (rawFlag != null && rawFlag !== '') {
-    const enabled = /^(1|true|yes|on)$/i.test(String(rawFlag).trim());
-    setPasswordLoginEnabled(enabled);
-    _passwordLoginEnvLocked = true;
-    logger.info(`[oidc-env] Password login ${enabled ? 'enabled' : 'disabled'} via OIDC_ENABLE_EMAIL_PASSWORD_LOGIN`);
   }
 }

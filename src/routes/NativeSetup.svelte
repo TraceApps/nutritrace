@@ -118,8 +118,9 @@
     try {
       const ret = encodeURIComponent('#/');
       const { Browser } = await import('@capacitor/browser');
+      const { appChallengeParam } = await import('../lib/oidc-app-handoff.js');
       await Browser.open({
-        url: `${validatedUrl}/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}`,
+        url: `${validatedUrl}/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}${await appChallengeParam()}`,
         presentationStyle: 'popover',
       });
       // Deep-link callback (nutritrace://oidc-callback?token=…) handled by

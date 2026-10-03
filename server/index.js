@@ -185,6 +185,15 @@ router.use(captureRequestTraceBody);
 // Prevent browser/proxy caching of all API responses
 router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
+// Older docs gave the OIDC callback as /api/oidc/callback. An IdP set up from
+// them sends people here; forward to the real callback (which finds the
+// provider from the sign-in state) instead of letting the SPA fallback show
+// a blank page. Before the setup gate so OIDC-first installs work too.
+router.get('/api/oidc/callback', (req, res) => {
+  const q = req.originalUrl.indexOf('?');
+  res.redirect(307, `${BASE_URL}/api/auth/oidc/callback${q >= 0 ? req.originalUrl.slice(q) : ''}`);
+});
+
 // Setup enforcement — block data APIs until the first user account is created.
 // Only /api/auth/* is allowed so the client can check status + register the admin.
 // In intentional single-user mode (admin explicitly disabled user management
