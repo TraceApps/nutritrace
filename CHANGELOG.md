@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **SSO works with Authelia 4.39 and later out of the box.** Email, username and groups are read from the provider's userinfo when the ID token leaves them out.
 - **The SSO callback also works without the provider number, and at `/api/oidc/callback`**, the address older docs gave. Both used to end on a blank page.
 - **`OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings.** It was ignored unless a provider was also defined through env vars.
+- **Signing in on a plain-HTTP address says what's wrong instead of looping.** The sign-in cookie only works over HTTPS unless `INSECURE_COOKIES=1` is set, so signing in from an `http://` address dropped you back on the login page with no error. The sign-in and setup screens now explain it and link to the fix, the app no longer flashes before sending you back, and the server log says so too.
 
 ### Security
 

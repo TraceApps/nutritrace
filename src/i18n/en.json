@@ -421,6 +421,13 @@
     "errors": {
       "failed": "Login failed"
     },
+    "cookie_warning": {
+      "http_title": "Signing in won't work on this address",
+      "http_body": "This page uses plain HTTP, but the server only sends its sign-in cookie over HTTPS, so your browser throws it away and signing in sends you back to the sign-in page. Open NutriTrace over HTTPS, or, on a trusted home network, set INSECURE_COOKIES=1 on the server and restart it.",
+      "dropped_title": "Your browser didn't keep you signed in",
+      "dropped_body": "Your password was right, but the browser didn't keep the sign-in cookie. Check that cookies are allowed for this site, and if NutriTrace is behind a reverse proxy, that the proxy passes cookies through.",
+      "fix_link": "How to fix it"
+    },
     "recovery": {
       "confirm": "This will delete all user accounts. Your food & diary data will be kept. Continue?",
       "explainer": "If you never set up user accounts intentionally, you can disable user management. <strong>This will delete all user accounts.</strong> Your food &amp; diary data will be kept.",

@@ -1,12 +1,15 @@
 <script>
   import { onMount } from 'svelte';
-  import { currentUser, userMgmtActive, loadAuthState } from '../stores/auth.js';
+  import { get } from 'svelte/store';
+  import { currentUser, userMgmtActive, loadAuthState, signInProblem } from '../stores/auth.js';
   import { loadServerSettings } from '../stores/settings.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { push } from 'svelte-spa-router';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { apiUrl, isNative, getServerUrl, setAuthToken, resolveAssetUrl, iconUrl } from '../lib/platform.js';
+  import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
+  import CookieWarning from '../components/ui/CookieWarning.svelte';
 
   let username = '';
   let password = '';
@@ -24,6 +27,10 @@
   // since there's no server to talk to.
   let oidcProviders = [];
   let passwordLoginEnabled = true;
+  // Why signing in won't stick, if it won't: 'http' when this page is plain
+  // HTTP and the server's cookie is HTTPS-only, 'dropped' when a sign-in
+  // succeeded but the browser still didn't keep the cookie. See cookie-check.js.
+  let authStatus = null;
   // Biometric sign-in (Android server-mode only). Ready when hardware supports
   // it AND the user has previously logged in with biometric enabled (so a
   // saved JWT exists in Preferences ready to be unlocked).
@@ -34,6 +41,8 @@
       const r = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' });
       if (r.ok) {
         const data = await r.json();
+        authStatus = data;
+        if (cookieBlockedByHttp(data, { native: isNative })) signInProblem.set('http');
         if (data?.oidc) {
           oidcProviders = Array.isArray(data.oidc.providers) ? data.oidc.providers : [];
           passwordLoginEnabled = data.oidc.enable_email_password_login !== false;
@@ -128,12 +137,25 @@
       localStorage.setItem('wl:userId', String(data.user.id));
       localStorage.setItem('nt:cachedUser', JSON.stringify(data.user));
       localStorage.setItem('nt:cachedUserMgmt', '1');
-      currentUser.set(data.user);
+      // Web: don't set the user here. loadAuthState() below reads it back
+      // from the server, so the app only appears once the session cookie has
+      // actually stuck; setting it early flashed the app for a moment before
+      // a dropped cookie sent the user back. Native signs in with a token.
+      if (isNative) currentUser.set(data.user);
       // Refresh CSRF token from /api/auth/me before any state-changing request
       // can fire (otherwise reactive settings saves would use a stale csrf from
       // a previous session and 403). loadAuthState() handles the fetch and
       // populates localStorage.nt:csrf as a side effect.
       await loadAuthState();
+      // The password was right but the session didn't stick: the browser
+      // dropped the cookie. Say why here instead of looping back to sign-in.
+      // get(), not $currentUser: setting the user above can tear this page
+      // down, and a torn-down page's $store stops updating.
+      if (!isNative && !get(currentUser)) {
+        signInProblem.set(droppedCookieReason(authStatus, { native: isNative }));
+        return;
+      }
+      signInProblem.set(null);
       await loadServerSettings();
       push('/');
     } catch(e) {
@@ -175,6 +197,10 @@
       <h1 class="login-title">NutriTrace</h1>
       <p class="text-3 text-sm">{$_('login.subtitle')}</p>
     </div>
+
+    {#if $signInProblem}
+      <CookieWarning reason={$signInProblem} />
+    {/if}
 
     {#if !recoveryDone}
       {#if oidcProviders.length}
