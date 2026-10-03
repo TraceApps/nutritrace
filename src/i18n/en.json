@@ -1125,7 +1125,7 @@
   "settings_diagnostics": {
     "diag_mode": "Diagnostic Mode",
     "view_logs": "View Diagnostic Logs",
-    "logs_desc_web": "Recent log lines from the app's console. Useful for bug reports, copy / share into a",
+    "logs_desc_web": "Recent log lines from the app's console. Useful for bug reports, copy / share into a <a href=\"https://github.com/traceapps/nutritrace/issues\" target=\"_blank\" rel=\"noopener\" class=\"about-link\">GitHub issue</a>.",
     "logs_desc_android": " On Android with Diagnostic Mode on, you can also share the persisted log file or any captured crash report.",
     "logs_note": "Nothing is sent anywhere automatically.",
     "calibration_export": "Calibration Export",

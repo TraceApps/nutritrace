@@ -1125,7 +1125,7 @@
   "settings_diagnostics": {
     "diag_mode": "Diagnosemodus",
     "view_logs": "Diagnose-Protokolle ansehen",
-    "logs_desc_web": "Aktuelle Protokollzeilen aus der App-Konsole. Nützlich für Fehlerberichte, zum Kopieren und Teilen in",
+    "logs_desc_web": "Aktuelle Protokollzeilen aus der App-Konsole. Nützlich für Fehlerberichte; kopiere oder teile sie in einem <a href=\"https://github.com/traceapps/nutritrace/issues\" target=\"_blank\" rel=\"noopener\" class=\"about-link\">GitHub-Issue</a>.",
     "logs_desc_android": " Auf Android mit aktiviertem Diagnosemodus kannst du auch die gespeicherte Protokolldatei oder erfasste Absturzberichte teilen.",
     "logs_note": "Es wird nichts automatisch übertragen.",
     "calibration_export": "Kalibrierungs-Export",
