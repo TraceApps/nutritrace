@@ -433,7 +433,7 @@
       "copied": "Copiado al portapapeles.",
       "copy_failed": "No se pudo copiar. Copia el comando a mano.",
       "view_notes": "Ver notas de la versión",
-      "channel_note": "Para cambiar de canal en el servidor, cambia la etiqueta de la imagen en tu docker-compose.yml (:latest, :1.0, :1, :dev) y vuelve a ejecutar docker-compose pull && docker-compose up -d."
+      "channel_note": "Para cambiar de canal en el servidor, cambia la etiqueta de la imagen en tu docker-compose.yml (:latest, :dev) y vuelve a ejecutar docker-compose pull && docker-compose up -d."
     },
     "off_resting": "Desactivado. Tu servidor no va a contactar a GitHub. Actívalo para enterarte de funciones nuevas, correcciones y actualizaciones de seguridad.",
     "off_notice_title": "Búsqueda de actualizaciones desactivada",

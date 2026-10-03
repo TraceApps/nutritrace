@@ -395,7 +395,7 @@
       "copied": "Copied to clipboard.",
       "copy_failed": "Copy failed. Copy the command manually.",
       "view_notes": "View Release Notes",
-      "channel_note": "To switch server channels, change your docker-compose.yml image tag (:latest, :1.0, :1, :dev) and re-run docker-compose pull && docker-compose up -d."
+      "channel_note": "To switch server channels, change your docker-compose.yml image tag (:latest, :dev) and re-run docker-compose pull && docker-compose up -d."
     }
   },
   "login": {

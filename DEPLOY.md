@@ -23,20 +23,19 @@ is a discoverability mirror. Both are first-class; pick whichever fits.
 - **`ghcr.io/traceapps/nutritrace`** (primary)
 - **`traceapps/nutritrace`** on [Docker Hub](https://hub.docker.com/r/traceapps/nutritrace) (mirror)
 
-Pin to whatever risk level fits (examples below use GHCR; swap the prefix
-for Docker Hub if preferred):
+Two tags are published (examples below use GHCR; swap the prefix for
+Docker Hub if preferred):
 
 | Tag | Updates when | Use case |
 |-----|--------------|----------|
-| `ghcr.io/traceapps/nutritrace:1.0.0` | Never (pinned exact) | Reproducible pin to a specific version |
-| `ghcr.io/traceapps/nutritrace:1.0` | Any 1.0.x patch release | Auto-receive bug fixes, no new features |
-| `ghcr.io/traceapps/nutritrace:1` | Any 1.x.y minor release | Auto-minor within a major, no breaking |
-| `ghcr.io/traceapps/nutritrace:latest` | Every stable release | Absolute latest stable |
+| `ghcr.io/traceapps/nutritrace:latest` | Every stable release | Running the app |
 | `ghcr.io/traceapps/nutritrace:dev` | Every push to `dev` branch | Leading edge, not for production |
 
-Legacy `1.0.0-rc.N` tags from before the semver switch remain published
-indefinitely on GHCR; anyone pinned to a specific rc release is unaffected.
-Docker Hub mirroring started post-1.0, so it only carries stable-era tags.
+There are no version-number tags (`:1`, `:1.4`, `:1.4.0`); the ones published
+for the first releases stopped updating and were retired. To hold a server on
+one exact build, pin it by digest
+(`ghcr.io/traceapps/nutritrace@sha256:...`; `docker inspect --format
+'{{index .RepoDigests 0}}' ghcr.io/traceapps/nutritrace:latest` prints the one you run).
 
 ---
 
@@ -50,9 +49,9 @@ Every dev-worthy build refreshes the [`dev-latest`](https://github.com/traceapps
 
 ### Milestone `v<version>-devNN` (occasional, pinnable)
 
-When a specific feature or fix is worth its own tester milestone (a new wearable integration, an Adaptive TDEE change, a big backup rework), a numbered pre-release gets cut: `v1.0.4-dev01`, `v1.1.0-dev01`, etc. These get their own permanent GH release, their own tester-facing notes, and their own Docker tag (`ghcr.io/traceapps/nutritrace:1.0.4-dev01`) alongside `:dev`. `dev-latest` is refreshed to point at the same commit.
+When a specific feature or fix is worth its own tester milestone (a new wearable integration, an Adaptive TDEE change, a big backup rework), a numbered pre-release gets cut: `v1.0.4-dev01`, `v1.1.0-dev01`, etc. These get their own permanent GH release, their own tester-facing notes, but no Docker tag of their own: the server side of a milestone is the `:dev` image. `dev-latest` is refreshed to point at the same commit.
 
-Iteration numbers are zero-padded two digits for 1 through 9 (`dev01`, `dev02`, …, `dev09`) and natural two digits from 10 onward (`dev10`, `dev11`, …). No dot between `dev` and the number. That keeps the identifier inside SemVer 2.0.0 §9 and gives correct lex ordering everywhere (GitHub Tags, `gh release list`, Docker Hub). Historical tags `v1.1.0-dev.1` through `v1.1.0-dev.15` used the older dotted format; they sort correctly ahead of new no-dot tags so no retroactive rename was needed.
+Iteration numbers are zero-padded two digits for 1 through 9 (`dev01`, `dev02`, …, `dev09`) and natural two digits from 10 onward (`dev10`, `dev11`, …). No dot between `dev` and the number. That keeps the identifier inside SemVer 2.0.0 §9 and gives correct lex ordering everywhere (GitHub Tags, `gh release list`). Historical tags `v1.1.0-dev.1` through `v1.1.0-dev.15` used the older dotted format; they sort correctly ahead of new no-dot tags so no retroactive rename was needed.
 
 Use numbered dev builds when reporting bugs ("I saw this on `v1.1.0-dev02`") or if you want to install a specific milestone and stay on it. Everyone else, `dev-latest` covers you.
 

@@ -387,7 +387,7 @@
       "copied": "In die Zwischenablage kopiert.",
       "copy_failed": "Kopieren fehlgeschlagen. Bitte kopiere den Befehl manuell.",
       "view_notes": "Versionshinweise ansehen",
-      "channel_note": "Um den Server-Kanal zu wechseln, passe das Image-Tag in deiner docker-compose.yml an (:latest, :1.0, :1, :dev) und führe docker-compose pull && docker-compose up -d aus."
+      "channel_note": "Um den Server-Kanal zu wechseln, passe das Image-Tag in deiner docker-compose.yml an (:latest, :dev) und führe docker-compose pull && docker-compose up -d aus."
     },
     "off_resting": "Deaktiviert. Dein Server verbindet sich nicht mit GitHub. Aktiviere dies, um über neue Funktionen, Fehlerbehebungen und Sicherheitsupdates informiert zu werden.",
     "off_notice_title": "Update-Prüfungen sind deaktiviert",
