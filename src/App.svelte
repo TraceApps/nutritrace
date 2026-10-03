@@ -16,7 +16,7 @@
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation, forceMobileLayout } from './stores/settings.js';
   import { locale, _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive, setupRequired, loadAuthState, handleOidcCallback } from './stores/auth.js';
-  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl } from './lib/platform.js';
+  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
   import { describeConnectionIssue } from './lib/connection-message.js';
   import { writable } from 'svelte/store';
 
@@ -551,7 +551,7 @@
     }
 
     // Load auth state first (sets $currentUser and $userMgmtActive)
-    await loadAuthState();
+    try { await loadAuthState(); } finally { authLoaded = true; }
 
     // Mirror serverUrl + authToken from localStorage into the native SQLite
     // sync_meta table so the Kotlin HealthConnectSyncWorker (background HC
@@ -568,25 +568,11 @@
     // we don't double-fetch on cold load.
     await handleOidcCallback();
 
-    // Env-lock state: which Settings sections are configured via env vars.
-    // Fetched globally so the Trace FAB knows about env-set AI_ENABLED
-    // without waiting for the user to visit Settings. Issue #36.
-    // Native server mode needs the Bearer token header explicitly —
-    // credentials:'include' alone (cookies) returns 401 there.
-    if (!isNative || getServerUrl()) {
-      const { getAuthToken } = await import('./lib/platform.js');
-      const headers = {};
-      const token = getAuthToken();
-      if (isNative && token) headers['Authorization'] = `Bearer ${token}`;
-      fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers })
-        .then(r => r.ok ? r.json() : null)
-        .then(async d => {
-          if (!d) return;
-          const { envLocks } = await import('./stores/settings.js');
-          envLocks.set(d);
-        })
-        .catch(() => {});
-    }
+    // Env-lock state for AI / SMTP / OIDC. Fetched globally so the Trace
+    // FAB knows about env-set AI_ENABLED without waiting for Settings to
+    // load. Mirrors NutriTrace #36. Signed out it would only be refused;
+    // signing in loads it (see _wasNeedsLogin below).
+    if (!($userMgmtActive && !$currentUser)) loadEnvLocks();
 
     // Show wizard on first launch:
     // - Native server mode: NEVER show wizard (server is already configured)
@@ -766,7 +752,30 @@
   });
 
   // Auth gate: bypass for password reset / invite pages
+  /**
+   * Which sections the server holds by environment variable, Trace included.
+   * Sends the Android app's token: cookies alone were refused there, which
+   * left Trace looking unconfigured even with AI_* set on the server.
+   */
+  async function loadEnvLocks() {
+    if (isNative && !getServerUrl()) return;
+    try {
+      const headers = {};
+      const token = isNative ? getAuthToken() : null;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers });
+      if (!res.ok) return;
+      const { envLocks } = await import('./stores/settings.js');
+      envLocks.set(await res.json());
+    } catch { /* defaults stay: Trace waits for a key in Settings */ }
+  }
+
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];
+  // The web app learns who is signed in from the server. Until it knows,
+  // nothing renders: the app used to load first and fire its requests
+  // signed out, before the sign-in screen replaced it. Android starts from
+  // the account it cached, so it never waits.
+  let authLoaded = isNative;
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
 
   // When the user transitions from unauthenticated → authenticated (after a
@@ -781,6 +790,7 @@
     if (_wasNeedsLogin && !needsLogin && $currentUser) {
       _wasNeedsLogin = false;
       import('./stores/settings.js').then(({ loadServerSettings }) => loadServerSettings()).catch(() => {});
+      loadEnvLocks();
       import('./stores/diary.js').then(({ diaryLoadError }) => diaryLoadError.set(false)).catch(() => {});
     } else if (needsLogin) {
       _wasNeedsLogin = true;
@@ -801,6 +811,8 @@
   <Toast />
 
 <!-- Login gate (when user management active and not authenticated) -->
+{:else if !authLoaded}
+  <!-- Asking the server who is signed in: a blank page, never the app. -->
 {:else if needsLogin}
   <Login />
 {:else}

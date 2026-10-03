@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
+import crypto from 'crypto';
 import fs from 'fs';
 import { safeUploadExtension } from '../lib/upload-paths.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -17,7 +18,7 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsPath),
   filename: (req, file, cb) => {
     const ext = safeUploadExtension(file.mimetype, file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    cb(null, `${Date.now()}-${crypto.randomBytes(12).toString('hex')}${ext}`);
   },
 });
 
