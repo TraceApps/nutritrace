@@ -30,6 +30,7 @@ const TOKEN_BYTES = 32;  // 256-bit secret
  */
 export const SCOPE_DESCRIPTIONS = {
   'read:foods':      "Read the token owner's foods library. Used by CookTrace federation.",
+  'read:body-measurements': "Read the token owner's persisted weight and body-composition measurements. Used by LiftTrace federation.",
   'write:workouts':  "Post workouts into the token owner's wellness history. Used by LiftTrace federation.",
   'write:activity':  "Log manual activity entries into the diary Activity section. Used by external trackers and headless integrations (issue #154).",
   'mcp:read':        'MCP: read the diary, goals, daily totals, daily steps, body composition, profile (gender, date of birth), and the foods and meals catalog. Also unlocks the equivalent /api/v1 read routes when PUBLIC_API_ENABLED=1.',
@@ -39,6 +40,10 @@ export const SCOPE_DESCRIPTIONS = {
 
 export const KNOWN_SCOPES = new Set([
   'read:foods',
+  // read:body-measurements unlocks GET /api/v1/body-measurements —
+  // used by LiftTrace to read persisted weight and body-composition
+  // observations without depending on the optional Public API.
+  'read:body-measurements',
   // write:workouts unlocks POST /api/v1/workouts — used by LiftTrace to
   // log completed-workout calorie burns into the user's wellness data so
   // the dynamic-TDEE calc has the additional energy expenditure.
