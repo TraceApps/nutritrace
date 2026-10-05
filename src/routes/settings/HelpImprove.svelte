@@ -225,7 +225,7 @@
     <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
       <span class="setting-label">{$_('settings_diagnostics.view_logs')}</span>
       <p class="setting-desc" style="line-height:1.5">
-        {$_('settings_diagnostics.logs_desc_web')} <a href="https://github.com/traceapps/nutritrace/issues" target="_blank" rel="noopener" class="about-link">GitHub issue</a>.{isNative ? $_('settings_diagnostics.logs_desc_android') : ''} {$_('settings_diagnostics.logs_note')}
+        {@html $_('settings_diagnostics.logs_desc_web')}{isNative ? $_('settings_diagnostics.logs_desc_android') : ''} {$_('settings_diagnostics.logs_note')}
       </p>
       <button class="btn btn-secondary" style="height:40px;font-size:13px" on:click={_openLogsSheet}>
         <span class="material-symbols-rounded" style="font-size:16px">terminal</span>
