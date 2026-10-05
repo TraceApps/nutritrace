@@ -19,6 +19,7 @@ No accounts, no telemetry, no cloud sync unless you opt in.</p>
   <a href="https://traceapps.github.io/docs/nutritrace/"><img alt="Documentation" src="https://img.shields.io/badge/docs-traceapps.github.io-8A2BE2?logo=readthedocs&logoColor=white"></a>
   <a href="https://github.com/traceapps/nutritrace/pkgs/container/nutritrace"><img alt="GHCR" src="https://img.shields.io/badge/ghcr.io-traceapps%2Fnutritrace-181717?logo=github&logoColor=white"></a>
   <a href="https://hub.docker.com/r/traceapps/nutritrace"><img alt="Docker Hub pulls" src="https://img.shields.io/docker/pulls/traceapps/nutritrace?logo=docker&logoColor=white&label=docker%20pulls&color=2496ED"></a>
+  <a href="https://hosted.weblate.org/engage/nutritrace/"><img alt="Translation status" src="https://hosted.weblate.org/widget/nutritrace/svg-badge.svg"></a>
 </p>
 
 <p align="center">
