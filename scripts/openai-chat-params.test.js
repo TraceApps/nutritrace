@@ -17,6 +17,7 @@ for (const [name, getParams] of implementations) {
         hasTools: true,
       }),
       {
+        stream: false,
         max_completion_tokens: 4096,
         reasoning_effort: 'none',
       },
@@ -30,7 +31,7 @@ for (const [name, getParams] of implementations) {
         model: 'gpt-5.6-luna',
         hasTools: false,
       }),
-      { max_completion_tokens: 4096 },
+      { stream: false, max_completion_tokens: 4096 },
     );
   });
 
@@ -42,7 +43,7 @@ for (const [name, getParams] of implementations) {
         hasTools: true,
         maxTokens: 1024,
       }),
-      { max_completion_tokens: 1024 },
+      { stream: false, max_completion_tokens: 1024 },
     );
   });
 
@@ -53,7 +54,13 @@ for (const [name, getParams] of implementations) {
         model: 'gpt-5.6-luna',
         hasTools: true,
       }),
-      { max_tokens: 4096 },
+      { stream: false, max_tokens: 4096 },
     );
   });
 }
+
+test('client and server copies are identical', async () => {
+  const { readFileSync } = await import('node:fs');
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  assert.equal(read('../src/lib/openai-chat-params.js'), read('../server/lib/openai-chat-params.js'));
+});
