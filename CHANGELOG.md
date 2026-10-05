@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- **On Android, Trace's attach button offers Camera or Gallery** ([#254](https://github.com/TraceApps/nutritrace/pull/254)), the same menu as the web app, instead of Android's full-width prompt. Thanks @librarian.
+- **Trace's attach button offers Camera or Gallery on phones and in the Android app** ([#254](https://github.com/TraceApps/nutritrace/pull/254)), the same as the other Trace apps. Each choice goes straight to the camera or the photo picker instead of Android's full-width prompt; on a computer the button opens the file picker. Thanks @librarian.
 
 ### Fixed
 

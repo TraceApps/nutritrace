@@ -1,4 +1,5 @@
 <script>
+  import AttachImageButton from './AttachImageButton.svelte';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { offNutritionStatus, needsFullLookup } from '../../lib/off-nutrition.js';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -66,17 +67,6 @@
   // null = Don't Log. The card starts there: saving a food must never
   // quietly pick a meal for a diary entry nobody asked for.
   let _foodProposalCommittedMealIdx = null;
-  let fileInput;
-  let _cameraInput;
-  let _showAttachMenu = false;
-  let _hasCamera = false;
-
-  // Check if device has a camera (PWA only)
-  if (!isNative && navigator.mediaDevices?.enumerateDevices) {
-    navigator.mediaDevices.enumerateDevices().then(devices => {
-      _hasCamera = devices.some(d => d.kind === 'videoinput');
-    }).catch(() => {});
-  }
 
   // Whether AI config is locked via env vars (proxy mode). Derived from
   // the global envLocks store (populated by App.svelte's startup fetch
@@ -1873,53 +1863,17 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     return { role: 'user', content: text };
   }
 
-  function _attachImage() {
-    if (isNative || _hasCamera) {
-      _showAttachMenu = !_showAttachMenu;
-    } else {
-      fileInput?.click();
-    }
-  }
-
-  async function _attachNativeImage(fromCamera) {
-    try {
-      const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera');
-      const photo = await Camera.getPhoto({
-        quality: 80,
-        resultType: CameraResultType.Base64,
-        source: fromCamera ? CameraSource.Camera : CameraSource.Photos,
-        width: 1024,
-      });
-      const mimeType = `image/${photo.format || 'jpeg'}`;
-      attachedImage = { base64: photo.base64String, mimeType, preview: `data:${mimeType};base64,${photo.base64String}` };
-    } catch {
-      // Closing the native picker leaves the current attachment unchanged.
-    }
-  }
-
-  function _attachFromCamera() {
-    _showAttachMenu = false;
-    if (isNative) _attachNativeImage(true);
-    else _cameraInput?.click();
-  }
-
-  function _attachFromFile() {
-    _showAttachMenu = false;
-    if (isNative) _attachNativeImage(false);
-    else fileInput?.click();
-  }
-
-  function _onFileSelected(e) {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
+  // From the shared attach button: an array of image Files. Trace takes one.
+  function _useImageFiles(files) {
+    const file = files?.[0];
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result;
-      const base64 = dataUrl.split(',')[1];
-      attachedImage = { base64, mimeType: file.type, preview: dataUrl };
+      const base64 = String(dataUrl).split(',')[1] || '';
+      attachedImage = { base64, mimeType: file.type || 'image/jpeg', preview: dataUrl };
     };
     reader.readAsDataURL(file);
-    e.target.value = '';
   }
 
   function _removeImage() { attachedImage = null; }
@@ -2395,21 +2349,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         </div>
       {/if}
       <div class="ai-input-bar">
-        <div style="position:relative">
-          <button class="ai-attach-btn" on:click={_attachImage} disabled={loading} title={$_('trace.attach_image')}>
-            <span class="material-symbols-rounded">photo_camera</span>
-          </button>
-          {#if _showAttachMenu}
-            <div class="ai-attach-menu">
-              <button class="ai-attach-option" on:click={_attachFromCamera}>
-                <span class="material-symbols-rounded" style="font-size:18px">photo_camera</span> Camera
-              </button>
-              <button class="ai-attach-option" on:click={_attachFromFile}>
-                <span class="material-symbols-rounded" style="font-size:18px">photo_library</span> Gallery
-              </button>
-            </div>
-          {/if}
-        </div>
+        <AttachImageButton disabled={loading} title={$_('trace.attach_image')}
+          on:files={e => _useImageFiles(e.detail)} />
         <textarea
           class="ai-textarea"
           bind:value={input}
@@ -2422,8 +2363,6 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
           <span class="material-symbols-rounded">send</span>
         </button>
       </div>
-      <input type="file" accept="image/*" bind:this={fileInput} on:change={_onFileSelected} style="display:none" />
-      <input type="file" accept="image/*" capture="environment" bind:this={_cameraInput} on:change={_onFileSelected} style="display:none" />
     </aside>
   {/if}
 
@@ -2918,50 +2857,6 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   .ai-send-btn:not(:disabled):hover  { transform: scale(1.08); }
   .ai-send-btn:not(:disabled):active { transform: scale(0.94); }
   .ai-send-btn .material-symbols-rounded { font-size: 20px; }
-
-  .ai-attach-btn {
-    width: 40px; height: 40px;
-    border-radius: 50%;
-    background: none;
-    color: var(--text-3);
-    border: 1px solid var(--border);
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    transition: color var(--dur-fast), border-color var(--dur-fast);
-  }
-  .ai-attach-btn:hover { color: var(--accent); border-color: var(--accent); }
-  .ai-attach-btn:disabled { opacity: 0.4; cursor: default; }
-  .ai-attach-btn .material-symbols-rounded { font-size: 20px; }
-
-  .ai-attach-menu {
-    position: absolute;
-    bottom: 48px;
-    left: 0;
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-    overflow: hidden;
-    z-index: 10;
-    min-width: 140px;
-  }
-  .ai-attach-option {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    min-height: 48px;
-    padding: 10px 14px;
-    background: none;
-    border: none;
-    color: var(--text-1);
-    font-size: 14px;
-    cursor: pointer;
-    text-align: left;
-  }
-  .ai-attach-option:hover { background: var(--surface-2); }
-  .ai-attach-option + .ai-attach-option { border-top: 1px solid var(--border); }
 
   .ai-image-preview {
     position: relative;

@@ -398,6 +398,11 @@
       "channel_note": "To switch server channels, change your docker-compose.yml image tag (:latest, :dev) and re-run docker-compose pull && docker-compose up -d."
     }
   },
+  "attach_image": {
+    "button": "Attach Image",
+    "camera": "Camera",
+    "gallery": "Gallery"
+  },
   "login": {
     "subtitle": "Sign in to your account",
     "username": "Username",
