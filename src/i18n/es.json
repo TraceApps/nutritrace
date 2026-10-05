@@ -1171,7 +1171,7 @@
   "settings_diagnostics": {
     "diag_mode": "Modo diagnóstico",
     "view_logs": "Ver registros de diagnóstico",
-    "logs_desc_web": "Últimas líneas del registro de la consola de la app. Sirven para reportar errores; cópialas o compártelas en un",
+    "logs_desc_web": "Últimas líneas del registro de la consola de la app. Sirven para reportar errores; cópialas o compártelas en un <a href=\"https://github.com/traceapps/nutritrace/issues\" target=\"_blank\" rel=\"noopener\" class=\"about-link\">issue de GitHub</a>.",
     "logs_desc_android": " En Android con el modo diagnóstico activo también puedes compartir el archivo de registro guardado o cualquier reporte de fallo capturado.",
     "logs_note": "No se envía nada a ningún lado de forma automática.",
     "calibration_export": "Exportar calibración",

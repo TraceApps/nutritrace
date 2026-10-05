@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **On Android, Trace's attach button offers Camera or Gallery** ([#254](https://github.com/TraceApps/nutritrace/pull/254)), the same menu as the web app, instead of Android's full-width prompt. Thanks @librarian.
+
 ### Fixed
 
 - **Signing in through SSO with an email that already has an account no longer creates a second account.** When the identity provider doesn't mark the email verified (Authentik's default since 2025.10), the sign-in is refused with a pointer to link the provider from your profile, instead of landing you in a new, empty account.
@@ -15,6 +19,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings.** It was ignored unless a provider was also defined through env vars.
 - **Signing in on a plain-HTTP address says what's wrong instead of looping.** The sign-in cookie only works over HTTPS unless `INSECURE_COOKIES=1` is set, so signing in from an `http://` address dropped you back on the login page with no error. The sign-in and setup screens now explain it and link to the fix, the app no longer flashes before sending you back, and the server log says so too.
 - **The app no longer loads behind the sign-in screen.** Opened signed out, it asked the server for your data and was refused before the sign-in screen replaced it. It now waits to learn who is signed in.
+- **The installed app keeps working when NutriTrace is served from a subpath** ([#250](https://github.com/TraceApps/nutritrace/pull/250)). Once the offline service worker took over, every reload sent the app's requests outside the subpath. Thanks @kgenerozov.
+- **Recipe servings set in the Android app survive syncing** ([#255](https://github.com/TraceApps/nutritrace/pull/255)). Background sync left them out, so the server cleared them. Thanks @librarian.
+- **Editing a food or recipe in the Android app no longer clears its photo** ([#256](https://github.com/TraceApps/nutritrace/pull/256)). A cached photo was saved back as an empty image. Thanks @librarian.
+- **The diagnostics note about GitHub issues translates as a whole sentence** ([#253](https://github.com/TraceApps/nutritrace/pull/253)), and the German translation is complete. Thanks @KAiSER086.
 
 ### Security
 
@@ -40,7 +48,6 @@ A dev pre-release of the 1.4.0 minor. Spanish, a Support page in Settings, uploa
 ### Fixed
 
 - **A file of the wrong type, or over the size limit, is turned away with a clear message.** Uploading one answered with a server error instead of saying what was wrong. A file that is too large now says what the limit is.
-- **The installed app keeps the right API path after a service-worker reload** when NutriTrace is mounted below the site root; its offline app shell remains available.
 - **Settings pages line up with the section list** on desktop and foldables. Every page started 12px below the list beside it.
 - **The Settings section list keeps its place** on desktop and foldables. Opening a section from the Settings page scrolled the list beside it back to Profile.
 
