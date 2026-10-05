@@ -260,6 +260,7 @@ async function pushChanges() {
       img_url: m.img_url || m.imgUrl, notes: m.notes,
       is_recipe: m.is_recipe,
       portion: m.portion, unit: m.unit,
+      servings: m.servings ?? null,
       favorite: m.favorite || 0,
       usage_count: m.usage_count || 0,
       last_used_at: m.last_used_at || null,
