@@ -24,6 +24,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Editing a food or recipe in the Android app no longer clears its photo** ([#256](https://github.com/TraceApps/nutritrace/pull/256)). A cached photo was saved back as an empty image. Thanks @librarian.
 - **The diagnostics note about GitHub issues translates as a whole sentence** ([#253](https://github.com/TraceApps/nutritrace/pull/253)), and the German translation is complete. Thanks @KAiSER086.
 - **Trace works with OpenAI-compatible endpoints that stream unless told not to** ([#258](https://github.com/TraceApps/nutritrace/issues/258), reported by @jsapede). Chat and Smart Log answers failed with "Unexpected non-whitespace character after JSON"; every request now asks for a single answer.
+- **Trace's tools work with OpenAI-compatible endpoints that check every field** ([#259](https://github.com/TraceApps/nutritrace/issues/259), reported by @jsapede). With AI set up on the server, a chat that used a tool could fail with `"name" is not supported by this endpoint`.
 
 ### Security
 
