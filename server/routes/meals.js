@@ -7,6 +7,7 @@ import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { sendMealShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
+import { ownerOrOptIn } from '../lib/outbound-policy.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -89,7 +90,7 @@ router.post('/', wrap(async (req, res) => {
   const _shouldLocalizeImg = img_url && (cleanSourceApp
     ? (img_url.startsWith('http') || img_url.startsWith('data:'))
     : isExternalUrl(img_url));
-  const localImg = _shouldLocalizeImg ? await localizeImage(img_url, { trustedOrigins: _trustedImgOrigins }) : (img_url || null);
+  const localImg = _shouldLocalizeImg ? await localizeImage(img_url, { trustedOrigins: _trustedImgOrigins, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null);
   const warningsCol = Array.isArray(import_warnings) && import_warnings.length
     ? JSON.stringify(import_warnings.map(w => String(w || '').slice(0, 400)).filter(Boolean).slice(0, 20))
     : null;

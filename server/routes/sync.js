@@ -26,9 +26,9 @@ import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
 // on the diary side. Same rule as the direct routes: if the caller
 // sent an external URL (http/https or data:), route it through
 // localizeImage; if it's already a local /uploads/ path, keep as-is.
-async function _localizeIfNeeded(url) {
+async function _localizeIfNeeded(url, allowPrivate = false) {
   if (!url) return null;
-  return isExternalUrl(url) ? await localizeImage(url) : url;
+  return isExternalUrl(url) ? await localizeImage(url, { allowPrivate }) : url;
 }
 
 const router = Router();
@@ -54,6 +54,7 @@ function _loadTombstonesSince(u, sinceSql) {
 
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
 import { mergeEntries } from '../lib/diary-merge.js';
+import { ownerOrOptIn } from '../lib/outbound-policy.js';
 
 // Issues #69 + #70: normalize alt_units before storing. Accepts null /
 // already-serialized string / array of {abbr, grams}. Filters malformed
@@ -190,10 +191,10 @@ router.post('/push', wrap(async (req, res) => {
   // Runs outside the transaction because localizeImage does file IO
   // and db.transaction() is sync-only.
   for (const f of foods) {
-    if (f.img_url) f.img_url = await _localizeIfNeeded(f.img_url);
+    if (f.img_url) f.img_url = await _localizeIfNeeded(f.img_url, ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS'));
   }
   for (const m of meals) {
-    if (m.img_url) m.img_url = await _localizeIfNeeded(m.img_url);
+    if (m.img_url) m.img_url = await _localizeIfNeeded(m.img_url, ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS'));
   }
 
   // Normalize timestamp for comparison (strip T, Z, milliseconds)

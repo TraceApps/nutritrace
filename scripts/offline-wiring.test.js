@@ -196,7 +196,7 @@ test('your profile and its picture work the same way here as in the sibling apps
   // auth check answers cannot write a profile to local settings instead.
   assert.match(profile, /\$: _isLocal = /);
   const auth = readFileSync(new URL('../server/routes/auth.js', import.meta.url), 'utf8');
-  assert.match(auth, /await localizeImage\(req\.body\?\.avatar_url\)/);
+  assert.match(auth, /await localizeImage\(req\.body\?\.avatar_url(, \{[^}]*\})?\)/);
 });
 
 test('what a row created offline became is remembered on disk, not just in memory', () => {

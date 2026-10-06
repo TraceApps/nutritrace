@@ -7,6 +7,7 @@ import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { sendFoodShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
+import { ownerOrOptIn } from '../lib/outbound-policy.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -132,7 +133,7 @@ router.post('/', wrap(async (req, res) => {
         : isExternalUrl(img_url));
       const localImg2 = img_url === undefined
         ? found.img_url
-        : (_shouldLocalize ? await localizeImage(img_url, { trustedOrigins: trusted }) : (img_url || null));
+        : (_shouldLocalize ? await localizeImage(img_url, { trustedOrigins: trusted, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null));
       db.prepare(
         `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, nutrition_basis=?, alt_units=?, density_g_ml=?, source_url=?, updated_at=datetime('now') WHERE id=?`
       ).run(name ?? found.name, brand ?? found.brand,
@@ -170,7 +171,7 @@ router.post('/', wrap(async (req, res) => {
   const _shouldLocalizeNew = img_url && (cleanSourceApp
     ? (img_url.startsWith('http') || img_url.startsWith('data:'))
     : isExternalUrl(img_url));
-  const localImg = _shouldLocalizeNew ? await localizeImage(img_url, { trustedOrigins: trustedNew }) : (img_url || null);
+  const localImg = _shouldLocalizeNew ? await localizeImage(img_url, { trustedOrigins: trustedNew, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null);
   const result = db.prepare(
     `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
@@ -201,7 +202,7 @@ router.put('/:id', wrap(async (req, res) => {
   // used below for nutrition_basis / alt_units / density_g_ml.
   const localImg = img_url === undefined
     ? existing.img_url
-    : ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url) : (img_url || null));
+    : ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null));
   const fav = favorite != null ? (favorite ? 1 : 0) : existing.favorite;
   // For the OFF metadata: undefined → keep existing, null → explicit clear,
   // any other value → normalize-and-store. Lets the client patch one field

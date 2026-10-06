@@ -9,6 +9,7 @@ import { listProviders as oidcListProviders, publicProvider as oidcPublicProvide
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
 import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/password-strength.js';
 import { claimAnonymousData, purgeUnreferencedUserData, purgeUserRows } from '../lib/claim-anonymous-data.js';
+import { ownerOrOptIn } from '../lib/outbound-policy.js';
 
 const router = Router();
 
@@ -227,7 +228,7 @@ router.put('/profile', requireAuth, wrap(async (req, res) => {
   // A picture chosen with no connection arrives embedded in this request,
   // since there was nowhere to upload it to. It becomes a file here, the
   // same way a food's photo does.
-  const avatar_url = await localizeImage(req.body?.avatar_url);
+  const avatar_url = await localizeImage(req.body?.avatar_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') });
   db.prepare(
     `UPDATE users SET full_name=?, nickname=?, birthday=?, gender=?, avatar_url=?, email=? WHERE id=?`
   ).run(full_name || null, nickname || null, birthday || null, gender || null, avatar_url || null,

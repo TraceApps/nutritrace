@@ -7,62 +7,22 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import dns from 'dns/promises';
-import net from 'net';
 import { logger } from '../logger.js';
 import { detectImageTypeFromBuffer } from './image-magic.js';
+import { fetchChecked, readBody } from './ssrf-guard.js';
 
 const UPLOADS_DIR = process.env.UPLOADS_PATH || './uploads';
 // Cap on decoded data URL size. Mirrors the multer /api/upload limit so a
 // food save can't smuggle a larger image past the proper upload path.
 const MAX_DATA_URL_BYTES = 10 * 1024 * 1024;
 // Map magic-byte detector output to a file extension.
+// A downloaded image larger than this isn't kept.
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
 const _EXT_BY_TYPE = {
   jpeg: '.jpg', png: '.png', gif: '.gif', bmp: '.bmp',
   webp: '.webp', heic: '.heic', avif: '.avif',
 };
-
-/**
- * SSRF protection: block private/loopback/link-local IP ranges so an authed
- * user can't trick the server into fetching internal admin panels or cloud
- * metadata endpoints (169.254.169.254). Note: there's a TOCTOU window between
- * resolution and fetch — for higher-assurance environments, switch to a
- * pinned-IP HTTP agent.
- */
-function _isPrivateIP(ip) {
-  if (!net.isIP(ip)) return false;
-  if (net.isIPv4(ip)) {
-    const o = ip.split('.').map(Number);
-    return (
-      o[0] === 0 ||                                // 0.0.0.0/8
-      o[0] === 10 ||                               // 10.0.0.0/8
-      o[0] === 127 ||                              // 127.0.0.0/8 loopback
-      (o[0] === 100 && o[1] >= 64 && o[1] <= 127) || // 100.64.0.0/10 CGNAT
-      (o[0] === 169 && o[1] === 254) ||            // 169.254.0.0/16 link-local + cloud metadata
-      (o[0] === 172 && o[1] >= 16 && o[1] <= 31) ||// 172.16.0.0/12
-      (o[0] === 192 && o[1] === 168)               // 192.168.0.0/16
-    );
-  }
-  // IPv6
-  const lower = ip.toLowerCase();
-  if (lower === '::' || lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;       // fc00::/7 ULA
-  if (lower.startsWith('fe80:') || lower.startsWith('fe9') ||
-      lower.startsWith('fea') || lower.startsWith('feb')) return true;     // fe80::/10
-  if (lower.startsWith('::ffff:')) return _isPrivateIP(lower.slice(7));    // IPv4-mapped
-  return false;
-}
-
-async function _hostnameResolvesPrivate(hostname) {
-  // Literal IPs: check directly.
-  if (net.isIP(hostname)) return _isPrivateIP(hostname);
-  try {
-    const addrs = await dns.lookup(hostname, { all: true });
-    return addrs.some(a => _isPrivateIP(a.address));
-  } catch {
-    return true;  // DNS failure → treat as unsafe
-  }
-}
 
 /**
  * If img_url is an external URL OR an inline base64 data URL, convert it to
@@ -101,51 +61,57 @@ export async function localizeImage(img_url, opts = {}) {
     logger.warn(`[image-localizer] Refusing non-http(s) URL: ${img_url.substring(0, 80)}`);
     return img_url;
   }
-  // SSRF guard: refuse private/loopback/link-local hosts (incl. cloud
-  // metadata 169.254.169.254). Exception: callers can pass a trustedOrigins
-  // list of origins the current user has explicitly configured in Settings
-  // (their saved CookTrace / Mealie base URL, etc). The user has proven
-  // they can reach that host on their own network, so an image pull from
-  // it is not an SSRF vector; without this bypass, LAN federation setups
-  // silently store the raw private-IP URL and every downstream viewer
-  // sees an empty image slot.
+  // Through the address check (server/lib/ssrf-guard.js): never cloud
+  // metadata, every redirect hop checked, the connection pinned. The
+  // server's own network is allowed for an origin the user saved in
+  // Settings (their CookTrace or Mealie: a home service, so redirects stay
+  // on that origin), and otherwise only when the caller allows it (the
+  // owner, or ALLOW_PRIVATE_IMAGE_URLS=1).
   const trusted = Array.isArray(opts.trustedOrigins)
     ? opts.trustedOrigins.map(o => _originOf(o)).filter(Boolean)
     : [];
   const thisOrigin = `${parsedUrl.protocol}//${parsedUrl.host}`;
   const isTrusted = trusted.includes(thisOrigin);
-  if (!isTrusted && await _hostnameResolvesPrivate(parsedUrl.hostname)) {
-    logger.warn(`[image-localizer] Refusing private/loopback URL: ${img_url.substring(0, 80)}`);
-    return img_url;
-  }
+  const guard = isTrusted
+    ? { allowPrivate: true, sameOrigin: true, maxRedirects: 3 }
+    : { allowPrivate: !!opts.allowPrivate, maxRedirects: 3 };
 
   try {
     // Generate a unique filename from the URL
     const hash = crypto.createHash('md5').update(img_url).digest('hex').slice(0, 12);
-    const ext = _guessExtension(img_url);
-    const filename = `${Date.now()}-${hash}${ext}`;
-    const filePath = path.join(UPLOADS_DIR, filename);
 
     // Download the image
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
-    const response = await fetch(img_url, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NutriTrace/1.0)' },
-    });
-    clearTimeout(timer);
-
-    if (!response.ok) {
-      logger.debug(`[image-localizer] Failed to download (${response.status}): ${img_url.substring(0, 80)}`);
-      return img_url; // Keep original URL — might work sometimes
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
+    let response, buffer;
+    try {
+      response = await fetchChecked(img_url, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NutriTrace/1.0)' },
+      }, guard);
+      if (!response.ok) {
+        logger.debug(`[image-localizer] Failed to download (${response.status}): ${img_url.substring(0, 80)}`);
+        try { await response.body?.cancel(); } catch {}
+        return img_url; // Keep original URL, might work sometimes
+      }
+      // The timeout covers the whole download, and the size is capped.
+      buffer = await readBody(response, MAX_IMAGE_BYTES);
+    } finally { clearTimeout(timer); }
     if (buffer.length < 100) {
       logger.debug(`[image-localizer] Image too small (${buffer.length}b), skipping: ${img_url.substring(0, 80)}`);
       return img_url;
     }
+    // Only an image is kept: anything else stays out of /uploads, where it
+    // could be read back.
+    const detected = detectImageTypeFromBuffer(buffer);
+    if (!detected) {
+      logger.warn(`[image-localizer] Not an image, not stored: ${img_url.substring(0, 80)}`);
+      return img_url;
+    }
 
+    // Named after what it is, not what the URL says.
+    const filename = `${Date.now()}-${hash}${_EXT_BY_TYPE[detected] || _guessExtension(img_url)}`;
+    const filePath = path.join(UPLOADS_DIR, filename);
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
     fs.writeFileSync(filePath, buffer);
 

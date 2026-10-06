@@ -16,15 +16,24 @@ import { Router } from 'express';
 import { wrap, logger } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import db from '../db.js';
+import { fetchChecked, serviceBase, readBody } from '../lib/ssrf-guard.js';
+import { apiPathFor, COOKTRACE_API } from '../lib/service-paths.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// CookTrace usually lives on the home network, so that's allowed for every
+// account, but only for the parts of its API this app reads, with GET, and
+// no redirect to another server (the request carries the account's token).
+const _apiPath = path => apiPathFor(COOKTRACE_API, path);
 
 function _normalizeUrl(s) {
   if (!s) return '';
   let v = String(s);
   if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
-  return v.replace(/\/$/, '');
+  // Origin and path only: a query or fragment in the address would turn
+  // the API path appended to it into part of the query.
+  return serviceBase(v) || '';
 }
 
 function _getStoredBase(userId) {
@@ -60,37 +69,39 @@ router.post('/proxy', async (req, res) => {
       }
     }
 
-    const url = requestedBase + path;
+    const apiPath = _apiPath(path);
+    if (!apiPath || String(method || 'GET').toUpperCase() !== 'GET') {
+      return res.status(400).json({ error: 'Not a CookTrace request this app makes' });
+    }
+    const url = requestedBase + apiPath;
     logger.info(`[cooktrace-proxy ${rid}] fetching ${url}`);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
 
     let response;
     try {
-      response = await fetch(url, {
-        method: (method || 'GET').toUpperCase(),
+      response = await fetchChecked(url, {
+        method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
         },
         signal: controller.signal,
-      });
+      }, { allowPrivate: true, sameOrigin: true, maxRedirects: 3 });
     } catch (fetchErr) {
       clearTimeout(timer);
       logger.warn(`[cooktrace-proxy ${rid}] fetch failed: ${fetchErr.message}`);
-      return res.status(503).json({ error: `Fetch failed: ${fetchErr.message}` });
+      const refused = /addresses are not allowed/.test(fetchErr.message);
+      return res.status(503).json({ error: refused ? fetchErr.message : 'Could not reach CookTrace' });
     }
     clearTimeout(timer);
 
     logger.info(`[cooktrace-proxy ${rid}] response status=${response.status} ct=${response.headers.get('content-type')}`);
 
-    const rawText = await response.text().catch(() => '');
+    const rawText = await readBody(response, 5 * 1024 * 1024).then(b => b.toString('utf8')).catch(() => '');
     if (!response.ok) {
       logger.warn(`[cooktrace-proxy ${rid}] upstream ${response.status}: ${rawText.slice(0, 200)}`);
-      return res.status(response.status).json({
-        error: `CookTrace returned ${response.status}`,
-        detail: rawText.slice(0, 400) || undefined,
-      });
+      return res.status(response.status).json({ error: `CookTrace returned ${response.status}` });
     }
 
     let body;
@@ -98,13 +109,13 @@ router.post('/proxy', async (req, res) => {
       body = JSON.parse(rawText);
     } catch (parseErr) {
       logger.warn(`[cooktrace-proxy ${rid}] non-JSON body: ${parseErr.message} first120=${rawText.slice(0, 120)}`);
-      return res.status(502).json({ error: 'CookTrace returned non-JSON response', detail: rawText.slice(0, 200) });
+      return res.status(502).json({ error: 'CookTrace returned non-JSON response' });
     }
     logger.info(`[cooktrace-proxy ${rid}] ok, body keys=${Object.keys(body || {}).join(',')}`);
     return res.json(body);
   } catch (e) {
     logger.error(`[cooktrace-proxy ${rid}] unhandled ${e?.stack || e?.message || e}`);
-    return res.status(500).json({ error: `Proxy crashed: ${e?.message || e}` });
+    return res.status(500).json({ error: 'CookTrace request failed' });
   }
 });
 

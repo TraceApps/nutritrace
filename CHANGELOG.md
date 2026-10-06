@@ -28,6 +28,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
+- **The CookTrace and Mealie connections forward only the requests the app makes.** Any account could send any request, to any path, through them, and read the reply, including from other services on your network.
+- **A photo given as a link is only kept when it is an image.** An account could have the server download a page from your network and read it back from the uploads folder. Downloads never reach cloud-metadata addresses and check every redirect; an admin can download from your network, other accounts only with `ALLOW_PRIVATE_IMAGE_URLS=1`.
+- **Push notifications never reach cloud-metadata addresses** and follow a redirect only on the same server, and a failed push test no longer shows the raw reply. The open `/api/proxy` checks every redirect too.
 - **The Android app's SSO sign-in no longer passes the session token through the `nutritrace://` link**, which another app could intercept. The link carries a single-use code that only the app that started the sign-in can redeem.
 - **Uploaded files get unguessable names.** The random part of the name was made with `Math.random()`, which can be predicted from its own output.
 

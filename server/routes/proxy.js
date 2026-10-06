@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { logger } from '../logger.js';
+import { fetchChecked, readBody } from '../lib/ssrf-guard.js';
 import { makeRateLimiter } from '../middleware/rate-limit.js';
 import { isLocalOffEnabled, isLocalOffOnly, lookupByBarcode, searchByName } from '../lib/off-local.js';
 
@@ -58,11 +59,12 @@ router.get('/', async (req, res) => {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
-    const response = await fetch(url, {
+    // Only the allowed public hosts, and a redirect may not lead into the
+    // server's own network or to cloud metadata.
+    const response = await fetchChecked(url, {
       signal: controller.signal,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NutriTrace/1.0)' },
-    });
-    clearTimeout(timer);
+    }, { maxRedirects: 3 });
 
     if (!response.ok) {
       logger.warn(`[proxy] upstream ${response.status} for ${url}`);
@@ -73,17 +75,20 @@ router.get('/', async (req, res) => {
 
     // Image response: pipe binary data with proper content-type
     if (contentType.startsWith('image/') || isImgHost) {
-      const buffer = Buffer.from(await response.arrayBuffer());
+      const buffer = await readBody(response, 10 * 1024 * 1024);
+      clearTimeout(timer);
       res.set('Content-Type', contentType || 'image/jpeg');
       res.set('Cache-Control', 'public, max-age=86400');
       return res.send(buffer);
     }
 
     // JSON API response
-    res.json(await response.json());
+    const body = JSON.parse((await readBody(response, 5 * 1024 * 1024)).toString('utf8'));
+    clearTimeout(timer);
+    res.json(body);
   } catch(e) {
     logger.error('[proxy] fetch error:', e.message, 'url:', url);
-    res.status(503).json({ error: e.message });
+    res.status(503).json({ error: 'Could not reach that service' });
   }
 });
 
