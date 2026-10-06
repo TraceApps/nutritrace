@@ -130,6 +130,7 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `UPLOADS_PATH` | Yes | `/data/uploads` | Upload directory inside the container. |
 | `PORT` | No | `3001` | Container-side port the server listens on. |
 | `BASE_URL` | No |  | Subpath prefix when mounted behind a reverse proxy (e.g. `/nt`). |
+| `PUBLIC_URL` | No |  | The full address people open the app at, subpath included (e.g. `https://nutrition.example.com`). Links in emails (password reset, invites, sharing) use it. Unset, they use an address an admin has opened the app at. |
 | `LOG_LEVEL` | No | `info` | `error` \| `warn` \| `info` \| `debug` \| `trace`. |
 | `TRACE_REQUEST_BODIES` | No | unset | Set to `1` with trace logging to include redacted request bodies. |
 | `TRACE_REQUEST_PATHS` | No | `/api/diary,/api/sync/push` | Comma-separated body-trace path prefixes; `*` traces all and `none` traces no request bodies. |

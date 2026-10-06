@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
@@ -223,15 +224,14 @@ router.patch('/:id/share', wrap((req, res) => {
       ? db.prepare('SELECT full_name, username FROM users WHERE id = ?').get(u)
       : null;
     const sharerName = sharer?.full_name || sharer?.username || null;
-    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-    const host  = req.headers['x-forwarded-host']  || req.headers.host || '';
     // Recipes and non-recipe meals share the same client route family.
-    const viewUrl = `${proto}://${host}/#/foods`;
+    const base = linkBase(req);
+    const viewUrl = `${base}/#/foods`;
     const rows = db.prepare(
       `SELECT id, email FROM users WHERE id IN (${newGrantees.map(() => '?').join(',')})`
     ).all(...newGrantees);
     for (const row of rows) {
-      if (!row.email) continue;
+      if (!row.email || !base) continue;
       sendMealShared(row.email, meal.name, sharerName, viewUrl)
         .catch(e => logger.debug?.(`[share] meal email to ${row.email} failed: ${e.message}`));
     }
