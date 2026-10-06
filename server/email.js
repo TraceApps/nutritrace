@@ -401,7 +401,7 @@ export async function sendWeeklySummaryEmail(userId, origin) {
 
     // ── Nutrition averages from diary ─────────────────────────────────────
     const diaryRows = db.prepare(
-      `SELECT data FROM diary WHERE user_id=? AND date >= ? AND date <= ? AND deleted_at IS NULL`
+      `SELECT items, water, body_stats FROM diary WHERE user_id=? AND date >= ? AND date <= ? AND deleted_at IS NULL ORDER BY date ASC`
     ).all(userId, fromStr, toStr);
 
     let totalCal = 0, totalProt = 0, totalCarb = 0, totalFat = 0, totalWater = 0;
@@ -425,7 +425,10 @@ export async function sendWeeklySummaryEmail(userId, origin) {
 
     for (const row of diaryRows) {
       try {
-        const entry = JSON.parse(row.data);
+        // A day's foods and water are their own columns (there is no
+        // `data` column): this read used to throw, so no weekly summary
+        // email was ever sent.
+        const entry = { items: JSON.parse(row.items || '[]'), water: JSON.parse(row.water || '[]') };
         if (!entry.items?.length) continue;
         daysLogged++;
         let dayCal = 0, dayProt = 0, dayCarb = 0, dayFat = 0;
@@ -495,9 +498,13 @@ export async function sendWeeklySummaryEmail(userId, origin) {
     let firstWeight = null, lastWeight = null;
     for (const row of diaryRows) {
       try {
-        const entry = JSON.parse(row.data);
-        const w = entry.body_stats?.weight ?? entry.bodyStats?.weight ?? null;
-        if (w != null) { if (firstWeight == null) firstWeight = w; lastWeight = w; }
+        // Same columns as above; a weight logged in lb counts in kg, as the
+        // email shows kg (and as lib/adaptive-tdee.js reads it).
+        const bs = JSON.parse(row.body_stats || '{}');
+        const raw = Number(bs?.weight);
+        if (bs?.weight == null || bs.weight === '' || !Number.isFinite(raw) || raw <= 0) continue;
+        const w = bs.weight_unit === 'lb' ? raw / 2.20462 : raw;
+        if (firstWeight == null) firstWeight = w; lastWeight = w;
       } catch {}
     }
     if (weightRows.length >= 2) {
