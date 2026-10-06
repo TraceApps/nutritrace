@@ -126,8 +126,16 @@ export function isEmailConfigured() {
 
 const _FONT = `-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif`;
 
+// Every name, title and link that goes into an email's HTML is escaped
+// here, so a name like "<b>Eve</b>" reads as typed instead of as markup.
+function _escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function emailWrapper(origin, bodyHtml, footerNote, preheaderText) {
-  const logoUrl = `${origin}/icons/logo-email.png`;
+  const logoUrl = `${_escapeHtml(origin)}/icons/logo-email.png`;
   const year    = new Date().getFullYear();
   const preheader = preheaderText
     ? `<div style="display:none;font-size:1px;color:#0A0B0F;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${preheaderText}</div>`
@@ -213,7 +221,7 @@ ${preheader}
 
 function greeting(name) {
   return `<p class="nt-body-txt" style="margin:0 0 20px;font-size:15px;color:#8A93A8;line-height:1.7;">
-    Hi${name ? ' <strong style="color:#FFFFFF;">' + name + '</strong>' : ''},
+    Hi${name ? ' <strong style="color:#FFFFFF;">' + _escapeHtml(name) + '</strong>' : ''},
   </p>`;
 }
 
@@ -222,9 +230,9 @@ function ctaButton(href, label) {
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto;">
       <tr>
         <td align="center" style="border-radius:10px;background-color:#00C47A;">
-          <a href="${href}"
+          <a href="${_escapeHtml(href)}"
             style="display:inline-block;padding:14px 36px;font-family:${_FONT};font-size:15px;font-weight:700;color:#FFFFFF;text-decoration:none;border-radius:10px;letter-spacing:0.01em;">
-            ${label}
+            ${_escapeHtml(label)}
           </a>
         </td>
       </tr>
@@ -234,7 +242,7 @@ function ctaButton(href, label) {
 function fallbackUrl(url) {
   return `<p class="nt-expiry" style="margin:24px 0 0;font-family:${_FONT};font-size:12px;color:#4A5268;text-align:center;line-height:1.6;">
     Button not working? Copy this link into your browser:<br/>
-    <a class="nt-fb-url" href="${url}" style="color:#00C47A;word-break:break-all;font-size:11px;">${url}</a>
+    <a class="nt-fb-url" href="${_escapeHtml(url)}" style="color:#00C47A;word-break:break-all;font-size:11px;">${_escapeHtml(url)}</a>
   </p>`;
 }
 
@@ -269,7 +277,7 @@ export async function sendPasswordReset(email, resetUrl) {
 export async function sendInvite(email, inviteUrl, inviterName) {
   const origin  = new URL(inviteUrl).origin;
   const sender  = inviterName
-    ? `<strong style="color:#FFFFFF;">${inviterName}</strong> has invited you to join`
+    ? `<strong style="color:#FFFFFF;">${_escapeHtml(inviterName)}</strong> has invited you to join`
     : `You&rsquo;ve been invited to join`;
 
   const body = `
@@ -294,7 +302,7 @@ export async function sendInvite(email, inviteUrl, inviterName) {
   await sendMail({
     to: email,
     subject: `You've been invited to NutriTrace`,
-    html: emailWrapper(origin, body, null, `${inviterName || 'Someone'} invited you to NutriTrace — accept within 7 days.`),
+    html: emailWrapper(origin, body, null, `${_escapeHtml(inviterName || 'Someone')} invited you to NutriTrace — accept within 7 days.`),
     text: `${inviterName ? inviterName + ' has invited you' : "You've been invited"} to join NutriTrace.\n\nAccept your invitation:\n${inviteUrl}\n\nThis invite expires in 7 days.`,
   });
 }
@@ -305,8 +313,10 @@ export async function sendInvite(email, inviteUrl, inviterName) {
 export async function sendFoodShared(email, foodName, sharerName, viewUrl) {
   if (!email) return;
   const origin = new URL(viewUrl).origin;
-  const safeFood   = String(foodName   || 'a food');
-  const safeSharer = String(sharerName || 'Someone');
+  const foodText   = String(foodName   || 'a food');
+  const sharerText = String(sharerName || 'Someone');
+  const safeFood   = _escapeHtml(foodText);
+  const safeSharer = _escapeHtml(sharerText);
   const body = `
     ${greeting(null)}
     <p class="nt-heading" style="margin:0 0 10px;font-size:20px;font-weight:700;color:#FFFFFF;line-height:1.3;">
@@ -324,7 +334,7 @@ export async function sendFoodShared(email, foodName, sharerName, viewUrl) {
     to: email,
     subject: 'Someone shared a food with you',
     html: emailWrapper(origin, body, null, `${safeSharer} shared "${safeFood}" with you on NutriTrace.`),
-    text: `${safeSharer} shared "${safeFood}" with you on NutriTrace.\n\nOpen it: ${viewUrl}`,
+    text: `${sharerText} shared "${foodText}" with you on NutriTrace.\n\nOpen it: ${viewUrl}`,
   });
 }
 
@@ -334,8 +344,10 @@ export async function sendFoodShared(email, foodName, sharerName, viewUrl) {
 export async function sendMealShared(email, mealName, sharerName, viewUrl) {
   if (!email) return;
   const origin = new URL(viewUrl).origin;
-  const safeMeal   = String(mealName   || 'a meal');
-  const safeSharer = String(sharerName || 'Someone');
+  const mealText   = String(mealName   || 'a meal');
+  const sharerText = String(sharerName || 'Someone');
+  const safeMeal   = _escapeHtml(mealText);
+  const safeSharer = _escapeHtml(sharerText);
   const body = `
     ${greeting(null)}
     <p class="nt-heading" style="margin:0 0 10px;font-size:20px;font-weight:700;color:#FFFFFF;line-height:1.3;">
@@ -353,7 +365,7 @@ export async function sendMealShared(email, mealName, sharerName, viewUrl) {
     to: email,
     subject: 'Someone shared a meal with you',
     html: emailWrapper(origin, body, null, `${safeSharer} shared "${safeMeal}" with you on NutriTrace.`),
-    text: `${safeSharer} shared "${safeMeal}" with you on NutriTrace.\n\nOpen it: ${viewUrl}`,
+    text: `${sharerText} shared "${mealText}" with you on NutriTrace.\n\nOpen it: ${viewUrl}`,
   });
 }
 
@@ -363,13 +375,13 @@ function _statRow(label, value, unit = '') {
   if (value == null) return '';
   return `
     <tr>
-      <td class="nt-stat-lbl nt-stat-div" style="padding:8px 0;font-family:${_FONT};font-size:14px;color:#8A93A8;border-bottom:1px solid #1E2330;">${label}</td>
-      <td class="nt-stat-val nt-stat-div" style="padding:8px 0;font-family:${_FONT};font-size:14px;font-weight:600;color:#FFFFFF;text-align:right;border-bottom:1px solid #1E2330;">${value}${unit ? ' <span style="font-weight:400;color:#5A6278;">' + unit + '</span>' : ''}</td>
+      <td class="nt-stat-lbl nt-stat-div" style="padding:8px 0;font-family:${_FONT};font-size:14px;color:#8A93A8;border-bottom:1px solid #1E2330;">${_escapeHtml(label)}</td>
+      <td class="nt-stat-val nt-stat-div" style="padding:8px 0;font-family:${_FONT};font-size:14px;font-weight:600;color:#FFFFFF;text-align:right;border-bottom:1px solid #1E2330;">${_escapeHtml(value)}${unit ? ' <span style="font-weight:400;color:#5A6278;">' + _escapeHtml(unit) + '</span>' : ''}</td>
     </tr>`;
 }
 
 function _sectionHeader(label) {
-  return `<p class="nt-section" style="margin:24px 0 8px;font-family:${_FONT};font-size:13px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#00C47A;">${label}</p>`;
+  return `<p class="nt-section" style="margin:24px 0 8px;font-family:${_FONT};font-size:13px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#00C47A;">${_escapeHtml(label)}</p>`;
 }
 
 export async function sendWeeklySummaryEmail(userId, origin) {
