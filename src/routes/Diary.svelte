@@ -604,6 +604,81 @@
     };
   });
 
+  // #207: the day status bar is fixed and portaled to <body>, so it cannot
+  // follow the sticky date bar (or the desktop week strip) on its own. Its
+  // top used to be a hard-coded guess of that stack's height, which fell
+  // short of the real bar and let the status bar ride up over it. Measure
+  // the real bottom edge instead, and size the content's top padding from
+  // the bar's real height so the first card clears it.
+  const DDS_GAP_PX = 8;     // space between the date bar and the status bar
+  const DDS_CARD_GAP_PX = 12; // space between the status bar and the first card
+  let _diaryHeaderEl = null;
+  let _dateBarEl = null;
+  let _weekStripWrapEl = null;
+  let _dayStatusEl = null;
+  let _dayStatusTopPx = null;  // exposed as --dds-top on the portaled bar
+  let _dayStatusPadPx = null;  // exposed as --dds-pad on .diary-content
+  function _measureDayStatus() {
+    if (!_dateBarEl || !_dayStatusEl || !_diaryContentEl || !_diaryHeaderEl) return;
+    if (!_dateBarEl.offsetHeight) return; // not laid out yet
+    // Where each sticky bar sits at scroll 0: its flow position, or its pin
+    // if that is lower. Worked out from the header (sticky at 0, so its
+    // bottom never moves) rather than read live, so the answer is the same
+    // whether or not the page is scrolled when this runs.
+    const pin = (el) => { const v = parseFloat(getComputedStyle(el).top); return Number.isFinite(v) ? v : 0; };
+    const headerBottom = _diaryHeaderEl.getBoundingClientRect().bottom;
+    let stackBottom = Math.max(pin(_dateBarEl), headerBottom) + _dateBarEl.offsetHeight;
+    // The week strip extends the stack only when it is shown (desktop, not
+    // force-mobile); its CSS decides that. Its flow top is the date bar's
+    // flow bottom.
+    if (_weekStripWrapEl && getComputedStyle(_weekStripWrapEl).display !== 'none') {
+      const stripFlowTop = headerBottom + _dateBarEl.offsetHeight;
+      stackBottom = Math.max(pin(_weekStripWrapEl), stripFlowTop) + _weekStripWrapEl.offsetHeight;
+    }
+    const topPx = Math.round(stackBottom + DDS_GAP_PX);
+    // Content starts right under the stack in normal flow; pad it so the
+    // first card sits a card gap below the status bar at scroll 0.
+    const contentTop = _diaryContentEl.getBoundingClientRect().top + pageScrollTop(_diaryContentEl);
+    const padPx = Math.max(0, Math.ceil(topPx + _dayStatusEl.offsetHeight + DDS_CARD_GAP_PX - contentTop));
+    const padChanged = padPx !== _dayStatusPadPx;
+    if (topPx !== _dayStatusTopPx) _dayStatusTopPx = topPx;
+    if (padChanged) {
+      _dayStatusPadPx = padPx;
+      // The desktop rail anchors to the content's top padding.
+      tick().then(() => requestAnimationFrame(_measureRail));
+    }
+  }
+  let _dayStatusResizeObs = null;
+  let _dayStatusObservedEl = null;
+  function _observeDayStatus(...els) {
+    if (!_dayStatusResizeObs) return;
+    // border-box: a safe-area inset that arrives after load grows the
+    // header's padding only, which a content-box observer would miss.
+    for (const el of els) if (el) _dayStatusResizeObs.observe(el, { box: 'border-box' });
+  }
+  onMount(() => {
+    try {
+      _dayStatusResizeObs = new ResizeObserver(() => _measureDayStatus());
+      _observeDayStatus(_diaryHeaderEl, _dateBarEl, _weekStripWrapEl, _dayStatusEl);
+    } catch { /* ResizeObserver unavailable: mount and resize measurements stand */ }
+    requestAnimationFrame(() => requestAnimationFrame(_measureDayStatus));
+    window.addEventListener('resize', _measureDayStatus);
+    return () => {
+      window.removeEventListener('resize', _measureDayStatus);
+      try { _dayStatusResizeObs?.disconnect(); } catch {}
+    };
+  });
+  // The bar mounts and unmounts with the setting, and swaps content when the
+  // day is closed or reopened; watch whichever element is current.
+  $: if (_dayStatusEl !== _dayStatusObservedEl) {
+    try { if (_dayStatusObservedEl) _dayStatusResizeObs?.unobserve(_dayStatusObservedEl); } catch {}
+    _dayStatusObservedEl = _dayStatusEl;
+    if (_dayStatusEl) {
+      _observeDayStatus(_dayStatusEl);
+      requestAnimationFrame(_measureDayStatus);
+    }
+  }
+
   // Polish batch 4: right-rail mode. Two states:
   //   'pinned' — rail always visible in the desktop grid (default)
   //   'hidden' — rail folded out of the grid; a small chevron tab
@@ -1856,7 +1931,7 @@
   </div>
 
   <!-- Standard page-header — identical to every other page -->
-  <header class="page-header diary-header" class:banner-gradient={$bannerStyle === 'gradient' && !selectMode} class:banner-animated={$bannerStyle === 'animated' && !selectMode}>
+  <header bind:this={_diaryHeaderEl} class="page-header diary-header" class:banner-gradient={$bannerStyle === 'gradient' && !selectMode} class:banner-animated={$bannerStyle === 'animated' && !selectMode}>
     {#if selectMode}
       <h1 class="select-mode-title">{selectedItems.size} selected</h1>
     {:else}
@@ -1865,7 +1940,7 @@
   </header>
 
   <!-- Date navigation — sticky sub-bar directly below the header -->
-  <div class="diary-date-bar">
+  <div bind:this={_dateBarEl} class="diary-date-bar">
     <button class="btn-icon accent" on:click={prevDay} aria-label={$_('diary.nav.previous_day')} title={$_('diary.nav.previous_day')}>
       <span class="material-symbols-rounded">chevron_left</span>
     </button>
@@ -1889,7 +1964,7 @@
   <!-- Week strip (Phase 6 desktop). Sticky below the date bar at
        ≥1280px; hidden on mobile. Data refetches whenever the diary
        store fires an update (bumps refreshKey). -->
-  <div class="diary-week-strip-wrap">
+  <div bind:this={_weekStripWrapEl} class="diary-week-strip-wrap">
     <!-- #180 — pass the UNADJUSTED base goal. caloriesGoalAdjusted
          mixes in the CURRENT day's activity kcal, and WeekStrip
          divides every day's food total by that same denominator,
@@ -1932,8 +2007,8 @@
       } catch {}
       return formatDate($currentDate);
     })()}
-    <div use:portal class="diary-day-status" class:complete={_dayIsComplete}
-      style="--sidebar-w-offset: var(--sidebar-w, 0px);">
+    <div use:portal bind:this={_dayStatusEl} class="diary-day-status" class:complete={_dayIsComplete}
+      style="--sidebar-w-offset: var(--sidebar-w, 0px);{_dayStatusTopPx != null ? ` --dds-top: ${_dayStatusTopPx}px;` : ''}">
       {#if _dayIsComplete}
         <span class="dds-icon material-symbols-rounded">task_alt</span>
         <span class="dds-text">
@@ -1984,7 +2059,7 @@
     class:rail-notes-active={$diaryRailShowNotes && $diaryShowNotes}
     class:rail-hidden={_railMode === 'hidden'}
     class:day-loading={_daySwapLoading}
-    style="padding-bottom:{contentPad}"
+    style="padding-bottom:{contentPad};{_dayStatusPadPx != null ? ` --dds-pad: ${_dayStatusPadPx}px;` : ''}"
   >
     <!-- Main column: meal groups + activities + notes. On desktop
          (≥1280px) this sits inside a 2-col grid alongside the right
@@ -3300,9 +3375,13 @@
      with no ancestor containing-block gotchas. left accounts for the
      desktop sidebar rail via --sidebar-w. Stays put period regardless
      of what happens in .page-transition. */
+  /* --dds-top is the measured bottom of the date bar (or the desktop week
+     strip) plus a gap, set inline by _measureDayStatus. The calcs here and
+     for --dds-pad are only first-frame fallbacks matching the usual
+     geometry: header (61px) + date bar (57px) + 8px gap. */
   :global(body > .diary-day-status) {
     position: fixed;
-    top: calc(var(--page-top, var(--safe-top)) + 108px + var(--hamburger-row, 0px));
+    top: var(--dds-top, calc(var(--page-top, var(--safe-top)) + 126px + var(--hamburger-row, 0px)));
     left: calc(var(--sidebar-w, 0px) + 12px);
     right: 12px;
     z-index: 40;
@@ -3322,13 +3401,13 @@
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     transition: background 200ms, border-color 200ms;
   }
-  /* Content beneath the fixed bar needs top padding equal to the bar's
-     own height so the first meal card is not covered on the initial
-     render. Applied via body-level class toggle instead of hard-coding
+  /* Content beneath the fixed bar needs top padding that clears the bar
+     (gap + its height + a card gap, measured into --dds-pad) so the first
+     meal card is not covered on the initial render. Applied via body-level class toggle instead of hard-coding
      into .diary-content because the bar only exists when the setting
      is on. */
   :global(body.has-day-status) .diary-content {
-    padding-top: 40px;
+    padding-top: var(--dds-pad, 44px);
   }
   :global(.diary-day-status.complete) {
     background: color-mix(in srgb, var(--success, #10b981) 10%, var(--surface-1));
@@ -3393,12 +3472,15 @@
      the sidebar-offset viewport (no manual sidebar math needed). */
   @media (min-width: 1280px) {
     :global(html:not(.force-mobile-layout) body > .diary-day-status) {
-      top: calc(var(--page-top, var(--safe-top)) + 200px + var(--hamburger-row, 0px));
+      top: var(--dds-top, calc(var(--page-top, var(--safe-top)) + 210px + var(--hamburger-row, 0px)));
+    }
+    :global(html:not(.force-mobile-layout) body.has-day-status) .diary-content {
+      padding-top: var(--dds-pad, 48px);
     }
   }
   @media (max-width: 480px) {
     .diary-day-status {
-      margin: 4px 8px 0;
+      margin: 0 8px;
       padding: 2px 10px;
     }
     :global(.diary-day-status .dds-cta) {

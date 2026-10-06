@@ -27,6 +27,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Trace works with OpenAI-compatible endpoints that stream unless told not to** ([#258](https://github.com/TraceApps/nutritrace/issues/258), reported by @jsapede). Chat and Smart Log answers failed with "Unexpected non-whitespace character after JSON"; every request now asks for a single answer.
 - **Trace's tools work with OpenAI-compatible endpoints that check every field** ([#259](https://github.com/TraceApps/nutritrace/issues/259), reported by @jsapede). With AI set up on the server, a chat that used a tool could fail with `"name" is not supported by this endpoint`.
 - **Opening a recipe or food from CookTrace, Mealie, Open Food Facts or USDA no longer shows the one you opened before** ([#260](https://github.com/TraceApps/nutritrace/issues/260)). Every pick shared one saved draft, so the editor showed the previous pick's name, ingredients and nutrition, and a new food could open filled in too (also after **Open existing** on the duplicate-barcode warning). Typing you leave in an item still comes back when you reopen that same item, and after a scan of an unknown barcode, **Add food** still brings it back. Thanks @herver1971.
+- **The Diary's day status bar (Mark Day Complete) sits below the date bar instead of running into it**, at every screen size, in the browser and the Android app.
 
 ### Security
 
