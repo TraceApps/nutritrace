@@ -405,7 +405,7 @@ function parse(row) {
   }
   return {
     ...row,
-    items:            freshenItemImages(hydrateItems(fixCachedPaths(items))),
+    items:            freshenItemImages(hydrateItems(fixCachedPaths(items), row.user_id ?? null), row.user_id ?? null),
     body_stats:       JSON.parse(row.body_stats || '{}'),
     water:            JSON.parse(row.water      || '[]'),
     notes:            row.notes || '',

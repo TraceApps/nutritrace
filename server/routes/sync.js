@@ -89,7 +89,7 @@ function parse(row) {
 function parseDiary(row) {
   const parsed = parse(row);
   if (parsed && Array.isArray(parsed.items)) {
-    parsed.items = freshenItemImages(hydrateItems(parsed.items));
+    parsed.items = freshenItemImages(hydrateItems(parsed.items, row.user_id ?? null), row.user_id ?? null);
   }
   return parsed;
 }
@@ -173,6 +173,15 @@ router.get('/pull', wrap((req, res) => {
   res.json({ foods, meals, diary, diary_tombstones, activity, fasts, settings, wellness, workouts, chat_history, server_time: serverTime });
 }));
 
+// A pushed row's id must be this account's own row. A phone could send an
+// id it never had a right to (or one from another account signed in on the
+// same device), and the push used to write whatever row it named.
+// Same rule as the REST routes: with user management off, every row is
+// the operator's.
+function _ownsRow(row, u) {
+  return u == null || row.user_id === u;
+}
+
 // ── POST /push ───────────────────────────────────────────────────────────────
 // Receives batch of changed records from the client.
 // Each record has: client_id, server_id (if previously synced), and the data fields.
@@ -207,10 +216,12 @@ router.post('/push', wrap(async (req, res) => {
       // (e.g. after a disaster-recovery push from a device whose cached IDs
       // are now stale), fall through to INSERT instead of silently no-op-ing.
       const existing = f.server_id
-        ? db.prepare('SELECT updated_at FROM foods WHERE id = ?').get(f.server_id)
+        ? db.prepare('SELECT updated_at, user_id FROM foods WHERE id = ?').get(f.server_id)
         : null;
       if (f.server_id && existing) {
-        if (norm(f.updated_at) >= norm(existing.updated_at)) {
+        // Only this account's own row changes (as PUT /api/... does); anyone
+        // else's is answered as if the push lost the time check.
+        if (_ownsRow(existing, u) && norm(f.updated_at) >= norm(existing.updated_at)) {
           if (f.deleted_at) {
             db.prepare(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(f.server_id);
           } else {
@@ -260,10 +271,12 @@ router.post('/push', wrap(async (req, res) => {
     // ── Meals ────────────────────────────────────────────────────────────
     for (const m of meals) {
       const existing = m.server_id
-        ? db.prepare('SELECT updated_at FROM meals WHERE id = ?').get(m.server_id)
+        ? db.prepare('SELECT updated_at, user_id FROM meals WHERE id = ?').get(m.server_id)
         : null;
       if (m.server_id && existing) {
-        if (norm(m.updated_at) >= norm(existing.updated_at)) {
+        // Only this account's own row changes (as PUT /api/... does); anyone
+        // else's is answered as if the push lost the time check.
+        if (_ownsRow(existing, u) && norm(m.updated_at) >= norm(existing.updated_at)) {
           if (m.deleted_at) {
             db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(m.server_id);
           } else {
@@ -421,10 +434,12 @@ router.post('/push', wrap(async (req, res) => {
         ? Math.max(0, Math.min(25, Number(a.met))) : null;
       const isTplVal = a.is_template ? 1 : 0;
       const existing = a.server_id
-        ? db.prepare('SELECT updated_at FROM activity_log WHERE id = ?').get(a.server_id)
+        ? db.prepare('SELECT updated_at, user_id FROM activity_log WHERE id = ?').get(a.server_id)
         : null;
       if (a.server_id && existing) {
-        if (norm(a.updated_at) >= norm(existing.updated_at)) {
+        // Only this account's own row changes (as PUT /api/... does); anyone
+        // else's is answered as if the push lost the time check.
+        if (_ownsRow(existing, u) && norm(a.updated_at) >= norm(existing.updated_at)) {
           if (a.deleted_at) {
             db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(a.server_id);
           } else {
@@ -453,10 +468,12 @@ router.post('/push', wrap(async (req, res) => {
     // ── Fasts (intermittent fasting tracker) ─────────────────────────────
     for (const f of fasts) {
       const existing = f.server_id
-        ? db.prepare('SELECT updated_at FROM fasts WHERE id = ?').get(f.server_id)
+        ? db.prepare('SELECT updated_at, user_id FROM fasts WHERE id = ?').get(f.server_id)
         : null;
       if (f.server_id && existing) {
-        if (norm(f.updated_at) >= norm(existing.updated_at)) {
+        // Only this account's own row changes (as PUT /api/... does); anyone
+        // else's is answered as if the push lost the time check.
+        if (_ownsRow(existing, u) && norm(f.updated_at) >= norm(existing.updated_at)) {
           if (f.deleted_at) {
             db.prepare(`UPDATE fasts SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(f.server_id);
           } else {
