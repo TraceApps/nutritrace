@@ -21,7 +21,7 @@
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, energyUnit, showUnitMetadata, warnUnitMismatch, catName as _catName, catDisplay as _catDisplay, disableAnimations } from '../stores/settings.js';
   import { callAI, callAIProxy } from '../lib/aiChat.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
-  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist } from '../lib/editor-draft.js';
+  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
   import { acquireScreenWakeLock } from '../lib/wake-lock.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
 
@@ -173,10 +173,12 @@
   // lives on editorState.foodPrefill.id. Without this, every session
   // shares one 'new' draft key and typing while editing food A leaks
   // into a subsequent "add new food" (Wildenhaus, #157).
-  $: _draftKey = _mkDraftKey('food', params?.id ?? editorState.foodPrefill?.id ?? null);
+  // Worked out once, as the editor opens: a key that followed editorState
+  // would switch mid-edit when the editor resets it ("Open existing") and
+  // write this form into another item's draft.
+  const _draftKey = _mkDraftKey('food', params?.id ?? editorState.foodPrefill?.id ?? null, editorState.foodPrefill);
   let _draftReady = false;      // gate: don't persist before onMount overlays the draft
-  let _persistDraft = null;
-  $: if (_draftKey) _persistDraft = makeDebouncedPersist(_draftKey, 400);
+  const _persistDraft = makeDebouncedPersist(_draftKey, 400);
   // Fire on every food change once we're past mount. Debounced inside
   // makeDebouncedPersist so rapid typing collapses into a single write.
   $: if (_draftReady && _persistDraft) _persistDraft(food);
@@ -582,6 +584,7 @@
 
 
   onMount(async () => {
+    sweepDrafts();
     store = editorState.foodStore || 'foodList';
     // Cache the user's library for duplicate-barcode detection. Best-effort —
     // if the call fails the duplicate warning just stays inactive.
@@ -627,7 +630,12 @@
     _serverBaseline = { ...food };
     try {
       const _draft = loadDraft(_draftKey);
-      if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0) {
+      // A scan of an unknown barcode shares the blank-item draft (#157: a
+      // label photo can get the app killed), so only bring it back onto a
+      // scan of that same barcode.
+      const _otherScan = editorState.foodPrefill?.barcode && _draft?.barcode
+        && String(_draft.barcode) !== String(editorState.foodPrefill.barcode);
+      if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0 && !_otherScan) {
         food = { ...food, ..._draft };
         _draftRestored = true;
       }

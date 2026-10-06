@@ -1094,7 +1094,8 @@
     _saveScrollState();
     editorState.mealPrefill  = item ? { ...item } : null;
     editorState.mealIsRecipe = isRecipe;
-    push(item ? '/meal-editor/' + item.id : '/meal-editor');
+    // A pick from CookTrace has no id yet: no "/meal-editor/undefined".
+    push(item && item.id != null ? '/meal-editor/' + item.id : '/meal-editor');
   }
 
   async function pickFood(food, sourceHint) {

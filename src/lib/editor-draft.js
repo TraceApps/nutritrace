@@ -38,10 +38,33 @@ const TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 function _now() { return Date.now(); }
 
 /** Build a namespaced draft key. `kind` = 'food' | 'meal'. `id` = the
- *  edited row's id, or null / undefined for a new (create) draft. */
-export function draftKey(kind, id) {
-  if (id != null) return `nt:${kind}:draft:edit:${id}`;
+ *  edited row's id, or null / undefined for a new (create) draft.
+ *  `prefill` = what the editor opened with: a pick from CookTrace, Mealie,
+ *  Open Food Facts or USDA has no id yet, so it gets a key of its own from
+ *  what identifies it. Without that every pick shared one key, and
+ *  opening one showed the last one's draft (#260). */
+export function draftKey(kind, id, prefill = null) {
+  if (id != null && id !== '' && id !== 'undefined') return `nt:${kind}:draft:edit:${id}`;
+  const pick = pickIdentity(prefill);
+  if (pick) return `nt:${kind}:draft:pick:${pick}`;
   return `nt:${kind}:draft:new`;
+}
+
+/** What identifies a prefilled item that has no id yet, or null. A scan
+ *  of an unknown barcode (a prefill with nothing but the barcode) stays on
+ *  the blank-item draft, so after the app is killed mid-entry (#157: the
+ *  label photo) "Add food" still brings the typing back. */
+export function pickIdentity(p) {
+  if (!p || typeof p !== 'object') return null;
+  if (p.source_app && p.source_external_id) return `${p.source_app}:${p.source_external_id}`;
+  if (p._mealieSlug) return `mealie:${p._mealieSlug}`;
+  if (!String(p.name || '').trim()) return null;
+  if (p.barcode) return `barcode:${p.barcode}`;
+  // Any other prefill with a name: its name and brand, so a different
+  // item never picks up this one's draft.
+  const name = String(p.name || '').trim().toLowerCase();
+  if (name) return `name:${name}|${String(p.brand || '').trim().toLowerCase()}`;
+  return null;
 }
 
 // ── IndexedDB (photo) helpers ─────────────────────────────────────────
@@ -215,4 +238,20 @@ export function makeDebouncedPersist(key, delayMs = 400) {
     if (timer) { clearTimeout(timer); timer = null; }
   };
   return persist;
+}
+
+/** Remove expired drafts (text and photo). Every item opened keeps its
+ *  own draft, so they're swept here rather than left to pile up. Also
+ *  drops the key every CookTrace recipe used to share (#260). */
+export function sweepDrafts() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    clearDraft('nt:meal:draft:edit:undefined');
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && /^nt:(food|meal):draft:/.test(k)) keys.push(k);
+    }
+    for (const k of keys) loadDraft(k);
+  } catch { /* storage unavailable: nothing to sweep */ }
 }

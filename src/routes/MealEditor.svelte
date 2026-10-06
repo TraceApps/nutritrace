@@ -21,7 +21,7 @@
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, visibleNutriments, nutrimentsOrder, catName as _catName, catDisplay as _catDisplay, energyUnit, foodsSort, mealsSort, recipesSort, offEnabled, usdaEnabled, usdaApiKey } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
-  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist } from '../lib/editor-draft.js';
+  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { foldText } from '../lib/search-text.js';
 
@@ -68,10 +68,12 @@
   // editorState.mealPrefill.id. Without this, editing meal A leaks
   // into the next "add new meal" (same class of bug as FoodEditor,
   // fixed together for Wildenhaus's #157 feedback).
-  $: _draftKey = _mkDraftKey('meal', params?.id ?? editorState.mealPrefill?.id ?? null);
+  // Worked out once, as the editor opens: a key that followed editorState
+  // would switch mid-edit when the editor resets it ("Open existing") and
+  // write this form into another item's draft.
+  const _draftKey = _mkDraftKey('meal', params?.id ?? editorState.mealPrefill?.id ?? null, editorState.mealPrefill);
   let _draftReady = false;
-  let _persistDraft = null;
-  $: if (_draftKey) _persistDraft = makeDebouncedPersist(_draftKey, 400);
+  const _persistDraft = makeDebouncedPersist(_draftKey, 400);
   // Bundle every field the user can mutate before save. Transient
   // picker/camera UI state is deliberately NOT persisted.
   $: _draftState = { meal, photoPreviewUrl, recipeAmount, recipeUnit, recipeYields, isRecipe };
@@ -144,6 +146,7 @@
 
 
   onMount(async () => {
+    sweepDrafts();
     isRecipe = editorState.mealIsRecipe || false;
     store    = isRecipe ? 'recipes' : 'meals';
     if (editorState.mealPrefill) {
