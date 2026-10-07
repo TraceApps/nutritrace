@@ -43,12 +43,23 @@ function _stopTicking() {
 
 /** Load active fast + recent history. Called on Diary mount + after each
  *  start/end so the widget reflects current state without a manual refresh. */
+let _userGen = 0;
+/** The account changed or signed out (lib/user-state.js): drop its fasts. */
+export function resetFastingState() {
+  _userGen++;
+  activeFast.set(null);
+  fastHistory.set([]);
+  _stopTicking();
+}
+
 export async function loadFasting() {
+  const gen = _userGen;
   try {
     const [active, history] = await Promise.all([
       NtApi.get('/api/fasts/active').catch(() => null),
       NtApi.get('/api/fasts?limit=60').catch(() => []),
     ]);
+    if (gen !== _userGen) return; // read for the account before
     activeFast.set(active && active.id ? active : null);
     fastHistory.set(Array.isArray(history) ? history : []);
     if (get(activeFast)) _startTicking();

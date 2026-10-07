@@ -16,6 +16,14 @@ export const manualKcal = derived(dayActivity, $rows =>
 
 let _loadVer = 0;
 
+/** The account changed or signed out (lib/user-state.js): drop its day.
+ *  A load still running for it is dropped too (_loadVer). */
+export function resetActivityState() {
+  _loadVer++;
+  dayActivity.set([]);
+  activitySummary.set({ manual: 0, wearable: 0, effective: 0, policy: 'wearable_wins' });
+}
+
 export async function loadActivity(dateStr) {
   const myVer = ++_loadVer;
   let policy = 'wearable_wins';

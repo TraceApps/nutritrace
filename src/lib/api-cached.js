@@ -13,6 +13,7 @@ import {
   dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood, dbBumpFoodUsage,
   dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal, dbBumpMealUsage,
   dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary, dbSetDiaryCompletion, dbSetMealCompletion,
+  dbQueueCompletionOp,
 } from './db-native.js';
 import {
   getServerUrl,
@@ -21,7 +22,7 @@ import {
   restoreCachedAssetUrl,
   apiUrl,
 } from './platform.js';
-import { schedulePush } from './sync.js';
+import { schedulePush, flushCompletionOps } from './sync.js';
 
 function _headers() {
   const h = { 'Content-Type': 'application/json' };
@@ -81,6 +82,15 @@ function _stripResolvedImgUrl(url) {
     } catch {}
   }
   return url;
+}
+
+// Send a change to the server now, for a row the server already has.
+// A row that hasn't been pushed yet has no server id, and its local id
+// means nothing there (it used to be sent anyway, and could edit or delete
+// a different row of the same account): the sync push carries it instead.
+function _sendOrQueue(serverId, method, path, body) {
+  if (!serverId) { schedulePush(); return; }
+  _serverFetch(method, path(serverId), body).catch(() => schedulePush());
 }
 
 function _foodFromApi(row) {
@@ -148,16 +158,14 @@ export const NtApiCached = {
   async updateFood(id, data) {
     const local = await dbUpdateFood(id, _foodToApi(data));
     // Try server in background
-    const serverId = local?.server_id || id;
-    _serverFetch('PUT', `/api/foods/${serverId}`, _foodToApi(data)).catch(() => schedulePush());
+    _sendOrQueue(local?.server_id, 'PUT', sid => `/api/foods/${sid}`, _foodToApi(data));
     return _foodFromApi(local);
   },
 
   async deleteFood(id) {
     await dbDeleteFood(id);
     const food = await dbGetFood(id).catch(() => null);
-    const serverId = food?.server_id || id;
-    _serverFetch('DELETE', `/api/foods/${serverId}`).catch(() => schedulePush());
+    _sendOrQueue(food?.server_id, 'DELETE', sid => `/api/foods/${sid}`);
     return { ok: true };
   },
 
@@ -180,8 +188,8 @@ export const NtApiCached = {
   async markFoodUsed(id, date) {
     const food = await dbGetFood(id).catch(() => null);
     await dbBumpFoodUsage(id, date);
-    const serverId = food?.server_id || id;
-    _serverFetch('POST', `/api/foods/${serverId}/used`, { date }).catch(() => schedulePush());
+    // Not pushed yet: the push carries the count with the food.
+    if (food?.server_id) _serverFetch('POST', `/api/foods/${food.server_id}/used`, { date }).catch(() => schedulePush());
     return { ok: true };
   },
 
@@ -219,16 +227,14 @@ export const NtApiCached = {
 
   async updateMeal(id, data) {
     const local = await dbUpdateMeal(id, _mealToApi(data));
-    const serverId = local?.server_id || id;
-    _serverFetch('PUT', `/api/meals/${serverId}`, _mealToApi(data)).catch(() => schedulePush());
+    _sendOrQueue(local?.server_id, 'PUT', sid => `/api/meals/${sid}`, _mealToApi(data));
     return _mealFromApi(local);
   },
 
   async deleteMeal(id) {
     const meal = await dbGetMeal(id).catch(() => null);
     await dbDeleteMeal(id);
-    const serverId = meal?.server_id || id;
-    _serverFetch('DELETE', `/api/meals/${serverId}`).catch(() => schedulePush());
+    _sendOrQueue(meal?.server_id, 'DELETE', sid => `/api/meals/${sid}`);
     return { ok: true };
   },
 
@@ -245,8 +251,7 @@ export const NtApiCached = {
   async markMealUsed(id, date) {
     const meal = await dbGetMeal(id).catch(() => null);
     await dbBumpMealUsage(id, date);
-    const serverId = meal?.server_id || id;
-    _serverFetch('POST', `/api/meals/${serverId}/used`, { date }).catch(() => schedulePush());
+    if (meal?.server_id) _serverFetch('POST', `/api/meals/${meal.server_id}/used`, { date }).catch(() => schedulePush());
     return { ok: true };
   },
 
@@ -259,7 +264,18 @@ export const NtApiCached = {
 
   async saveDiaryDate(date, data) {
     const local = await dbSaveDiaryDate(date, data);
-    _serverFetch('PUT', `/api/diary/${date}`, data).catch(() => schedulePush());
+    // The day's note goes only when it was edited here, with when (the
+    // newer note wins on the server); otherwise the server keeps its own,
+    // which may be newer than the copy here. A server before sync_version
+    // 2 clears a note a save leaves out, so it gets the note every time,
+    // as it always did.
+    const { notes: _n, notes_updated_at: _a, ...rest } = data || {};
+    const { serverKeepsNotes } = await import('./local-account.js');
+    const keepsNotes = await serverKeepsNotes().catch(() => false);
+    const body = (local?.notes_dirty || !keepsNotes)
+      ? { ...rest, notes: local?.notes || '', notes_updated_at: local?.notes_updated_at, client_now: new Date().toISOString() }
+      : rest;
+    _serverFetch('PUT', `/api/diary/${date}`, body).catch(() => schedulePush());
     return local || await dbGetDiaryDate(date);
   },
 
@@ -267,21 +283,22 @@ export const NtApiCached = {
     return await dbGetAllDiary().catch(() => []);
   },
 
-  // #207: local-first mark/unmark a day complete. Best-effort push to
-  // the server; if offline, the row goes to the sync queue via
-  // sync_status='pending' and schedulePush covers it.
+  // #207: local-first mark/unmark a day complete. The mark is queued and
+  // sent through the one completion queue (sync.js flushCompletionOps), in
+  // order; if it can't go now, the next sync sends it (the diary push
+  // itself never carries marks, so an offline change used to be undone).
   async setDiaryCompletion(date, completed) {
     const completedAt = await dbSetDiaryCompletion(date, !!completed);
-    _serverFetch('PUT', `/api/diary/${date}/completion`, { completed: !!completed })
-      .catch(() => schedulePush());
+    await dbQueueCompletionOp(date, null, !!completed);
+    flushCompletionOps().catch(() => schedulePush());
     return { ok: true, date, completed_at: completedAt };
   },
 
   // #207 (per-meal): local-first mark/unmark a meal slot. Same shape.
   async setDiaryMealCompletion(date, slot, completed) {
     const arr = await dbSetMealCompletion(date, Number(slot), !!completed);
-    _serverFetch('PUT', `/api/diary/${date}/meal-completion`, { slot: Number(slot), completed: !!completed })
-      .catch(() => schedulePush());
+    await dbQueueCompletionOp(date, Number(slot), !!completed);
+    flushCompletionOps().catch(() => schedulePush());
     return { ok: true, date, completed_meals: arr };
   },
 

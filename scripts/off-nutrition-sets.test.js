@@ -34,7 +34,7 @@ function realApi({ perServing = false, fetchSets = async () => ({ ok: false }) }
   const success = src.slice(src.indexOf('function _isOffSuccess'), src.indexOf('\n}\n', src.indexOf('function _isOffSuccess')) + 3);
   const calls = [];
   const localStorage = { getItem: (k) => (perServing && /offImportPortion/.test(k) ? '"perServing"' : null) };
-  const make = new Function('offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', 'asSoldNutriments', '_extFetch',
+  const make = new Function('offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', 'asSoldNutriments', '_extFetch', 'settingPrefix',
     `${table}\n${registry}\n${success}\nreturn {
       OFF_BASE: 'https://world.openfoodfacts.org',
       _mapOFFProduct(p, { full = false } = {}) { ${body('  _mapOFFProduct(p, { full = false } = {}) {', '\n  }\n')} },
@@ -42,7 +42,7 @@ function realApi({ perServing = false, fetchSets = async () => ({ ok: false }) }
       info: (code) => _offInfo.get(String(code)) || null,
     };`);
   const api = make(offProductName, () => 'en', localStorage, Nutrition, asSoldNutriments,
-    async (url, opts) => { calls.push({ url, live: !!opts?.live }); return fetchSets(url); });
+    async (url, opts) => { calls.push({ url, live: !!opts?.live }); return fetchSets(url); }, () => 'wl_');
   return { api, calls };
 }
 const reply = (body) => async () => ({ ok: true, json: async () => body });

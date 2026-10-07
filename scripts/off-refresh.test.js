@@ -114,8 +114,8 @@ function realMapper() {
   const t = src.indexOf('const _OFF_NUTRIENTS = [');
   assert.ok(b > a && t > 0, 'and _OFF_NUTRIENTS');
   const table = src.slice(t, src.indexOf('];', t) + 2);
-  const fn = new Function('p', 'full', 'offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', '_rememberOffInfo', table + '\n' + src.slice(a, b));
-  return (p) => fn(p, true, offProductName, () => 'en', { getItem: () => null }, Nutrition, () => {});
+  const fn = new Function('p', 'full', 'offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', '_rememberOffInfo', 'settingPrefix', table + '\n' + src.slice(a, b));
+  return (p) => fn(p, true, offProductName, () => 'en', { getItem: () => null }, Nutrition, () => {}, () => 'wl_');
 }
 
 test('the reported product: the mapper sees no as-sold values and flags "as prepared"', () => {

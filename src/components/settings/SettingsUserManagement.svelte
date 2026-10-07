@@ -396,7 +396,13 @@
     localStorage.removeItem('nt:csrf');
     // Keep nt:cachedUserMgmt — user-management is a server-wide flag, not
     // a per-session one, so don't flicker the post-reload boot into wizard.
-    if (isNative) setAuthToken(null);
+    if (isNative) {
+      setAuthToken(null);
+      try {
+        const { forgetServerCookies } = await import('../../lib/local-account.js');
+        await forgetServerCookies();
+      } catch {}
+    }
     setTimeout(() => window.location.reload(), 300);
   }
 

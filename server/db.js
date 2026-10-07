@@ -683,6 +683,111 @@ try {
   console.warn(`[db] #37 diary consolidation failed:`, e.message || e);
 }
 
+// ── When the server last wrote a row (the Android pull's cursor) ──────────
+// updated_at on foods, meals, activities and fasts is when the edit was
+// made: a phone's push keeps its edit time (on the server's clock), so
+// last-write-wins compares edits, not arrivals. The pull can't use it as
+// its cursor, since an edit made offline is older than other devices' last
+// pull. changed_at is the server's time of every write, set by triggers so
+// no writer can miss it.
+for (const t of ['foods', 'meals', 'activity_log', 'fasts']) {
+  if (!columnExists(t, 'changed_at')) {
+    db.exec(`ALTER TABLE ${t} ADD COLUMN changed_at TEXT`);
+    db.exec(`UPDATE ${t} SET changed_at = COALESCE(updated_at, datetime('now'))`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_${t}_changed ON ${t}(changed_at);
+    CREATE TRIGGER IF NOT EXISTS trg_${t}_changed_ins AFTER INSERT ON ${t}
+    BEGIN UPDATE ${t} SET changed_at = datetime('now') WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_${t}_changed_upd AFTER UPDATE ON ${t}
+    FOR EACH ROW WHEN NEW.changed_at IS OLD.changed_at
+    BEGIN UPDATE ${t} SET changed_at = datetime('now') WHERE id = NEW.id; END;
+  `);
+}
+
+// ── Create keys (lib/create-keys.js) ──────────────────────────────────────
+// A row the Android app makes carries a stable key, so sending it twice
+// (a retry, a lost answer) makes it once.
+for (const t of ['foods', 'meals', 'activity_log', 'fasts']) {
+  if (!columnExists(t, 'client_key')) db.exec(`ALTER TABLE ${t} ADD COLUMN client_key TEXT DEFAULT NULL`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_client_key ON ${t}(user_id, client_key)`);
+}
+
+// ── When a day's note was last edited ─────────────────────────────────────
+// The sync push lets the newer note win (routes/sync.js). It sets this
+// itself; every other writer (the diary routes, imports, MCP, the API) is
+// stamped here when it changes the note, so none can be missed. Existing
+// notes get their day's last change, the latest they can be from.
+if (!columnExists('diary', 'notes_updated_at')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN notes_updated_at TEXT DEFAULT NULL`);
+  db.exec(`UPDATE diary SET notes_updated_at = updated_at WHERE notes IS NOT NULL`);
+}
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS trg_diary_notes_at_ins AFTER INSERT ON diary
+  FOR EACH ROW WHEN NEW.notes IS NOT NULL AND NEW.notes_updated_at IS NULL
+  BEGIN UPDATE diary SET notes_updated_at = datetime('now') WHERE id = NEW.id; END;
+  CREATE TRIGGER IF NOT EXISTS trg_diary_notes_at_upd AFTER UPDATE OF notes ON diary
+  FOR EACH ROW WHEN NEW.notes IS NOT OLD.notes AND NEW.notes_updated_at IS OLD.notes_updated_at
+  BEGIN UPDATE diary SET notes_updated_at = datetime('now') WHERE id = NEW.id; END;
+`);
+
+// When the day's completion mark, and each meal's, was last set or
+// cleared (routes/diary.js): a phone's mark made offline goes up later,
+// and an older one must not undo a newer one. Meals: JSON { slot: time }.
+if (!columnExists('diary', 'completion_marked_at')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN completion_marked_at TEXT DEFAULT NULL`);
+}
+if (!columnExists('diary', 'meal_marks_at')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN meal_marks_at TEXT DEFAULT NULL`);
+}
+
+// ── Deletions for devices ───────────────────────────────────────────────────
+// wellness_data and workouts have no deleted_at: rows go outright (Clear
+// all data, a wearable re-sync of a day, the Fitbit duplicate clean-up).
+// Each delete is noted here so /api/sync/pull can tell phones to drop
+// their copies; a row that exists again is left out there. One row per
+// deleted key, so a wearable that rewrites the same day every sync keeps
+// one note, not one per sync. user_id 0 (the pollers' single-user owner)
+// is kept as NULL, the single-user owner everywhere else.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sync_deletions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    table_name TEXT NOT NULL,
+    row_id     INTEGER,
+    row_key    TEXT NOT NULL,
+    deleted_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_deletions_key ON sync_deletions(table_name, row_key);
+  CREATE INDEX IF NOT EXISTS idx_sync_deletions_user ON sync_deletions(user_id, deleted_at);
+`);
+// Only while the account is there: rows of an account being deleted have
+// no device left to tell, and the note would fail the user_id reference.
+const _syncDelOwner = `CASE WHEN OLD.user_id = 0 THEN NULL ELSE OLD.user_id END`;
+const _syncDelWhen = `WHEN OLD.user_id IS NULL OR OLD.user_id = 0 OR EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id)`;
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS trg_workouts_sync_del AFTER DELETE ON workouts
+  FOR EACH ROW ${_syncDelWhen}
+  BEGIN
+    INSERT OR REPLACE INTO sync_deletions (user_id, table_name, row_id, row_key, deleted_at)
+    VALUES (${_syncDelOwner}, 'workouts', OLD.id, CAST(OLD.id AS TEXT), datetime('now'));
+  END;
+  CREATE TRIGGER IF NOT EXISTS trg_wellness_data_sync_del AFTER DELETE ON wellness_data
+  FOR EACH ROW ${_syncDelWhen}
+  BEGIN
+    INSERT OR REPLACE INTO sync_deletions (user_id, table_name, row_id, row_key, deleted_at)
+    VALUES (${_syncDelOwner}, 'wellness_data', OLD.id,
+      json_object('user_id', ${_syncDelOwner}, 'date', OLD.date, 'source', OLD.source, 'metric_type', OLD.metric_type),
+      datetime('now'));
+  END;
+`);
+// A year is far longer than any phone stays offline between syncs.
+try {
+  db.exec(`DELETE FROM sync_deletions WHERE deleted_at < datetime('now', '-365 days')`);
+} catch (e) {
+  console.warn('[db] sync_deletions prune skipped:', e?.message || e);
+}
+
 // ── Favorites + usage tracking (foods + meals) ─────────────────────────────
 // `favorite` pins items to the top of the picker; `usage_count` and
 // `last_used_at` drive the Most Used / Recently Used sort modes.

@@ -113,6 +113,15 @@ function safeUser(u) {
 }
 
 // ── Status: is user management active? ────────────────────────────────────
+// This server's random id (see /status), made once and kept in app_config.
+// Made again if a restore emptied app_config.
+function serverInstanceId() {
+  const row = db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get();
+  if (row?.value) return row.value;
+  db.prepare(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('instance_id', ?)`).run(crypto.randomUUID());
+  return db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get()?.value || null;
+}
+
 router.get('/status', wrap((req, res) => {
   const active = userMgmtActive();
   // setup_required tells the client whether to force the wizard's
@@ -138,6 +147,14 @@ router.get('/status', wrap((req, res) => {
     // Whether the sign-in cookie is HTTPS-only, so the login page can say up
     // front that signing in from a plain-HTTP page will not stick.
     secure_cookies: !_insecureCookies,
+    // A random id for this server, so the Android app can tell the same
+    // server at another address (LAN IP, domain) from a different one.
+    instance_id: serverInstanceId(),
+    // What the Android sync speaks. 2: notes and completion marks carry
+    // their edit time (newer wins), a save without a note keeps the
+    // day's note. Servers before this report none, and treat a save
+    // without a note as clearing it, so the app sends its note every time.
+    sync_version: 2,
   });
 }));
 

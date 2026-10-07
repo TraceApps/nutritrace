@@ -19,7 +19,7 @@
  */
 import { writable, get } from 'svelte/store';
 import {
-  applyDiaryOps, dayWithOps, buildDiaryPush, sentSeqs, pushError, isOfflineError, emptyDay,
+  applyDiaryOps, dayWithOps, buildDiaryPush, sentSeqs, pushError, isOfflineError, emptyDay, noteChangedAt,
   applyCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId,
   activeFastRow, fastList, newFastRow, fastWith, staleReadKeys,
 } from './offline-edits.js';
@@ -271,7 +271,10 @@ async function _addOp(op) {
 
 async function _queueDay(date, day) {
   const ops = await _loadOps();
-  const op = { type: 'diary', date, day, at: Date.now() };
+  const at = Date.now();
+  // Whether this save changed the note, against the day as it was shown.
+  const before = dayWithOps(await _all('diary'), ops, date);
+  const op = { type: 'diary', date, day, at, note_at: noteChangedAt(before, day, at) };
   const seq = await _addOp(op);
   // No database to queue into (private mode, no space): say so rather than
   // pretending the day was saved.
@@ -449,7 +452,8 @@ async function _flushOnce() {
   if (foodOps.length) {
     let foodResponse;
     try {
-      foodResponse = await _post('/api/sync/push', buildCatalogPush(foodOps));
+      // client_now: the server allows for this browser's clock (last write wins).
+      foodResponse = await _post('/api/sync/push', { ...buildCatalogPush(foodOps), client_now: new Date().toISOString() });
     } catch (err) {
       const offline = isOfflineError(err);
       _publish({ syncing: false, online: offline ? false : _online(), error: offline ? null : (err.message || 'failed') });
@@ -504,7 +508,7 @@ async function _flushOnce() {
   const mirror = await _all('diary');
   let response;
   try {
-    response = await _post('/api/sync/push', buildDiaryPush(diaryOps, mirror));
+    response = await _post('/api/sync/push', { ...buildDiaryPush(diaryOps, mirror), client_now: new Date().toISOString() });
   } catch (err) {
     const offline = isOfflineError(err);
     _publish({ syncing: false, online: offline ? false : _online(), error: offline ? null : (err.message || 'failed') });

@@ -31,6 +31,8 @@ import db from '../db.js';
 export const CLAIM_NULL = [
   'foods', 'meals', 'diary', 'diary_tombstones',
   'activity_log', 'fasts', 'ai_chat_history',
+  // Deletes waiting for phones to pull: they follow the rows they removed.
+  'sync_deletions',
 ];
 export const CLAIM_ZERO = [
   'fitbit_tokens', 'google_health_tokens', 'withings_tokens', 'garmin_tokens',

@@ -72,6 +72,10 @@ function fixture({ offline = false, useCache = true } = {}) {
     schedulePush: () => {},
     dbGetPendingChanges: async () => ({ foods: [], meals: [local], diary: [] }),
     dbGetPendingSettings: async () => [], dbGetPendingWorkouts: async () => [],
+    // Account check, completion marks and diary ids: nothing to do here.
+    localDataIsThisAccount: async () => true, dbGetCompletionOps: async () => [],
+    dbDeleteCompletionOp: async () => {}, dbQueueCompletionOp: async () => null,
+    dbLinkDiaryItems: async () => 0, dbApplyServerWinner: async () => {}, dbSetClockOffset: async () => {}, serverKeepsNotes: async () => true, dbInstallId: async () => 'test-install', accountGeneration: () => 0,
     dbGetPendingDiaryTombstones: async () => ({}),
     dbSetServerId: async () => {}, dbMarkSynced: async () => {},
     dbMarkWellnessSynced: async () => {}, dbPurgeSoftDeleted: async () => {},

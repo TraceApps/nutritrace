@@ -167,7 +167,13 @@ class HealthConnectSyncWorker(
             // surface to the user; the local SQLite write above already
             // succeeded, and the JS-side sync will catch up on next app open.
             val (serverUrl, authToken) = readServerCredentials(ctx)
-            if (!serverUrl.isNullOrBlank() && !authToken.isNullOrBlank()) {
+            if (!serverUrl.isNullOrBlank() && !authToken.isNullOrBlank() && !dataIsTokensAccount(ctx, serverUrl, authToken)) {
+                // The local database still holds another account's data (a
+                // sign-in the app hasn't finished checking, see
+                // src/lib/local-account.js). Nothing goes up under this
+                // token; the app sends today's values once it has checked.
+                Log.d(TAG, "local data belongs to another account, skipping server push")
+            } else if (!serverUrl.isNullOrBlank() && !authToken.isNullOrBlank()) {
                 pushToServer(serverUrl, authToken, todayStr, metrics, workouts)
             } else {
                 Log.d(TAG, "no server credentials in sync_meta, skipping server push (local-mode install?)")
@@ -355,6 +361,68 @@ class HealthConnectSyncWorker(
             Pair(null, null)
         } finally {
             db?.close()
+        }
+    }
+
+    /**
+     * Whether the local database is the token's account's on this server,
+     * by the tag the app keeps in sync_meta 'account'
+     * (src/lib/local-account.js): JSON with the user id "u", the server's
+     * address "s" and its instance id "i". Another user id is another
+     * account; the same user id at the same address is the same. At
+     * another address only two known, equal instance ids make it the same
+     * server; anything less is for the person to decide in the app, so
+     * the worker doesn't send. No tag, a local-mode tag, or a token
+     * without an id in it doesn't block.
+     */
+    private fun dataIsTokensAccount(ctx: Context, serverUrl: String, token: String): Boolean {
+        val owner = try {
+            val dbFile = ctx.getDatabasePath(DB_FILENAME)
+            if (!dbFile.exists()) return true
+            val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+            try { readSyncMeta(db, "account") } finally { db.close() }
+        } catch (e: Exception) {
+            Log.w(TAG, "account tag read failed: ${e.message}")
+            return false
+        }
+        if (owner.isNullOrBlank()) return true
+        val tag = try { JSONObject(owner) } catch (e: Exception) { return false }
+        if (tag.optBoolean("local", false) || tag.isNull("u")) return true
+        val ownerId = tag.get("u").toString()
+        val tokenId = try {
+            val part = token.split(".").getOrNull(1) ?: return true
+            val json = String(android.util.Base64.decode(part, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP), Charsets.UTF_8)
+            val payload = JSONObject(json)
+            if (payload.isNull("id")) return true
+            payload.get("id").toString()
+        } catch (e: Exception) {
+            return true
+        }
+        if (ownerId != tokenId) return false
+        val here = serverUrl.trim().trimEnd('/').lowercase()
+        val ownerServer = tag.optString("s", "")
+        if (ownerServer.isEmpty() || ownerServer == here) return true
+        val ownerInstance = tag.optString("i", "")
+        if (ownerInstance.isEmpty()) return false
+        val instance = fetchInstanceId(here) ?: return false
+        return instance == ownerInstance
+    }
+
+    /** The server's instance id from /api/auth/status, or null. */
+    private fun fetchInstanceId(serverUrl: String): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL("$serverUrl/api/auth/status").openConnection() as HttpURLConnection).apply {
+                connectTimeout = 10_000
+                readTimeout = 10_000
+            }
+            if (conn.responseCode !in 200..299) return null
+            val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            JSONObject(body).optString("instance_id", "").ifEmpty { null }
+        } catch (e: Exception) {
+            null
+        } finally {
+            conn?.disconnect()
         }
     }
 

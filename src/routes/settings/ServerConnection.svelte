@@ -70,6 +70,9 @@
   let mergeStage = '';   // current stage label for progress bar
   let _pendingServerUrl = '';
   let _pendingToken = null; // cookie is set by login, but we keep the URL
+  let _pendingUserId = null; // the account signed in to, for lib/local-account.js
+  let _pendingUserCreated = null;
+  let _connectMode = null;   // 'upload' | 'download' | 'merge' | null (no local data)
   let localCounts = null;   // { foods, meals, recipes, diary, settings, total } | null
   let migrationSummary = null;  // { success, errors, totalSuccess, total } | null
 
@@ -106,6 +109,9 @@
       }
 
       _pendingServerUrl = url;
+      _pendingUserId = loginData.user?.id ?? null;
+      _pendingUserCreated = loginData.user?.created_at ?? null;
+      _connectMode = null;
       if (loginData.token) setAuthToken(loginData.token);
 
       // Count local data so the merge dialog can show what's about to move
@@ -126,6 +132,7 @@
   }
 
   async function _mergeAndConnect(mode) {
+    _connectMode = mode;
     mergeStep = 'syncing';
     mergeProgress = '';
     mergeProgressPct = 0;
@@ -174,7 +181,21 @@
     }
   }
 
-  function _finalizeConnect() {
+  async function _finalizeConnect() {
+    // The phone's data is this account's from now on, as chosen above:
+    // Download replaces it; after an upload, what went up whole is pulled
+    // back from the server and the rest goes up with the next sync.
+    // Signing in after the reload then neither asks nor clears.
+    if (_pendingUserId != null) {
+      const clear = _connectMode === 'download';
+      const uploaded = (_connectMode === 'upload' || _connectMode === 'merge') ? (migrationSummary?.uploaded || {}) : {};
+      try {
+        const { claimForServer } = await import('../../lib/local-account.js');
+        await claimForServer(_pendingServerUrl, _pendingUserId, { clear, uploaded, created: _pendingUserCreated });
+      } catch (e) {
+        console.warn('[account] could not mark the data as this account\'s:', e?.message || e);
+      }
+    }
     setServerUrl(_pendingServerUrl);
     setNativeMode('server');
     DB.setSetting('setupComplete', true);
@@ -210,6 +231,13 @@
     // re-render to the disconnected state before the reload kicks in.
     currentUser.set(null);
     userMgmtActive.set(false);
+
+    // The data on the phone is the phone's own now (local mode), and goes
+    // to whichever account it's connected to next.
+    try {
+      const { setLocalOwner } = await import('../../lib/local-account.js');
+      await setLocalOwner();
+    } catch {}
 
     // Local UI state
     serverMode = 'local';

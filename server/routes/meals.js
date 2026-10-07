@@ -9,6 +9,7 @@ import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { sendMealShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
+import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -63,6 +64,10 @@ router.post('/', wrap(async (req, res) => {
           source_app, source_external_id, source_url, import_warnings } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
+  // Sent again (a retry, or the answer was lost): the meal made the first time.
+  const createKey = cleanCreateKey(req.body.client_key);
+  const made = findByCreateKey('meals', u, createKey);
+  if (made) return res.status(200).json(parse(made));
   // #183: honor the caller's defaultShareVisibility when the client
   // omits an explicit value. Same rule applies to recipes (is_recipe=1).
   const vis = visibility || resolveNewItemVisibility(u);
@@ -125,6 +130,7 @@ router.post('/', wrap(async (req, res) => {
     servings != null ? Math.max(1, parseInt(servings) || 1) : null,
     vis, source_id || null,
     cleanSourceApp, cleanSourceExtId, cleanSourceUrl, warningsCol);
+  setCreateKey('meals', result.lastInsertRowid, createKey);
   res.status(201).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(result.lastInsertRowid)));
 }));
 

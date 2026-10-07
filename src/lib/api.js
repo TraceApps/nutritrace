@@ -1,6 +1,7 @@
 /**
  * api.js - External API calls (Open Food Facts)
  */
+import { settingPrefix } from './setting-key.js';
 import { rankOFFResults } from './off-rank.js';
 import { offProductName } from './off-name.js';
 import { asSoldNutriments } from './off-nutrition-sets.js';
@@ -66,8 +67,7 @@ async function _extFetch(url, { live = false } = {}) {
 // localStorage instead of the store to keep this module store-free.
 function _getOffSearchCountry() {
   try {
-    const userId = localStorage.getItem('wl:userId');
-    const setKey = userId ? `wl_u${userId}_offSearchCountry` : 'wl_offSearchCountry';
+    const setKey = settingPrefix() + 'offSearchCountry';
     const raw = localStorage.getItem(setKey);
     if (!raw) return null;
     const country = JSON.parse(raw);
@@ -121,8 +121,7 @@ function _offSearchUrl(query, page, pageSize) {
 // _getOffSearchCountry.
 function _getOffSearchLanguage() {
   try {
-    const userId = localStorage.getItem('wl:userId');
-    const setKey = userId ? `wl_u${userId}_offSearchLanguage` : 'wl_offSearchLanguage';
+    const setKey = settingPrefix() + 'offSearchLanguage';
     const raw = localStorage.getItem(setKey);
     if (!raw) return 'en';
     const lang = JSON.parse(raw);
@@ -494,8 +493,7 @@ const API = {
     // Open Food Facts → Import Portion As, and only when the product actually
     // exposes serving_quantity + at least one *_serving nutriment. Otherwise the
     // 100g path is used unchanged.
-    const userId = localStorage.getItem('wl:userId');
-    const setKey = userId ? `wl_u${userId}_offImportPortion` : 'wl_offImportPortion';
+    const setKey = settingPrefix() + 'offImportPortion';
     let importPortion = 'per100g';
     try {
       const raw = localStorage.getItem(setKey);

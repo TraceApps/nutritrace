@@ -57,7 +57,76 @@ test('expired drafts are swept, fresh ones kept, and the old shared key removed'
     store.set('nt:meal:draft:pick:cooktrace:recipe:2', JSON.stringify({ at: Date.now() - 5 * 3600 * 1000, state: { name: 'old' } }));
     store.set('nt:meal:draft:edit:undefined', JSON.stringify({ at: Date.now(), state: { name: 'shared' } }));
     store.set('wl_u1_theme', '"dark"');
+    store.set('nt:drafts:scoped', '1'); // past the one-time move to per-account keys
     sweepDrafts();
-    assert.deepEqual([...store.keys()].sort(), ['nt:food:draft:pick:barcode:1', 'wl_u1_theme']);
+    assert.deepEqual([...store.keys()].sort(), ['nt:drafts:scoped', 'nt:food:draft:pick:barcode:1', 'wl_u1_theme']);
   } finally { delete globalThis.localStorage; }
+});
+
+// Drafts are kept per account: another account on the device never opens
+// them, and the same one gets them back after signing out and in.
+function withStorage(fn) {
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)),
+    removeItem: k => store.delete(k), key: i => [...store.keys()][i] ?? null, get length() { return store.size; },
+  };
+  try { return fn(store); } finally { delete globalThis.localStorage; }
+}
+
+test('draft keys carry the account (and the server in the Android app)', async () => {
+  const { draftScope } = await import('../src/lib/editor-draft.js');
+  withStorage(store => {
+    assert.equal(draftKey('food', null), 'nt:food:draft:new', 'no account: as before');
+    store.set('wl:userId', '7');
+    assert.equal(draftKey('food', null), 'nt:u7:food:draft:new');
+    store.set('nt:serverUrl', 'https://Nutri.example:8443/');
+    assert.equal(draftScope(), 'u7@nutri.example_8443:');
+    assert.equal(draftKey('meal', 12), 'nt:u7@nutri.example_8443:meal:draft:edit:12');
+  });
+});
+
+test("another account never opens a draft; the same account gets it back after signing out and in", async () => {
+  const { loadDraft } = await import('../src/lib/editor-draft.js');
+  withStorage(store => {
+    store.set('wl:userId', '1');
+    saveDraft(draftKey('food', null), { name: 'Rae typing' });
+    store.delete('wl:userId');                // sign out
+    assert.equal(loadDraft(draftKey('food', null)), null, 'signed out: nothing');
+    store.set('wl:userId', '2');              // another account
+    assert.equal(loadDraft(draftKey('food', null)), null, "another account: nothing");
+    store.set('wl:userId', '1');              // the same one again
+    assert.deepEqual(loadDraft(draftKey('food', null)), { name: 'Rae typing' });
+  });
+});
+
+test('drafts from before go to the account signed in at the update, or go if nobody is', async () => {
+  const { migrateUnscopedDrafts, loadDraft } = await import('../src/lib/editor-draft.js');
+  withStorage(store => {
+    const old = JSON.stringify({ at: Date.now(), state: { name: 'old typing' } });
+    store.set('nt:food:draft:new', old);
+    store.set('wl:userId', '4');
+    migrateUnscopedDrafts();
+    assert.equal(store.has('nt:food:draft:new'), false);
+    assert.deepEqual(loadDraft('nt:u4:food:draft:new'), { name: 'old typing' });
+    store.set('nt:meal:draft:new', old);
+    migrateUnscopedDrafts();
+    assert.equal(store.has('nt:meal:draft:new'), true, 'runs once');
+  });
+  withStorage(store => {
+    store.set('nt:food:draft:new', JSON.stringify({ at: Date.now(), state: { name: 'x' } }));
+    migrateUnscopedDrafts();
+    assert.equal(store.has('nt:food:draft:new'), false, 'nobody signed in: dropped');
+    assert.equal([...store.keys()].some(k => k.includes(':draft:')), false);
+  });
+});
+
+test("the sweep removes any account's expired drafts and keeps fresh ones", () => {
+  withStorage(store => {
+    store.set('nt:drafts:scoped', '1');
+    store.set('nt:u1:food:draft:new', JSON.stringify({ at: Date.now(), state: { name: 'fresh' } }));
+    store.set('nt:u2@host_8443:meal:draft:edit:3', JSON.stringify({ at: Date.now() - 5 * 3600 * 1000, state: { name: 'old' } }));
+    sweepDrafts();
+    assert.deepEqual([...store.keys()].sort(), ['nt:drafts:scoped', 'nt:u1:food:draft:new']);
+  });
 });

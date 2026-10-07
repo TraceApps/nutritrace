@@ -44,10 +44,56 @@ function _now() { return Date.now(); }
  *  what identifies it. Without that every pick shared one key, and
  *  opening one showed the last one's draft (#260). */
 export function draftKey(kind, id, prefill = null) {
-  if (id != null && id !== '' && id !== 'undefined') return `nt:${kind}:draft:edit:${id}`;
+  const p = `nt:${draftScope()}${kind}:draft:`;
+  if (id != null && id !== '' && id !== 'undefined') return `${p}edit:${id}`;
   const pick = pickIdentity(prefill);
-  if (pick) return `nt:${kind}:draft:pick:${pick}`;
-  return `nt:${kind}:draft:new`;
+  if (pick) return `${p}pick:${pick}`;
+  return `${p}new`;
+}
+
+/** Whose drafts: the account signed in (its user id, and the server's
+ *  address in the Android app), as `u<id>@<server>:`, so another account
+ *  on the same device never opens them and the same one gets them back
+ *  after signing out and in. Empty with no account (single-user mode). */
+export function draftScope() {
+  try {
+    const uid = localStorage.getItem('wl:userId');
+    if (!uid) return '';
+    const srv = String(localStorage.getItem('nt:serverUrl') || '').trim().replace(/\/+$/, '').toLowerCase();
+    // No ':' inside a scope (a port), so keys stay easy to tell apart.
+    return `u${uid}${srv ? `@${srv.replace(/^https?:\/\//, '').replace(/:/g, '_')}` : ''}:`;
+  } catch {
+    return '';
+  }
+}
+
+// Draft keys of any account (and the unscoped ones from before).
+const _DRAFT_KEY = /^nt:(u[^:]*:)?(food|meal):draft:/;
+const _UNSCOPED = /^nt:(food|meal):draft:/;
+
+/** Drafts made before they were kept per account belong to whoever was
+ *  signed in then: the account still signed in when the app starts after
+ *  the update. They move to its scope; with nobody signed in they go.
+ *  Runs once. */
+export function migrateUnscopedDrafts() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    if (localStorage.getItem('nt:drafts:scoped') === '1') return;
+    const scope = draftScope();
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && _UNSCOPED.test(k)) keys.push(k);
+    }
+    for (const k of keys) {
+      if (!scope) { clearDraft(k); continue; }
+      const to = k.replace(/^nt:/, `nt:${scope}`);
+      try { localStorage.setItem(to, localStorage.getItem(k)); } catch { /* full: drop it */ }
+      localStorage.removeItem(k);
+      _idbGet(_idbImgKey(k)).then(img => (img ? _idbPut(_idbImgKey(to), img) : null)).then(() => _idbDelete(_idbImgKey(k)));
+    }
+    localStorage.setItem('nt:drafts:scoped', '1');
+  } catch { /* storage unavailable */ }
 }
 
 /** What identifies a prefilled item that has no id yet, or null. A scan
@@ -247,10 +293,11 @@ export function sweepDrafts() {
   if (typeof localStorage === 'undefined') return;
   try {
     clearDraft('nt:meal:draft:edit:undefined');
+    migrateUnscopedDrafts();
     const keys = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && /^nt:(food|meal):draft:/.test(k)) keys.push(k);
+      if (k && _DRAFT_KEY.test(k)) keys.push(k);
     }
     for (const k of keys) loadDraft(k);
   } catch { /* storage unavailable: nothing to sweep */ }

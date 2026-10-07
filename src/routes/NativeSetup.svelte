@@ -28,6 +28,11 @@
   async function chooseLocal() {
     setNativeMode('local');
     setServerUrl(null);
+    // Data made from here on is the phone's own (lib/local-account.js).
+    try {
+      const { setLocalOwner } = await import('../lib/local-account.js');
+      await setLocalOwner();
+    } catch {}
     // Reload — SQLite will initialize naturally when NtApiNative is first called
     window.location.reload();
   }

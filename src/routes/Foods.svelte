@@ -27,7 +27,8 @@
   import { CookTrace } from '../lib/cooktraceApi.js';
   import { offlineState } from '../lib/offline-api.js';
   import { offNutritionStatus, needsFullLookup } from '../lib/off-nutrition.js';
-  import { resolveAssetUrl } from '../lib/platform.js';
+  import { resolveAssetUrl, isNative } from '../lib/platform.js';
+  import { itemSourceRef } from '../lib/item-source.js';
   import { offCountryTagToFlag, offCountryTagToName } from '../lib/off-country-flag.js';
   import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, offSearchCountry, offSearchLanguage, foodsDefaultSource, diaryDefaultField, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
@@ -1678,15 +1679,16 @@
     // item.id for legacy items (PWA-written items already use the
     // server's id; Android-pre-fix items have local ids that may have
     // renumbered after a re-install — those fall through to name match).
-    const foodStableId = (f) => (typeof f.server_id === 'number') ? f.server_id : f.id;
-    const itemStableId = (typeof item.food_server_id === 'number')
-      ? item.food_server_id
-      : item.id;
-
-    if (typeof itemStableId === 'number') {
-      const m = all.find(f => foodStableId(f) === itemStableId);
-      if (m?.imgUrl) return m.imgUrl;
-    }
+    // A row not yet on the server (server_id null) has no server id, so
+    // it never matches one by its own id. An item logged before its food
+    // reached the server (food_server_id null) only matches that phone
+    // row, by the same name too: ids renumber when the app is reinstalled.
+    const foodServerId = (f) => ('server_id' in f) ? f.server_id : f.id;
+    const ref = itemSourceRef(item, { native: isNative });
+    const m = ref?.serverId != null ? all.find(f => foodServerId(f) === ref.serverId)
+      : ref?.localId != null ? all.find(f => f.id === ref.localId && (!ref.unsent || (f.server_id == null && f.name === item.name)))
+      : null;
+    if (m?.imgUrl) return m.imgUrl;
     const itemName = (item.name || '').trim();
     const itemBrand = (item.brand || '').toLowerCase().trim();
     if (itemName) {

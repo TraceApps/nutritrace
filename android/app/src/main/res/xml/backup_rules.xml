@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older: Auto Backup keeps everything except the install id
+     file. The database keeps its own copy of the id; a copy restored onto
+     another phone finds no matching file and takes a new id, so two phones
+     never make the same sync keys (src/lib/db-native.js, dbInstallId). -->
+<full-backup-content>
+    <exclude domain="file" path="install-id" />
+</full-backup-content>

@@ -9,6 +9,7 @@ import { getGoalsCore } from '../lib/mcp/tools/goals.js';
 import { dailyTotalsCore } from '../lib/mcp/tools/daily-totals.js';
 import { checkNutritionGoalCrossing, checkWaterGoalCrossing } from '../lib/goal-webhook.js';
 import { Nutrition } from '../../src/lib/nutrition.js';
+import { clientClock, parseUtc, pushWins, editStamp, resolveNote, sqlTime } from '../lib/sync-clock.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -98,14 +99,19 @@ function _stripDataUrlImages(items) {
 //   body_stats:    still last-writer-wins with the empty-guard (was in
 //                  place for issue #81; body_stats is a single object per
 //                  day so per-key merge is unnecessary).
-//   notes:         last-writer-wins.
+//   notes:         the newer edit wins (lib/sync-clock.js resolveNote).
+//                  A request without `notes` keeps the day's note; one
+//                  with the same note leaves its time alone. The Android
+//                  app sends the note only when it was edited there, with
+//                  notes_updated_at and client_now; the web's edits are
+//                  made now.
 //
 // The whole write runs inside a single db.transaction so a crash mid-merge
 // leaves the row untouched.
 router.put('/:date', wrap((req, res) => {
+  const receivedAt = Date.now();
   const { body_stats, water, notes } = req.body;
   const items = _stripDataUrlImages(req.body.items);
-  const notesVal = (typeof notes === 'string' && notes.trim()) ? notes : null;
   const u = uid(req);
   const date = req.params.date;
 
@@ -151,6 +157,12 @@ router.put('/:date', wrap((req, res) => {
   const itemsJson = JSON.stringify(mergedItems);
   const waterJson = JSON.stringify(mergedWater);
 
+  const note = resolveNote(existingRow, {
+    has: Object.prototype.hasOwnProperty.call(req.body || {}, 'notes'),
+    notes, at: req.body.notes_updated_at,
+  }, clientClock(req.body.client_now, receivedAt), receivedAt);
+  const notesVal = note.notes, notesAt = note.at;
+
   const insertTombstone = db.prepare(
     `INSERT OR IGNORE INTO diary_tombstones (user_id, date, kind, uuid, deleted_at)
      VALUES (?, ?, ?, ?, datetime('now'))`
@@ -163,22 +175,22 @@ router.put('/:date', wrap((req, res) => {
       // #37, "only the first food item added each day saves"). Manual upsert:
       const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(date);
       if (existing) {
-        db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
-          .run(itemsJson, bsJson, waterJson, notesVal, existing.id);
+        db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, notes_updated_at=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
+          .run(itemsJson, bsJson, waterJson, notesVal, notesAt, existing.id);
       } else {
-        db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`)
-          .run(date, itemsJson, bsJson, waterJson, notesVal);
+        db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, notes_updated_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`)
+          .run(date, itemsJson, bsJson, waterJson, notesVal, notesAt);
       }
     } else {
       db.prepare(
-        `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        `INSERT INTO diary (user_id, date, items, body_stats, water, notes, notes_updated_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(date, user_id) DO UPDATE SET
            items=excluded.items, body_stats=excluded.body_stats,
-           water=excluded.water, notes=excluded.notes,
+           water=excluded.water, notes=excluded.notes, notes_updated_at=excluded.notes_updated_at,
            updated_at=excluded.updated_at,
            deleted_at=NULL`
-      ).run(u, date, itemsJson, bsJson, waterJson, notesVal);
+      ).run(u, date, itemsJson, bsJson, waterJson, notesVal, notesAt);
     }
     for (const uuid of newItemTombstones) insertTombstone.run(u, date, 'item', uuid);
     for (const uuid of newWaterTombstones) insertTombstone.run(u, date, 'water', uuid);
@@ -261,6 +273,7 @@ router.delete('/:date', wrap((req, res) => {
  * subsequent PUT-true does not shift the timestamp.
  */
 router.put('/:date/completion', wrap((req, res) => {
+  const receivedAt = Date.now();
   const u = uid(req);
   const date = String(req.params.date || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -269,25 +282,33 @@ router.put('/:date/completion', wrap((req, res) => {
   const completed = req.body?.completed !== false;
 
   const existing = u == null
-    ? db.prepare('SELECT id, completed_at FROM diary WHERE date = ? AND user_id IS NULL').get(date)
-    : db.prepare('SELECT id, completed_at FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+    ? db.prepare('SELECT id, completed_at, completion_marked_at FROM diary WHERE date = ? AND user_id IS NULL').get(date)
+    : db.prepare('SELECT id, completed_at, completion_marked_at FROM diary WHERE date = ? AND user_id = ?').get(date, u);
 
-  if (completed) {
+  // A mark sent later (the Android app, offline) says when it was made;
+  // one older than the day's last change is answered with the day as it
+  // is, and the day is stamped so the phone's next pull brings it back.
+  const mark = _markTime(req, existing?.completion_marked_at, receivedAt);
+  if (mark.older) {
+    db.prepare("UPDATE diary SET updated_at = datetime('now') WHERE id = ?").run(existing.id);
+  } else if (completed) {
     if (existing) {
       // Preserve first-mark timestamp so a repeat PUT does not overwrite it.
       if (!existing.completed_at) {
-        db.prepare("UPDATE diary SET completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
-          .run(existing.id);
+        db.prepare("UPDATE diary SET completed_at = datetime('now'), completion_marked_at = ?, updated_at = datetime('now') WHERE id = ?")
+          .run(mark.at, existing.id);
+      } else {
+        db.prepare("UPDATE diary SET completion_marked_at = ? WHERE id = ?").run(mark.at, existing.id);
       }
     } else {
       db.prepare(
-        `INSERT INTO diary (user_id, date, completed_at, updated_at)
-         VALUES (?, ?, datetime('now'), datetime('now'))`
-      ).run(u, date);
+        `INSERT INTO diary (user_id, date, completed_at, completion_marked_at, updated_at)
+         VALUES (?, ?, datetime('now'), ?, datetime('now'))`
+      ).run(u, date, mark.at);
     }
   } else if (existing) {
-    db.prepare("UPDATE diary SET completed_at = NULL, updated_at = datetime('now') WHERE id = ?")
-      .run(existing.id);
+    db.prepare("UPDATE diary SET completed_at = NULL, completion_marked_at = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(mark.at, existing.id);
   }
 
   const row = u == null
@@ -318,29 +339,51 @@ router.put('/:date/meal-completion', wrap((req, res) => {
     return res.status(400).json({ error: 'slot must be an integer in [0, 31]' });
   }
   const completed = req.body?.completed !== false;
+  const receivedAt = Date.now();
 
   const existing = u == null
-    ? db.prepare('SELECT id, completed_meals FROM diary WHERE date = ? AND user_id IS NULL').get(date)
-    : db.prepare('SELECT id, completed_meals FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+    ? db.prepare('SELECT id, completed_meals, meal_marks_at FROM diary WHERE date = ? AND user_id IS NULL').get(date)
+    : db.prepare('SELECT id, completed_meals, meal_marks_at FROM diary WHERE date = ? AND user_id = ?').get(date, u);
 
   const current = _parseSlotArray(existing?.completed_meals);
+  // Same rule as the day's mark, per meal.
+  let marks = {};
+  try { marks = JSON.parse(existing?.meal_marks_at || '{}') || {}; } catch {}
+  const mark = _markTime(req, marks[slot], receivedAt);
+  if (mark.older) {
+    db.prepare("UPDATE diary SET updated_at = datetime('now') WHERE id = ?").run(existing.id);
+    return res.json({ ok: true, date, completed_meals: current });
+  }
+  marks[slot] = mark.at;
+  const marksJson = JSON.stringify(marks);
   const set = new Set(current);
   if (completed) set.add(slot); else set.delete(slot);
   const next = Array.from(set).sort((a, b) => a - b);
   const nextJson = next.length ? JSON.stringify(next) : null;
 
   if (existing) {
-    db.prepare("UPDATE diary SET completed_meals = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(nextJson, existing.id);
+    db.prepare("UPDATE diary SET completed_meals = ?, meal_marks_at = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(nextJson, marksJson, existing.id);
   } else {
     db.prepare(
-      `INSERT INTO diary (user_id, date, completed_meals, updated_at)
-       VALUES (?, ?, ?, datetime('now'))`
-    ).run(u, date, nextJson);
+      `INSERT INTO diary (user_id, date, completed_meals, meal_marks_at, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'))`
+    ).run(u, date, nextJson, marksJson);
   }
 
   res.json({ ok: true, date, completed_meals: next });
 }));
+
+// When a completion mark was made: the sender's `at` set against its
+// clock (client_now), or now. `older`: an earlier mark than `existingAt`,
+// the last one stored, so it changes nothing.
+function _markTime(req, existingAt, receivedAt) {
+  const at = req.body?.at;
+  if (!Number.isFinite(parseUtc(at))) return { at: sqlTime(receivedAt), older: false };
+  const clock = clientClock(req.body?.client_now, receivedAt);
+  const older = !!existingAt && !pushWins(at, existingAt, clock.offsetMs, { serverNow: receivedAt });
+  return { at: editStamp(at, clock, receivedAt), older };
+}
 
 function _parseSlotArray(raw) {
   if (!raw) return [];
