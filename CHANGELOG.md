@@ -7,50 +7,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.4.0-dev05] - 2026-10-08 (pre-release)
+
+A dev pre-release of the 1.4.0 minor. Russian, Android sync rebuilt so accounts, offline edits and deletes stay right, SSO fixes, the weekly summary email, and security updates.
+
+### Added
+
+- **Russian.** NutriTrace can be used in Russian: pick it in Settings → Regional & Units. Translated almost in full by Михаил Малов on Weblate; only the new account-switch prompts are still in English. Thank you!
+
 ### Changed
 
-- **Trace's attach button offers Camera or Gallery on phones and in the Android app** ([#254](https://github.com/TraceApps/nutritrace/pull/254)), the same as the other Trace apps. Each choice goes straight to the camera or the photo picker instead of Android's full-width prompt; on a computer the button opens the file picker. Thanks @librarian.
+- **Trace's attach button offers Camera or Gallery on phones and in the Android app** ([#254](https://github.com/TraceApps/nutritrace/pull/254)), like the other Trace apps. On a computer it opens the file picker. Thanks @librarian.
 
 ### Fixed
 
-- **The weekly summary email is sent.** It read a diary column that doesn't exist, so it failed every time and no one ever received it. With Weekly Summary turned on, the email now arrives alongside the notification, and its weight change counts weights logged in the diary, in lb or kg.
-- **Signing in through SSO with an email that already has an account no longer creates a second account.** When the identity provider doesn't mark the email verified (Authentik's default since 2025.10), the sign-in is refused with a pointer to link the provider from your profile, instead of landing you in a new, empty account.
-- **SSO works with Authelia 4.39 and later out of the box.** Email, username and groups are read from the provider's userinfo when the ID token leaves them out.
-- **The SSO callback also works without the provider number, and at `/api/oidc/callback`**, the address older docs gave. Both used to end on a blank page.
-- **`OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings.** It was ignored unless a provider was also defined through env vars.
-- **Signing in on a plain-HTTP address says what's wrong instead of looping.** The sign-in cookie only works over HTTPS unless `INSECURE_COOKIES=1` is set, so signing in from an `http://` address dropped you back on the login page with no error. The sign-in and setup screens now explain it and link to the fix, the app no longer flashes before sending you back, and the server log says so too.
-- **The app no longer loads behind the sign-in screen.** Opened signed out, it asked the server for your data and was refused before the sign-in screen replaced it. It now waits to learn who is signed in.
-- **The installed app keeps working when NutriTrace is served from a subpath** ([#250](https://github.com/TraceApps/nutritrace/pull/250)). Once the offline service worker took over, every reload sent the app's requests outside the subpath. Thanks @kgenerozov.
-- **Recipe servings set in the Android app survive syncing** ([#255](https://github.com/TraceApps/nutritrace/pull/255)). Background sync left them out, so the server cleared them. Thanks @librarian.
-- **Editing a food or recipe in the Android app no longer clears its photo** ([#256](https://github.com/TraceApps/nutritrace/pull/256)). A cached photo was saved back as an empty image. Thanks @librarian.
+- **The weekly summary email is sent.** It failed every time, so no one received it. With Weekly Summary on, it now arrives with the notification, and its weight change counts weights logged in the diary.
+- **SSO with an email that already has an account no longer creates a second account.** When the provider doesn't mark the email verified (Authentik's default since 2025.10), sign-in is refused with a pointer to link the provider from your profile.
+- **SSO works with Authelia 4.39 and later out of the box.** Email, username and groups are read from userinfo when the ID token leaves them out.
+- **The SSO callback works without the provider number, and at `/api/oidc/callback`**, the address older docs gave. Both ended on a blank page.
+- **`OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings.**
+- **Signing in on a plain-HTTP address explains what's wrong instead of looping**, links to the fix (`INSECURE_COOKIES=1`), and says so in the server log.
+- **The app no longer loads behind the sign-in screen.** It waits to learn who is signed in.
+- **The installed app keeps working when NutriTrace is served from a subpath** ([#250](https://github.com/TraceApps/nutritrace/pull/250)). Thanks @kgenerozov.
+- **Recipe servings set in the Android app survive syncing** ([#255](https://github.com/TraceApps/nutritrace/pull/255)). Thanks @librarian.
+- **Editing a food or recipe in the Android app no longer clears its photo** ([#256](https://github.com/TraceApps/nutritrace/pull/256)). Thanks @librarian.
 - **The diagnostics note about GitHub issues translates as a whole sentence** ([#253](https://github.com/TraceApps/nutritrace/pull/253)), and the German translation is complete. Thanks @KAiSER086.
-- **Trace works with OpenAI-compatible endpoints that stream unless told not to** ([#258](https://github.com/TraceApps/nutritrace/issues/258), reported by @jsapede). Chat and Smart Log answers failed with "Unexpected non-whitespace character after JSON"; every request now asks for a single answer.
-- **Trace's tools work with OpenAI-compatible endpoints that check every field** ([#259](https://github.com/TraceApps/nutritrace/issues/259), reported by @jsapede). With AI set up on the server, a chat that used a tool could fail with `"name" is not supported by this endpoint`.
-- **Opening a recipe or food from CookTrace, Mealie, Open Food Facts or USDA no longer shows the one you opened before** ([#260](https://github.com/TraceApps/nutritrace/issues/260)). Every pick shared one saved draft, so the editor showed the previous pick's name, ingredients and nutrition, and a new food could open filled in too (also after **Open existing** on the duplicate-barcode warning). Typing you leave in an item still comes back when you reopen that same item, and after a scan of an unknown barcode, **Add food** still brings it back. Thanks @herver1971.
-- **The Diary's day status bar (Mark Day Complete) sits below the date bar instead of running into it**, at every screen size, in the browser and the Android app.
-- **Syncing the Android app no longer wipes the day's note or a food's CookTrace origin.** The newer note wins, also when it was cleared, whether it was written on the phone, on the web or offline. With a server older than this release, the app sends the day's note with every save, as it used to; apps older than this release never send a day's note, and the server now keeps it instead of clearing it.
-- **Foods and meals edited offline in the Android app reach the server after the app restarts.** The edit used to be dropped when the app started again before syncing.
-- **Editing or deleting a food or meal in the Android app before it has synced no longer changes a different one.** Diary items logged from it on that phone are linked to it once it syncs, and diary items show their own food's units and barcode.
-- **Clear all data reaches the Android app**, wellness, workouts and fasts included, and now clears fasts on the server too.
-- **A phone whose clock is off no longer decides which edit wins.** The newer edit wins, by the server's clock, even when the phone's clock is put right between an edit and its sync, and a phone whose edit lost gets the winning copy instead of keeping its own. A day's note follows the same rule, including a note cleared offline.
-- **Marking a day or meal complete, or unmarking it, in the Android app while offline sticks** instead of being undone by the next sync, and an older change no longer undoes a newer one made elsewhere.
-- **A setting changed in the Android app before it reached the server is no longer set back** when the app loads your settings from the server. The change stays and is sent with the next sync.
-- **Connecting the Android app to a server with Upload or Merge also sends recipes, activities, fasts and Health Connect data, without duplicates**, also when the upload is run again or an answer is lost on the way back. Anything that doesn't go up stays on the phone and goes up with the next sync.
+- **Trace works with OpenAI-compatible endpoints that stream unless told not to** ([#258](https://github.com/TraceApps/nutritrace/issues/258), reported by @jsapede). Chat and Smart Log failed with "Unexpected non-whitespace character after JSON".
+- **Trace's tools work with OpenAI-compatible endpoints that check every field** ([#259](https://github.com/TraceApps/nutritrace/issues/259), reported by @jsapede).
+- **Opening a recipe or food from CookTrace, Mealie, Open Food Facts or USDA no longer shows the one you opened before** ([#260](https://github.com/TraceApps/nutritrace/issues/260)). Unsaved typing still comes back when you reopen the same item. Thanks @herver1971.
+- **The Diary's Mark Day Complete bar sits below the date bar** instead of running into it, at every screen size, in the browser and the Android app.
+- **Syncing the Android app no longer wipes the day's note or a food's CookTrace origin.** The newer note wins, a cleared note included. Older servers and older apps keep working.
+- **Foods and meals edited offline in the Android app reach the server after the app restarts.**
+- **Editing or deleting a food or meal in the Android app before it syncs no longer changes a different one.** Diary items logged from it link to it once it syncs.
+- **Clear all data reaches the Android app**, wellness, workouts and fasts included, and clears fasts on the server too.
+- **A phone whose clock is off no longer decides which edit wins.** The newer edit wins by the server's clock, and a phone whose edit lost gets the winning copy.
+- **Marking a day or meal complete in the Android app while offline sticks**, and an older change no longer undoes a newer one made elsewhere.
+- **A setting changed in the Android app before it reached the server is no longer set back** when the app loads your settings. It goes up with the next sync.
+- **Connecting the Android app to a server with Upload or Merge also sends recipes, activities, fasts and Health Connect data, without duplicates**, even when the upload runs again. Anything that doesn't go up goes with the next sync.
 
 ### Security
 
-- **Sync can no longer change another account's data.** Any account could overwrite or delete another account's foods, meals, activities or fasts through sync, by naming their ids. Only your own change now.
-- **Diary items no longer show another account's food details.** An item could take its category, barcode, units or photo from someone else's food with the same id or name. Now only your own foods, foods shared with you, and the ingredients of meals shared with you fill it in, so an item from a food that's no longer shared keeps what it was logged with.
-- **The image proxy passes images only.** For its image hosts it passed through whatever came back from the app's own address, a web page included, before sign-in. Anything that isn't an image is refused now, and images can't act as a page.
-- **A password reset link can no longer be pointed at someone else's site.** The link took its address from the request, so anyone could ask for another person's reset with a forged host and have the real email, token included, send them to it. Reset, invite and food and meal sharing emails now link to `PUBLIC_URL` when it's set, or to an address an admin uses. Links also keep the `BASE_URL` subpath now.
-- **Names in emails can no longer carry markup.** A name, or a title someone shared, went into the email as-is, so HTML or a link typed into it became real markup in the recipient's inbox. Affected the SMTP test and invite emails, and the food and meal shared with you emails. Everything an email shows is escaped now.
-- **The CookTrace and Mealie connections forward only the requests the app makes.** Any account could send any request, to any path, through them, and read the reply, including from other services on your network.
-- **A photo given as a link is only kept when it is an image.** An account could have the server download a page from your network and read it back from the uploads folder. Downloads never reach cloud-metadata addresses and check every redirect; an admin can download from your network, other accounts only with `ALLOW_PRIVATE_IMAGE_URLS=1`.
-- **Push notifications never reach cloud-metadata addresses** and follow a redirect only on the same server, and a failed push test no longer shows the raw reply. The open `/api/proxy` checks every redirect too.
-- **The Android app's SSO sign-in no longer passes the session token through the `nutritrace://` link**, which another app could intercept. The link carries a single-use code that only the app that started the sign-in can redeem.
-- **Uploaded files get unguessable names.** The random part of the name was made with `Math.random()`, which can be predicted from its own output.
-- **Signing in to another account on the same phone no longer shows or sends the previous account's data**, including the day it had open, its settings and its unsaved food and meal drafts, which it gets back when it signs in again. If that account left foods, meals, diary or activity changes that never synced, the app asks before discarding them; saying no keeps them for that account. Unsynced Health Connect values aren't asked about. An account counts as the same only on the same server: the same user id on another server, or on a server rebuilt with a fresh database, is another account, and when a server at a new address can't confirm it's the same one, the app asks before using the phone's data with it.
-- **The server answers as the account whose token a request carries, never as the one a leftover sign-in cookie names.** After switching accounts in the Android app, the previous account's cookie stayed on the phone, and the server read it first, so Health Connect data could go to the previous account. The app now also forgets NutriTrace's sign-in cookie when you switch accounts, connect, disconnect or sign out, and keeps any other site's cookies, such as a sign-in gate in front of your server.
+- **Sync can no longer change another account's data.** Any account could overwrite or delete another account's foods, meals, activities or fasts through sync by naming their ids.
+- **Diary items no longer show another account's food details.** Only your own foods, foods shared with you, and ingredients of meals shared with you fill an item in.
+- **The image proxy passes images only**, and images can't act as a page. It passed through whatever came back from the app's own address, before sign-in.
+- **A password reset link can no longer be pointed at someone else's site.** Reset, invite and sharing emails link to `PUBLIC_URL` when set, or to an address an admin uses, and keep the `BASE_URL` subpath.
+- **Names in emails can no longer carry markup.** Everything an email shows is escaped.
+- **The CookTrace and Mealie connections forward only the requests the app makes.** Any account could send any request through them, including to other services on your network.
+- **A photo given as a link is only kept when it is an image.** Downloads never reach cloud-metadata addresses and check every redirect; only an admin can download from your network, other accounts only with `ALLOW_PRIVATE_IMAGE_URLS=1`.
+- **Push notifications never reach cloud-metadata addresses** and follow redirects only on the same server. The open `/api/proxy` checks every redirect too.
+- **The Android app's SSO sign-in no longer passes the session token through the `nutritrace://` link.** It carries a single-use code only the app that started the sign-in can redeem.
+- **Uploaded files get unguessable names.**
+- **Signing in to another account on the same phone no longer shows or sends the previous account's data**, its settings and unsaved drafts included. If that account left changes that never synced, the app asks before discarding them. The same user id on another server counts as another account.
+- **The server answers as the account whose token a request carries, never as the one a leftover sign-in cookie names.** After an account switch on Android, Health Connect data could go to the previous account. The app also forgets NutriTrace's sign-in cookie on every switch, connect, disconnect and sign-out, and keeps other sites' cookies, such as a sign-in gate in front of your server.
 - **Capacitor** bumped 8.3.4 to 8.5.3 in the Android app, closes [GHSA-rvm3-566m-v7fv](https://github.com/advisories/GHSA-rvm3-566m-v7fv) (critical: remote content could be loaded as part of the app through Capacitor's internal HTTP proxy path).
 - **proxy-addr** bumped 2.0.7 to 2.0.8 on the server, closes [GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h) (critical: an IPv4-mapped IPv6 address could pass as a trusted proxy). NutriTrace trusts no proxy addresses, so it wasn't exposed.
 - **@modelcontextprotocol/sdk** bumped 1.30.0 to 1.32.1, closes [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h) (high: its OAuth client could send credentials to a server an MCP server picked). NutriTrace only uses its MCP server side.
