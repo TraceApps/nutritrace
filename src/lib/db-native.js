@@ -2176,6 +2176,22 @@ export async function dbUpsertSetting(key, value) {
   return updatedAt;
 }
 
+// The server's value of a setting, written into the phone's copy as sent
+// (stores/settings.js, settings coming down). A setting changed here and
+// not sent yet is the newer one: it stays, and goes up with the next push.
+// One statement, so a change made meanwhile is never written over.
+export async function dbMirrorSetting(key, value) {
+  const db = await getDb();
+  await db.run(
+    `INSERT INTO user_settings (user_id, key, value, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, 'synced')
+     ON CONFLICT(user_id, key) DO UPDATE SET
+       value=excluded.value, updated_at=excluded.updated_at, sync_status='synced'
+     WHERE user_settings.sync_status != 'pending'`,
+    [LOCAL_USER_ID, key, JSON.stringify(value), _now()]
+  );
+}
+
 export async function dbUpsertSettingFromServer(record) {
   const db = await getDb();
   const { key, value, updated_at, deleted_at } = record;

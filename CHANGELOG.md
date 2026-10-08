@@ -34,6 +34,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Clear all data reaches the Android app**, wellness, workouts and fasts included, and now clears fasts on the server too.
 - **A phone whose clock is off no longer decides which edit wins.** The newer edit wins, by the server's clock, even when the phone's clock is put right between an edit and its sync, and a phone whose edit lost gets the winning copy instead of keeping its own. A day's note follows the same rule, including a note cleared offline.
 - **Marking a day or meal complete, or unmarking it, in the Android app while offline sticks** instead of being undone by the next sync, and an older change no longer undoes a newer one made elsewhere.
+- **A setting changed in the Android app before it reached the server is no longer set back** when the app loads your settings from the server. The change stays and is sent with the next sync.
 - **Connecting the Android app to a server with Upload or Merge also sends recipes, activities, fasts and Health Connect data, without duplicates**, also when the upload is run again or an answer is lost on the way back. Anything that doesn't go up stays on the phone and goes up with the next sync.
 
 ### Security

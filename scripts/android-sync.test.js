@@ -157,6 +157,73 @@ test("a setting the last account changed and never sent counts as waiting when s
   assert.deepEqual(q(`SELECT value FROM user_settings WHERE user_id = ? AND key = 'calorieGoal'`, I.id), [{ value: '1800' }], 'kept, and sent as the account that changed it');
 });
 
+// Settings come down from the server (stores/settings.js
+// loadServerSettings) into the screen and the phone's copy. A setting
+// changed on the phone and not sent yet is the newer one: it stays, and
+// goes up on the next push.
+test('a setting changed on the phone and not sent yet survives settings coming down from the server, then goes up', async (t) => {
+  if (skip(t)) return;
+  const kit = await account('kit', A);
+  const K = (await http(kit, 'GET', '/api/auth/me')).user;
+  await http(kit, 'PUT', '/api/settings', { key: 'waterGoalMl', value: 1800 });
+  const r = phone('mirror-pending', kit, `
+    const la = await import(p.src + 'lib/local-account.js');
+    localStorage.setItem('nt:nativeMode', 'server');
+    localStorage.setItem('wl:userId', '${K.id}');
+    await la.ensureLocalAccount(${JSON.stringify(K)}, { confirm: async () => true });
+    await p.sync();
+    // Changed on the phone while offline (its push still waiting): the
+    // screen's value and the copy's row, as the settings store leaves them.
+    const { DB } = await import(p.src + 'lib/db.js');
+    localStorage.setItem(DB._settingKey('waterGoalMl'), JSON.stringify(2500));
+    await p.dbn.dbUpsertSetting('waterGoalMl', 2500);
+    const { loadServerSettings } = await import(p.src + 'stores/settings.js');
+    await loadServerSettings();
+    await p.sleep(800);
+    const db = await p.dbn.getDb();
+    const row = async () => (await db.query("SELECT value, sync_status FROM user_settings WHERE key = 'waterGoalMl'", [])).values[0];
+    const afterMirror = { row: await row(), shown: DB.getSetting('waterGoalMl', null) };
+    await p.sync();
+    p.done({ afterMirror, afterPush: await row() });`);
+  assert.deepEqual(r, { afterMirror: { row: { value: '2500', sync_status: 'pending' }, shown: 2500 }, afterPush: { value: '2500', sync_status: 'synced' } });
+  assert.deepEqual(q(`SELECT value FROM user_settings WHERE user_id = ? AND key = 'waterGoalMl'`, K.id), [{ value: '2500' }]);
+});
+
+// Settings coming down for one account can still be writing when another
+// signs in: none of them may land in the new account's copy.
+test("settings still coming down for the last account write nothing into the next account's copy", async (t) => {
+  if (skip(t)) return;
+  const lux = await account('lux', A), mae = await account('mae', A);
+  const me = async tok => (await http(tok, 'GET', '/api/auth/me')).user;
+  const L = await me(lux), M = await me(mae);
+  const keys = ['waterGoalMl', 'weightUnit', 'heightUnit', 'lengthUnit', 'distUnit', 'tempUnit', 'dateFormat', 'timeFormat',
+    'statsChartType', 'foodsSort', 'mealsSort', 'recipesSort', 'energyUnit', 'waterUnit', 'offSearchLanguage', 'offSearchCountry'];
+  for (const k of keys) await http(lux, 'PUT', '/api/settings', { key: k, value: 'lux-' + k });
+  const r = phone('mirror-switch', lux, `
+    const la = await import(p.src + 'lib/local-account.js');
+    const platform = await import(p.src + 'lib/platform.js');
+    localStorage.setItem('nt:nativeMode', 'server');
+    localStorage.setItem('wl:userId', '${L.id}');
+    await la.ensureLocalAccount(${JSON.stringify(L)}, { confirm: async () => true });
+    await p.sync();
+    const db = await p.dbn.getDb();
+    await db.execute('DELETE FROM user_settings');
+    // Lux's settings start coming down (each write a slow trip) ...
+    const { loadServerSettings } = await import(p.src + 'stores/settings.js');
+    process.env.BRIDGE_DELAY_MS = '40';
+    await loadServerSettings();
+    await p.sleep(150);
+    // ... and Mae signs in meanwhile.
+    platform.setAuthToken(${JSON.stringify(mae)});
+    localStorage.setItem('wl:userId', '${M.id}');
+    const ok = await la.ensureLocalAccount(${JSON.stringify(M)}, { confirm: async () => true });
+    await p.sleep(2500);
+    delete process.env.BRIDGE_DELAY_MS;
+    const left = (await db.query("SELECT key, value FROM user_settings WHERE value LIKE '%lux-%'", [])).values;
+    p.done({ ok, left });`);
+  assert.deepEqual(r, { ok: true, left: [] });
+});
+
 async function account(name, admin) {
   const r = await fetch(base + '/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(admin ? { Authorization: `Bearer ${admin}` } : {}) }, body: JSON.stringify({ username: name, password: 'Str0ng-Pass-77!x' }) });
   if (!admin) return (await http(null, 'POST', '/api/auth/login', { username: name, password: 'Str0ng-Pass-77!x' })).token;

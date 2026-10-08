@@ -308,20 +308,34 @@ export async function bulkSet(settingsObj) {
  * Without this, WorkManager would see stale or missing settings even after
  * the JS app pulls everything from the server.
  */
-async function _mirrorServerSettings(serverSettings) {
-  const forUser = Number(localStorage.getItem('wl:userId'));
+// Settings changed on this phone and not sent yet: the newer ones, kept
+// when the server's come down. Only while the phone's copy is this
+// account's (before, its rows can be the last account's).
+async function _unsentSettingKeys(forUser) {
+  try {
+    const la = await import('../lib/local-account.js');
+    if (!la.localCopyIsCurrent(forUser)) return new Set();
+    const { dbGetPendingSettings } = await import('../lib/db-native.js');
+    return new Set((await dbGetPendingSettings()).map(s => s.key));
+  } catch { return new Set(); }
+}
+
+async function _mirrorServerSettings(serverSettings, forUser) {
   const la = await import('../lib/local-account.js');
   if (!(await la.whenLocalCopyIsCurrent(forUser))) return;
-  if (Number(localStorage.getItem('wl:userId')) !== forUser) return;
+  // Checked before every write, as sync does: once another account signs
+  // in (the account generation moves), nothing more goes into the copy.
+  const gen = la.accountGeneration();
+  const live = () => la.accountGeneration() === gen && la.localCopyIsCurrent(forUser)
+    && Number(localStorage.getItem('wl:userId')) === forUser;
+  if (!live()) return;
   try {
-    const { dbUpsertSetting, dbMarkSettingsSynced } = await import('../lib/db-native.js');
-    const snapshots = [];
+    const { dbMirrorSetting } = await import('../lib/db-native.js');
     for (const [key, value] of Object.entries(serverSettings)) {
       if (DEVICE_PREFS.has(key)) continue;
-      const updatedAt = await dbUpsertSetting(key, value);
-      snapshots.push({ key, updated_at: updatedAt });
+      if (!live()) return;
+      await dbMirrorSetting(key, value);
     }
-    if (snapshots.length) await dbMarkSettingsSynced(snapshots);
   } catch (e) {
     console.warn('[settings] native SQLite mirror failed:', e.message);
   }
@@ -334,6 +348,8 @@ export async function loadServerSettings() {
     const res = await fetch(_settingsUrl(), { credentials: 'include', headers: _authHeaders(), signal: AbortSignal.timeout(8000) });
     if (!res.ok) return;
     const serverSettings = await res.json();
+    const forUser = Number(localStorage.getItem('wl:userId'));
+    const unsent = isNative ? await _unsentSettingKeys(forUser) : new Set();
     _suppressSync = true; // Don't push these back to server
 
     // Write all to localStorage (PWA + native JS layer). Pass force=true so
@@ -352,6 +368,7 @@ export async function loadServerSettings() {
     // `false`, and the persistent-sidebar toggle would silently turn off.
     for (const [key, value] of Object.entries(serverSettings)) {
       if (DEVICE_PREFS.has(key)) continue;
+      if (unsent.has(key)) continue; // changed here, not sent yet: the newer value
       DB.setSetting(key, value, true);
     }
 
@@ -364,7 +381,7 @@ export async function loadServerSettings() {
     // Only once the phone's copy is this account's (lib/local-account.js):
     // before, it can still hold the previous account's unsent settings. In
     // the background, so signing in never waits on the check.
-    if (isNative) _mirrorServerSettings(serverSettings).catch(() => {});
+    if (isNative) _mirrorServerSettings(serverSettings, forUser).catch(() => {});
 
     // After settings are written to localStorage, force-apply the theme
     // settings directly to the DOM. The reactive `$: applyAccentColor(…)`
