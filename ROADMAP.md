@@ -102,6 +102,11 @@ A dedicated **Dashboard** page that correlates data across all domains (nutritio
 - ~~**Local full backup (ZIP)**: create full backup on device (JSZip) including images, for phone-to-phone transfer without a server~~ *(done, v0.35.2-beta)*
 - **iOS app**: Capacitor already supports iOS; need HealthKit integration + App Store setup
 
+### Sync: settings edge cases (found 2026-10-08)
+Left open after the Android sync rework (1af5091, 576f57e):
+- **A setting changed during a pull can be dropped**: when the server reports a setting deleted, the pull (`dbUpsertSettingFromServer`) deletes the phone's row without checking whether it is pending. The pull only skips keys that were pending when it began, so a change made while it runs can be lost. Skip pending rows there too.
+- **Web: loading settings overwrites a queued offline change**: `loadServerSettings` writes the server's values over a setting still waiting in the offline queue. Skip queued keys, as the Android mirror now does.
+
 ### Phase 3: Distribution
 - **Obtainium**: list NutriTrace as an Obtainium-discoverable app so users can auto-track new GitHub Releases without checking manually. Requires the GitHub Releases page to consistently attach a signed APK with a stable filename pattern.
 - **IzzyOnDroid F-Droid repo**: lower bar than F-Droid main (no reproducible builds required). Path to broader F-Droid eventually.
