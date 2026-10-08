@@ -1,1 +1,484 @@
-{}
+{
+  "nav": {
+    "diary": "Dagbok",
+    "wellness": "Velvære",
+    "statistics": "Statistikk",
+    "goals": "Mål",
+    "settings": "Instillinger",
+    "foods": "Mat"
+  },
+  "routes": {
+    "diary": {
+      "title": "Dagbok"
+    },
+    "foods": {
+      "title": "Mat"
+    },
+    "wellness": {
+      "title": "Velvære"
+    },
+    "statistics": {
+      "title": "Statistikk"
+    },
+    "goals": {
+      "title": "Mål"
+    },
+    "settings": {
+      "title": "Instillinger"
+    }
+  },
+  "common": {
+    "sign_out": "Logge ut",
+    "log_out": "Logg ut",
+    "signing_out": "Logger ut…",
+    "experimental": "Eksperimentell",
+    "hide": "Skjul",
+    "save": "Lagre",
+    "saving": "Lagrer…",
+    "cancel": "Avbryt",
+    "back": "Tilbake",
+    "close": "Lukk",
+    "delete": "Slett",
+    "signed_in": "Logget inn",
+    "signed_out": "Logget ut",
+    "linked": "Koblet",
+    "unlinked": "Ukoblet",
+    "admin": "administrator",
+    "errors": {
+      "cant_reach_server": "Kunne ikke nå server",
+      "failed": "Feilet",
+      "unlink_failed": "Kunne ikke frakoble",
+      "save_failed": "Lagring feilet",
+      "delete_failed": "Sletting feilet",
+      "name_required": "Navn påkrevd",
+      "network_error_upload": "Nettverks feil under opplastning",
+      "voice_unsupported": "Taleinput ikke støttet i denne nettleseren",
+      "cant_start_mic": "Kunne ikke starte mikrofon"
+    }
+  },
+  "sync": {
+    "synced": "Synkronisert",
+    "sync_offline": "Frakoblet",
+    "refused": "Din server godtok ikke det som venter: {reason}. Det beholdes her og vil bli forsøkt igjen.",
+    "sign_out_waiting_title": "Endringer venter fortsatt",
+    "sign_out_waiting": "{count, plural, one {# endring har ikke nådd serveren din enda. Å logge ut nå vil forkaste den. Koble til og prøv igjen for å beholde dem.} other {# endringer har ikke nådd serveren din enda. Å logge ut nå vil forkaste dem.}}",
+    "sign_out_anyway": "Logg ut uansett",
+    "pending_web": "{count, plural, =0 {Frakoblet. Din dagbok fungerer fortsatt og lagres her.} one {Frakoblet. # dag venter på å bli lastet opp.} other {Frakoblet. # dager venter på å bli lastet opp.}}",
+    "sync_failing": "Kan ikke nå serveren",
+    "not_synced": "Ikke synkronisert enda",
+    "sync_now": "Synkroniser nå",
+    "syncing": "Synkroniserer…",
+    "retry": "Prøv på nytt",
+    "retrying": "Prøver på nytt…",
+    "dismiss_message": "Avvis synkroniseringsmelding",
+    "error_title": "Synkronisering feilet",
+    "connected": "Tilkoblet",
+    "server_unavailable": "Server utilgjengelig",
+    "last_synced": "Sist Synkronisert",
+    "time": {
+      "never": "aldri",
+      "just_now": "akkurat nå",
+      "seconds_ago": "{count}s siden",
+      "minutes_ago": "{count}m siden",
+      "hours_ago": "{count}t siden",
+      "days_ago": "{count}d siden"
+    },
+    "connection": {
+      "server_fallback": "server",
+      "no_network_title": "ingen nettverksforbindelse",
+      "cant_reach_title": "Kan ikke nå {host}",
+      "reconnect": "Koble til internett på nytt.",
+      "server_error": "Serveren returnerte HTTP {status}. Forsøk igjen snart.",
+      "mobile_data": "Du er koblet til gjennom mobildata. Det kan være denne serveren trenger hjemme Wi-Fi eller VPN.",
+      "check_connection": "Sjekk din Wi-Fi, VPN, eller server.",
+      "saved_locally": "Dine endringer er lagret lokalt og vil synkroniseres automatisk."
+    }
+  },
+  "settings": {
+    "appearance": {
+      "section": "Utseende",
+      "theme": "Tema",
+      "accent_color": "Temafarge",
+      "navigation_style": "Navigasjons stil"
+    },
+    "regional": {
+      "section": "Region & målesystem",
+      "language": "Språk",
+      "date_format": "Datoformat",
+      "time_format": "Tidsformat",
+      "energy": "Energi",
+      "weight": "Vekt",
+      "height": "Høyde",
+      "circumference": "Omkrets",
+      "distance": "Avstand",
+      "temperature": "Temperatur",
+      "time_12h": "12-timersformat (AM/PM)",
+      "time_24h": "24-timersformat"
+    },
+    "diary": {
+      "section": "Dagbok",
+      "show_quick_calories": "Vis knapp for raske kalorier",
+      "show_quick_calories_desc": "Legger til et lynikon ved hver måltidsdel for rask registrering av kun kalorier (uten spesifikk matvare eller porsjonsstørrelse). Praktisk når du kjenner kaloriantallet men ikke ønsker å registrere selve matvaren, eller hvis du er vant til hurtigregistrering av kalorier slik det gjøres i Fitbit.",
+      "quick_calories_display": "Rask visning av kalorier",
+      "quick_calories_display_desc": "Hvordan flere raske kaloriregistreringer for samme måltid i dagboken vises. Oppsummert slår dem sammen til én rad; Separat viser hver registrering i sin egen rad.",
+      "quick_calories_summed": "Oppsummert",
+      "quick_calories_separate": "Separat"
+    },
+    "water": {
+      "section": "Vann"
+    },
+    "foods": {
+      "section": "Mat"
+    },
+    "categories": {
+      "section": "Kategorier"
+    },
+    "nutrients": {
+      "section": "Næringsstoffer"
+    },
+    "goals": {
+      "section": "Kalorimål"
+    },
+    "body_stats": {
+      "section": "Kroppsdata"
+    },
+    "statistics": {
+      "section": "Statistikk",
+      "categories": "Kategorier",
+      "categories_help": "Dra for å reorganisere måleelementene på statistikk-siden. Deaktiver kategorier du aldri ser på."
+    },
+    "connected_services": {
+      "section": "Matvarekilder",
+      "off": {
+        "header": "Åpne matfakta",
+        "enable": "Aktiver Åpne matfakta",
+        "enable_desc": "Søk på den globale, brukergenererte matdatabasen når du legger til matvarer. Du trenger ikke brukerkonto for å søke; det kreves kun for å laste opp endringer.",
+        "search_language": "Søk språk",
+        "search_country": "Søk Land",
+        "upload_country": "Last opp land",
+        "upload_country_auto": "Automatisk",
+        "import_portion": "Importer porsjon som",
+        "import_portion_100g": "Per 100g",
+        "import_portion_serving": "Per porsjon",
+        "import_portion_desc": "Når det skannede produktet har informasjon om porsjonsstørrelse, fyll maten med per-porsjon verdier istedenfor per 100g. Produkter uten informasjon om porsjonsstørrelse på AV brukes alltid verdier per 100g.",
+        "account_username": "Konto brukernavn",
+        "account_password": "Konto Passord",
+        "account_note": "Valgfri, trengs kun ved opplastning av redigeringer.",
+        "account_create_link": "Lag en OFF bruker →",
+        "username_placeholder": "OFF konto brukernavn",
+        "password_placeholder": "OFF konto passord",
+        "auto_refresh": "Automatisk oppdatering",
+        "auto_refresh_desc": "Hvor ofte speilet fra Open Food Facts skal lastes ned på nytt. Hver oppdatering henter hele øyeblikksbildet (~4 GB).",
+        "auto_refresh_off": "Av",
+        "auto_refresh_daily": "Daglig",
+        "auto_refresh_weekly": "Ukentlig",
+        "auto_refresh_monthly": "Månedlig"
+      }
+    },
+    "ai": {
+      "section": "KI assistent"
+    },
+    "notifications": {
+      "section": "Notifikasjoner"
+    },
+    "wellness": {
+      "section": "Velvære"
+    },
+    "sharing": {
+      "section": "Mat deling"
+    },
+    "profile_hero": {
+      "label_fallback": "Min Profil",
+      "subtitle_empty": "Trykk for å legge til navn og foto"
+    },
+    "authentication": {
+      "section": "Autentisering"
+    },
+    "users": {
+      "section": "Brukere",
+      "users_heading": "Brukere",
+      "add_user": "+ Legg til bruker",
+      "username": "Brukernavn",
+      "username_required": "Brukernavn *",
+      "full_name": "Fult navn (Valgfri)",
+      "password_required": "Passord *",
+      "confirm_required": "Bekreft *",
+      "role": "Rolle",
+      "role_admin": "admin",
+      "role_user": "bruker",
+      "role_self_suffix": "(deg)",
+      "create": "Lag",
+      "creating": "Lager…",
+      "delete_user_title": "Slett {name}?",
+      "delete_user_message": "Alt av denne brukerens data — mat, måltider, dagbok innlegg, innstillinger — vil bli slettet. Dette kan ikke reverseres.",
+      "delete": "Slett",
+      "promote_title": "Forfremme {name}?",
+      "promote_message": "De vil være i stand til å administrere brukere, deling, e-postkonfigurasjon og OIDC-leverandører.",
+      "promote_confirm": "Forfrem",
+      "demote_title": "Degrader {name}?",
+      "demote_message": "De vil miste administrator tilgang. Du kan forfremme dem igjen senere.",
+      "demote_confirm": "Degrader",
+      "reset_password": "Tilbakestill passord",
+      "reset_password_prompt": "Sett nytt passord for {name}\n\n(Må være 8+ tegn, inkludert store og små bokstaver, tall og spesialtegn.)",
+      "invite_user": "Inviter bruker",
+      "invite_user_explainer": "Send en registreringslink så brukeren kan velge deres eget passord. Oppgi en e-postadresse for å sende den direkte (krever SMTP), eller la feltet stå tomt for å generere en link du kan kopiere og dele slik du ønsker.",
+      "email_optional": "E-post (Valgfri)",
+      "send_invite": "Send Invitasjon",
+      "generate_link": "Generer invitasjonslink",
+      "invite_sent": "Invitasjon sendt",
+      "invite_sent_to": "Invitasjon sendt til {email}",
+      "user_fallback": "bruker",
+      "share_link_intro": "Del denne lenken:",
+      "copy": "Kopier",
+      "copy_link": "Kopier link",
+      "add_user_show": "Legg til bruker manuelt",
+      "add_user_hide": "Skjul legg til manuelt",
+      "add_user_explainer": "Du setter opp bruker og passord selv, så deler du den med brukeren. Nyttig når SMTP ikke er konfigurert eller for oppsett uten nettilgang.",
+      "create_directly": "Lag Bruker",
+      "session_duration": "Sesjonsvarighet",
+      "session_never": "Utløper aldri",
+      "session_8h": "8 timer",
+      "session_1d": "1 dag",
+      "session_7d": "7 dager",
+      "session_30d": "30 dager",
+      "session_90d": "90 dager",
+      "session_1y": "1 år",
+      "save": "Lagre",
+      "disable_um": "Deaktiver brukeradministrasjon",
+      "disable_um_subtitle": "Fjerner alle brukerkontoer og går tilbake til enkeltbrukermodus",
+      "disable_um_title": "Deaktivere brukeradministrasjon?",
+      "disable_um_message": "Dette vil fjerne alle konto brukere og dataene deres kan ikke gjenopprettes. Appen vil gå tilbake til enkeltbrukermodus.",
+      "disable_um_confirm": "Deaktiver & slett alt",
+      "enable_um": "Aktiver brukeradministrasjon",
+      "enable_um_subtitle": "Legg til flere bruker kontoer med separate data og innstillinger",
+      "create_admin_account": "Lag administrator konto",
+      "create_admin_explainer": "Den første kontoen er alltid administrator. All eksisterende mat, måltider og dagbok data på denne serveren vil bli tilordnet denne kontoen.",
+      "enable_create": "Aktiver & lag administrator",
+      "enabling": "Aktiverer…",
+      "toast_user_created": "Bruker lagt til",
+      "toast_user_deleted": "Bruker slettet",
+      "toast_password_reset": "Tilbakestilling av passord",
+      "toast_role_changed": "{name} er nå {role}",
+      "toast_um_enabled": "Brukeradministrasjon aktivert",
+      "toast_um_disabled": "Brukeradministrasjon deaktivert",
+      "toast_invite_sent": "Invitasjon sendt",
+      "toast_link_copied": "Kopiert!",
+      "err_username_required": "Brukernavn er påkrevd",
+      "err_passwords_mismatch": "Passord stemmer ikke overens",
+      "err_username_password_required": "Brukernavn og passord påkrevd",
+      "err_registration_failed": "Registrering feilet",
+      "err_failed_to_add": "Kunne ikke legge til bruker",
+      "err_could_not_change_role": "Kunne ikke endre rolle",
+      "err_could_not_reset_password": "Kunne ikke tilbakestille passordet",
+      "err_could_not_reach_server": "Kunne ikke nå serveren",
+      "revoke_invite_title": "Trekke tilbake invitasjon?",
+      "revoke_invite_message": "Linken vil slutte å fungere umiddelbart. Mottakeren vil ikke kunne bruke den etter dette.",
+      "revoke_confirm": "Oppheve",
+      "invite_revoked": "Invitasjon trukket tilbake",
+      "err_could_not_revoke": "Kunne ikke trekke tilbake invitasjon",
+      "invite_email_hint": "Oppgi inn en gyldig e-postadresse, eller tøm feltet for å generere en link som kan deles.",
+      "err_invite_email": "Oppgi en gyldig e-post eller la feltet være tomt for å generere en link som kan deles",
+      "err_failed_create_invite": "Feil ved oppretting av invitasjon",
+      "err_could_not_create_invite": "Kunne ikke opprette invitasjon",
+      "pending_invites": "Ventende invitasjoner",
+      "link_only": "Kun link (ingen e-post)",
+      "role_admin_display": "Admin",
+      "role_user_display": "Bruker",
+      "expires_short": "utløper {date}",
+      "revoke_invite_aria": "Trekk tilbake invitasjon",
+      "strong_passwords": "Krev sterke passord",
+      "strong_passwords_desc": "Avvis svake passord (zxcvbn styrke under 3) i tillegg til standardkravene om minst 8 tegn + store og små bokstaver + tall + spesialtegn. Gjelder nye registreringer, invitasjoner og passordendringer. Eksisterende passord blir ikke kontrollert på nytt.",
+      "saved_short": "Lagret.",
+      "session_desc": "Hvor lenge brukere forblir pålogget. Gjelder nye pålogginger.",
+      "err_password_policy_prefix": "Kunne ikke lagre passordpolicy: {msg}. Serveren må kanskje startes på nytt.",
+      "err_password_policy": "Kunne ikke lagre passordpolicy: {msg}",
+      "save_failed_status": "Lagring feilet. ({status})",
+      "network_error": "nettverks feil",
+      "hide": "Skjul",
+      "show": "Vis"
+    },
+    "email": {
+      "section": "E-post (SMTP)"
+    },
+    "backup": {
+      "section": "Sikkerhetskopier & gjenopprett"
+    },
+    "importExport": {
+      "section": "Import & eksport"
+    },
+    "server": {
+      "section": "Server tilkobling"
+    },
+    "diagnostics": {
+      "section": "Diagnostikk"
+    },
+    "updates": {
+      "section": "Oppdateringer"
+    },
+    "api_tokens": {
+      "section": "API-tokener"
+    },
+    "webhooks": {
+      "section": "Webhooks"
+    },
+    "support": {
+      "section": "Støtte"
+    },
+    "about": {
+      "section": "Om"
+    }
+  },
+  "updates": {
+    "current_version": "Nåværende versjon",
+    "channel": {
+      "label": "Oppdateringskanal",
+      "stable": "Stabil",
+      "dev": "Utvikler",
+      "help": "Stabil følger merkede utgivelser. Utvikler er den løpende utviklingsversjonen; forvent feil."
+    },
+    "auto_check": "Sjekk automatisk for oppdateringer",
+    "auto_check_desc": "Sjekk for nye utgivelser i bakgrunnen.",
+    "off_resting": "Av. Din server vil ikke kontakte GitHub. Skru den på for å høre om nye funksjoner, feilrettinger og sikkerhetsoppdateringer.",
+    "off_notice_title": "Oppdaterings sjekk er av",
+    "off_notice": "Ingenting vil fortelle deg om nye funksjoner. feilrettinger eller sikkerhetsoppdateringer. Hvis aktivert, spør GitHub for den nyeste utgivelsen med noen timers mellomrom, uten å sende noen opplysninger om deg.",
+    "turn_on": "Skru på",
+    "not_now": "Ikke nå",
+    "interval": {
+      "label": "Sjekkfrekvens",
+      "desc": "Hvor ofte appen sjekker for en ny utgave når den er åpen. Kun Manuelt skrur kun av alle automatiske sjekkere.",
+      "hourly": "Hver time",
+      "every_4h": "Hver 4. time",
+      "every_12h": "Hver 12. time",
+      "daily": "En gang om dagen",
+      "manual": "Kun Manuelt"
+    },
+    "last_checked": "Sist sjekket",
+    "last_checked_never": "Aldri",
+    "check_now": "Sjekk nå",
+    "checking": "Sjekker…",
+    "check_failed": "Oppdatering sjekk feilet. Prøv igjen snart.",
+    "up_to_date": "Du er på den nyeste versjonen",
+    "available_headline": "{version} er tilgjengelig",
+    "released": "Utgitt {when}",
+    "release_notes_heading": "Hva er nytt",
+    "no_release_notes": "Ingen utgivelsesnotater ble publisert for denne versjonen.",
+    "view_on_github": "Se på GitHub",
+    "download_install": "Last ned & installer",
+    "install_downloaded": "Installer",
+    "downloading": "Laster ned... {percent}%",
+    "install_starting": "Åpner installasjonsprogrammet…",
+    "install_failed": "Installasjon feilet. Prøv igjen.",
+    "skip_this_version": "Hopp over denne versjonen",
+    "no_apk_asset": "Denne utgivelsen har ingen vedlagt APK-fil.",
+    "banner_cta": "Trykk for å se hva som er nytt og installer.",
+    "banner_view": "Se",
+    "available_generic": "En ny versjon er tilgjengelig",
+    "ready_headline": "Oppdatering tilgjengelig",
+    "ready_cta": "Last inn på nytt for å få den nyeste versjonen.",
+    "banner_reload": "Last inn på nytt",
+    "storage": {
+      "heading": "Bufrede oppdaterings-APK-er",
+      "empty": "Ingen bufrede APK-er. Oppryddingsprosessene ble fullført uten problemer.",
+      "clear_now": "Tøm nå",
+      "clearing": "Tømmer…",
+      "cleared": "Buffer tømt."
+    },
+    "server": {
+      "heading": "Server",
+      "headline": "Server oppdatering {latest} tilgjengelig",
+      "behind_desc": "Oppdatering tilgjengelig: {latest}",
+      "current_desc": "Du er på den nyeste versjonen",
+      "versions": "Serveren er på {current}. Nyeste versjon: {latest}.",
+      "available_chip": "Oppdatering tilgjengelig",
+      "instructions": "For å oppdatere serveren, kjør på vertsmaskinen:",
+      "copy_command": "Kopier kommando",
+      "copied": "Kopiert til utskriftstavle.",
+      "copy_failed": "Kopiering feilet. Kopier kommandoen manuelt.",
+      "view_notes": "Vis endringslogg",
+      "channel_note": "For å bytte serverkanal må du endre bildetaggen (:latest, :dev) i din docker-compose.yml og kjøre docker-compose pull && docker-compose up -d på nytt."
+    }
+  },
+  "attach_image": {
+    "button": "Legg ved bilde",
+    "camera": "Kamera",
+    "gallery": "Galleri"
+  },
+  "login": {
+    "subtitle": "Logg inn på kontoen din",
+    "username": "Brukernavn",
+    "username_placeholder": "Skriv inn brukernavn",
+    "password": "Passord",
+    "password_placeholder": "Skriv inn passord",
+    "sign_in": "Logg inn",
+    "signing_in": "Logger inn…",
+    "forgot_password": "Glemt passord?",
+    "locked_out": "Låst ute?",
+    "sso_sign_in_with": "Logg inn med {provider}",
+    "sso_or": "eller",
+    "no_signin_methods": "Ingen innloggingsmetode tilgjengelig. Spør din administrator.",
+    "biometric": {
+      "sign_in_button": "Logg inn med biometri",
+      "prompt": "Logg inn på NutriTrace",
+      "no_saved": "Ingen lagrede pålogging. Vennligst bruk passordet ditt én gang først.",
+      "expired": "Ditt lagrede innlogging har utløpt. Bruk passordet ditt for å logge inn.",
+      "failed": "Biometrisk innlogging feilet. Bruk passordet ditt istedenfor."
+    },
+    "errors": {
+      "failed": "Innlogging feilet"
+    },
+    "cookie_warning": {
+      "http_title": "Innlogging vil ikke fungere på denne adressen",
+      "http_body": "Denne siden bruker vanlig HTTP, men serveren sender kun påloggingsinformasjonen(cookie) over HTTPS. Derfor forkaster nettleseren din den og du blir sendt tilbake til påloggingssiden når du prøver å logge inn. Åpne NutriTrace over HTTPS, eller sett INSECURE_COOKIES=1 på serveren og start den på nytt, hvis du er på et pålitelig hjemmenettverk.",
+      "dropped_title": "Nettleseren din holdt deg ikke innlogget",
+      "dropped_body": "Ditt passord var riktig, men nettleseren beholdt ikke innloggingsinformasjonen(cookie). Sjekk at cookies er tillatt for denne siden, og hvis NutriTrace er bak en omvendt proxy (reverse proxy), at den slipper cookies igjennom.",
+      "fix_link": "Hvordan fikse det"
+    },
+    "recovery": {
+      "confirm": "Dette vil slette alle bruker kontoer. Din mat & dagbok data vil bli behold. Fortsette?",
+      "explainer": "Hvis du aldri setter opp bruker kontoer med vilje, kan du deaktivere brukerbehandling. <strong>Dette vil slette alle bruker kontoer.</strong> Din mat &amp; dagbok data vil bli beholdt.",
+      "token_prompt": "Skriv inn <code>RECOVERY_TOKEN</code> fra servermiljøet ditt:",
+      "token_placeholder": "Gjenopprettingsnøkkel",
+      "action": "Deaktiver brukerbehandling og nullstill",
+      "disabling": "Deaktiverer…",
+      "failed": "Gjenoppretting feilet",
+      "success": "Brukerbehandling er deaktivert – du er nå i enkeltbrukermodus",
+      "done": "Brukerbehandling har blitt deaktivert. <br>Omdirigerer…"
+    }
+  },
+  "forgot_password": {
+    "title": "Tilbakestill passord",
+    "intro": "Skriv inn e-postadressen din og vi vil sende deg en link for å tilbakestille passordet ditt.",
+    "email_label": "E-postadresse",
+    "send_link": "send tilbakestillings link",
+    "sending": "Sender…",
+    "back_to_signin": "Tilbake til innlogging",
+    "sent": "Hvis en konto eksisterer for <strong>{email}</strong>, er en tilbakestillings link blitt sent. Sjekk din innboks."
+  },
+  "reset_password": {
+    "title": "Nytt passord",
+    "verifying": "Verifiserer link…",
+    "invalid_link": "Denne tilbakestillings linken er ugyldig eller har utløpt.",
+    "request_new": "Be om en ny link",
+    "success": "Passord oppdatert. Omdirigerer…",
+    "set_for": "Sett et nytt passord for <strong>{username}</strong>",
+    "new_password": "Nytt passord",
+    "confirm_password": "Bekreft passord",
+    "password_placeholder": "8+ tegn, store og små bokstaver, tall og symboler",
+    "submit": "Sett et nytt passord",
+    "saving": "Lagrer…",
+    "errors": {
+      "required": "Passord er påkrevd",
+      "mismatch": "Passordene stemmer ikke",
+      "failed": "Tilbakestilling feilet"
+    }
+  },
+  "native_setup": {
+    "subtitle": "Spor hver bit",
+    "use_locally": "Bruk lokalt",
+    "use_locally_desc": "All dataen blir på denne enheten. Fungerer frakoblet, ingen behov for server. Du kan koble til en server senere i Innstillinger.",
+    "connect_to_server": "Koble til server",
+    "connect_to_server_desc": "Synkroniser med din NutriTrace server. Din data er tilgjengelig på all enheter og i web appen.",
+    "server_url": "Server URL",
+    "server_url_placeholder": "https://nutritrace.example.com"
+  }
+}
