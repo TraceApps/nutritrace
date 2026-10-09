@@ -2032,6 +2032,7 @@
     <div use:portal bind:this={_dayStatusEl} class="diary-day-status" class:complete={_dayIsComplete}
       style="--sidebar-w-offset: var(--sidebar-w, 0px);{_dayStatusTopPx != null ? ` --dds-top: ${_dayStatusTopPx}px;` : ''}">
       {#if _dayIsComplete}
+        <span class="dds-lead">
         <span class="dds-icon material-symbols-rounded">task_alt</span>
         <span class="dds-text">
           <span class="dds-headline">{$_('diary.day_complete.status.closed_headline')}</span>
@@ -2054,17 +2055,18 @@
             {#if _ts}<span class="dds-sub">· {$_('diary.day_complete.status.closed_at', { values: { time: _ts } })}</span>{/if}
           {/if}
         </span>
+        </span>
         <button class="btn btn-secondary btn-sm dds-cta" on:click={_toggleDayCompletion}
           aria-label={$_('diary.day_complete.status.reopen')}>
           {$_('diary.day_complete.status.reopen')}
         </button>
       {:else}
+        <span class="dds-lead">
         <span class="dds-icon material-symbols-rounded" style="color:var(--accent)">restaurant</span>
         <span class="dds-text">
-          <span class="dds-headline">{_dayLabelShort}</span>
-          <span class="dds-sub">·
-            {$_('diary.day_complete.status.progress', { values: { done: _mealsLogged, total: _mealsTotal } })}
-          </span>
+          <span class="dds-headline dds-day">{_dayLabelShort}</span>
+          <span class="dds-sub"><span class="dds-dot">· </span>{$_('diary.day_complete.status.progress', { values: { done: _mealsLogged, total: _mealsTotal } })}</span>
+        </span>
         </span>
         <button class="btn btn-primary btn-sm dds-cta" on:click={_toggleDayCompletion}
           aria-label={$_('diary.actions.mark_day_complete')}>
@@ -3424,7 +3426,11 @@
     z-index: 40;
     display: flex;
     align-items: center;
-    gap: 8px;
+    /* What doesn't fit on one line wraps instead of being cut off: the
+       button drops to its own row (and fills it), the text to more lines.
+       Long translations and the narrowest phones read in full. */
+    flex-wrap: wrap;
+    gap: 4px 8px;
     padding: 2px 12px;
     margin: 0;
     border-radius: 8px;
@@ -3458,16 +3464,24 @@
   :global(.diary-day-status.complete .dds-icon) {
     color: var(--success, #10b981);
   }
+  /* The icon and the text stay together on the first row. The pair takes
+     the line's free space ahead of the button (999 to 1), so the button
+     only grows when it sits on a row of its own. */
+  :global(.diary-day-status .dds-lead) {
+    flex: 999 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   :global(.diary-day-status .dds-text) {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
     display: flex;
     align-items: baseline;
-    gap: 5px;
-    flex-wrap: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    gap: 0 5px;
+    flex-wrap: wrap;
+    padding: 2px 0;
   }
   :global(.diary-day-status .dds-headline) {
     font-weight: 600;
@@ -3482,7 +3496,8 @@
        the slim status bar. Without these the bar's own padding gets
        pushed out to 44px by the button, which is what made the button
        look like it was floating above / below the visible sticky area. */
-    flex-shrink: 0;
+    flex: 1 0 auto;
+    position: relative;
     height: auto;
     padding: 3px 10px;
     font-size: 12px;
@@ -3491,6 +3506,13 @@
     line-height: 1.15;
     white-space: nowrap;
     border-radius: 6px;
+  }
+  /* A finger-sized tap area around the slim button, reaching into the
+     band above and below the bar (which takes taps itself). */
+  :global(.diary-day-status .dds-cta::after) {
+    content: '';
+    position: absolute;
+    inset: -8px -4px;
   }
   :global(.diary-day-status.complete .dds-cta) {
     /* Reopen is a subdued affordance; keep it secondary regardless of
@@ -3519,6 +3541,12 @@
     .diary-day-status {
       margin: 0 8px;
       padding: 2px 10px;
+    }
+    /* The day is already named in the date bar right above: on a phone the
+       bar leaves it out and keeps the room for the progress and the button. */
+    :global(.diary-day-status:not(.complete) .dds-day),
+    :global(.diary-day-status:not(.complete) .dds-dot) {
+      display: none;
     }
     :global(.diary-day-status .dds-cta) {
       padding: 2px 8px;

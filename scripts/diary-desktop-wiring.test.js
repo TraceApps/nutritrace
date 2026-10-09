@@ -158,3 +158,30 @@ test('the date bar and the week strip pin as one block, and a band fills behind 
   const band = css.slice(css.indexOf('body > .diary-day-status-band) {'), css.indexOf('body > .diary-day-status) {'));
   assert.doesNotMatch(band, /pointer-events:\s*none/);
 });
+
+// ── The week strip preview sits above the status bar ──────────────────────
+test("the week strip's day preview is portaled above the status bar and opens its day on click", () => {
+  assert.match(weekStripSrc, /import \{ portal \} from '\.\.\/\.\.\/lib\/portal\.js'/);
+  assert.match(weekStripSrc, /<button type="button" tabindex="-1" use:portal class="ws-popover"/);
+  const rule = weekStripSrc.slice(weekStripSrc.indexOf(':global(body > .ws-popover) {'));
+  const body = rule.slice(0, rule.indexOf('}'));
+  assert.match(body, /position: fixed;/);
+  const z = Number((body.match(/z-index: (\d+)/) || [])[1]);
+  assert.ok(z > 40, 'above the status bar (40) and its band (39)');
+  assert.doesNotMatch(body, /pointer-events:\s*none/, 'it takes the pointer, so a click never lands on the bar underneath');
+  assert.match(weekStripSrc, /on:click=\{\(\) => \{ const iso = day\.iso; _hidePopNow\(\); onSelectDate\(iso\); \}\}/);
+});
+
+// ── The status bar never cuts its text off ────────────────────────────────
+test('the day status bar wraps instead of cutting its text off, and leaves the day name to the date bar on phones', () => {
+  const css = diarySrc.slice(diarySrc.indexOf('<style'));
+  const block = sel => { const i = css.indexOf(sel + ' {'); return css.slice(i, css.indexOf('}', i)); };
+  assert.match(block(':global(body > .diary-day-status)'), /flex-wrap: wrap;/);
+  const text = block(':global(.diary-day-status .dds-text)');
+  assert.doesNotMatch(text, /white-space:\s*nowrap|text-overflow:\s*ellipsis|overflow:\s*hidden/);
+  assert.match(text, /flex-wrap: wrap;/);
+  assert.match(block(':global(.diary-day-status .dds-lead)'), /flex: 999 1 auto;/);
+  assert.match(block(':global(.diary-day-status .dds-cta)'), /flex: 1 0 auto;/);
+  assert.match(diarySrc, /<span class="dds-headline dds-day">\{_dayLabelShort\}<\/span>/);
+  assert.match(css, /@media \(max-width: 480px\) \{[\s\S]*?:global\(\.diary-day-status:not\(\.complete\) \.dds-day\),\s*:global\(\.diary-day-status:not\(\.complete\) \.dds-dot\) \{\s*display: none;/);
+});

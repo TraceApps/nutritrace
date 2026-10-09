@@ -12,6 +12,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Trace shows your newest messages when you open it.** It loaded the oldest 100, so once a chat passed 100 messages the latest ones never appeared, also when they came from another device.
 - **A recipe photo changed while editing shows in the web diary again** ([#261](https://github.com/TraceApps/nutritrace/pull/261), [#262](https://github.com/TraceApps/nutritrace/pull/262)). The photo was saved inline instead of as a file, and the diary leaves inline photos out. It is now saved as a file, and photos already saved inline are converted when the server starts. Thanks @librarian.
 - **The top of the Diary stays one solid block while you scroll.** Diary entries no longer show through gaps between the date bar, the week strip and the Mark Day Complete bar.
+- **The week strip's day preview shows in full on the Diary.** On wide screens it opened under the Mark Day Complete bar; it now sits above it, and clicking it opens that day.
+- **The Mark Day Complete bar reads in full on phones**, in every language down to 320px wide. Its text and button wrap onto a second line instead of being cut off, and the day's name, already shown in the date bar above, is left out on phones.
 
 ---
 

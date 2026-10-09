@@ -17,6 +17,7 @@
    */
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
+  import { portal } from '../../lib/portal.js';
   import { NtApi } from '../../lib/api.js';
   import { localDateStr } from '../../lib/db.js';
   import { Nutrition } from '../../lib/nutrition.js';
@@ -94,6 +95,48 @@
   let activeByDate = new Map();// iso → per-day effective active kcal (for popover)
   let loading = true;
   let hoveredIso = null;
+  // The hover preview is portaled to <body> and placed under its day: inside
+  // the page it was painted under the Diary's fixed status bar (and the band
+  // behind it), which sit above the whole page. It takes the pointer, so it
+  // can be clicked (it opens its day) and a click on it never lands on the
+  // Mark Day Complete button underneath. Moving from the day onto it keeps it.
+  let _popAnchor = null;        // the hovered day's button
+  let _popPos = null;           // { top, left } in viewport px
+  let _popHideTimer = null;
+  const POP_GAP_PX = 6;
+  function _placePop() {
+    if (!_popAnchor || !_popAnchor.isConnected) { _popPos = null; return; }
+    const r = _popAnchor.getBoundingClientRect();
+    _popPos = { top: Math.round(r.bottom + POP_GAP_PX), left: Math.round(r.left + r.width / 2) };
+  }
+  function _showPop(iso, el) {
+    clearTimeout(_popHideTimer);
+    hoveredIso = iso;
+    _popAnchor = el;
+    _placePop();
+  }
+  function _hidePopSoon(iso) {
+    clearTimeout(_popHideTimer);
+    // Long enough to cross the gap between the day and the preview.
+    _popHideTimer = setTimeout(() => { if (hoveredIso === iso) { hoveredIso = null; _popAnchor = null; } }, 120);
+  }
+  function _hidePopNow() {
+    clearTimeout(_popHideTimer);
+    hoveredIso = null;
+    _popAnchor = null;
+  }
+  onMount(() => {
+    // The strip pins while the page scrolls; follow it until it does.
+    const follow = () => { if (hoveredIso) _placePop(); };
+    window.addEventListener('scroll', follow, true);
+    window.addEventListener('resize', follow);
+    return () => {
+      window.removeEventListener('scroll', follow, true);
+      window.removeEventListener('resize', follow);
+      clearTimeout(_popHideTimer);
+    };
+  });
+  $: _popDay = hoveredIso ? strip.find(d => d.iso === hoveredIso && d.stats) || null : null;
 
   // Return the 7 iso dates of the calendar week containing anchorIso
   // (Sunday through Saturday). Extracted from the previous inline logic
@@ -285,8 +328,8 @@
       class:is-future={day.isFuture}
       class:drag-over={dragOverIso === day.iso}
       on:click={() => onSelectDate(day.iso)}
-      on:mouseenter={() => hoveredIso = day.iso}
-      on:mouseleave={() => { if (hoveredIso === day.iso) hoveredIso = null; }}
+      on:mouseenter={(e) => _showPop(day.iso, e.currentTarget)}
+      on:mouseleave={() => _hidePopSoon(day.iso)}
       on:dragover={(e) => _onDayDragOver(e, day.iso)}
       on:dragleave={() => _onDayDragLeave(day.iso)}
       on:drop={(e) => _onDayDrop(e, day.iso)}
@@ -309,27 +352,35 @@
         ></span>
       </span>
 
-      {#if hoveredIso === day.iso && day.stats}
-        <div class="ws-popover" transition:fade|local={{ duration: $disableAnimations ? 0 : 120 }}>
-          <div class="ws-pop-date">{_formatIsoForUser(day.iso, $dateFormat)}</div>
-          <div class="ws-pop-kcal">
-            <span class="ws-pop-num">{day.stats.kcal.toLocaleString()}</span>
-            <span class="ws-pop-unit">kcal</span>
-          </div>
-          <div class="ws-pop-macros">
-            <span class="ws-pop-macro p">{day.stats.protein}g P</span>
-            <span class="ws-pop-macro c">{day.stats.carbs}g C</span>
-            <span class="ws-pop-macro f">{day.stats.fat}g F</span>
-          </div>
-          {#if day.stats.water_ml > 0}
-            <div class="ws-pop-water">💧 {(day.stats.water_ml / 1000).toFixed(2)} L</div>
-          {/if}
-          <div class="ws-pop-items">{day.stats.item_count} food{day.stats.item_count === 1 ? '' : 's'} logged</div>
-        </div>
-      {/if}
     </button>
   {/each}
 </nav>
+
+{#if _popDay && _popPos}
+  {@const day = _popDay}
+  <button type="button" tabindex="-1" use:portal class="ws-popover"
+    style="top: {_popPos.top}px; left: {_popPos.left}px;"
+    title="Switch diary to {day.iso}"
+    on:mouseenter={() => clearTimeout(_popHideTimer)}
+    on:mouseleave={_hidePopNow}
+    on:click={() => { const iso = day.iso; _hidePopNow(); onSelectDate(iso); }}
+    transition:fade|local={{ duration: $disableAnimations ? 0 : 120 }}>
+    <span class="ws-pop-date">{_formatIsoForUser(day.iso, $dateFormat)}</span>
+    <span class="ws-pop-kcal">
+      <span class="ws-pop-num">{day.stats.kcal.toLocaleString()}</span>
+      <span class="ws-pop-unit">kcal</span>
+    </span>
+    <span class="ws-pop-macros">
+      <span class="ws-pop-macro p">{day.stats.protein}g P</span>
+      <span class="ws-pop-macro c">{day.stats.carbs}g C</span>
+      <span class="ws-pop-macro f">{day.stats.fat}g F</span>
+    </span>
+    {#if day.stats.water_ml > 0}
+      <span class="ws-pop-water">💧 {(day.stats.water_ml / 1000).toFixed(2)} L</span>
+    {/if}
+    <span class="ws-pop-items">{day.stats.item_count} food{day.stats.item_count === 1 ? '' : 's'} logged</span>
+  </button>
+{/if}
 
 <style>
   .week-strip {
@@ -437,12 +488,15 @@
   .ws-day.is-future { opacity: 0.45; }
 
   /* Hover preview */
-  .ws-popover {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 50%;
+  /* Portaled to <body>, fixed under its day (top/left set inline), above
+     the Diary's fixed status bar (40) and the band behind it (39). */
+  :global(body > .ws-popover) {
+    position: fixed;
     transform: translateX(-50%);
-    z-index: 20;
+    z-index: 45;
+    margin: 0;
+    /* Type as it was inside the day button: the same button defaults. */
+    color: var(--text-1);
     min-width: 160px;
     padding: 10px 12px;
     background: var(--surface-1);
@@ -453,8 +507,7 @@
     flex-direction: column;
     gap: 4px;
     text-align: left;
-    pointer-events: none;
-    cursor: default;
+    cursor: pointer;
   }
   .ws-pop-date {
     font-size: 10px;
