@@ -827,7 +827,119 @@
       "add_to_diary_aria": "Legg til i dagbok",
       "add_to_which_meal": "Legg til i hvilket måltid?",
       "off_prepared_only": "Open Food Facts viser kun \"som tilberedt\"-verdier for dette produktet. Trykk på Rediger for å se dem og velge om du vil bruke dem.",
-      "off_implausible": "Open Food Facts viser kun \"som tilberedt\"-verdier for dette produktet, og de kan ikke stemme. Trykk Rediger for legge inn verdiene fra etiketten."
+      "off_implausible": "Open Food Facts viser kun \"som tilberedt\"-verdier for dette produktet, og de kan ikke stemme. Trykk Rediger for legge inn verdiene fra etiketten.",
+      "off_none": "Open Food Facts har ingen næringsverdier for dette produktet. Trykk på Rediger for å legge dem inn fra etiketten.",
+      "per_serving": "per porsjon",
+      "barcode": "Strekkode",
+      "added_to": "Legg til i {meal}",
+      "delete_aria": "Slett mat",
+      "delete_confirm_title": "Slett denne matvaren?",
+      "delete_confirm_body": "\"{name} vil bli fjernet fra maten din. Eksisterende dagbokoppføringer som viser denne maten blir behold.",
+      "deleted": "Mat slettet"
+    },
+    "sources": {
+      "local": "Lokal",
+      "from_others": "Fra andre",
+      "all": "Alle",
+      "shared": "Delt",
+      "mealie": "Mealie"
+    },
+    "all_mode": {
+      "search_hint": "Søk på tvers av alle aktiverte kilder",
+      "searching": "Søker gjennom alle kilder…",
+      "no_matches": "Ingen treff for \"{q}\" noe sted",
+      "loading_more": "Laster inn mer…",
+      "still_searching_others": "Søker fortsatt andre kilder…"
+    },
+    "offline": {
+      "source": "Trenger en tilkobling",
+      "search_hint": "Du er frakoblet. Det ble kun søkt blant dine egne matvarer. Open Food Facts, USDA og de andre kildene krever en internettforbindelse.",
+      "barcode": "Du er frakoblet. Det ble kun søkt blant dine egne matvarer for denne strekkoden.",
+      "import": "Den importen trenger en tilkobling. Den vil fungere så snart du er på nett igjen."
+    },
+    "loading_library": "Laster inn…",
+    "pagination": {
+      "showing_x_of_y": "Viser {shown} av {total}",
+      "loading_more": "Laster inn mer…"
+    },
+    "toast": {
+      "deleted": "Slettet",
+      "cloned": "Klonet",
+      "added_to_diary": "Lagt til i dagbok",
+      "meal_partly_added": "Noen ingredienser kunne ikke bli lagt til: {names}",
+      "meal_none_added": "Kunne ikke legge til dette måltidet. Sjekk tilkoblingen din og prøv igjen.",
+      "meal_stale_ingredients": "Lagt til i dagbok. Disse ingrediensene er ikke lenger i din mat: {names}. Rediger måltidet for å rette opp i dette."
+    }
+  },
+  "trace": {
+    "food_card": {
+      "log_to": "Loggfør i",
+      "dont_log": "Ikke loggfør"
+    },
+    "panel_label": "KI-veileder chat",
+    "ask_placeholder": "Spør meg om hva som helst…",
+    "clear_conversation": "Tøm samtale",
+    "clear_confirm_title": "Tøm denne samtalen?",
+    "clear_confirm_message": "Meldinger i denne samtalen vil bli slettet. Dette kan ikke reverseres.",
+    "clear_confirm_ok": "Tøm",
+    "attach_image": "Legg ved bilde",
+    "fab": {
+      "release_to_cancel": "Slipp for å avbryte",
+      "recording_release": "Tar opp — slipp for å loggføre",
+      "open_with_voice_hint": "Åpne KI-veileder (hold for å diktere mat)",
+      "tap_chat_hold_voice": "Trykk for å chatte · hold inne for å logge mat med stemmen",
+      "open_short": "Ki-assistent"
+    },
+    "setup": {
+      "api_key_required": "API-nøkkel påkrevd",
+      "api_key_desc": "Legg til API-nøkkelen fra din KI-tilbyder under <strong>Innstillinger → KI-veileder</strong> for å starte chatten.",
+      "supported_providers": "Støtter Anthropic Claude, OpenAI og Google Gemini.",
+      "open_settings": "Åpne Innstillinger"
+    }
+  },
+  "goals_page": {
+    "adaptive": {
+      "title": "Adaptiv TDEE",
+      "learned": "Beregnet: <strong>{value} {unit}/dag</strong> · vekttrend: {trend} kg/uke",
+      "building": "Samler inn data: <strong>{available} / {required}</strong> dager med både vekt og dagbok",
+      "help_button": "Hvordan det funker",
+      "today_goal": "Dagens mål",
+      "confidence": "Pålitelighet",
+      "weight_source": "Kilde for vektdata",
+      "until_ready": "Frem til det er klart, vil ditt faste mål på {value} {unit} gjelde.",
+      "help_headline": "Hvordan det funker.",
+      "help_intro": "Adaptiv TDEE beregner ditt faktiske daglige energiforbruk basert på vekttrenden din de siste 35 dagene, sett i sammenheng med hvor mye du faktisk har spist. Regnestykket:",
+      "help_step_1": "Utjevne vektsvingningene dine (lineær regresjon over 35 dager).",
+      "help_step_2": "Omgjør trenden til daglig energibalanse (1 kg kroppsmasse ≈ 7 700 kcal).",
+      "help_step_3": "TDEE = gjennomsnittlig daglig inntak − den daglige balansen.",
+      "help_best_intro": "For beste resultater:",
+      "help_best_weigh": "<strong>Vei deg ofte</strong> — daglig er best, annenhver dag er helt fint. Manglende målinger fylles inn automatisk, men flere målinger = mer nøyaktig resultat. En tilkoblet vekt (Withings, Fitbit, Garmin, Health Connect) går automatisk, men manuelle registreringer under Kroppsmål fungerer også.",
+      "help_best_log": "<strong>Logg maten din konsekvent.</strong> Manglende dager droppes fra beregningen. Estimatet blir unøyaktig hvis du bare registrerer halvparten av dagene.",
+      "help_best_switch": "<strong>Ikke bytt mål underveis.</strong> Det løpende gjennomsnittet over 35 dager stabiliserer seg over tid. Hvis du hopper mellom å kutte og å bulke hver uke, vil den lærte TDEE-en henge etter.",
+      "help_best_reweigh": "<strong>vei deg under samme forhold</strong> — det første du gjør om morgenen, etter dobesøk, før mat og drikke. Daglige svingninger er mest vann; det er trenden som teller.",
+      "help_caveats": "<strong>Viktig å merke seg.</strong> Store endringer i aktivitet (begynt med løping, brukket et bein) tar rundt 2 uker før de vises fult ut. Reiseuker med mangelfull matregistrering kan trekke estimatet opp. Den beregnede TDEE-en ganges med målfaktoren din (Ned -20% / Hold vekten / Opp 20%) for å gi deg det faktiske daglige målet."
+    },
+    "empty": {
+      "no_goals": "Ingen mål enda.",
+      "add_hint": "Gå til fanen <strong>Alle felt</strong> for å legge til mål.",
+      "no_templates": "Ingen maler enda.",
+      "no_templates_hint": "Lagre dine nåværende mål for å lage din første mal."
+    },
+    "sections": {
+      "body_stats": "Kroppsstatistikk",
+      "nutrients": "Næringsstoffer",
+      "water": "Vann",
+      "wellness": "Velvære"
+    },
+    "row": {
+      "not_set": "Ikke definert",
+      "no_goal": "Ingen mål",
+      "min": "(min)",
+      "stale_tip": "Den nyeste målingen innenfor de siste 30 dagene, brukes frem til du registrerer en ny verdi",
+      "daily_water_goal": "Daglig vannmål"
+    },
+    "all_fields": {
+      "intro": "Trykk på et felt for å angi eller redigere målet."
     }
   }
 }
