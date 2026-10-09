@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **Trace shows your newest messages when you open it.** It loaded the oldest 100, so once a chat passed 100 messages the latest ones never appeared, also when they came from another device.
+- **A recipe photo changed while editing shows in the web diary again** ([#261](https://github.com/TraceApps/nutritrace/pull/261), [#262](https://github.com/TraceApps/nutritrace/pull/262)). The photo was saved inline instead of as a file, and the diary leaves inline photos out. It is now saved as a file, and photos already saved inline are converted when the server starts. Thanks @librarian.
 
 ---
 
