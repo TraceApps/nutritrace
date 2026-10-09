@@ -135,3 +135,26 @@ test('DaySummaryWidget mirrors the Nutrition Summary sheet conventions', () => {
   // MacroRing (not a hand-rolled ring) reused for the visualization
   assert.match(daySummarySrc, /import\s+MacroRing/);
 });
+
+// ── The sticky top is one block (no see-through gaps) ─────────────────────
+test('the date bar and the week strip pin as one block, and a band fills behind the status bar', () => {
+  // One sticky wrapper holds both bars, pinned at the header's measured height.
+  const nav = diarySrc.indexOf('class="diary-sticky-nav"');
+  assert.ok(nav > 0, 'sticky wrapper present');
+  const date = diarySrc.indexOf('class="diary-date-bar"'), strip = diarySrc.indexOf('class="diary-week-strip-wrap"');
+  const status = diarySrc.indexOf('class="diary-day-status"');
+  assert.ok(nav < date && date < strip && strip < status, 'date bar and strip inside the wrapper, before the status bar');
+  assert.match(diarySrc, /\.diary-sticky-nav \{\s*position: sticky;\s*top: var\(--dsn-top,/);
+  // Neither bar sticks on its own: separate offsets left gaps between them.
+  const css = diarySrc.slice(diarySrc.indexOf('<style'));
+  const rule = sel => (css.match(new RegExp(`${sel} \\{[^}]*\\}`, 'g')) || []).join('\n');
+  assert.doesNotMatch(rule('\\.diary-date-bar'), /position:\s*sticky/);
+  assert.doesNotMatch(rule('\\.diary-week-strip-wrap'), /position:\s*sticky/);
+  // The band behind the fixed status bar, full width, placed by measurement.
+  assert.match(diarySrc, /class="diary-day-status-band"/);
+  assert.match(css, /body > \.diary-day-status-band\) \{\s*position: fixed;\s*left: var\(--sidebar-w, 0px\);\s*right: 0;/);
+  assert.match(diarySrc, /_dayStatusBand = \{ top: stackBottom, height: bandHeight \}/);
+  // It takes taps, as the bar does, so none reach a meal row hidden behind it.
+  const band = css.slice(css.indexOf('body > .diary-day-status-band) {'), css.indexOf('body > .diary-day-status) {'));
+  assert.doesNotMatch(band, /pointer-events:\s*none/);
+});

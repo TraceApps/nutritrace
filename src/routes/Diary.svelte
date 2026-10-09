@@ -613,29 +613,40 @@
   const DDS_GAP_PX = 8;     // space between the date bar and the status bar
   const DDS_CARD_GAP_PX = 12; // space between the status bar and the first card
   let _diaryHeaderEl = null;
+  let _stickyNavEl = null;     // the date bar and the week strip, one sticky block
   let _dateBarEl = null;
   let _weekStripWrapEl = null;
   let _dayStatusEl = null;
+  let _stickyNavTopPx = null;  // exposed as --dsn-top: where the header ends
   let _dayStatusTopPx = null;  // exposed as --dds-top on the portaled bar
   let _dayStatusPadPx = null;  // exposed as --dds-pad on .diary-content
+  let _dayStatusBand = null;   // { top, height } of the band behind the bar
   function _measureDayStatus() {
-    if (!_dateBarEl || !_dayStatusEl || !_diaryContentEl || !_diaryHeaderEl) return;
-    if (!_dateBarEl.offsetHeight) return; // not laid out yet
-    // Where each sticky bar sits at scroll 0: its flow position, or its pin
-    // if that is lower. Worked out from the header (sticky at 0, so its
-    // bottom never moves) rather than read live, so the answer is the same
-    // whether or not the page is scrolled when this runs.
+    if (!_stickyNavEl || !_diaryHeaderEl) return;
+    if (!_stickyNavEl.offsetHeight) return; // not laid out yet
     const pin = (el) => { const v = parseFloat(getComputedStyle(el).top); return Number.isFinite(v) ? v : 0; };
-    const headerBottom = _diaryHeaderEl.getBoundingClientRect().bottom;
-    let stackBottom = Math.max(pin(_dateBarEl), headerBottom) + _dateBarEl.offsetHeight;
-    // The week strip extends the stack only when it is shown (desktop, not
-    // force-mobile); its CSS decides that. Its flow top is the date bar's
-    // flow bottom.
-    if (_weekStripWrapEl && getComputedStyle(_weekStripWrapEl).display !== 'none') {
-      const stripFlowTop = headerBottom + _dateBarEl.offsetHeight;
-      stackBottom = Math.max(pin(_weekStripWrapEl), stripFlowTop) + _weekStripWrapEl.offsetHeight;
+    // The date bar block pins exactly where the header ends (the header is
+    // sticky too), so it sits flush under it whether or not the page is
+    // scrolled. The header grows with the safe area on Android, often by a
+    // fraction of a pixel: rounding down tucks the block under the header
+    // (which paints above it) instead of leaving a hairline between them.
+    const headerRect = _diaryHeaderEl.getBoundingClientRect();
+    const navTop = Math.floor(pin(_diaryHeaderEl) + headerRect.height);
+    if (navTop !== _stickyNavTopPx) _stickyNavTopPx = navTop;
+    if (!_dayStatusEl || !_diaryContentEl) return;
+    // The block's bottom on screen once pinned: the scroll area's top (the
+    // header sits pinned at its own top there) plus where the block pins
+    // plus its height, which includes the week strip when that is shown.
+    // Rounded down, so the band starts under the block's last pixel row.
+    const scrollTop0 = headerRect.top - pin(_diaryHeaderEl);
+    const stackBottom = Math.floor(scrollTop0 + navTop + _stickyNavEl.getBoundingClientRect().height);
+    const topPx = stackBottom + DDS_GAP_PX;
+    // The band fills the gap above the bar, the margins beside it, and the
+    // same gap below it, so the stack reads as one solid block.
+    const bandHeight = Math.ceil(DDS_GAP_PX + _dayStatusEl.offsetHeight + DDS_GAP_PX);
+    if (!_dayStatusBand || _dayStatusBand.top !== stackBottom || _dayStatusBand.height !== bandHeight) {
+      _dayStatusBand = { top: stackBottom, height: bandHeight };
     }
-    const topPx = Math.round(stackBottom + DDS_GAP_PX);
     // Content starts right under the stack in normal flow; pad it so the
     // first card sits a card gap below the status bar at scroll 0.
     const contentTop = _diaryContentEl.getBoundingClientRect().top + pageScrollTop(_diaryContentEl);
@@ -659,7 +670,7 @@
   onMount(() => {
     try {
       _dayStatusResizeObs = new ResizeObserver(() => _measureDayStatus());
-      _observeDayStatus(_diaryHeaderEl, _dateBarEl, _weekStripWrapEl, _dayStatusEl);
+      _observeDayStatus(_diaryHeaderEl, _stickyNavEl, _dateBarEl, _weekStripWrapEl, _dayStatusEl);
     } catch { /* ResizeObserver unavailable: mount and resize measurements stand */ }
     requestAnimationFrame(() => requestAnimationFrame(_measureDayStatus));
     window.addEventListener('resize', _measureDayStatus);
@@ -1939,7 +1950,11 @@
     {/if}
   </header>
 
-  <!-- Date navigation — sticky sub-bar directly below the header -->
+  <!-- Date navigation and the desktop week strip pin as one block right
+       under the header, so nothing can show between them. -->
+  <div bind:this={_stickyNavEl} class="diary-sticky-nav"
+    style={_stickyNavTopPx != null ? `--dsn-top: ${_stickyNavTopPx}px;` : ''}>
+  <!-- Date navigation, directly below the header -->
   <div bind:this={_dateBarEl} class="diary-date-bar">
     <button class="btn-icon accent" on:click={prevDay} aria-label={$_('diary.nav.previous_day')} title={$_('diary.nav.previous_day')}>
       <span class="material-symbols-rounded">chevron_left</span>
@@ -1961,7 +1976,7 @@
     </button>
   </div>
 
-  <!-- Week strip (Phase 6 desktop). Sticky below the date bar at
+  <!-- Week strip (Phase 6 desktop). Pinned with the date bar, below it, at
        ≥1280px; hidden on mobile. Data refetches whenever the diary
        store fires an update (bumps refreshKey). -->
   <div bind:this={_weekStripWrapEl} class="diary-week-strip-wrap">
@@ -1983,6 +1998,7 @@
       onDropMeal={_onDropMealOnWeekDay}
       showCompletion={$diaryShowCompletion}
     />
+  </div>
   </div>
 
   {#if $diaryShowCompletion}
@@ -2007,6 +2023,12 @@
       } catch {}
       return formatDate($currentDate);
     })()}
+    <!-- A solid band from the bottom of the sticky block to just below the
+         status bar, so no content shows above, beside or under its edges. -->
+    {#if _dayStatusBand}
+      <div use:portal class="diary-day-status-band" aria-hidden="true"
+        style="top: {_dayStatusBand.top}px; height: {_dayStatusBand.height}px;"></div>
+    {/if}
     <div use:portal bind:this={_dayStatusEl} class="diary-day-status" class:complete={_dayIsComplete}
       style="--sidebar-w-offset: var(--sidebar-w, 0px);{_dayStatusTopPx != null ? ` --dds-top: ${_dayStatusTopPx}px;` : ''}">
       {#if _dayIsComplete}
@@ -3379,6 +3401,21 @@
      strip) plus a gap, set inline by _measureDayStatus. The calcs here and
      for --dds-pad are only first-frame fallbacks matching the usual
      geometry: header (61px) + date bar (57px) + 8px gap. */
+  /* The band behind the fixed status bar: from the bottom of the sticky
+     block to a gap below the bar, full width, in the date bar's glass, so
+     scrolled content never shows above, beside or under the bar's edges.
+     Placed by _measureDayStatus. It takes taps, as the bar does, so a tap
+     on it never reaches a meal row hidden behind it. */
+  :global(body > .diary-day-status-band) {
+    position: fixed;
+    left: var(--sidebar-w, 0px);
+    right: 0;
+    z-index: 39;
+    background: var(--glass-surface);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--border);
+  }
   :global(body > .diary-day-status) {
     position: fixed;
     top: var(--dds-top, calc(var(--page-top, var(--safe-top)) + 126px + var(--hamburger-row, 0px)));
@@ -3506,14 +3543,17 @@
 
   /* H1 height/alignment now lives in base.css .page-header h1 (uniform 40px). */
 
-  /* Sticky date navigation sub-bar — pins flush below the page-header.
-     62 + var(--hamburger-row): hamburger-row is 48 normally and 0 when the
-     persistent sidebar is pinned, so the bar tracks the actual header height
-     in both modes. With banner: 122 + hamburger-row. */
-  .diary-date-bar {
+  /* The date bar and the desktop week strip pin together in one block,
+     flush under the header: --dsn-top is the header's measured height
+     (_measureDayStatus); the calc is only the first-frame fallback.
+     Separate sticky offsets for each bar never quite added up and left
+     see-through gaps between them. */
+  .diary-sticky-nav {
     position: sticky;
-    top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
+    top: var(--dsn-top, calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px)));
     z-index: 9;
+  }
+  .diary-date-bar {
     background: var(--glass-surface);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -3523,10 +3563,6 @@
     gap: 4px;
     padding: 8px var(--page-px);
   }
-  .diary-date-bar.has-banner {
-    top: calc(var(--page-top, var(--safe-top)) + 122px + var(--hamburger-row, 0px));
-  }
-
   .date-btn {
     flex: 1;
     display: flex;
@@ -3562,9 +3598,6 @@
   @media (min-width: 1280px) {
     :global(html:not(.force-mobile-layout)) .diary-week-strip-wrap {
       display: block;
-      position: sticky;
-      top: calc(var(--page-top, var(--safe-top)) + 120px + var(--hamburger-row, 0px));
-      z-index: 8;
     }
   }
 
