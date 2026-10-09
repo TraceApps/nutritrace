@@ -1,1 +1,51 @@
-{}
+{
+  "nav": {
+    "goals": "Cele"
+  },
+  "settings": {
+    "users": {
+      "copy_link": "Skopiuj Link"
+    }
+  },
+  "routes": {
+    "diary": {
+      "title": "Dziennik"
+    },
+    "goals": {
+      "title": "Cele"
+    },
+    "settings": {
+      "title": "Ustawienia"
+    },
+    "foods": {
+      "title": "Posiłki"
+    },
+    "statistics": {
+      "title": "Statystyki"
+    }
+  },
+  "common": {
+    "sign_out": "Wyloguj się",
+    "log_out": "Wyloguj się"
+  },
+  "reset_password": {
+    "errors": {
+      "required": "Wymagane jest hasło",
+      "mismatch": "Hasła nie są identyczne",
+      "failed": "Nie udało się zresetować"
+    }
+  },
+  "native_setup": {
+    "use_locally": "Używaj Lokalnie",
+    "use_locally_desc": "Wszystkie dane pozostają na tym urządzeniu. Działa offline, bez serwera. Możesz podłączyć się do serwera potem, w ustawieniach.",
+    "connect_to_server": "Podłącz do Serwera"
+  },
+  "meal_editor": {
+    "meal_name_placeholder": "Nazwa posiłku",
+    "recipe_name_placeholder": "Nazwa przepisu",
+    "card_photo": "Zdjęcie",
+    "draft_restored": "Przywrócono niezapisane wcześniej zmiany.",
+    "draft_discard": "Odrzuć",
+    "card_categories": "Kategorie"
+  }
+}
