@@ -150,8 +150,8 @@
     "connected_services": {
       "section": "Matvarekilder",
       "off": {
-        "header": "Åpne matfakta",
-        "enable": "Aktiver Åpne matfakta",
+        "header": "Open Food Facts",
+        "enable": "Aktiver Open Food Facts",
         "enable_desc": "Søk på den globale, brukergenererte matdatabasen når du legger til matvarer. Du trenger ikke brukerkonto for å søke; det kreves kun for å laste opp endringer.",
         "search_language": "Søk språk",
         "search_country": "Søk Land",
@@ -479,6 +479,355 @@
     "connect_to_server": "Koble til server",
     "connect_to_server_desc": "Synkroniser med din NutriTrace server. Din data er tilgjengelig på all enheter og i web appen.",
     "server_url": "Server URL",
-    "server_url_placeholder": "https://nutritrace.example.com"
+    "server_url_placeholder": "https://nutritrace.example.com",
+    "server_url_hint": "Når du har tastet inn serveradressen, vises de påloggingsmetodene som er tilgjengelige for serveren (passord eller SSO).",
+    "back": "Tilbake",
+    "checking": "Sjekker…",
+    "next": "Neste",
+    "or": "Eller",
+    "oidc_sign_in_with": "Logg inn med {name}",
+    "username": "Brukernavn",
+    "username_placeholder": "Ditt brukernavn",
+    "password": "Passord",
+    "password_placeholder": "Ditt passord",
+    "no_auth_warning": "Denne serveren har ingen påloggingsmetoder konfigurert. Spør administratoren din om å aktivere passord innlogging eller om å konfigurere en OIDC-leverandør.",
+    "signing_in": "Logger inn…",
+    "sign_in": "Logg inn",
+    "errors": {
+      "server_url_required": "Angi din server URL",
+      "credentials_required": "Oppgi din påloggingsinformasjon",
+      "browser_open_failed": "Kunne ikke åpne påloggingssiden",
+      "connected": "Koblet til serveren",
+      "login_failed": "Innlogging feilet"
+    }
+  },
+  "profile": {
+    "title": "Profil",
+    "personal_info": "Personlig info",
+    "security": "Sikkerhet",
+    "change_photo": "Endre bilde",
+    "full_name": "Fult navn",
+    "full_name_placeholder": "Ditt fulle navn",
+    "email_placeholder": "Brukt for tilbakestilling av passord",
+    "nickname": "Kallenavn / Visningsnavn",
+    "nickname_placeholder": "Hva skal vi kalle deg?",
+    "birthday": "Fødselsdag",
+    "gender": "Kjønn",
+    "gender_unset": "Ønsker ikke å oppgi",
+    "change_password": "Endre passord",
+    "set_password": "Sett passord",
+    "current_password": "Gjeldende passord",
+    "confirm_new_password": "Bekreft nytt passord",
+    "saved": "Profil lagret",
+    "password_changed": "Passord endret",
+    "linked_accounts": "Tilknyttede kontoer",
+    "no_linked_accounts": "Ingen tilknyttede kontoer.",
+    "link_with": "Tilknytt med",
+    "unlink": "Fjern tilknytning",
+    "danger_zone": "Faresone",
+    "delete_account": "Slett min konto",
+    "delete_account_explainer": "Fjern din konto med all tilhørende data permanent — mat, måltider, dagbok, velvære og innstillinger.",
+    "delete_account_title": "Slette kontoen din?",
+    "delete_account_message": "Din mat, måltider, dagbok, innstillinger og velvære data vil bli fjernet permanent. Dette kan ikke reverseres.",
+    "delete_account_confirm": "Slett konto",
+    "deleting": "Sletter…",
+    "account_deleted": "Konto slettet",
+    "errors": {
+      "save_failed": "Kunne ikke lagre profil",
+      "upload_failed": "Opplastning feilet",
+      "password_change_failed": "Kunne ikke endre passord",
+      "delete_account_failed": "Kunne ikke slette konto"
+    }
+  },
+  "wizard": {
+    "nav": {
+      "skip": "Hopp over",
+      "get_started": "Kom i gang",
+      "next": "Neste",
+      "finish": "Fullfør"
+    },
+    "welcome": {
+      "title": "Velkommen til NutriTrace",
+      "desc": "Din personlige kostholdsmåler. La oss gjøre klart oppsettet ditt, det tar rundt ett minutt."
+    },
+    "name": {
+      "title": "Hva skal vi kalle deg?",
+      "desc": "Brukt i hilsener, sidemenyen og KI-assistenten din. Du kan endre det senere i innstillinger.",
+      "placeholder": "Ditt navn (optional)"
+    },
+    "usermgmt": {
+      "create_account_title": "Opprett kontoen din",
+      "create_account_desc": "Opprett administratorkontoen din for å sikre NutriTrace-instansen din. Du kan invitere andre brukere senere i innstillinger.",
+      "multi_user_title": "Fler-bruker støtte",
+      "multi_user_desc": "NutriTrace kan kjøres i enkeltbrukermodus (standard) eller flerbrukermodus med separate innlogginger og passord tilbakestillinger. Du kan alltids aktivere dette senere i instillinger.",
+      "enable_toggle": "Aktiver bruker kontoer",
+      "enable_toggle_hint": "Hver bruker får sin egen mat dagbok, innstillinger og profil",
+      "admin_section": "Administrator konto",
+      "username_label": "Brukernavn *",
+      "username_placeholder": "administrator",
+      "nickname_label": "Kallenavn",
+      "nickname_placeholder": "Valgfri",
+      "full_name_label": "Fult navn",
+      "full_name_placeholder": "Valgfri",
+      "email_label": "E-postadresse",
+      "email_placeholder": "Brukt for tilbakestilling av passord (valgfri)"
+    },
+    "units": {
+      "title": "Målesystem",
+      "desc": "Hvordan måler du ting?",
+      "metric": "Metrisk",
+      "imperial": "Imperial"
+    },
+    "gender": {
+      "title": "Hva er ditt kjønn?",
+      "desc": "Brukt for å kalkulere kaloribehovet ditt."
+    },
+    "dob": {
+      "title": "Når var du født?",
+      "desc": "Alderen din påvirker forbrenningen din."
+    },
+    "height": {
+      "title": "Hva er høyden din?",
+      "desc": "Brukt for å kalkulere kaloribehovet ditt.",
+      "label_cm": "Høyde (cm)",
+      "label": "Høyde",
+      "feet": "Fot",
+      "inches": "Tommer"
+    },
+    "integrations_cards": {
+      "configure": "Konfigurer",
+      "skip_this": "Hopp over dette",
+      "off": "Open Food Facts",
+      "usda": "USDA FoodData sentral",
+      "mealie": "Mealie",
+      "ai": "KI-Assistent"
+    },
+    "weight": {
+      "title": "Hva er vekten din?"
+    },
+    "target": {
+      "title": "Hva er mål vekten din?"
+    },
+    "activity": {
+      "title": "Hvor aktiv er du?",
+      "desc": "Påvirker ditt daglige kalori behov."
+    },
+    "integrations": {
+      "title": "Integrasjoner",
+      "desc": "Koble til valgfrie tjenester. Hopp over det du ikke trenger — Du kan konfigurere dem senere i innstillinger."
+    },
+    "notifications": {
+      "title": "Hold på de gode vanene",
+      "desc": "Få nyttige påminnelser og feir seirene dine. Du kan tilpasse alt dette senere i innstillinger."
+    },
+    "updates": {
+      "title": "Sjekk for oppdateringer",
+      "desc": "Serveren din kan fortelle deg når en ny NutriTrace har blitt utgitt.",
+      "toggle": "Sjekk for oppdateringer automatisk",
+      "toggle_sub": "Det er hvordan du hører om nye funksjoner, rettelser og sikkerhetsoppdateringer",
+      "note": "Serveren din spør GitHub med noen timers mellomrom om det finnes en ny versjon av NutriTrace. Ingen informasjon om deg eller dataene dine blir sendt. Du kan når som helst endre dette under Innstillinger, Oppdateringer."
+    },
+    "summary": {
+      "title": "Dine daglige mål",
+      "desc": "Kalkulert fra din statistikk med bruk av Mifflin-St Jeor formelen."
+    },
+    "skip_modal": {
+      "title": "Hopp over oppsett?",
+      "desc": "Du kan sette opp dine mål, enheter og integrasjoner når som helst under <strong>Innstillinger</strong>. Frem til det er gjort, vil ikke kalorimål beregnes automatisk.",
+      "continue": "Fortsett oppsett",
+      "skip_now": "Hopp over for nå"
+    }
+  },
+  "diary": {
+    "add_food": "Legg til mat",
+    "notes_placeholder": "Hvordan føltes dagen i dag? Søvn, energi, sult og søtsug…",
+    "quick_calories": {
+      "title": "Hurtigkalorier",
+      "title_meal": "Hurtigkalorier: {meal}",
+      "default_name": "Hurtigkalorier",
+      "help": "Registrer kun {unit} når du ikke har fullstendig næringsinformasjon, eller når du ikke ønsker å spesifisere matvaren nærmere. Legges direkte til i dagboken; det opprettes ingen egen matvareoppføring.",
+      "name_label": "Navn (valgfri)",
+      "name_placeholder": "Kontorsnacks, hotellfrokost...",
+      "value_label": "{unit}",
+      "add": "Legg til",
+      "adding": "Legger til…",
+      "cancel": "Avbryt",
+      "summed_hint": "Bytt til separat for å redigere individuelle oppføringer"
+    },
+    "nav": {
+      "previous_day": "Forrige dag",
+      "next_day": "Neste dag",
+      "jump_to_date": "Hopp til dato"
+    },
+    "actions": {
+      "cancel_selection": "Avbryt valg",
+      "delete_selected": "Slett valgte",
+      "log_water": "Loggfør vann",
+      "log_water_long": "Vann — loggfør ditt vanninntak",
+      "nutrition_summary": "Ernæringssammendrag",
+      "nutrition_summary_long": "Ernæringssammendrag — full oversikt over dagens næringsstoffer",
+      "mark_day_complete": "Merk dag som fullført",
+      "unmark_day_complete": "Fjern markering for fullført dag",
+      "body_stats": "Kroppsstatistikk",
+      "body_stats_long": "Kroppsstatistikk — loggfør vekt, fettprosent og målinger"
+    },
+    "day_complete": {
+      "marked_toast": "Markert dag som fullført",
+      "auto_marked_toast": "Alle måltider markert; lukket dagen automatisk",
+      "unmarked_toast": "Fjernet markering for fullført dag",
+      "error_toast": "Kunne ikke oppdatere markeringen for dagen",
+      "meal_reminders_hint": "Tips: Slå på måltidspåminner i Innstillinger, Notifikasjoner så du ikke glemmer et måltid før slutten av dagen.",
+      "confirm_empty_title": "Fullfør dagen med tomme måltider?",
+      "confirm_empty_msg": "Disse måltidene er tomme og har ikke blitt markert som hoppet over: {names}. Vil du fullføre likevel? De tomme måltidene vil bli markert som bevisst hoppet over så du vil ikke bli spurt igjen idag.",
+      "confirm_empty_ok": "Lukk likevel",
+      "confirm_empty_cancel": "Hold åpen",
+      "status": {
+        "today": "Idag",
+        "yesterday": "Igår",
+        "progress": "{done} av {total] måltider loggført",
+        "mark_complete": "Marker dag som fullført",
+        "closed_headline": "Dag fullført",
+        "closed_at": "Lukket {time}",
+        "reopen": "Gjenåpne"
+      }
+    },
+    "toast": {
+      "body_stats_saved": "Kroppsmål lagret",
+      "updated": "Oppdatert",
+      "item_removed": "Oppføringen fjernet",
+      "activity_removed": "Aktivitet fjernet"
+    },
+    "empty": {
+      "tap_to_add_food": "Trykk for å legge til mat"
+    },
+    "server_error": {
+      "unreachable": "Kunne ikke nå serveren —",
+      "retry": "Forsøk igjen"
+    },
+    "water": {
+      "custom": "Tilpass",
+      "add": "Legg til",
+      "remove": "Fjern"
+    },
+    "edit_item": {
+      "save": "Lagre",
+      "remove_ingredient": "Fjern ingrediens",
+      "remove_qc_entry": "Fjern oppføring",
+      "remove_qc_aria": "Fjern Hurtigkalorier oppføring"
+    },
+    "confirm": {
+      "remove_item": "Fjern {name} oppføringen?",
+      "remove_fallback": "oppføring",
+      "clear_all_meal": "Fjern alle oppføringer fra {meal}?",
+      "clear_all_fallback": "måltid"
+    },
+    "errors": {
+      "note_save_failed": "Lagring av notat feilet",
+      "name_required": "Vennligst skriv inn et navn",
+      "nothing_to_save": "Ingenting å lagre",
+      "activity_save_failed": "Kunne ikke lagre aktivitet",
+      "activity_delete_failed": "Kunne ikke slette aktivitet"
+    },
+    "activity": {
+      "section": "Aktivitet",
+      "tap_to_add": "Trykk for å legge til aktivitet",
+      "add": "Legg til aktivitet",
+      "add_to_diary": "Legg til i dagbok",
+      "save_changes": "Lagre endringer",
+      "title_add": "Legg til aktivitet",
+      "title_edit": "Endre aktivitet",
+      "field_name": "Aktivitet",
+      "field_name_placeholder": "F.eks. morgentur",
+      "field_kcal": "Forbrente kalorier",
+      "field_kcal_placeholder": "kcal",
+      "field_duration": "Varighet",
+      "field_duration_placeholder": "minutter",
+      "field_distance": "Distanse",
+      "field_distance_placeholder": "F.eks. 10 km",
+      "field_optional": "(valgfri)",
+      "saving": "Legger til…",
+      "estimated_short": "ca.",
+      "wellness_hint": "Synkroniserte treningsøkter fra enheten din vises i Velvære",
+      "not_counted": "Telles ikke — bruker bærbar enhet",
+      "policy_chip": "Regel: bærbar enhet har prioritet. Endre dette i Innstillinger → Dagbok.",
+      "save_as_template": "Lagre som mal",
+      "save_as_template_hint": "(festet øverst neste gang du velger)",
+      "kcal_preview": "MET {met} × {weight_display} × {duration} min → {kcal} kcal",
+      "no_weight_hint": "Registrer en vekt i Kroppsstatistikk for å aktivere MET-basert autoberegning",
+      "suggest": {
+        "templates": "Maler",
+        "past_entries": "Tidligere innlegg",
+        "compendium": "Compendium",
+        "template_badge": "Maler"
+      },
+      "browse": {
+        "title": "Utforsk aktiviteter",
+        "search_placeholder": "Søk i alle aktiviteter",
+        "all_categories": "Alle kategorier",
+        "no_matches": "Ingen treff for \"{q}\"",
+        "aria": "Utforsk aktivitetssamlingen",
+        "tooltip": "Utforsk aktiviteter"
+      },
+      "actions": {
+        "edit": "Rediger",
+        "delete": "Slett"
+      },
+      "errors": {
+        "name_required": "Navn påkrevd",
+        "kcal_required": "Kalorier påkrevd"
+      }
+    }
+  },
+  "foods": {
+    "off_no_values_listed": "Ingen verdier oppført",
+    "off_skipped": "Ble utelatt fordi Open Food Facts mangler verdier for produktet slik det selges: {names}. Legg dem til under Matvarer med verdiene fra etiketten.",
+    "search_empty_hint": "Prøv å søke i Open Food Facts eller USDA over",
+    "category_all": "Alle",
+    "saved_meals": "Lagrede måltider",
+    "multi_portion_sheet": "Angi porsjoner ({count} oppføringer)",
+    "add_to_diary": "Legg til i dagbok",
+    "tier": {
+      "reset": "Tilbakestill",
+      "off_data_quality": "OFF-datakvalitet",
+      "usda_data_type": "USDA-datatype",
+      "off_high": "Høy",
+      "off_high_hint": "(≥70%)",
+      "off_medium": "Medium",
+      "off_medium_hint": "(40-69%)",
+      "off_low": "Lav",
+      "off_low_hint": "(<40%)",
+      "off_unknown": "Ukjent",
+      "off_unknown_hint": "(ingen data)",
+      "usda_foundation": "Basismatvare",
+      "usda_foundation_hint": "(kvalitetssikret)",
+      "usda_sr_legacy": "SR Legacy",
+      "usda_sr_legacy_hint": "(referanse)",
+      "usda_survey": "Undersøkelse (FNDDS)",
+      "usda_survey_hint": "(sammensatt)",
+      "usda_branded": "Merkevare",
+      "usda_branded_hint": "(innsend av produsent)",
+      "usda_experimental": "Eksperimentell",
+      "usda_experimental_hint": "(forskning)"
+    },
+    "search_placeholder": "Søk etter mat eller skann strekkode...",
+    "scan_barcode": "Skann strekkode",
+    "add_new": "Legg til ny",
+    "n_selected": "{n} valgt",
+    "add_n": "Legg til {n}",
+    "adding": "Legger til…",
+    "add_selected_to_diary": "Legg til valgte i dagbok",
+    "search_in": "Søk {source}",
+    "searching_in": "Søker {source}…",
+    "no_results_in": "Ingen resultater i {source}",
+    "looking_up_barcode": "Slår opp strekkode",
+    "detail": {
+      "edit": "Rediger",
+      "edit_aria": "Rediger mat",
+      "add_to_diary": "Legg til i dagbok",
+      "add_to_diary_aria": "Legg til i dagbok",
+      "add_to_which_meal": "Legg til i hvilket måltid?",
+      "off_prepared_only": "Open Food Facts viser kun \"som tilberedt\"-verdier for dette produktet. Trykk på Rediger for å se dem og velge om du vil bruke dem.",
+      "off_implausible": "Open Food Facts viser kun \"som tilberedt\"-verdier for dette produktet, og de kan ikke stemme. Trykk Rediger for legge inn verdiene fra etiketten."
+    }
   }
 }
