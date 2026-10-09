@@ -1,6 +1,8 @@
 /** Repair legacy embedded food/recipe photos on each startup.
  * The old one-shot flag missed later recipe edits and imports. Only data URLs
  * are scanned; ordinary upload paths and external URLs are never re-downloaded.
+ * Deleted rows are skipped: nobody sees their photo, and converting it would
+ * send them to every phone again for nothing.
  */
 import db from '../db.js';
 import { logger } from '../logger.js';
@@ -15,7 +17,7 @@ export function migrateDataUrlImages() {
 async function run() {
   let migrated = 0, failed = 0;
   for (const table of ['foods', 'meals']) {
-    const rows = db.prepare(`SELECT id, img_url FROM ${table} WHERE img_url LIKE 'data:%'`).all();
+    const rows = db.prepare(`SELECT id, img_url FROM ${table} WHERE deleted_at IS NULL AND img_url LIKE 'data:%'`).all();
     // changed_at triggers make the corrected URL visible to Android pulls.
     // Preserve updated_at (the edit time) and never overwrite a concurrent edit.
     const update = db.prepare(`UPDATE ${table} SET img_url = ? WHERE id = ? AND img_url = ?`);

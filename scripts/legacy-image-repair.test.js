@@ -18,6 +18,7 @@ test('legacy repair ignores the old flag, retries failures and advances the sync
   db.prepare("INSERT OR REPLACE INTO app_config (key,value) VALUES ('img_url_data_urls_migrated_v1','done')").run();
   const id = db.prepare("INSERT INTO meals (name,img_url,is_recipe,updated_at) VALUES ('Legacy photo',?,1,'2000-01-01 00:00:00')").run(inline).lastInsertRowid;
   const bad = db.prepare("INSERT INTO foods (name,img_url) VALUES ('Broken legacy','data:image/png;base64,bad')").run().lastInsertRowid;
+  const gone = db.prepare("INSERT INTO meals (name,img_url,is_recipe,deleted_at) VALUES ('Deleted photo',?,1,datetime('now'))").run(inline).lastInsertRowid;
   db.prepare("UPDATE meals SET changed_at='2000-01-01 00:00:00' WHERE id=?").run(id);
   assert.deepEqual(await migrateDataUrlImages(), { migrated: 1, failed: 1 });
   const row = db.prepare('SELECT * FROM meals WHERE id=?').get(id);
@@ -30,4 +31,5 @@ test('legacy repair ignores the old flag, retries failures and advances the sync
   db.prepare('UPDATE foods SET img_url=? WHERE id=?').run(inline, bad);
   assert.deepEqual(await migrateDataUrlImages(), { migrated: 1, failed: 0 });
   assert.deepEqual(await migrateDataUrlImages(), { migrated: 0, failed: 0 });
+  assert.equal(db.prepare('SELECT img_url FROM meals WHERE id=?').get(gone).img_url, inline, 'a deleted row is left alone');
 });
