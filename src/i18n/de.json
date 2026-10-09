@@ -92,7 +92,16 @@
     "sign_out_waiting_title": "Änderungen stehen noch aus",
     "sign_out_waiting": "{count, plural, one {# Änderung wurde noch nicht an deinen Server übertragen. Wenn du dich jetzt abmeldest, wird sie verworfen. Stelle eine Verbindung her und versuche es erneut, um sie zu behalten.} other {# Änderungen wurden noch nicht an deinen Server übertragen. Wenn du dich jetzt abmeldest, werden sie verworfen. Stelle eine Verbindung her und versuche es erneut, um sie zu behalten.}}",
     "sign_out_anyway": "Trotzdem abmelden",
-    "pending_web": "{count, plural, =0 {Offline. Dein Tagebuch funktioniert weiterhin und speichert hier.} one {Offline. # Tag wartet auf die Synchronisierung.} other {Offline. # Tage warten auf die Synchronisierung.}}"
+    "pending_web": "{count, plural, =0 {Offline. Dein Tagebuch funktioniert weiterhin und speichert hier.} one {Offline. # Tag wartet auf die Synchronisierung.} other {Offline. # Tage warten auf die Synchronisierung.}}",
+    "switch_account_waiting_title": "Änderungen eines anderen Kontos stehen noch aus",
+    "switch_account_waiting": "{count, plural, one {# Änderung, die auf diesem Gerät mit dem zuvor angemeldeten Konto vorgenommen wurde, wurde noch nicht an den Server übertragen. Wenn du dich jetzt anmeldest, wird sie verworfen. Um sie zu behalten, melde dich zuerst mit diesem Konto an.} other {# Änderungen, die auf diesem Gerät mit dem zuvor angemeldeten Konto vorgenommen wurden, wurden noch nicht an den Server übertragen. Wenn du dich jetzt anmeldest, werden sie verworfen. Um sie zu behalten, melde dich zuerst mit diesem Konto an.}}",
+    "switch_account_anyway": "Trotzdem anmelden",
+    "same_server_title": "Ist das derselbe Server?",
+    "same_server": "Dieser Server befindet sich unter einer anderen Adresse als der zuvor auf diesem Gerät verwendete, und es kann nicht festgestellt werden, ob es derselbe Server ist. Wenn ja, bleiben deine Daten hier erhalten und werden synchronisiert. Wenn nicht, werden sie wie die eines anderen Kontos behandelt.",
+    "same_server_yes": "Derselbe Server",
+    "same_server_no": "Anderer Server",
+    "account_check_failed_title": "Deine Daten konnten nicht geöffnet werden",
+    "account_check_failed": "Dieses Gerät konnte nicht prüfen, wessen Daten hier gespeichert sind, daher wird noch nichts angezeigt. Versuche es erneut oder melde dich ab."
   },
   "settings": {
     "appearance": {
@@ -431,6 +440,13 @@
       "failed": "Wiederherstellung fehlgeschlagen",
       "success": "Benutzerverwaltung deaktiviert – du bist jetzt im Einzelbenutzer-Modus",
       "done": "Die Benutzerverwaltung wurde deaktiviert.<br>Weiterleitung…"
+    },
+    "cookie_warning": {
+      "http_title": "Anmeldung über diese Adresse nicht möglich",
+      "http_body": "Diese Seite verwendet unverschlüsseltes HTTP. Der Server sendet sein Anmelde-Cookie jedoch nur über HTTPS, weshalb dein Browser es verwirft und dich nach der Anmeldung wieder zur Anmeldeseite zurückleitet. Öffne NutriTrace über HTTPS oder setze im vertrauenswürdigen Heimnetzwerk INSECURE_COOKIES=1 auf dem Server und starte ihn neu.",
+      "dropped_title": "Dein Browser hat die Anmeldung nicht beibehalten",
+      "dropped_body": "Dein Passwort war korrekt, aber der Browser hat das Anmelde-Cookie nicht gespeichert. Prüfe, ob Cookies für diese Website erlaubt sind, und falls NutriTrace hinter einem Reverse-Proxy läuft, dass der Proxy Cookies weiterleitet.",
+      "fix_link": "So behebst du das Problem"
     }
   },
   "forgot_password": {
@@ -2314,5 +2330,10 @@
     "report_bug_desc": "Ein genauer Fehlerbericht hilft allen, die auf dasselbe Problem stoßen.",
     "translate": "Beim Übersetzen helfen",
     "translate_desc": "Hilf mit, NutriTrace auf Weblate in deiner Sprache verfügbar zu machen."
+  },
+  "attach_image": {
+    "button": "Bild anhängen",
+    "camera": "Kamera",
+    "gallery": "Galerie"
   }
 }
