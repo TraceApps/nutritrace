@@ -135,7 +135,7 @@ router.post('/', wrap(async (req, res) => {
 }));
 
 // ── PUT /:id ──────────────────────────────────────────────────────────────
-router.put('/:id', wrap((req, res) => {
+router.put('/:id', wrap(async (req, res) => {
   const u = uid(req);
   const existing = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
@@ -151,10 +151,11 @@ router.put('/:id', wrap((req, res) => {
   // The old inline `img_url ?? existing.img_url` treated null as nullish and
   // preserved the existing image, so the MealEditor X-remove-photo button
   // silently failed to clear the photo on save. Parallel to the foods.js
-  // PUT fix for kilkalabs's report on #74 follow-up. Note: external-URL /
-  // data-URL localization on this route is a separate parity gap with the
-  // POST handler (line ~61) — out of scope for this fix.
-  const img = 'img_url' in req.body ? (img_url || null) : existing.img_url;
+  // PUT fix for kilkalabs's report on #74 follow-up. Localize supplied
+  // images just as POST does, so the diary can resolve edited recipe photos.
+  const img = 'img_url' in req.body
+    ? ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null))
+    : existing.img_url;
   db.prepare(
     `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?, favorite=?, updated_at=datetime('now') WHERE id=?`
   ).run(name ?? existing.name, JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),

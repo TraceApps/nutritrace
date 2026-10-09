@@ -9,10 +9,12 @@ import { originalUrlForCachedImage } from '../src/lib/image-cache-map.js';
 
 const temp = mkdtempSync(join(tmpdir(), 'nutritrace-recipe-sync-'));
 process.env.DB_PATH = join(temp, 'test.db');
+process.env.UPLOADS_PATH = join(temp, 'uploads');
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'recipe-sync-test-only';
 
 const { default: db } = await import('../server/db.js');
+const { freshenItemImages } = await import('../server/lib/diary-helpers.js');
 const { default: express } = await import('../server/node_modules/express/index.js');
 const { default: meals } = await import('../server/routes/meals.js');
 const { default: sync } = await import('../server/routes/sync.js');
@@ -124,4 +126,17 @@ test('explicit photo removal and unset servings still survive save and sync', as
   await f.requests[0].promise;
   await f.pushChanges();
   assert.deepEqual(f.row(), { img_url: null, servings: null });
+});
+
+test('a recipe photo supplied inline on edit is stored as a file and visible in the diary', async () => {
+  const f = fixture();
+  const bytes = Buffer.concat([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'), Buffer.alloc(64)]);
+  await f.api.updateMeal(f.id, {
+    ...await f.api.getMeal(f.id), imgUrl: `data:image/png;base64,${bytes.toString('base64')}`,
+  });
+  await f.requests[0].promise;
+  const image = f.row().img_url;
+  assert.match(image, /^\/uploads\//);
+  assert.deepEqual(readFileSync(join(temp, image)), bytes);
+  assert.equal(freshenItemImages([{ id: f.id, name: 'Bread test', is_recipe: true }])[0].imgUrl, image);
 });
