@@ -173,3 +173,25 @@ test('uneven pages still place every card on a page', () => {
   assert.deepEqual(row, ['1', '3', '4', '5', '1']);
   assert.ok(!row.includes('2'), 'the hinge track is never used');
 });
+
+// Half open like a book (a Pixel Fold's inner screen, 852px), the Diary's and
+// Goals' side rails took the right-hand page and squeezed the main column
+// across the crease. Only below 1280px and only half open; flat and desktop
+// keep their rails beside the content.
+import { readFileSync as _read } from 'node:fs';
+test("half open, the Diary's meals take both pages and the rail follows below; Goals puts targets and preview a page each", () => {
+  const diary = _read(new URL('../src/routes/Diary.svelte', import.meta.url), 'utf8');
+  const goals = _read(new URL('../src/routes/Goals.svelte', import.meta.url), 'utf8');
+  // Diary: the rail renders in the page (not portaled and fixed) when half open below 1280.
+  assert.match(diary, /\$: _railInline = \$fold\?\.posture === 'book' && !_wideViewport && !\$forceMobileLayout;/);
+  assert.match(diary, /\{#if _railInline\}[\s\S]*?<aside class="diary-right-col diary-rail-inline">[\s\S]*?\{:else if _railMode === 'pinned'\}/);
+  const css = diary.slice(diary.indexOf('<style'));
+  const foldRules = css.slice(css.indexOf("html.fold-book.wide-content) .diary-content {") - 200);
+  assert.match(foldRules, /@media \(max-width: 1279px\) \{\s*:global\(html\.fold-book\.wide-content\) \.diary-content \{\s*display: flex;\s*flex-direction: column;\s*align-items: stretch;/);
+  assert.match(css, /\.diary-content\.fold-pages \.diary-right-col\.diary-rail-inline \{\s*display: grid;\s*grid-template-columns: var\(--meal-left-w\) minmax\(0, 1fr\);\s*column-gap: var\(--meal-hinge\);/);
+  assert.match(diary, /class:fold-pages=\{mealFoldSnap\}/);
+  // Goals: two pages with the crease as the gutter, or the preview below.
+  assert.match(goals, /import \{ fold \} from '\.\.\/lib\/fold\.js';/);
+  assert.match(goals, /class="goals-body" bind:this=\{goalsBodyEl\} class:fold-pages=\{goalsFoldPages\}/);
+  assert.match(goals, /:global\(html\.fold-book\.wide-content\) \.goals-body\.fold-pages \{\s*grid-template-columns: var\(--goals-left-w\) minmax\(0, 1fr\);\s*column-gap: var\(--goals-hinge\);/);
+});

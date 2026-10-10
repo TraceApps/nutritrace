@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **The top of the Diary stays one solid block while you scroll.** Diary entries no longer show through gaps between the date bar, the week strip and the Mark Day Complete bar.
 - **The week strip's day preview shows in full on the Diary.** On wide screens it opened under the Mark Day Complete bar; it now sits above it, and clicking it opens that day.
 - **The Mark Day Complete bar reads in full on phones**, in every language down to 320px wide. Its text and button wrap onto a second line instead of being cut off, and the day's name, already shown in the date bar above, is left out on phones.
+- **The Diary and Goals open like a book on a half-open foldable again.** The day's meals fall onto the two pages, with the summary below them, and Goals puts your targets on one page and the preview on the other; nothing runs across the crease. Open flat and on larger screens nothing changes.
 
 ---
 

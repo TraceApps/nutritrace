@@ -1799,6 +1799,9 @@
   $: if ($fold !== undefined && mealColsEl) measureMealCols();
   $: mealFoldLeftW = $fold?.posture === 'book' && mealColsW > 0 ? $fold.start - mealColsLeft : null;
   $: mealHinge = $fold?.posture === 'book' ? Math.max(0, $fold.end - $fold.start) : 0;
+  // Below 1280px, half open like a book, the rail goes in the page under the
+  // meals (see the fold-book rules in the style block) rather than fixed.
+  $: _railInline = $fold?.posture === 'book' && !_wideViewport && !$forceMobileLayout;
   $: mealFoldSnap = mealFoldLeftW != null
     && mealFoldLeftW >= 280
     && mealColsW - mealFoldLeftW - mealHinge >= 280;
@@ -2083,7 +2086,8 @@
     class:rail-notes-active={$diaryRailShowNotes && $diaryShowNotes}
     class:rail-hidden={_railMode === 'hidden'}
     class:day-loading={_daySwapLoading}
-    style="padding-bottom:{contentPad};{_dayStatusPadPx != null ? ` --dds-pad: ${_dayStatusPadPx}px;` : ''}"
+    class:fold-pages={mealFoldSnap}
+    style="padding-bottom:{contentPad};{_dayStatusPadPx != null ? ` --dds-pad: ${_dayStatusPadPx}px;` : ''}{mealFoldSnap ? ` --meal-left-w: ${mealFoldLeftW}px; --meal-hinge: ${mealHinge}px;` : ''}"
   >
     <!-- Main column: meal groups + activities + notes. On desktop
          (≥1280px) this sits inside a 2-col grid alongside the right
@@ -2519,7 +2523,13 @@
          .diary-content) so both this render and the portaled
          overlay render below can resolve it — Svelte 5 snippets
          have block scope. -->
-    {#if _railMode === 'pinned'}
+    {#if _railInline}
+      <!-- Half open like a book (below 1280px): the rail follows the meals
+           in the page instead of sitting fixed on the right-hand page. -->
+      <aside class="diary-right-col diary-rail-inline">
+        {@render railWidgets()}
+      </aside>
+    {:else if _railMode === 'pinned'}
       <!-- Portaled to document.body so position:fixed resolves against
            the viewport, not against .page-transition (which has
            will-change:transform + is the app's scroll container, so
@@ -4905,5 +4915,40 @@
       padding-right: 4px;
     }
     :global(html.wide-content) .diary-right-col > :global(*) { flex-shrink: 0; }
+  }
+
+  /* Half open like a book, the side rail would take the right-hand page and
+     squeeze the meals into one column across the crease. The meals get the
+     whole width instead, so they fall onto the two pages (.meal-cols.fold-snap
+     above), and the rail follows below them in the page, its widgets dealt
+     onto the two pages the same way. Open flat, and at 1280px and wider,
+     nothing changes. */
+  @media (max-width: 1279px) {
+    :global(html.fold-book.wide-content) .diary-content {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    :global(html.fold-book.wide-content) .diary-right-col.diary-rail-inline {
+      position: static;
+      top: auto;
+      left: auto;
+      width: auto;
+      max-height: none;
+      overflow: visible;
+      padding-right: 0;
+      z-index: auto;
+    }
+    :global(html.fold-book.wide-content) .diary-content.fold-pages .diary-right-col.diary-rail-inline {
+      display: grid;
+      grid-template-columns: var(--meal-left-w) minmax(0, 1fr);
+      column-gap: var(--meal-hinge);
+      row-gap: 12px;
+      align-items: start;
+    }
+    /* The rail's heading runs above both pages; the widgets take one page each. */
+    :global(html.fold-book.wide-content) .diary-content.fold-pages .diary-rail-inline > :global(.rail-title) {
+      grid-column: 1 / -1;
+    }
   }
 </style>
