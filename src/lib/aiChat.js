@@ -251,7 +251,7 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
   }
   switch (provider) {
     case 'claude':     return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
-    case 'openai':     return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, 'https://api.openai.com');
+    case 'openai':     return _callOpenAIWithTools(apiKey, renamedModel(model), messages, systemPrompt, tools, onToolCall, 'https://api.openai.com');
     case 'gemini':     return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
     case 'oai-compat': {
       if (!baseUrl) throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
@@ -341,40 +341,62 @@ export const AI_PROVIDERS = [
   { value: 'oai-compat', label: 'OpenAI Compatible' },
 ];
 
+// Checked against the vendors' model and deprecation pages on 2026-10-09
+// (platform.claude.com, developers.openai.com, ai.google.dev). Labels compare
+// list prices within each provider. A saved model that is no longer listed
+// (Gemini 2.5 is open to existing users only) keeps working: the picker
+// shows it as a custom model.
 export const AI_MODELS = {
   claude: [
-    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast, cheap)' },
-    { value: 'claude-sonnet-5',           label: 'Claude Sonnet 5 (balanced)' },
-    { value: 'claude-opus-5',             label: 'Claude Opus 5'              },
-    { value: 'claude-fable-5-1',          label: 'Claude Fable 5.1 (most capable)' },
-    { value: 'claude-fable-5',            label: 'Claude Fable 5 (previous)' },
-    { value: 'claude-opus-4-8',           label: 'Claude Opus 4.8 (previous)' },
-    { value: '__custom__',                label: 'Custom…'                    },
+    { value: 'claude-haiku-5-5',  label: 'Claude Haiku 5.5 (fast, cheapest)'  },
+    { value: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 (balanced)'       },
+    { value: 'claude-opus-5-5',   label: 'Claude Opus 5.5 (smarter)'          },
+    { value: 'claude-fable-5-1',  label: 'Claude Fable 5.1 (most capable)'    },
+    { value: 'claude-sonnet-5',   label: 'Claude Sonnet 5 (previous)'         },
+    { value: 'claude-opus-5',     label: 'Claude Opus 5 (previous)'           },
+    { value: 'claude-fable-5',    label: 'Claude Fable 5 (previous)'          },
+    { value: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (previous)'         },
+    { value: '__custom__',        label: 'Custom…'                            },
   ],
+  // GPT-6.1 Sol and GPT-6 Astra are left out: Trace calls tools through
+  // Chat Completions, which those two don't support (only the Responses
+  // API does, per their model pages).
   openai: [
-    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (fast, cheap)' },
-    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'   },
-    { value: 'gpt-5.6',       label: 'GPT-5.6 (smarter)'          },
-    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'     },
-    { value: 'gpt-4o',        label: 'GPT-4o (previous)'          },
-    { value: '__custom__',    label: 'Custom…'                    },
+    { value: 'gpt-6-luna',    label: 'GPT-6 Luna (fast, cheapest)'   },
+    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'      },
+    { value: 'gpt-5.6-sol',   label: 'GPT-5.6 Sol (most capable)'    },
+    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (previous)'       },
+    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'        },
+    { value: 'gpt-4o',        label: 'GPT-4o (previous)'             },
+    { value: '__custom__',    label: 'Custom…'                       },
   ],
   gemini: [
-    { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (cheapest)' },
-    { value: 'gemini-3.6-flash',      label: 'Gemini 3.6 Flash (fast, cheap)'   },
-    { value: 'gemini-3.1-pro',        label: 'Gemini 3.1 Pro (smarter)'         },
-    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (previous)' },
-    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (previous)'      },
-    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (previous)'        },
-    { value: '__custom__',            label: 'Custom…'                          },
+    { value: 'gemini-3.1-flash-lite',  label: 'Gemini 3.1 Flash Lite (cheapest)'      },
+    { value: 'gemini-3.5-flash-lite',  label: 'Gemini 3.5 Flash Lite (cheap)'         },
+    { value: 'gemini-3.8-flash',       label: 'Gemini 3.8 Flash (fast)'               },
+    { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (most capable)' },
+    { value: 'gemini-3.6-flash',       label: 'Gemini 3.6 Flash (previous)'           },
+    { value: '__custom__',             label: 'Custom…'                               },
   ],
 };
 
+// Used when no model is chosen. Someone who picked a model keeps it.
 export const AI_DEFAULT_MODELS = {
-  claude: 'claude-haiku-4-5-20251001',
+  claude: 'claude-haiku-5-5',
   openai: 'gpt-5.6-luna',
-  gemini: 'gemini-3.6-flash',
+  gemini: 'gemini-3.8-flash',
 };
+
+// Model IDs that changed name: a saved old name is sent as the new one.
+// gemini-3.1-pro never existed (only the preview does), and Google points
+// the shut-down gemini-3-pro-preview at it. gpt-5.6 is the alias of
+// gpt-5.6-sol, which the picker now names.
+export const AI_MODEL_RENAMES = {
+  'gemini-3.1-pro': 'gemini-3.1-pro-preview',
+  'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
+  'gpt-5.6': 'gpt-5.6-sol',
+};
+export const renamedModel = (model) => AI_MODEL_RENAMES[model] || model;
 
 // ── Anthropic Claude (with tool use) ─────────────────────────────────────────
 
@@ -501,14 +523,23 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
 // users who never opened Settings don't suddenly start hitting 404 / quota=0
 // errors. The dropdown auto-migration in SettingsTrace handles the visible
 // case; this is the fallback for the no-visit path.
-const GEMINI_RETIRED = new Set([
+// Shut down per ai.google.dev/gemini-api/docs/deprecations (2026-10-09).
+export const GEMINI_RETIRED = new Set([
   'gemini-1.5-flash', 'gemini-1.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+  'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-lite-001',
+  'gemini-2.0-flash-lite-preview', 'gemini-2.0-flash-lite-preview-02-05',
+  'gemini-2.5-pro-preview-03-25', 'gemini-2.5-pro-preview-05-06', 'gemini-2.5-pro-preview-06-05',
+  'gemini-2.5-flash-preview-05-20', 'gemini-2.5-flash-preview-09-25', 'gemini-2.5-flash-lite-preview-09-2025',
+  'gemini-3.1-flash-lite-preview',
 ]);
+/** The Gemini model to call for a saved one: renamed ones by their new name, shut-down ones by the default. */
+export function geminiModelFor(model) {
+  const m = renamedModel(model || AI_DEFAULT_MODELS.gemini);
+  return GEMINI_RETIRED.has(m) ? AI_DEFAULT_MODELS.gemini : m;
+}
 
 async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall) {
-  let m = model || AI_DEFAULT_MODELS.gemini;
-  if (GEMINI_RETIRED.has(m)) m = AI_DEFAULT_MODELS.gemini;
+  const m = geminiModelFor(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
   const geminiTools = (tools || []).length ? [{

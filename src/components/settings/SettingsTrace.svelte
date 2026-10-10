@@ -40,7 +40,7 @@
     { value: 'hi-IN', label: $_('settings_trace.voice_langs.hi_IN') },
     { value: 'ar-SA', label: $_('settings_trace.voice_langs.ar_SA') },
   ];
-  import { AI_PROVIDERS, AI_MODELS, AI_DEFAULT_MODELS, callAI, callAIProxy } from '../../lib/aiChat.js';
+  import { AI_PROVIDERS, AI_MODELS, AI_DEFAULT_MODELS, renamedModel, callAI, callAIProxy } from '../../lib/aiChat.js';
   import { DB } from '../../lib/db.js';
   import { scheduleSave } from '../../stores/settings.js';
   import { isNative, getServerUrl } from '../../lib/platform.js';
@@ -98,6 +98,12 @@
   let aiModelSelectVal;
   let aiCustomModelVal = '';
   {
+    // A model saved under a name that has since changed shows (and is kept)
+    // under its new name. Not for OpenAI Compatible: its names are the
+    // server's own.
+    if (aiProviderVal !== 'oai-compat' && aiModelVal && renamedModel(aiModelVal) !== aiModelVal) {
+      aiModelVal = renamedModel(aiModelVal);
+    }
     const saved = aiModelVal;
     const isPreset = AI_MODELS[aiProviderVal]?.some(m => m.value === saved && m.value !== '__custom__');
     if (saved && !isPreset && aiProviderVal !== 'oai-compat') {
@@ -294,7 +300,7 @@
           <div class="setting-row">
             <span class="setting-label">{$_('settings_trace.labels.custom_model_id')}</span>
             <input class="input" style="width:220px;text-align:right"
-              placeholder={aiProviderVal === 'gemini' ? 'gemini-3.5-flash' : aiProviderVal === 'claude' ? 'claude-sonnet-5' : 'gpt-4o'}
+              placeholder={aiProviderVal === 'gemini' ? 'gemini-3.8-flash' : aiProviderVal === 'claude' ? 'claude-sonnet-5-5' : 'gpt-5.6-terra'}
               bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} disabled={envLocks.ai} />
           </div>
           <div style="padding:8px 16px 12px;display:flex;gap:8px;align-items:flex-start">

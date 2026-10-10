@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Trace's model lists are current.** Claude Haiku 5.5 is the new default, Claude Sonnet 5.5 and Opus 5.5, GPT-6 Luna, and Gemini 3.8 Flash and 3.1 Flash Lite are added, Gemini 3.1 Pro is listed as the preview it is, and Gemini 2.5 leaves the list (open to existing Google users only). A model you already chose keeps working; shut-down Gemini models switch to the default.
+
 ### Fixed
 
 - **Trace shows your newest messages when you open it.** It loaded the oldest 100, so once a chat passed 100 messages the latest ones never appeared, also when they came from another device.

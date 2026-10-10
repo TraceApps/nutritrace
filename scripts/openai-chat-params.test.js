@@ -64,3 +64,11 @@ test('client and server copies are identical', async () => {
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
   assert.equal(read('../src/lib/openai-chat-params.js'), read('../server/lib/openai-chat-params.js'));
 });
+
+test('GPT-6 Luna, like GPT-5.6, gets reasoning "none" when tools are sent', () => {
+  for (const get of [getClientParams, getServerParams]) {
+    assert.equal(get({ baseUrl: 'https://api.openai.com', model: 'gpt-6-luna', hasTools: true }).reasoning_effort, 'none');
+    assert.equal(get({ baseUrl: 'https://api.openai.com', model: 'gpt-5.6-sol', hasTools: true }).reasoning_effort, 'none');
+    assert.equal(get({ baseUrl: 'https://api.openai.com', model: 'gpt-6-luna', hasTools: false }).reasoning_effort, undefined);
+  }
+});
