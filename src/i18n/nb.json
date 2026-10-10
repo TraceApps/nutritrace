@@ -63,7 +63,6 @@
     "sign_out_waiting_title": "Endringer venter fortsatt",
     "sign_out_waiting": "{count, plural, one {# endring har ikke nådd serveren din enda. Å logge ut nå vil forkaste den. Koble til og prøv igjen for å beholde dem.} other {# endringer har ikke nådd serveren din enda. Å logge ut nå vil forkaste dem.}}",
     "sign_out_anyway": "Logg ut uansett",
-    "pending_web": "{count, plural, =0 {Frakoblet. Din dagbok fungerer fortsatt og lagres her.} one {Frakoblet. # dag venter på å bli lastet opp.} other {Frakoblet. # dager venter på å bli lastet opp.}}",
     "sync_failing": "Kan ikke nå serveren",
     "not_synced": "Ikke synkronisert enda",
     "sync_now": "Synkroniser nå",
