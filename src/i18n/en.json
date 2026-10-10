@@ -892,6 +892,9 @@
     "clear_confirm_message": "Messages in this conversation will be deleted. This can't be undone.",
     "clear_confirm_ok": "Clear",
     "attach_image": "Attach Image",
+    "tools_unsupported": "This model can't use tools: it can answer, but it can't log food or look up your data. Pick a model with tool support in Settings.",
+    "tools_unsupported_server": "This model can't use tools: it can answer, but it can't log food or look up your data. Your admin can set a model with tool support.",
+    "tools_unsupported_routed": "The model that answered can't use tools, so nothing was logged or looked up.",
     "fab": {
       "release_to_cancel": "Release to cancel",
       "recording_release": "Recording — release to log",

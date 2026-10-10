@@ -10,6 +10,7 @@
  */
 import { NUTRIMENTS } from './nutrition.js';
 import { getOpenAIChatParams } from './openai-chat-params.js';
+import { createToolSupportMemory, sendWithToolFallback } from './tool-support.js';
 
 // Nutrition schema for the propose_* tools — generated from the canonical
 // NUTRIMENTS list so adding a new nutrient anywhere in the app automatically
@@ -241,7 +242,9 @@ export const TOOLS = [
 
 // ── Main entry point ─────────────────────────────────────────────────────────
 
-export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl }) {
+// onToolsUnsupported runs when the model can't use tools and answered
+// without them (TraceApps/nutritrace#259).
+export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, onToolsUnsupported, baseUrl }) {
   // The 'oai-compat' provider points at any /v1/chat/completions endpoint
   // (Ollama, LM Studio, LocalAI, vLLM, DeepSeek, Groq, Together AI, etc.)
   // Local endpoints don't need an API key; cloud ones do. Other providers
@@ -251,12 +254,12 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
   }
   switch (provider) {
     case 'claude':     return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
-    case 'openai':     return _callOpenAIWithTools(apiKey, renamedModel(model), messages, systemPrompt, tools, onToolCall, 'https://api.openai.com');
+    case 'openai':     return _callOpenAIWithTools(apiKey, renamedModel(model), messages, systemPrompt, tools, onToolCall, 'https://api.openai.com', onToolsUnsupported);
     case 'gemini':     return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
     case 'oai-compat': {
       if (!baseUrl) throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
       if (!model)   throw new Error('OpenAI Compatible provider needs a model name. Set one in Settings → AI Assistant.');
-      return _callOpenAIWithTools(apiKey || 'no-key', model, messages, systemPrompt, tools, onToolCall, baseUrl.replace(/\/+$/, ''));
+      return _callOpenAIWithTools(apiKey || 'no-key', model, messages, systemPrompt, tools, onToolCall, baseUrl.replace(/\/+$/, ''), onToolsUnsupported);
     }
     default: throw new Error(`Unknown AI provider: ${provider}`);
   }
@@ -281,7 +284,7 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
  * the pattern in api.js#_fetch — without the Bearer header, env-locked
  * AI calls from Android return 401 even though the chat path looks fine.
  */
-export async function callAIProxy({ messages, systemPrompt, tools, onToolCall }) {
+export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, onToolsUnsupported }) {
   const { apiUrl, isNative, getServerUrl, getAuthToken } = await import('./platform.js');
 
   let currentMessages = [...messages];
@@ -309,6 +312,8 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall })
     }
 
     // No tools fired — final reply, return it.
+    // The server's model can't use tools and answered without them.
+    if (data.toolsUnsupported) onToolsUnsupported?.({ routed: !!data.toolsRouted });
     if (!data.toolCalls || data.toolCalls.length === 0) {
       return data.text || '';
     }
@@ -457,7 +462,10 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
 
 // ── OpenAI (with function calling) ──────────────────────────────────────────
 
-async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl = 'https://api.openai.com') {
+// Models found unable to use tools, by base URL and model (#259).
+const toolSupport = createToolSupportMemory();
+
+async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl = 'https://api.openai.com', onToolsUnsupported) {
   const openaiTools = (tools || []).map(t => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters },
@@ -488,13 +496,18 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     if (apiKey && apiKey !== 'no-key') headers['Authorization'] = `Bearer ${apiKey}`;
 
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || `AI API error ${res.status}`);
+    const send = async (b) => {
+      const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(b),
+      });
+      return { ok: res.ok, status: res.status, data: await res.json() };
+    };
+    // A model that can't use tools gets the request again without them.
+    const { ok, status, data, toolsDropped, toolsRouted } = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+    if (!ok) throw new Error(data.error?.message || `AI API error ${status}`);
+    if (toolsDropped) onToolsUnsupported?.({ routed: toolsRouted });
 
     const choice = data.choices[0];
     const msg = choice.message;

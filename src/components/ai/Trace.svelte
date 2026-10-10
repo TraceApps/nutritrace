@@ -31,6 +31,7 @@
   import { currentUser } from '../../stores/auth.js';
   import SmartLogModal from '../diary/SmartLogModal.svelte';
   import { showError } from '../../stores/toast.js';
+  import { createToolsNotice, forModel } from '../../lib/tool-support.js';
   import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
   import { acquireScreenWakeLock } from '../../lib/wake-lock.js';
   import { foldText } from '../../lib/search-text.js';
@@ -45,6 +46,8 @@
   let hasUnread  = false;
   let attachedImage = null; // { base64, mimeType, preview }
   let _toolStatus = ''; // shown while AI is calling tools
+  // Says once per conversation that the model can't use tools (#259).
+  const toolsNotice = createToolsNotice();
 
   // Photo-log review card state. When the AI calls propose_quick_calories,
   // its sanitized payload lands here and the chat renders an FDA-style
@@ -82,7 +85,7 @@
   $: if (panelOpen) {
     hasUnread     = false;
     // Mark current message count as seen so remounts don't show false unread dot
-    try { localStorage.setItem('nt:chatSeenCount', String(messages.length)); } catch {}
+    try { localStorage.setItem('nt:chatSeenCount', String(forModel(messages).length)); } catch {}
     assistantName = $aiAssistantName;
     apiKey        = $aiApiKey;
     tick().then(() => _scrollBottom(true));
@@ -899,8 +902,9 @@
       if (!Array.isArray(rows)) return;
       const next = rows.map(r => ({ role: r.role, content: r.content, time: _fmtCreatedAt(r.created_at) }));
       // Only update if the list actually changed (length or last message differs)
-      const changed = next.length !== messages.length
-        || (next.length && messages.length && next[next.length - 1].content !== messages[messages.length - 1].content);
+      const shown = forModel(messages);
+      const changed = next.length !== shown.length
+        || (next.length && shown.length && next[next.length - 1].content !== shown[shown.length - 1].content);
       if (!changed) return;
       // Compare against persisted seen count — not in-memory messages.length
       // (which resets to 0 on component remount, causing false unread dots)
@@ -1784,7 +1788,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       const ctx          = await buildContext();
       const systemPrompt = buildSystemPrompt(ctx);
       // Build API messages — include image in the last user message if present
-      const apiMessages  = messages
+      const apiMessages  = forModel(messages)
         .map(m => ({ role: m.role, content: m.content }))
         .slice(-20);
       // If image attached, modify the last user message to include it.
@@ -1827,10 +1831,19 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         ? TOOLS.filter(t => t.name !== 'log_quick_calories')
         : TOOLS.filter(t => t.name !== 'propose_quick_calories'
                          && !(t.name === 'propose_food' && _cardAwaitingUser));
+      // The model can't use tools and answered without them: a note in the
+      // conversation says so, once (#259). routed: the gateway picked a
+      // model for this request that can't, another pick may well.
+      let toolsNote = null;
+      const onToolsUnsupported = ({ routed } = {}) => {
+        toolsNote = routed ? 'trace.tools_unsupported_routed'
+          : aiEnvLocked ? 'trace.tools_unsupported_server' : 'trace.tools_unsupported';
+      };
       const reply = aiEnvLocked
-        ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall })
-        : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall });
+        ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall, onToolsUnsupported })
+        : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall, onToolsUnsupported });
       messages = [...messages, { role: 'assistant', content: reply, time: fmtTime() }];
+      if (toolsNote) messages = toolsNotice.add(messages, $_(toolsNote));
       // Persist assistant reply to server (best-effort)
       NtApi.post('/api/ai/history', { role: 'assistant', content: reply }).catch(() => {});
       if (!panelOpen) hasUnread = true;
@@ -1894,6 +1907,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       dangerous: true,
     })) return;
     messages = [];
+    toolsNotice.reset();
     localStorage.removeItem('wl:aiChatHistory');
     NtApi.del('/api/ai/history').catch(() => {});
     // Clear ANY pending review card so a cleared chat doesn't strand a
@@ -2178,6 +2192,12 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                is safe here because chat is strictly append-only — no reorders
                or interior insertions to worry about. -->
           {#each messages as msg, i (i + ':' + msg.role + ':' + msg.time)}
+            {#if msg.role === 'note'}
+              <div class="ai-note" role="status">
+                <span class="material-symbols-rounded">info</span>
+                <span>{msg.content}</span>
+              </div>
+            {:else}
             <div class="ai-msg" class:user={msg.role === 'user'}>
               {#if msg.role === 'assistant'}
                 <div class="ai-msg-avatar">
@@ -2194,6 +2214,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                 {/if}
               </div>
             </div>
+            {/if}
           {/each}
 
           <!-- Photo-log review card. Renders below the most recent
@@ -2936,6 +2957,18 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     padding: 4px 8px;
     font-size: 13px;
   }
+  /* A note from the app in the conversation, such as a model that can't
+     use tools (#259). Styled like the proposal confirmation row. */
+  .ai-note {
+    display: flex; align-items: flex-start; gap: 6px;
+    margin-left: 40px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 13px; line-height: 1.4; color: var(--text-2);
+  }
+  .ai-note .material-symbols-rounded { font-size: 18px; color: var(--accent); flex-shrink: 0; }
   .proposal-committed {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 10px 14px;
