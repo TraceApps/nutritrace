@@ -7,6 +7,17 @@
 
 import db from '../db.js';
 import { logger } from '../logger.js';
+import { fetchChecked, serviceBase } from './ssrf-guard.js';
+
+// Push services (Gotify, ntfy, Apprise) usually live on the home network,
+// so that's allowed for every account; the address is still checked on
+// every redirect hop, a redirect only followed on the same server (never
+// cloud metadata), and the connection pinned.
+async function _send(url, init) {
+  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
+  try { await res.body?.cancel(); } catch {}
+  return res;
+}
 
 // Cleanup stale dedup keys older than 7 days (runs once at module load)
 // Key format: _goal_<userId>_<type>_<YYYY-MM-DD> — extract date suffix
@@ -69,7 +80,7 @@ async function _pushGotify(userId, title, message, priority) {
   const token = _getUserSetting(userId, 'gotifyToken');
   if (!url || !token) return;
 
-  const res = await fetch(`${url.replace(/\/+$/, '')}/message?token=${encodeURIComponent(token)}`, {
+  const res = await _send(`${serviceBase(url) ?? url}/message?token=${encodeURIComponent(token)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: `NutriTrace — ${title}`, message, priority }),
@@ -89,7 +100,7 @@ async function _pushNtfy(userId, title, message, priority) {
   const headers = { 'Title': _encodeHeaderValue(`NutriTrace — ${title}`), 'Priority': String(Math.min(5, priority)) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${url.replace(/\/+$/, '')}/${encodeURIComponent(topic)}`, {
+  const res = await _send(`${serviceBase(url) ?? url}/${encodeURIComponent(topic)}`, {
     method: 'POST',
     headers,
     body: message,
@@ -108,7 +119,7 @@ async function _pushApprise(userId, title, message, priority) {
   const body = { title: `NutriTrace — ${title}`, body: message, type: priority >= 7 ? 'warning' : 'info' };
   if (tag) body.tag = tag;
 
-  const res = await fetch(`${url.replace(/\/+$/, '')}/notify`, {
+  const res = await _send(`${serviceBase(url) ?? url}/notify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

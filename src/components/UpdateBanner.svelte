@@ -51,11 +51,38 @@
   $: latest  = $updateAvailable.latest;
   $: visible = $updateAvailable.available || ($pwaUpdateReady && !_pwaSessionDismissed);
 
+  // One time, when update checks are off: say so, so nobody assumes the app
+  // will tell them about a release that fixes a security problem. Local,
+  // nothing is sent. Only once the question has been answered (the wizard
+  // asks), so it never lands mid-setup.
+  const OFF_NOTICE_KEY = 'wl_updates_off_notice_seen';
+  let offNoticeVisible = false;
+  function dismissOffNotice() {
+    offNoticeVisible = false;
+    try { localStorage.setItem(OFF_NOTICE_KEY, '1'); } catch {}
+  }
+  async function turnOnChecks() {
+    dismissOffNotice();
+    const { setAutoCheck, checkForUpdate } = await import('../lib/updates.js');
+    setAutoCheck(true);
+    try {
+      const { setServerUpdateCheck } = await import('../lib/updates.js');
+      await setServerUpdateCheck(true);
+    } catch { /* not an admin, or offline */ }
+    checkForUpdate({ force: true }).catch(() => {});
+  }
+
   onMount(async () => {
     // Hydrate the store from any cached check first so the banner /
     // Settings-nav dot can appear before the async check completes.
     refreshUpdateAvailableStore();
-    if (!getAutoCheck()) return;
+    if (!getAutoCheck()) {
+      const { autoCheckAnswered } = await import('../lib/updates.js');
+      let seen = true;
+      try { seen = localStorage.getItem(OFF_NOTICE_KEY) === '1'; } catch {}
+      offNoticeVisible = autoCheckAnswered() && !seen;
+      return;
+    }
     try {
       const found = await checkForUpdate({ force: false });
       // On native, ALSO post a one-shot OS notification alongside the
@@ -102,6 +129,20 @@
   }
 </script>
 
+{#if offNoticeVisible}
+  <div class="update-banner" use:portal transition:fade={{ duration: 200 }} role="status" aria-live="polite">
+    <span class="material-symbols-rounded icon" aria-hidden="true">info</span>
+    <div class="body">
+      <div class="title">{$_('updates.off_notice_title')}</div>
+      <div class="sub">{$_('updates.off_notice')}</div>
+    </div>
+    <button class="btn primary" on:click={turnOnChecks}>{$_('updates.turn_on')}</button>
+    <button class="dismiss" on:click={dismissOffNotice} aria-label={$_('updates.not_now')}>
+      <span class="material-symbols-rounded" aria-hidden="true">close</span>
+    </button>
+  </div>
+{/if}
+
 {#if visible && (latest || $pwaUpdateReady)}
   <div
     class="update-banner"
@@ -113,13 +154,23 @@
     <span class="material-symbols-rounded icon" aria-hidden="true">system_update</span>
     <div class="body">
       <div class="title">
-        {#if latest}
+        <!-- A waiting bundle and a published release are two different
+             facts, and the banner has to say the one it means. Reloading
+             takes a bundle that is already downloaded; installing a release
+             is the Android path, and a page cannot do it. -->
+        {#if $pwaUpdateReady}
+          {$_('updates.ready_headline', { default: 'Update Ready' })}
+        {:else if latest}
           {$_('updates.available_headline', { values: { version: latest.version } })}
         {:else}
           {$_('updates.available_generic', { default: 'A New Version Is Available' })}
         {/if}
       </div>
-      <div class="sub">{$_('updates.banner_cta')}</div>
+      <div class="sub">
+        {$pwaUpdateReady
+          ? $_('updates.ready_cta', { default: 'Reload to get the latest version.' })
+          : $_('updates.banner_cta')}
+      </div>
     </div>
     <button class="btn primary" on:click={goToUpdates}>
       {$pwaUpdateReady ? $_('updates.banner_reload', { default: 'Reload' }) : $_('updates.banner_view')}

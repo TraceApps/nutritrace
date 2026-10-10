@@ -31,6 +31,7 @@
 import { writable } from 'svelte/store';
 import { APP_VERSION } from './version.js';
 import { isNative } from './platform.js';
+import { pickApkAsset } from './apk-asset.js';
 import { DB } from './db.js';
 
 const GH_OWNER = 'TraceApps';
@@ -136,11 +137,36 @@ export function setChannel(channel) {
   try { localStorage.setItem(CACHE_KEY_CHANNEL, channel); } catch {}
 }
 
+/**
+ * Whether this device may check for updates.
+ *
+ * Off until answered: setup asks, and an unanswered install checks nothing.
+ * A device that was already using the app keeps checking, through
+ * migrateAutoCheck() below.
+ */
 export function getAutoCheck() {
   try {
-    const v = localStorage.getItem(CACHE_KEY_AUTO_CHECK);
-    return v === null ? true : v === '1';
-  } catch { return true; }
+    return localStorage.getItem(CACHE_KEY_AUTO_CHECK) === '1';
+  } catch { return false; }
+}
+
+/** True when nobody has answered yet (setup should ask). */
+export function autoCheckAnswered() {
+  try { return localStorage.getItem(CACHE_KEY_AUTO_CHECK) !== null; } catch { return true; }
+}
+
+/**
+ * An install that predates the question was checking every 4 hours, so it
+ * carries on. Only a device with no history starts unanswered, which is the
+ * one the wizard is about to ask. Runs once at startup.
+ */
+export function migrateAutoCheck() {
+  try {
+    if (localStorage.getItem(CACHE_KEY_AUTO_CHECK) !== null) return;
+    const used = !!DB.getSetting('setupComplete', false) || !!localStorage.getItem(CACHE_KEY_CHANNEL)
+      || !!localStorage.getItem(CACHE_KEY_LATEST) || !!localStorage.getItem('nt_token');
+    if (used) localStorage.setItem(CACHE_KEY_AUTO_CHECK, '1');
+  } catch { /* storage unavailable: treated as unanswered */ }
 }
 
 export function setAutoCheck(on) {
@@ -203,12 +229,41 @@ export function dismissForVersion(version) {
  * When `force` is false and a valid cached result exists (within 24h),
  * returns the cached result without hitting the network.
  */
+/**
+ * The browser's path: ask this instance, which asks GitHub (and caches the
+ * answer for a day). Returns null when the instance has update checks off,
+ * or when the person isn't an admin, so no banner appears for someone who
+ * couldn't act on it anyway.
+ */
+async function _latestViaServer({ force = false } = {}) {
+  const status = await checkServerUpdate({ force });
+  if (!status || status.disabled || !status.latest) return null;
+  const result = {
+    version:     status.latest,
+    name:        status.latest,
+    notes:       status.notes || '',
+    notesUrl:    status.notesUrl || '',
+    publishedAt: status.publishedAt || '',
+    apkAsset:    null,
+  };
+  try {
+    localStorage.setItem(CACHE_KEY_LAST_CHECK, new Date().toISOString());
+    localStorage.setItem(CACHE_KEY_LATEST, JSON.stringify(result));
+  } catch {}
+  refreshUpdateAvailableStore();
+  return result;
+}
+
 export async function checkForUpdate({ force = false } = {}) {
   if (!force) {
     const cached = _getCachedLatest();
     if (cached) return cached;
   }
   const channel = getChannel();
+  // In the browser the server does the asking, so a page load never reaches
+  // GitHub from the visitor's own address. The Android app asks directly:
+  // the APK it needs is its own update path, and there may be no server.
+  if (!isNative) return await _latestViaServer({ force });
   const headers = {
     'Accept':     'application/vnd.github+json',
     'User-Agent': UA,
@@ -252,9 +307,9 @@ export async function checkForUpdate({ force = false } = {}) {
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);
       data = await res.json();
     }
-    const apkAsset = (data.assets || []).find(a =>
-      a.name && a.name.toLowerCase().endsWith('.apk')
-    );
+    // The phone's build, never the watch one beside it: they share a package
+    // id, so the wrong pick installs over this app.
+    const apkAsset = pickApkAsset(data.assets);
     const result = {
       version:     data.tag_name || data.name || '',
       name:        data.name || '',
@@ -401,6 +456,23 @@ export async function cleanUpdateCache({ alsoOlderThanDays = 7 } = {}) {
 }
 
 /**
+ * Whether the APK for `latest` is already downloaded and complete (its size
+ * matches the release file's), so it can go straight to the installer.
+ * The Settings screen uses it to label the button Install instead of
+ * Download & Install. Native-only; false anywhere else or on any doubt.
+ */
+export async function isApkStaged(latest) {
+  if (!isNative || !latest?.apkAsset?.name || !(latest.apkAsset.size > 0)) return false;
+  try {
+    const { Filesystem, Directory } = await import('@capacitor/filesystem');
+    const st = await Filesystem.stat({ path: `updates/${latest.apkAsset.name}`, directory: Directory.Data });
+    return Number(st?.size) === latest.apkAsset.size;
+  } catch {
+    return false; // not downloaded yet
+  }
+}
+
+/**
  * Download the APK to app storage and hand off to the Android system
  * installer. Android/Capacitor-only. Progress callback receives 0-100.
  * Throws on non-native platforms or download failure.
@@ -434,22 +506,28 @@ export async function downloadAndInstallApk(latest, onProgress) {
     if (!/exist/i.test(e?.message || '')) throw e;
   }
 
-  // Delete any existing APK files in updates/ before writing the new
-  // one. Prior downloads (successful or cancelled) leave ~57 MB files
-  // sitting around; without this, /data/user/0/.../files/updates/
-  // grows unbounded over time. Version-based cleanup at app boot
-  // (cleanUpdateCache) catches whatever we don't delete here.
-  try {
-    const existing = await Filesystem.readdir({ path: 'updates', directory: Directory.Data });
-    for (const f of (existing?.files || [])) {
-      const name = typeof f === 'string' ? f : f?.name;
-      if (name && name.toLowerCase().endsWith('.apk')) {
-        try {
-          await Filesystem.deleteFile({ path: `updates/${name}`, directory: Directory.Data });
-        } catch { /* ignore */ }
+  // Already downloaded and complete (the install screen was left and
+  // reopened, say): go straight to the installer instead of fetching the
+  // whole APK again.
+  const reuse = await isApkStaged(latest);
+
+  // Otherwise clear the way: older downloads and a partial copy of this one.
+  // Prior downloads (installed or cancelled) leave ~57 MB files sitting
+  // around; without this, /data/user/0/.../files/updates/ grows unbounded.
+  // Version-based cleanup at app boot (cleanUpdateCache) catches the rest.
+  if (!reuse) {
+    try {
+      const existing = await Filesystem.readdir({ path: 'updates', directory: Directory.Data });
+      for (const f of (existing?.files || [])) {
+        const name = typeof f === 'string' ? f : f?.name;
+        if (name && name.toLowerCase().endsWith('.apk')) {
+          try {
+            await Filesystem.deleteFile({ path: `updates/${name}`, directory: Directory.Data });
+          } catch { /* ignore */ }
+        }
       }
-    }
-  } catch { /* updates/ might not exist yet */ }
+    } catch { /* updates/ might not exist yet */ }
+  }
 
   // Wire native progress events (Capacitor Filesystem 5.0+). Silently
   // no-ops on older builds — fall back to a fake 0 → 100 flip on
@@ -463,7 +541,7 @@ export async function downloadAndInstallApk(latest, onProgress) {
   } catch { /* older Filesystem — no progress events */ }
 
   try {
-    await Filesystem.downloadFile({
+    if (!reuse) await Filesystem.downloadFile({
       url: latest.apkAsset.url,
       path,
       directory: Directory.Data,
@@ -526,6 +604,24 @@ export function formatAgo(dateOrIso) {
  * Returns { current, latest, channel, available, notes_url, checked_at }
  * or null on failure / non-admin / native app (not applicable).
  */
+/**
+ * Tell the instance whether it may ask GitHub. Admin only; for anyone else
+ * the call is refused and only this device's own answer applies.
+ */
+export async function setServerUpdateCheck(enabled) {
+  try {
+    const { apiUrl } = await import('./platform.js');
+    const csrf = !isNative ? localStorage.getItem('nt:csrf') : null;
+    const res = await fetch(apiUrl('/api/updates/config'), {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+      body: JSON.stringify({ enabled: !!enabled }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 export async function checkServerUpdate({ force = false } = {}) {
   if (isNative) return null; // Server-update banner is PWA-only.
   try {

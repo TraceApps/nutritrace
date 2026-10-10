@@ -23,6 +23,8 @@
            diaryShowCompletion } from '../stores/settings.js';
   import FastingInsights from '../components/diary/FastingInsights.svelte';
   import { isNative } from '../lib/platform.js';
+  import { foldText } from '../lib/search-text.js';
+
   let _waterShowInStats = DB.getSetting('waterShowInStats', true);
   let _waterUnit        = DB.getSetting('waterUnit', 'ml');
   // Reload when settings change
@@ -968,7 +970,7 @@
     <div class="stats-rail-heading">Metrics</div>
     <input class="stats-rail-search" type="search" placeholder="Filter metrics…" bind:value={_railQuery} />
     {#each groupedMetrics as g}
-      {@const _filtered = g.metrics.filter(m => !_railQuery || m.label.toLowerCase().includes(_railQuery.toLowerCase()))}
+      {@const _filtered = g.metrics.filter(m => !_railQuery || foldText(m.label).includes(foldText(_railQuery)))}
       {#if _filtered.length}
         <p class="stats-rail-group">{g.label}</p>
         {#each _filtered as m}

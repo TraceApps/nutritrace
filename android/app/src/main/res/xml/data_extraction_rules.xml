@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 and later: cloud backup and device transfer keep everything
+     except the install id file (see backup_rules.xml). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="install-id" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="install-id" />
+    </device-transfer>
+</data-extraction-rules>

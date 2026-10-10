@@ -1,0 +1,649 @@
+{
+  "_about": "Shared by the JS Health Connect sleep builder (src/lib/sleep-sessions.js) and its Kotlin port (android/.../SleepDerivation.kt). Expected values are worked by hand from the stage timelines, not produced by either implementation. Stage names are AndroidX STAGE_TYPE_* without the prefix. Change a case here and both test suites see it (#236).",
+  "cases": [
+    {
+      "name": "one session without stages: duration only",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "s1",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T20:00:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 480
+      }
+    },
+    {
+      "name": "#236 reporter's night: two Samsung fragments, 00:46-05:00 and 05:45-06:53, both count",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "frag2",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-23T02:45:00Z",
+          "end": "2026-09-23T03:53:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-23T02:45:00Z",
+              "2026-09-23T03:10:00Z"
+            ],
+            [
+              "REM",
+              "2026-09-23T03:10:00Z",
+              "2026-09-23T03:40:00Z"
+            ],
+            [
+              "AWAKE",
+              "2026-09-23T03:40:00Z",
+              "2026-09-23T03:53:00Z"
+            ]
+          ]
+        },
+        {
+          "id": "frag1",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T21:46:00Z",
+          "end": "2026-09-23T02:00:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-22T21:46:00Z",
+              "2026-09-22T22:30:00Z"
+            ],
+            [
+              "DEEP",
+              "2026-09-22T22:30:00Z",
+              "2026-09-22T23:30:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-09-22T23:30:00Z",
+              "2026-09-23T00:30:00Z"
+            ],
+            [
+              "REM",
+              "2026-09-23T00:30:00Z",
+              "2026-09-23T01:10:00Z"
+            ],
+            [
+              "AWAKE",
+              "2026-09-23T01:10:00Z",
+              "2026-09-23T01:13:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-09-23T01:13:00Z",
+              "2026-09-23T02:00:00Z"
+            ]
+          ]
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 322,
+        "sleep_deep_min": 60,
+        "sleep_light_min": 176,
+        "sleep_rem_min": 70,
+        "sleep_wake_min": 16,
+        "sleep_restlessness_min": 3,
+        "sleep_interruptions_min": 0,
+        "sleep_full_awakenings": 0,
+        "sleep_time_to_fall_asleep_min": 44,
+        "sleep_sound_sleep_min": 130
+      }
+    },
+    {
+      "name": "a second app with no stages covering the whole night does not replace the staged fragments",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "frag1",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T21:46:00Z",
+          "end": "2026-09-23T02:00:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-22T21:46:00Z",
+              "2026-09-22T22:30:00Z"
+            ],
+            [
+              "DEEP",
+              "2026-09-22T22:30:00Z",
+              "2026-09-22T23:30:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-09-22T23:30:00Z",
+              "2026-09-23T00:30:00Z"
+            ],
+            [
+              "REM",
+              "2026-09-23T00:30:00Z",
+              "2026-09-23T01:10:00Z"
+            ],
+            [
+              "AWAKE",
+              "2026-09-23T01:10:00Z",
+              "2026-09-23T01:13:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-09-23T01:13:00Z",
+              "2026-09-23T02:00:00Z"
+            ]
+          ]
+        },
+        {
+          "id": "frag2",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-23T02:45:00Z",
+          "end": "2026-09-23T03:53:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-23T02:45:00Z",
+              "2026-09-23T03:10:00Z"
+            ],
+            [
+              "REM",
+              "2026-09-23T03:10:00Z",
+              "2026-09-23T03:40:00Z"
+            ],
+            [
+              "AWAKE",
+              "2026-09-23T03:40:00Z",
+              "2026-09-23T03:53:00Z"
+            ]
+          ]
+        },
+        {
+          "id": "sched",
+          "origin": "com.google.android.apps.fitness",
+          "start": "2026-09-22T21:40:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 322,
+        "sleep_deep_min": 60,
+        "sleep_light_min": 176,
+        "sleep_rem_min": 70,
+        "sleep_wake_min": 16,
+        "sleep_restlessness_min": 3,
+        "sleep_interruptions_min": 0,
+        "sleep_full_awakenings": 0,
+        "sleep_time_to_fall_asleep_min": 44,
+        "sleep_sound_sleep_min": 130
+      }
+    },
+    {
+      "name": "the same night written by two staged apps is counted once (lower package name kept)",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "b1",
+          "origin": "com.b.tracker",
+          "start": "2026-09-22T20:00:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-22T20:00:00Z",
+              "2026-09-23T04:00:00Z"
+            ]
+          ]
+        },
+        {
+          "id": "a1",
+          "origin": "com.a.tracker",
+          "start": "2026-09-22T20:00:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-22T20:00:00Z",
+              "2026-09-22T22:00:00Z"
+            ],
+            [
+              "DEEP",
+              "2026-09-22T22:00:00Z",
+              "2026-09-22T23:00:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-09-22T23:00:00Z",
+              "2026-09-23T03:00:00Z"
+            ],
+            [
+              "REM",
+              "2026-09-23T03:00:00Z",
+              "2026-09-23T04:00:00Z"
+            ]
+          ]
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 480,
+        "sleep_deep_min": 60,
+        "sleep_light_min": 360,
+        "sleep_rem_min": 60,
+        "sleep_wake_min": 0,
+        "sleep_restlessness_min": 0,
+        "sleep_interruptions_min": 0,
+        "sleep_full_awakenings": 0,
+        "sleep_time_to_fall_asleep_min": 120,
+        "sleep_sound_sleep_min": 120
+      }
+    },
+    {
+      "name": "one app overlapping itself by a minute: the minute is counted once",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "p1",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T20:00:00Z",
+          "end": "2026-09-23T00:00:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-22T20:00:00Z",
+              "2026-09-23T00:00:00Z"
+            ]
+          ]
+        },
+        {
+          "id": "p2",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T23:59:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-22T23:59:00Z",
+              "2026-09-23T01:00:00Z"
+            ],
+            [
+              "DEEP",
+              "2026-09-23T01:00:00Z",
+              "2026-09-23T04:00:00Z"
+            ]
+          ]
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 480,
+        "sleep_deep_min": 180,
+        "sleep_light_min": 300,
+        "sleep_rem_min": 0,
+        "sleep_wake_min": 0,
+        "sleep_restlessness_min": 0,
+        "sleep_interruptions_min": 0,
+        "sleep_full_awakenings": 0,
+        "sleep_time_to_fall_asleep_min": 300,
+        "sleep_sound_sleep_min": 180
+      }
+    },
+    {
+      "name": "an afternoon nap the same day does not replace the night",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T20:00:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": []
+        },
+        {
+          "id": "nap",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-23T11:00:00Z",
+          "end": "2026-09-23T12:00:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 480
+      }
+    },
+    {
+      "name": "a fragment that ended before midnight still belongs to the night",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "eve",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T19:00:00Z",
+          "end": "2026-09-22T20:30:00Z",
+          "stages": []
+        },
+        {
+          "id": "rest",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T21:15:00Z",
+          "end": "2026-09-23T03:30:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 465
+      }
+    },
+    {
+      "name": "a night that ended yesterday is not today's sleep",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "old",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-21T20:00:00Z",
+          "end": "2026-09-22T04:00:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {}
+    },
+    {
+      "name": "a gap of 3 hours splits the night; equal halves keep the later one",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "h1",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T19:00:00Z",
+          "end": "2026-09-22T22:00:00Z",
+          "stages": []
+        },
+        {
+          "id": "h2",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-23T01:00:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 180
+      }
+    },
+    {
+      "name": "a gap just under 3 hours is one night",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "h1",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T19:00:00Z",
+          "end": "2026-09-22T22:00:00Z",
+          "stages": []
+        },
+        {
+          "id": "h2",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-23T00:59:00Z",
+          "end": "2026-09-23T03:59:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 360
+      }
+    },
+    {
+      "name": "AWAKE_IN_BED counts as awake; OUT_OF_BED, SLEEPING and UNKNOWN count toward no stage",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "v",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T20:00:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": [
+            [
+              "AWAKE_IN_BED",
+              "2026-09-22T20:00:00Z",
+              "2026-09-22T20:08:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-09-22T20:08:00Z",
+              "2026-09-22T22:00:00Z"
+            ],
+            [
+              "OUT_OF_BED",
+              "2026-09-22T22:00:00Z",
+              "2026-09-22T22:10:00Z"
+            ],
+            [
+              "SLEEPING",
+              "2026-09-22T22:10:00Z",
+              "2026-09-22T23:00:00Z"
+            ],
+            [
+              "DEEP",
+              "2026-09-22T23:00:00Z",
+              "2026-09-23T00:00:00Z"
+            ],
+            [
+              "UNKNOWN",
+              "2026-09-23T00:00:00Z",
+              "2026-09-23T00:05:00Z"
+            ],
+            [
+              "REM",
+              "2026-09-23T00:05:00Z",
+              "2026-09-23T04:00:00Z"
+            ]
+          ]
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 480,
+        "sleep_deep_min": 60,
+        "sleep_light_min": 112,
+        "sleep_rem_min": 235,
+        "sleep_wake_min": 8,
+        "sleep_restlessness_min": 0,
+        "sleep_interruptions_min": 0,
+        "sleep_full_awakenings": 0,
+        "sleep_time_to_fall_asleep_min": 180,
+        "sleep_sound_sleep_min": 295
+      }
+    },
+    {
+      "name": "interruptions, restlessness and the settling-in and wake-up blocks follow the Google Health walk",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "q",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T20:00:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-22T20:00:00Z",
+              "2026-09-22T21:00:00Z"
+            ],
+            [
+              "DEEP",
+              "2026-09-22T21:00:00Z",
+              "2026-09-22T22:00:00Z"
+            ],
+            [
+              "AWAKE",
+              "2026-09-22T22:00:00Z",
+              "2026-09-22T22:12:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-09-22T22:12:00Z",
+              "2026-09-22T22:40:00Z"
+            ],
+            [
+              "AWAKE",
+              "2026-09-22T22:40:00Z",
+              "2026-09-22T22:47:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-09-22T22:47:00Z",
+              "2026-09-22T23:00:00Z"
+            ],
+            [
+              "AWAKE",
+              "2026-09-22T23:00:00Z",
+              "2026-09-22T23:03:00Z"
+            ],
+            [
+              "REM",
+              "2026-09-22T23:03:00Z",
+              "2026-09-23T00:00:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-09-23T00:00:00Z",
+              "2026-09-23T00:04:00Z"
+            ],
+            [
+              "DEEP",
+              "2026-09-23T00:04:00Z",
+              "2026-09-23T03:50:00Z"
+            ],
+            [
+              "AWAKE",
+              "2026-09-23T03:50:00Z",
+              "2026-09-23T04:00:00Z"
+            ]
+          ]
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 480,
+        "sleep_deep_min": 286,
+        "sleep_light_min": 105,
+        "sleep_rem_min": 57,
+        "sleep_wake_min": 32,
+        "sleep_restlessness_min": 3,
+        "sleep_interruptions_min": 7,
+        "sleep_full_awakenings": 1,
+        "sleep_time_to_fall_asleep_min": 60,
+        "sleep_sound_sleep_min": 347
+      }
+    },
+    {
+      "name": "no sessions",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [],
+      "expect": {}
+    },
+    {
+      "name": "a stage running past its session is clipped to it",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "c",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T20:00:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-09-22T19:50:00Z",
+              "2026-09-23T04:10:00Z"
+            ]
+          ]
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 480,
+        "sleep_deep_min": 0,
+        "sleep_light_min": 480,
+        "sleep_rem_min": 0,
+        "sleep_wake_min": 0,
+        "sleep_restlessness_min": 0,
+        "sleep_interruptions_min": 0,
+        "sleep_full_awakenings": 0
+      }
+    },
+    {
+      "name": "a session that ends before it starts is ignored",
+      "date": "2026-09-23",
+      "zone": "Europe/Moscow",
+      "sessions": [
+        {
+          "id": "bad",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-23T04:00:00Z",
+          "end": "2026-09-23T03:00:00Z",
+          "stages": []
+        },
+        {
+          "id": "good",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T20:00:00Z",
+          "end": "2026-09-23T04:00:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 480
+      }
+    },
+    {
+      "name": "the night the clocks go back is 9 hours, not 8 (America/New_York)",
+      "date": "2026-11-01",
+      "zone": "America/New_York",
+      "sessions": [
+        {
+          "id": "dst",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-01T03:00:00Z",
+          "end": "2026-11-01T12:00:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 540
+      }
+    },
+    {
+      "name": "the local wake-up date decides, not the UTC one (Asia/Tokyo)",
+      "date": "2026-09-23",
+      "zone": "Asia/Tokyo",
+      "sessions": [
+        {
+          "id": "tk",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-09-22T14:00:00Z",
+          "end": "2026-09-22T22:00:00Z",
+          "stages": []
+        }
+      ],
+      "expect": {
+        "sleep_duration_min": 480
+      }
+    }
+  ]
+}

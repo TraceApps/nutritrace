@@ -59,6 +59,20 @@
   "sync": {
     "synced": "Synced",
     "sync_offline": "Offline",
+    "refused": "Your server would not accept what is waiting: {reason}. It is kept here and will be tried again.",
+    "sign_out_waiting_title": "Changes are still waiting",
+    "sign_out_waiting": "{count, plural, one {# change has not reached your server yet. Signing out now discards it. Connect and try again to keep it.} other {# changes have not reached your server yet. Signing out now discards them. Connect and try again to keep them.}}",
+    "sign_out_anyway": "Sign Out Anyway",
+    "switch_account_waiting_title": "Another Account's Changes Are Waiting",
+    "switch_account_waiting": "{count, plural, one {# change made on this device by the account signed in before has not reached the server. Signing in now discards it. To keep it, sign in as that account first.} other {# changes made on this device by the account signed in before have not reached the server. Signing in now discards them. To keep them, sign in as that account first.}}",
+    "switch_account_anyway": "Sign In Anyway",
+    "same_server_title": "Is This the Same Server?",
+    "same_server": "This server is at a different address than the one this device used before, and it can't tell whether it's the same server. If it is, your data here stays and syncs with it. If not, it's treated as another account's.",
+    "same_server_yes": "Same Server",
+    "same_server_no": "Different Server",
+    "account_check_failed_title": "Couldn't Open Your Data",
+    "account_check_failed": "This device couldn't check whose data it holds, so nothing is shown yet. Try again, or sign out.",
+    "pending_web_changes": "{count, plural, =0 {Offline. Your diary still works and saves here.} one {Offline. # change is waiting to go up.} other {Offline. # changes are waiting to go up.}}",
     "sync_failing": "Can't reach the server",
     "not_synced": "Not synced yet",
     "sync_now": "Sync now",
@@ -316,6 +330,9 @@
     "webhooks": {
       "section": "Webhooks"
     },
+    "support": {
+      "section": "Support"
+    },
     "about": {
       "section": "About"
     }
@@ -330,6 +347,11 @@
     },
     "auto_check": "Automatically Check for Updates",
     "auto_check_desc": "Check for new releases in the background.",
+    "off_resting": "Off. Your server will not contact GitHub. Turn it on to hear about new features, fixes and security updates.",
+    "off_notice_title": "Update Checks Are Off",
+    "off_notice": "Nothing will tell you about new features, fixes or security updates. Turning checks on asks GitHub for the latest release every few hours, and sends nothing about you.",
+    "turn_on": "Turn On",
+    "not_now": "Not Now",
     "interval": {
       "label": "Check Frequency",
       "desc": "How often the app checks for a new release when open. Manual only turns off all auto-checks.",
@@ -351,6 +373,7 @@
     "no_release_notes": "No release notes were published for this build.",
     "view_on_github": "View on GitHub",
     "download_install": "Download & Install",
+    "install_downloaded": "Install",
     "downloading": "Downloading… {percent}%",
     "install_starting": "Opening installer…",
     "install_failed": "Install failed. Try again.",
@@ -359,6 +382,8 @@
     "banner_cta": "Tap to view what's new and install.",
     "banner_view": "View",
     "available_generic": "A New Version Is Available",
+    "ready_headline": "Update Ready",
+    "ready_cta": "Reload to get the latest version.",
     "banner_reload": "Reload",
     "storage": {
       "heading": "Cached Update APKs",
@@ -379,8 +404,13 @@
       "copied": "Copied to clipboard.",
       "copy_failed": "Copy failed. Copy the command manually.",
       "view_notes": "View Release Notes",
-      "channel_note": "To switch server channels, change your docker-compose.yml image tag (:latest, :1.0, :1, :dev) and re-run docker-compose pull && docker-compose up -d."
+      "channel_note": "To switch server channels, change your docker-compose.yml image tag (:latest, :dev) and re-run docker-compose pull && docker-compose up -d."
     }
+  },
+  "attach_image": {
+    "button": "Attach Image",
+    "camera": "Camera",
+    "gallery": "Gallery"
   },
   "login": {
     "subtitle": "Sign in to your account",
@@ -404,6 +434,13 @@
     },
     "errors": {
       "failed": "Login failed"
+    },
+    "cookie_warning": {
+      "http_title": "Signing in won't work on this address",
+      "http_body": "This page uses plain HTTP, but the server only sends its sign-in cookie over HTTPS, so your browser throws it away and signing in sends you back to the sign-in page. Open NutriTrace over HTTPS, or, on a trusted home network, set INSECURE_COOKIES=1 on the server and restart it.",
+      "dropped_title": "Your browser didn't keep you signed in",
+      "dropped_body": "Your password was right, but the browser didn't keep the sign-in cookie. Check that cookies are allowed for this site, and if NutriTrace is behind a reverse proxy, that the proxy passes cookies through.",
+      "fix_link": "How to fix it"
     },
     "recovery": {
       "confirm": "This will delete all user accounts. Your food & diary data will be kept. Continue?",
@@ -592,6 +629,13 @@
       "title": "Stay on Track",
       "desc": "Get helpful reminders and celebrate your wins. You can customize all of these later in Settings."
     },
+    "updates": {
+      "title": "Check For Updates",
+      "desc": "Your server can tell you when a new NutriTrace is out.",
+      "toggle": "Check for updates automatically",
+      "toggle_sub": "It's how you hear about new features, fixes and security updates",
+      "note": "Your server asks GitHub every few hours whether a newer NutriTrace is out. Nothing about you or your data is sent. You can change this any time in Settings, Updates."
+    },
     "summary": {
       "title": "Your Daily Goals",
       "desc": "Calculated from your stats using the Mifflin-St Jeor formula."
@@ -744,6 +788,8 @@
     }
   },
   "foods": {
+    "off_no_values_listed": "No values listed",
+    "off_skipped": "Left out, since Open Food Facts has no values \"as sold\" for them: {names}. Add them under Foods with the values from the label.",
     "category_all": "All",
     "saved_meals": "Saved Meals",
     "search_empty_hint": "Try searching Open Food Facts or USDA above",
@@ -789,6 +835,9 @@
       "add_to_diary": "Add to Diary",
       "add_to_diary_aria": "Add to diary",
       "add_to_which_meal": "Add to which meal?",
+      "off_prepared_only": "Open Food Facts only lists \"as prepared\" values for this product. Tap Edit to see them and choose whether to use them.",
+      "off_implausible": "Open Food Facts only lists \"as prepared\" values for this product, and they can't be right. Tap Edit to enter the values from the label.",
+      "off_none": "Open Food Facts has no nutrition values for this product. Tap Edit to enter them from the label.",
       "per_serving": "per serving",
       "barcode": "Barcode",
       "added_to": "Added to {meal}",
@@ -811,6 +860,12 @@
       "loading_more": "Loading more…",
       "still_searching_others": "Still searching other sources…"
     },
+    "offline": {
+      "source": "needs a connection",
+      "search_hint": "You're offline, so only your own foods were searched. Open Food Facts, USDA and the other sources need a connection.",
+      "barcode": "You're offline, so only your own foods were checked for this barcode.",
+      "import": "That import needs a connection. It will work once you're back online."
+    },
     "loading_library": "Loading…",
     "pagination": {
       "showing_x_of_y": "Showing {shown} of {total}",
@@ -818,10 +873,18 @@
     },
     "toast": {
       "deleted": "Deleted",
-      "cloned": "Cloned"
+      "cloned": "Cloned",
+      "added_to_diary": "Added to diary",
+      "meal_partly_added": "Some ingredients could not be added: {names}",
+      "meal_none_added": "Could not add this meal. Check your connection and try again.",
+      "meal_stale_ingredients": "Added to diary. These ingredients are no longer in your foods: {names}. Edit the meal to fix them."
     }
   },
   "trace": {
+    "food_card": {
+      "log_to": "Log to",
+      "dont_log": "Don't Log"
+    },
     "panel_label": "AI Coach Chat",
     "ask_placeholder": "Ask me anything…",
     "clear_conversation": "Clear Conversation",
@@ -1083,7 +1146,7 @@
   "settings_diagnostics": {
     "diag_mode": "Diagnostic Mode",
     "view_logs": "View Diagnostic Logs",
-    "logs_desc_web": "Recent log lines from the app's console. Useful for bug reports, copy / share into a",
+    "logs_desc_web": "Recent log lines from the app's console. Useful for bug reports, copy / share into a <a href=\"https://github.com/traceapps/nutritrace/issues\" target=\"_blank\" rel=\"noopener\" class=\"about-link\">GitHub issue</a>.",
     "logs_desc_android": " On Android with Diagnostic Mode on, you can also share the persisted log file or any captured crash report.",
     "logs_note": "Nothing is sent anywhere automatically.",
     "calibration_export": "Calibration Export",
@@ -1092,14 +1155,24 @@
   },
   "settings_admin_group": "Admin",
   "settings_about": {
-    "support_note": "NutriTrace is free to self-host, always. The current goal is a Mac and an iPhone so the Trace apps can run properly on iOS.",
     "food_data_from": "Food data from",
     "food_data_license": "(ODbL)",
     "server_from": "Server:",
     "server_open_source": "Open Source",
     "server_license": "(AGPL-3.0)",
-    "translations_from": "Translations powered by",
-    "support_dev": "Support Development"
+    "family_line_prefix": "Part of the ",
+    "family_line_suffix": " family",
+    "translations_from": "Translations powered by"
+  },
+  "settings_support": {
+    "lead": "NutriTrace is free and always will be. Support is optional and never unlocks anything.",
+    "other_ways": "Other Ways to Help",
+    "star": "Star on GitHub",
+    "star_desc": "Stars are how self-hosted projects get found.",
+    "report_bug": "Report a Bug",
+    "report_bug_desc": "A clear report fixes it for everyone who hits the same thing.",
+    "translate": "Help Translate",
+    "translate_desc": "Make NutriTrace usable in your language, on Weblate."
   },
   "settings_merge": {
     "title": "Sync Options",
@@ -1163,6 +1236,7 @@
     "cancel": "Cancel"
   },
   "smart_log": {
+    "off_no_values": "Open Food Facts has no values \"as sold\" for this product, so it won't be logged. Swap it or remove it.",
     "placeholder": "for breakfast I had 2 eggs and toast",
     "title": "Smart Log",
     "badge_local": "Local",
@@ -1291,6 +1365,13 @@
     "lookup": "Look Up"
   },
   "food_editor": {
+    "off_prepared": {
+      "only_prepared": "Open Food Facts only lists this product \"as prepared\": {kcal} kcal per 100 {unit}. That is how it is served (made up, drained or cooked), which may not be how you weigh it.",
+      "use": "Use These Values",
+      "implausible": "Open Food Facts only lists this product \"as prepared\", and those values can't be right ({kcal} kcal per 100 {unit}). Enter the values from the label.",
+      "none": "Open Food Facts has no nutrition values for this product. Enter them from the label.",
+      "note": "Nutrition values are \"as prepared\" (from Open Food Facts)."
+    },
     "name_placeholder": "Food name",
     "brand_placeholder": "Brand (optional)",
     "saved": "Saved",
@@ -1326,6 +1407,13 @@
       "off_upload_failed": "Could not upload to Open Food Facts: {error}",
       "off_not_found": "Not found in Open Food Facts",
       "off_refreshed": "Data refreshed from Open Food Facts",
+      "off_updated": "{count, plural, one {Updated # value from Open Food Facts} other {Updated # values from Open Food Facts}}. Save to keep them.",
+      "off_up_to_date": "Already matches Open Food Facts",
+      "off_prepared_only": "Open Food Facts only has \"as prepared\" values for this product, so nothing was changed",
+      "off_units_differ": "This food is measured in {unit}, which Open Food Facts values can't be converted to, so nothing was changed",
+      "off_no_nutrition": "Open Food Facts has no nutrition values for this product yet",
+      "off_offline": "Refreshing from Open Food Facts needs a connection. It will work once you're back online.",
+      "off_prepared_used": "{count, plural, one {Used # \"as prepared\" value} other {Used # \"as prepared\" values}}. Save to keep them.",
       "refresh_failed": "Refresh failed: {error}",
       "label_read_failed": "Could not read the label. Try a clearer photo.",
       "nutrition_extracted": "Nutrition extracted from label",
@@ -1381,7 +1469,8 @@
       "per_serving_label": "Per serving:"
     },
     "errors": {
-      "no_ingredients": "Please add at least one ingredient"
+      "no_ingredients": "Please add at least one ingredient",
+      "off_no_values": "Open Food Facts has no values \"as sold\" for {name}. Add it under Foods with the values from the label, then pick it here."
     }
   },
   "settings_wellness": {
@@ -2162,6 +2251,7 @@
       "withings_with_user": "Sync Withings · User {user}"
     },
     "empty": {
+      "offline": "Wellness data comes from your provider through the server, so it needs a connection. It will be here when you are back online.",
       "no_integrations": "No integrations enabled",
       "no_integrations_desc": "Enable Fitbit or Withings in <strong>Settings → Wellness</strong> to start syncing health data.",
       "no_device": "No Device Connected",

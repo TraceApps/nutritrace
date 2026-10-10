@@ -12,7 +12,7 @@ This is distinct from the [Federation API](federation.md): federation
 `/api/v1/body-measurements`) is a stable wire contract for sister
 TraceApps and is always on. The routes on this page
 (`/api/v1/diary`, `/api/v1/goals`, `/api/v1/meals`, `/api/v1/steps`,
-`/api/v1/profile`) are for a user's own personal automation and are
+`/api/v1/body-composition`, `/api/v1/profile`) are for a user's own personal automation and are
 gated behind the flags below.
 
 ## Enabling it
@@ -66,6 +66,7 @@ token lacking the required scope returns `403`.
 | GET | `/api/v1/meals/recent?limit=&include_recipes=&start=&end=` | Most-recently-used saved meals. Optional inclusive `YYYY-MM-DD` `start`/`end` filter by the date each meal was last used; either can be left out. |
 | GET | `/api/v1/meals/:id` | One saved meal's full contents, including every item. |
 | GET | `/api/v1/steps?start=&end=&source=` | Persisted daily step observations from wellness data, one row per source. Inclusive `YYYY-MM-DD` bounds; a supplied bound leaves the other side open, both omitted means the last 90 days. `source` filters to one provider. Sources are never merged and missing days are not zeros. |
+| GET | `/api/v1/body-composition?start=&end=&source=` | Persisted body-composition observations from `wellness_data`. Inclusive `YYYY-MM-DD` bounds; a supplied bound leaves the other side open, both omitted means the last 90 days. `source` is an optional exact filter. Metrics are grouped by `date` + `source`; observations from different sources remain separate, and missing observations are omitted rather than synthesized. |
 | GET | `/api/v1/profile` | The user's gender and date of birth as set on the Profile page or during onboarding. Either field is `null` when unset. |
 
 ### Write (require `mcp:write` and `PUBLIC_API_WRITE_ENABLED=1`)
@@ -108,6 +109,10 @@ curl -H "Authorization: Bearer nt_pat_..." \
 # Step observations for a date range, one row per source
 curl -H "Authorization: Bearer nt_pat_..." \
   "https://your-nutritrace.example.com/api/v1/steps?start=2026-09-01&end=2026-09-07"
+
+# Body-composition observations for a date range, separated by source
+curl -H "Authorization: Bearer nt_pat_..." \
+  "https://your-nutritrace.example.com/api/v1/body-composition?start=2026-09-01&end=2026-09-07"
 
 # Profile facts (gender, date of birth)
 curl -H "Authorization: Bearer nt_pat_..." \

@@ -151,7 +151,11 @@ export function scheduleSave(key, value) {
   if (!SERVER_SETTINGS.has(key)) return;
   if (_suppressSync) return;
   clearTimeout(_saveQueue[key]);
+  // The account the change was made for: if another one is signed in by
+  // the time it goes, it doesn't go (it would land in that account).
+  const forUser = _userKey();
   _saveQueue[key] = setTimeout(async () => {
+    if (_userKey() !== forUser) return;
     // Try direct push to server (fast path when online)
     if (!_shouldSyncToServer()) return;
     if (await _serverRequestDeferred()) {
@@ -196,7 +200,15 @@ export function scheduleSave(key, value) {
       }
     } catch (e) {
       console.warn(`[settings] direct push failed for ${key}:`, e.message);
-      // Leave as 'pending' in local SQLite — differential sync will push it later
+      // Native: leave it 'pending' in local SQLite, differential sync pushes
+      // it later. Web: the browser has no such table, so the change would be
+      // lost at the next pull; hand it to the offline queue instead (#211).
+      if (!isNative) {
+        try {
+          const { queueSetting } = await import('../lib/offline-api.js');
+          await queueSetting(key, value);
+        } catch { /* nothing more to try */ }
+      }
     }
   }, 600);
 }
@@ -296,6 +308,39 @@ export async function bulkSet(settingsObj) {
  * Without this, WorkManager would see stale or missing settings even after
  * the JS app pulls everything from the server.
  */
+// Settings changed on this phone and not sent yet: the newer ones, kept
+// when the server's come down. Only while the phone's copy is this
+// account's (before, its rows can be the last account's).
+async function _unsentSettingKeys(forUser) {
+  try {
+    const la = await import('../lib/local-account.js');
+    if (!la.localCopyIsCurrent(forUser)) return new Set();
+    const { dbGetPendingSettings } = await import('../lib/db-native.js');
+    return new Set((await dbGetPendingSettings()).map(s => s.key));
+  } catch { return new Set(); }
+}
+
+async function _mirrorServerSettings(serverSettings, forUser) {
+  const la = await import('../lib/local-account.js');
+  if (!(await la.whenLocalCopyIsCurrent(forUser))) return;
+  // Checked before every write, as sync does: once another account signs
+  // in (the account generation moves), nothing more goes into the copy.
+  const gen = la.accountGeneration();
+  const live = () => la.accountGeneration() === gen && la.localCopyIsCurrent(forUser)
+    && Number(localStorage.getItem('wl:userId')) === forUser;
+  if (!live()) return;
+  try {
+    const { dbMirrorSetting } = await import('../lib/db-native.js');
+    for (const [key, value] of Object.entries(serverSettings)) {
+      if (DEVICE_PREFS.has(key)) continue;
+      if (!live()) return;
+      await dbMirrorSetting(key, value);
+    }
+  } catch (e) {
+    console.warn('[settings] native SQLite mirror failed:', e.message);
+  }
+}
+
 export async function loadServerSettings() {
   if (!_shouldSyncToServer()) return;
   if (await _serverRequestDeferred()) return;
@@ -303,6 +348,8 @@ export async function loadServerSettings() {
     const res = await fetch(_settingsUrl(), { credentials: 'include', headers: _authHeaders(), signal: AbortSignal.timeout(8000) });
     if (!res.ok) return;
     const serverSettings = await res.json();
+    const forUser = Number(localStorage.getItem('wl:userId'));
+    const unsent = isNative ? await _unsentSettingKeys(forUser) : new Set();
     _suppressSync = true; // Don't push these back to server
 
     // Write all to localStorage (PWA + native JS layer). Pass force=true so
@@ -321,29 +368,20 @@ export async function loadServerSettings() {
     // `false`, and the persistent-sidebar toggle would silently turn off.
     for (const [key, value] of Object.entries(serverSettings)) {
       if (DEVICE_PREFS.has(key)) continue;
+      if (unsent.has(key)) continue; // changed here, not sent yet: the newer value
       DB.setSetting(key, value, true);
     }
+
+    _suppressSync = false;
 
     // Native: also mirror into the native SQLite user_settings table so the
     // WorkManager / background workers have access to fresh values. Mark as
     // 'synced' so the differential sync doesn't try to re-push them.
     // Same DEVICE_PREFS skip as the localStorage loop above.
-    if (isNative) {
-      try {
-        const { dbUpsertSetting, dbMarkSettingsSynced } = await import('../lib/db-native.js');
-        const snapshots = [];
-        for (const [key, value] of Object.entries(serverSettings)) {
-          if (DEVICE_PREFS.has(key)) continue;
-          const updatedAt = await dbUpsertSetting(key, value);
-          snapshots.push({ key, updated_at: updatedAt });
-        }
-        if (snapshots.length) await dbMarkSettingsSynced(snapshots);
-      } catch (e) {
-        console.warn('[settings] native SQLite mirror failed:', e.message);
-      }
-    }
-
-    _suppressSync = false;
+    // Only once the phone's copy is this account's (lib/local-account.js):
+    // before, it can still hold the previous account's unsent settings. In
+    // the background, so signing in never waits on the check.
+    if (isNative) _mirrorServerSettings(serverSettings, forUser).catch(() => {});
 
     // After settings are written to localStorage, force-apply the theme
     // settings directly to the DOM. The reactive `$: applyAccentColor(…)`
@@ -389,15 +427,44 @@ if (typeof window !== 'undefined') {
     const value = DB.getSetting(key, undefined);
     _recentlyChanged.set(key, Date.now());
     // Native: write to local SQLite immediately (marks as pending for sync protection)
+    // Not while the phone's copy may still be the previous account's.
     if (isNative) {
-      import('../lib/db-native.js').then(({ dbUpsertSetting }) => dbUpsertSetting(key, value)).catch(() => {});
+      import('../lib/local-account.js').then(async la => {
+        if (!la.localCopyIsCurrent()) return;
+        const { dbUpsertSetting } = await import('../lib/db-native.js');
+        await dbUpsertSetting(key, value);
+      }).catch(() => {});
     }
     scheduleSave(key, value);
   });
 }
 
+// Every setting store, so they can all be read again for another account
+// (reloadSettingStores). Settings are kept per account in this app's
+// storage (lib/db.js), but a store holds the value it read when the app
+// started; without this, the next account to sign in saw the last one's
+// values (goals, meal names, keys...) and could save them as its own.
+const _settingStores = [];
+const _userKey = () => { try { return localStorage.getItem('wl:userId') || ''; } catch { return ''; } };
+let _storesUser = _userKey();
+
+/** Read every setting store again if the signed-in account changed (or
+ *  `force`), and drop the last account's changes still waiting to go to
+ *  the server. Values are set straight into the stores: nothing is
+ *  written or sent. */
+export function reloadSettingStores({ force = false } = {}) {
+  const now = _userKey();
+  if (!force && now === _storesUser) return false;
+  _storesUser = now;
+  for (const k of Object.keys(_saveQueue)) { clearTimeout(_saveQueue[k]); delete _saveQueue[k]; }
+  _recentlyChanged.clear();
+  for (const { key, defaultValue, store } of _settingStores) store.set(DB.getSetting(key, defaultValue));
+  return true;
+}
+
 function createSettingStore(key, defaultValue) {
   const store = writable(DB.getSetting(key, defaultValue));
+  _settingStores.push({ key, defaultValue, store });
 
   window.addEventListener('wl:setting', (e) => {
     if (e.detail && e.detail.key === key) {

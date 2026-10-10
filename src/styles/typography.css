@@ -1,5 +1,4 @@
-/* Inter from Google Fonts — self-host via @font-face if needed offline */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* Inter is served by this instance: see public/fonts/fonts.css. */
 
 h1 { font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; }
 h2 { font-size: 20px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }

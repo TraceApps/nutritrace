@@ -14,6 +14,7 @@
 import { registerGetGoals } from './goals.js';
 import { registerGetProfile } from './profile.js';
 import { registerGetSteps } from './get-steps.js';
+import { registerGetBodyComposition } from './get-body-composition.js';
 import { registerListDiary } from './list-diary.js';
 import { registerListDiaryRange } from './list-diary-range.js';
 import { registerDailyTotals } from './daily-totals.js';
@@ -35,6 +36,7 @@ export function registerReadTools(server, ctx) {
   registerGetGoals(server, ctx);
   registerGetProfile(server, ctx);
   registerGetSteps(server, ctx);
+  registerGetBodyComposition(server, ctx);
   registerListDiary(server, ctx);
   registerListDiaryRange(server, ctx);
   registerDailyTotals(server, ctx);

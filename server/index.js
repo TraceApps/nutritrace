@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { rememberAdminOrigin } from './lib/public-url.js';
 // Forward-proxy support (#177). Self-installs an undici
 // EnvHttpProxyAgent as the global fetch dispatcher when
 // HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
@@ -53,6 +54,7 @@ import {
 } from './middleware/request-logging.js';
 import { seedSmtpFromEnv } from './email.js';
 import { seedAiFromEnv } from './ai.js';
+import { initUpdateCheckSetting } from './lib/update-check.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { APP_VERSION } from './routes/version-source.js';
 
@@ -63,6 +65,8 @@ import { isPrivateUploadPath, UPLOAD_RESPONSE_HEADERS } from './lib/upload-paths
 // Seed config from env vars if provided (env vars take priority over UI)
 seedSmtpFromEnv();
 seedAiFromEnv();
+// Update checks: existing instances keep checking, fresh ones wait for setup to ask.
+initUpdateCheckSetting();
 seedOidcFromEnv();
 
 const app  = express();
@@ -108,6 +112,15 @@ router.use('/api/ai/chat',     express.json({ limit: '12mb' }));
 router.use('/api/diary',       express.json({ limit: '5mb' }));
 // Global cap: 1 MB. Prevents a single authed user from filling memory with
 // repeated large requests. Anything above belongs on a per-route opt-in.
+// A picture taken with no connection travels inside the row it belongs to,
+// since there is nowhere to upload it to, and is turned into a file on
+// arrival. The web app keeps those well under a megabyte; these routes allow
+// headroom so one is never refused for its size after the person has already
+// been told it was saved.
+const EMBEDDED_PHOTO_LIMIT = '6mb';
+for (const path of ['/api/foods', '/api/meals', '/api/auth/profile']) {
+  router.use(path, express.json({ limit: EMBEDDED_PHOTO_LIMIT }));
+}
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
 
@@ -166,12 +179,27 @@ router.use('/uploads', express.static(uploadsPath, {
 router.use('/api/proxy', proxyRoutes);
 
 router.use(authenticate);   // attach req.user on every request
+// Remember the address an admin uses, so emailed links (password reset,
+// invite, sharing) go there instead of to whatever Host a request claims.
+router.use((req, res, next) => {
+  if (req.user?.role === 'admin') rememberAdminOrigin(req);
+  next();
+});
 router.use(csrfProtect);   // CSRF protection for cookie-based sessions
 // Optional body summaries are captured only from parsed, access-checked requests.
 router.use(captureRequestTraceBody);
 
 // Prevent browser/proxy caching of all API responses
 router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
+// Older docs gave the OIDC callback as /api/oidc/callback. An IdP set up from
+// them sends people here; forward to the real callback (which finds the
+// provider from the sign-in state) instead of letting the SPA fallback show
+// a blank page. Before the setup gate so OIDC-first installs work too.
+router.get('/api/oidc/callback', (req, res) => {
+  const q = req.originalUrl.indexOf('?');
+  res.redirect(307, `${BASE_URL}/api/auth/oidc/callback${q >= 0 ? req.originalUrl.slice(q) : ''}`);
+});
 
 // Setup enforcement — block data APIs until the first user account is created.
 // Only /api/auth/* is allowed so the client can check status + register the admin.
@@ -434,9 +462,9 @@ app.listen(PORT, async () => {
     logger.warn(`[scheduler] failed to start: ${e.message}`);
   });
 
-  // #199 one-shot: localize any data-URL img_urls in foods/meals to
+  // Repair legacy data-URL img_urls in foods/meals on every startup to
   // /uploads/ files so the diary hydrator stops amplifying them.
-  // Guarded by app_config flag; idempotent; fire-and-forget so it
+  // Scans inline images only; idempotent; fire-and-forget so it
   // doesn't delay accepting traffic.
   import('./lib/img-url-migration.js').then(({ migrateDataUrlImages }) => migrateDataUrlImages()).catch(e => {
     logger.warn(`[img-url-migration] failed to start: ${e.message}`);

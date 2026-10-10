@@ -33,6 +33,23 @@
  */
 import db from '../db.js';
 
+// Only rows the diary's owner may read fill in its items: their own, ones
+// shared with them (the same rule as lib/sharing.js canRead and GET
+// /api/foods/:id), and the ingredients of a meal or recipe shared with
+// them, which GET /api/meals/:id already hands them. These used to look
+// across every account, so an item could pick up another account's
+// category, barcode, units or photo. userId null (user management off)
+// reads everything, as the routes do. One query each, not one per row.
+const READABLE_MEAL = `(m.user_id IS NULL OR m.user_id = @u OR m.visibility = 'group'
+  OR (m.visibility = 'specific' AND EXISTS (SELECT 1 FROM meal_shares ms WHERE ms.meal_id = m.id AND ms.user_id = @u)))`;
+const READABLE_FOOD = `(f.user_id IS NULL OR f.user_id = @u OR f.visibility = 'group'
+  OR (f.visibility = 'specific' AND EXISTS (SELECT 1 FROM food_shares fs WHERE fs.food_id = f.id AND fs.user_id = @u))
+  OR f.id IN (SELECT CAST(COALESCE(json_extract(j.value, '$.food_server_id'), json_extract(j.value, '$.id')) AS INTEGER)
+                FROM meals m, json_each(CASE WHEN json_valid(m.items) THEN m.items ELSE '[]' END) j
+               WHERE m.deleted_at IS NULL AND j.type = 'object' AND ${READABLE_MEAL}))`;
+const foodScope = userId => (userId == null ? { sql: '1', args: {} } : { sql: READABLE_FOOD, args: { u: userId } });
+const mealScope = userId => (userId == null ? { sql: '1', args: {} } : { sql: READABLE_MEAL, args: { u: userId } });
+
 const _norm = s => String(s || '').trim().toLowerCase();
 
 /**
@@ -78,35 +95,59 @@ const _norm = s => String(s || '').trim().toLowerCase();
  * fields, so the meal lookup is a no-op — splitRecipeItem falls back to
  * NtApi.getMeal(recipeId) on demand for ingredient data.
  */
+// #237: the foods column stores alt_units as a JSON string. Hand diary items
+// the same array /api/foods returns (routes/foods.js parses it the same way),
+// or the diary's unit scaler cannot find a household unit and "66 g" of a
+// food logged by the slice scales as 66 slices. src/lib/units.js has the
+// client-side twin (parseAltUnits); it is not imported here because the
+// server image only ships the src/lib files its Dockerfile names.
+function _altUnitsArray(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string' && v) {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch { return null; }
+  }
+  return null;
+}
+
 const HYDRATE_FIELDS = ['nutrition_basis', 'alt_units', 'density_g_ml', 'category', 'barcode'];
-export function hydrateItems(items) {
+// The food an item came from. food_server_id null (the key there, the
+// value null) is an item the phone logged before its food reached the
+// server: its id is the phone's own, not a server id, so it names no food
+// here. The phone fills food_server_id in once the food goes up.
+const _foodKey = it => (it.food_server_id === null ? null : (it.food_server_id ?? it.id));
+export function hydrateItems(items, userId = null) {
   if (!Array.isArray(items) || !items.length) return items;
   try {
     // Collect ids we need to look up. Recipe items skip the foods query.
     const foodIds = new Set();
     for (const it of items) {
       if (it && !it.is_recipe) {
-        const id = it.food_server_id ?? it.id;
+        const id = _foodKey(it);
         if (typeof id === 'number') foodIds.add(id);
       }
     }
     if (!foodIds.size) return items;
-    const placeholders = Array.from(foodIds).map(() => '?').join(',');
+    const scope = foodScope(userId);
     const rows = db.prepare(
-      `SELECT id, nutrition_basis, alt_units, density_g_ml, category, barcode
-       FROM foods WHERE id IN (${placeholders}) AND deleted_at IS NULL`
-    ).all(...Array.from(foodIds));
+      `SELECT f.id, f.nutrition_basis, f.alt_units, f.density_g_ml, f.category, f.barcode
+       FROM foods f WHERE f.id IN (SELECT value FROM json_each(@ids)) AND f.deleted_at IS NULL AND ${scope.sql}`
+    ).all({ ...scope.args, ids: JSON.stringify(Array.from(foodIds)) });
     const byId = new Map(rows.map(r => [r.id, r]));
     return items.map(it => {
-      if (!it || it.is_recipe) return _hydrateSplitChildren(it);
-      const id = it.food_server_id ?? it.id;
+      if (!it || it.is_recipe) return _hydrateSplitChildren(it, userId);
+      const id = _foodKey(it);
       const src = typeof id === 'number' ? byId.get(id) : null;
-      if (!src) return _hydrateSplitChildren(it);
+      if (!src) return _hydrateSplitChildren(it, userId);
       const out = { ...it };
       for (const k of HYDRATE_FIELDS) {
-        if (src[k] != null && it[k] == null) out[k] = src[k];
+        if (src[k] == null || it[k] != null) continue;
+        const v = k === 'alt_units' ? _altUnitsArray(src[k]) : src[k];
+        if (v != null) out[k] = v;
       }
-      return _hydrateSplitChildren(out);
+      return _hydrateSplitChildren(out, userId);
     });
   } catch {
     return items;
@@ -114,12 +155,12 @@ export function hydrateItems(items) {
 }
 
 // Recipe-split children are diary-item shaped too; hydrate them the same way.
-function _hydrateSplitChildren(item) {
+function _hydrateSplitChildren(item, userId = null) {
   if (!item || !Array.isArray(item._splitItems) || !item._splitItems.length) return item;
-  return { ...item, _splitItems: hydrateItems(item._splitItems) };
+  return { ...item, _splitItems: hydrateItems(item._splitItems, userId) };
 }
 
-export function freshenItemImages(items) {
+export function freshenItemImages(items, userId = null) {
   if (!Array.isArray(items) || !items.length) return items;
   try {
     // #199 (@tellis82): skip data URLs. A base64 img_url can easily be
@@ -132,12 +173,19 @@ export function freshenItemImages(items) {
     // The write-side fix (sync push localizes incoming data URLs to
     // /uploads/) prevents new occurrences; this read-side filter also
     // shields existing rows that were pushed before the write fix.
+    // The reader's own rows first, so their own Banana's photo wins a
+    // name match over one shared with them.
+    const fs = foodScope(userId), ms = mealScope(userId);
     const foods = db.prepare(
-      `SELECT id, name, brand, img_url FROM foods WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' AND img_url NOT LIKE 'data:%' ORDER BY id ASC`
-    ).all();
+      `SELECT f.id, f.name, f.brand, f.img_url FROM foods f
+        WHERE f.deleted_at IS NULL AND f.img_url IS NOT NULL AND f.img_url != '' AND f.img_url NOT LIKE 'data:%' AND ${fs.sql}
+        ORDER BY ${userId == null ? '' : 'f.user_id = @u DESC,'} f.id ASC`
+    ).all(fs.args);
     const meals = db.prepare(
-      `SELECT id, name, img_url FROM meals WHERE deleted_at IS NULL AND img_url IS NOT NULL AND img_url != '' AND img_url NOT LIKE 'data:%' ORDER BY id ASC`
-    ).all();
+      `SELECT m.id, m.name, m.img_url FROM meals m
+        WHERE m.deleted_at IS NULL AND m.img_url IS NOT NULL AND m.img_url != '' AND m.img_url NOT LIKE 'data:%' AND ${ms.sql}
+        ORDER BY ${userId == null ? '' : 'm.user_id = @u DESC,'} m.id ASC`
+    ).all(ms.args);
 
     // Foods: three lookup tiers.
     const foodByIdName = new Map();
@@ -145,7 +193,10 @@ export function freshenItemImages(items) {
     const foodByName = new Map();
     for (const r of foods) {
       foodByIdName.set(`${r.id}|${_norm(r.name)}`, r.img_url);
-      foodByNameBrand.set(`${_norm(r.name)}|${_norm(r.brand)}`, r.img_url);
+      const nb = `${_norm(r.name)}|${_norm(r.brand)}`;
+      // With accounts on, the reader's own row (first) wins; otherwise the
+      // newest, as before.
+      if (userId == null || !foodByNameBrand.has(nb)) foodByNameBrand.set(nb, r.img_url);
       // First-inserted wins for the name-only fallback (ORDER BY id ASC + setIfAbsent).
       if (!foodByName.has(_norm(r.name))) foodByName.set(_norm(r.name), r.img_url);
     }

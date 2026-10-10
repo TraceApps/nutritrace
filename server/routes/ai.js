@@ -4,6 +4,7 @@ import { wrap } from '../logger.js';
 import { getAiConfig } from '../ai.js';
 import { makeRateLimiter } from '../middleware/rate-limit.js';
 import { getOpenAIChatParams } from '../lib/openai-chat-params.js';
+import { toolMessagesForOpenAI, toolNameFor, rememberToolCalls } from '../lib/tool-messages.js';
 import db from '../db.js';
 
 const router = Router();
@@ -15,9 +16,11 @@ const MAX_HISTORY = 200; // rows kept per user
 // ── GET /api/ai/history ───────────────────────────────────────────────────────
 router.get('/history', requireAuth, wrap((req, res) => {
   const u = uid(req);
+  // The newest 100, oldest first. id breaks ties: a question and its
+  // answer are often saved in the same second.
   const rows = u == null
-    ? db.prepare(`SELECT role, content, created_at FROM ai_chat_history WHERE user_id IS NULL ORDER BY created_at ASC LIMIT 100`).all()
-    : db.prepare(`SELECT role, content, created_at FROM ai_chat_history WHERE user_id = ? ORDER BY created_at ASC LIMIT 100`).all(u);
+    ? db.prepare(`SELECT role, content, created_at FROM (SELECT id, role, content, created_at FROM ai_chat_history WHERE user_id IS NULL ORDER BY created_at DESC, id DESC LIMIT 100) ORDER BY created_at ASC, id ASC`).all()
+    : db.prepare(`SELECT role, content, created_at FROM (SELECT id, role, content, created_at FROM ai_chat_history WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100) ORDER BY created_at ASC, id ASC`).all(u);
   res.json(rows);
 }));
 
@@ -64,19 +67,37 @@ router.delete('/history', requireAuth, wrap((req, res) => {
   res.json({ ok: true });
 }));
 
+// Kept identical to src/lib/aiChat.js (scripts/ai-models.test.js checks).
+// Used when no model is chosen; an admin who set one keeps it.
 const AI_DEFAULT_MODELS = {
-  claude: 'claude-haiku-4-5-20251001',
+  claude: 'claude-haiku-5-5',
   openai: 'gpt-5.6-luna',
-  gemini: 'gemini-3.6-flash',
+  gemini: 'gemini-3.8-flash',
 };
 
-// Models Google has shut down (404) or scheduled for shutdown.
-// Saved env-locked configs pointing at any of these are remapped to the
-// current default so the proxy doesn't 404 against a dead endpoint.
+// Model IDs that changed name: a saved old name is sent as the new one.
+const AI_MODEL_RENAMES = {
+  'gemini-3.1-pro': 'gemini-3.1-pro-preview',
+  'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
+  'gpt-5.6': 'gpt-5.6-sol',
+};
+const renamedModel = (model) => AI_MODEL_RENAMES[model] || model;
+
+// Models Google has shut down (404). Saved env-locked configs pointing at any
+// of these are remapped to the current default so the proxy doesn't 404
+// against a dead endpoint. Shut down per ai.google.dev/gemini-api/docs/deprecations (2026-10-09).
 const GEMINI_RETIRED = new Set([
   'gemini-1.5-flash', 'gemini-1.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+  'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-lite-001',
+  'gemini-2.0-flash-lite-preview', 'gemini-2.0-flash-lite-preview-02-05',
+  'gemini-2.5-pro-preview-03-25', 'gemini-2.5-pro-preview-05-06', 'gemini-2.5-pro-preview-06-05',
+  'gemini-2.5-flash-preview-05-20', 'gemini-2.5-flash-preview-09-25', 'gemini-2.5-flash-lite-preview-09-2025',
+  'gemini-3.1-flash-lite-preview',
 ]);
+function geminiModelFor(model) {
+  const m = renamedModel(model || AI_DEFAULT_MODELS.gemini);
+  return GEMINI_RETIRED.has(m) ? AI_DEFAULT_MODELS.gemini : m;
+}
 
 /**
  * POST /api/ai/chat
@@ -190,7 +211,7 @@ router.post('/chat', requireAuth, aiChatLimit, wrap(async (req, res) => {
   let result;
   switch (provider) {
     case 'claude':     result = await _callClaude(apiKey, model, messages, systemPrompt, toolsArr); break;
-    case 'openai':     result = await _callOpenAI(apiKey, model, messages, systemPrompt, toolsArr, 'https://api.openai.com'); break;
+    case 'openai':     result = await _callOpenAI(apiKey, renamedModel(model), messages, systemPrompt, toolsArr, 'https://api.openai.com'); break;
     case 'gemini':     result = await _callGemini(apiKey, model, messages, systemPrompt, toolsArr); break;
     case 'oai-compat': result = await _callOpenAI(apiKey || 'no-key', model, messages, systemPrompt, toolsArr, baseUrl.replace(/\/+$/, '')); break;
     default: return res.status(400).json({ error: `Unknown provider: ${provider}` });
@@ -199,6 +220,8 @@ router.post('/chat', requireAuth, aiChatLimit, wrap(async (req, res) => {
 }));
 
 export default router;
+// For the test that keeps these identical to the client's (scripts/ai-models.test.js).
+export const _models = { AI_DEFAULT_MODELS, AI_MODEL_RENAMES, GEMINI_RETIRED, geminiModelFor };
 
 // ── Provider implementations (server-side) ────────────────────────────────────
 //
@@ -269,7 +292,7 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
 
   const body = {
     model,
-    messages: [{ role: 'system', content: systemPrompt }, ...messages],
+    messages: [{ role: 'system', content: systemPrompt }, ...toolMessagesForOpenAI(messages)],
     ...getOpenAIChatParams({
       baseUrl,
       model,
@@ -282,6 +305,7 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
@@ -302,7 +326,7 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
 }
 
 async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
-  const m = GEMINI_RETIRED.has(model) ? AI_DEFAULT_MODELS.gemini : (model || AI_DEFAULT_MODELS.gemini);
+  const m = geminiModelFor(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
   const contents = _openaiToGeminiContents(messages);
@@ -337,17 +361,19 @@ async function _callGemini(apiKey, model, messages, systemPrompt, tools) {
   }
   // Gemini's functionCall has no ID. Mint stable synthetic IDs so the
   // OpenAI-shape tool_call_id round-trips correctly through the client.
+  // One timestamp, so the ids sent back and the ids the client answers match.
+  const minted = Date.now();
   const assistantMessage = {
     role: 'assistant',
     content: textParts.join('\n') || null,
     tool_calls: fnCalls.map((p, i) => ({
-      id: `gem_${Date.now()}_${i}`,
+      id: `gem_${minted}_${i}`,
       type: 'function',
       function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) },
     })),
   };
   const toolCalls = fnCalls.map((p, i) => ({
-    id:   `gem_${Date.now()}_${i}`,
+    id:   `gem_${minted}_${i}`,
     name: p.functionCall.name,
     args: p.functionCall.args || {},
   }));
@@ -435,17 +461,16 @@ function _openaiToClaudeMessages(messages) {
  */
 function _openaiToGeminiContents(messages) {
   const out = [];
+  const toolCallNames = new Map();
   for (const m of messages) {
     if (m.role === 'system') continue;
+    if (m.role === 'assistant') rememberToolCalls(m, toolCallNames);
     if (m.role === 'tool') {
       const responsePart = {
         functionResponse: {
-          // Gemini ignores the id but wants a name. The client must echo
-          // the original tool name in a side-channel; for now Trace doesn't
-          // re-call after a Gemini-issued tool_call in env-locked mode
-          // beyond the first round, and the first round has the name on
-          // the assistant message we just sent back. Fallback to empty.
-          name: m.name || '',
+          // Gemini answers a tool call by name: the one the app echoes
+          // on the message, else the one on the tool call it answers.
+          name: toolNameFor(m, toolCallNames),
           response: typeof m.content === 'string' ? _safeJsonParse(m.content, { result: m.content }) : (m.content || {}),
         },
       };

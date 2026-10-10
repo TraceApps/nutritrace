@@ -10,6 +10,7 @@
  */
 
 import db from '../db.js';
+import { linkBase } from './public-url.js';
 import { logger } from '../logger.js';
 
 function _getUserSetting(userId, key) {
@@ -510,8 +511,7 @@ async function _pushReminders(userId) {
       // Email digest (if SMTP configured + user has an email on file)
       try {
         const { sendWeeklySummaryEmail } = await import('../email.js');
-        const origin = db.prepare(`SELECT value FROM app_config WHERE key='app_url'`).get()?.value
-          || 'http://localhost:3001';
+        const origin = linkBase(null) || 'http://localhost:3001';
         await sendWeeklySummaryEmail(userId, origin);
       } catch (e) {
         logger.debug(`[scheduler] weekly email skipped for user ${userId}: ${e.message}`);

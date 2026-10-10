@@ -16,7 +16,8 @@
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { scaleFactor as _unitScaleFactor, unitSystem as _unitSystem, amountAndUnit } from '../lib/units.js';
   import { diaryPromptQuantity, warnUnitMismatch, showUnitMetadata, forceMobileLayout } from '../stores/settings.js';
-  import { showSuccess, showError } from '../stores/toast.js';
+  import { showSuccess, showError, showToast } from '../stores/toast.js';
+  import { staleIngredientNames } from '../lib/stale-ingredients.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import { DB, localDateStr } from '../lib/db.js';
   import { loadEntry } from '../stores/diary.js';
@@ -24,7 +25,10 @@
   import { Nutrition } from '../lib/nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
   import { CookTrace } from '../lib/cooktraceApi.js';
-  import { resolveAssetUrl } from '../lib/platform.js';
+  import { offlineState } from '../lib/offline-api.js';
+  import { offNutritionStatus, needsFullLookup } from '../lib/off-nutrition.js';
+  import { resolveAssetUrl, isNative } from '../lib/platform.js';
+  import { itemSourceRef } from '../lib/item-source.js';
   import { offCountryTagToFlag, offCountryTagToName } from '../lib/off-country-flag.js';
   import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, offSearchCountry, offSearchLanguage, foodsDefaultSource, diaryDefaultField, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
@@ -386,6 +390,46 @@
   let offResults = [];
   let usdaResults = [];
   let mealieResults = [];
+  // Open Food Facts, USDA, Mealie and CookTrace all need the network. When
+  // it's gone, say so instead of showing an empty list that reads as "no
+  // such food" (#211).
+  $: _sourcesOffline = $offlineState.online === false;
+  // #241: an Open Food Facts product with no "as sold" values would show and
+  // add as 0 kcal. The sheets say so instead; see off-nutrition.js.
+  $: _detailOffStatus = offNutritionStatus(detailSheetFood, detailSheetFood ? API.offNutritionInfo(detailSheetFood.barcode) : null);
+  $: _paneOffStatus = offNutritionStatus(_paneFood, _paneFood ? API.offNutritionInfo(_paneFood.barcode) : null);
+  // A search result with no "as sold" values says so rather than 0 kcal. The
+  // search index leaves values out, so the full product may still have some:
+  // "listed" is what is true of the result itself.
+  const _offNoValues = (f) => {
+    if (!f) return false;
+    // The row shows the result's own numbers. The search index leaves them
+    // out for some products that do have values (tapping one looks them up),
+    // and those rows would read 0 kcal.
+    const kcal = Number(f.nutrition?.calories ?? f.calories);
+    if (Array.isArray(f._offPresent) && !f._offPresent.length && !(kcal > 0)) return true;
+    return offNutritionStatus(f, API.offNutritionInfo(f.barcode)) !== 'ok';
+  };
+  // Ticked results added together skip pickFood, so they are checked here: a
+  // result with no values is looked up in full (and takes its values if it
+  // has them); one that still has none is left out and named.
+  async function _resolveOffPicks(foods) {
+    const keep = [], skipped = [];
+    for (let food of foods) {
+      if (typeof food.id !== 'number' && food.barcode) {
+        let info = API.offNutritionInfo(food.barcode);
+        if (needsFullLookup(info) && offNutritionStatus(food, info) !== 'ok') {
+          const full = await API.fetchProductByCode(food.barcode).catch(() => null);
+          info = API.offNutritionInfo(food.barcode);
+          if (full && offNutritionStatus(full, info) === 'ok') food = { ...food, ...full };
+        }
+        if (offNutritionStatus(food, info) !== 'ok') { skipped.push(food.name); continue; }
+      }
+      keep.push(food);
+    }
+    if (skipped.length) showError($_('foods.off_skipped', { values: { names: skipped.join(', ') } }));
+    return keep;
+  }
   let cooktraceResults = [];
   let ctPantryResults = [];
   let loading = false;
@@ -813,6 +857,14 @@
     const src = searchSource;
     searchTimeout = setTimeout(async () => {
       if (activeTab !== 0 && src !== 'cooktrace' && src !== 'all') return;
+      if (_sourcesOffline) {
+        // Offline: your own foods still answer, the rest are left empty and
+        // the chips below say why.
+        apiResults = []; apiTotalHits = 0; apiHasMore = false;
+        offResults = []; usdaResults = []; mealieResults = []; cooktraceResults = []; ctPantryResults = [];
+        loading = false; mealieLoading = false; cooktraceLoading = false; ctPantryLoading = false;
+        return;
+      }
       if (src === 'off') {
         try {
           loading = true;
@@ -929,7 +981,7 @@
       const mapped = Mealie.mapRecipe(full);
       openEditor(mapped, 'foodList');
     } catch(e) {
-      showError('Failed to import from Mealie');
+      showError(_sourcesOffline ? $_('foods.offline.import') : 'Failed to import from Mealie');
     }
   }
 
@@ -946,7 +998,7 @@
       const mapped = CookTrace.mapRecipe(full);
       openMealEditor(mapped, true);
     } catch (e) {
-      showError('Failed to import from CookTrace');
+      showError(_sourcesOffline ? $_('foods.offline.import') : 'Failed to import from CookTrace');
     }
   }
 
@@ -1043,7 +1095,8 @@
     _saveScrollState();
     editorState.mealPrefill  = item ? { ...item } : null;
     editorState.mealIsRecipe = isRecipe;
-    push(item ? '/meal-editor/' + item.id : '/meal-editor');
+    // A pick from CookTrace has no id yet: no "/meal-editor/undefined".
+    push(item && item.id != null ? '/meal-editor/' + item.id : '/meal-editor');
   }
 
   async function pickFood(food, sourceHint) {
@@ -1072,6 +1125,14 @@
         const hydrated = await API.fetchProductByCode(food.barcode);
         if (hydrated) food = { ...food, ...hydrated };
       } catch { /* fall through with the un-hydrated hit */ }
+    }
+    // #241: in pick mode a tap adds straight to the meal, and an OFF product
+    // with no "as sold" values would go in as 0 kcal. The editor says why,
+    // offers the "as prepared" values if OFF has them, and adds the food to
+    // this meal once it is saved.
+    if (pickMode && sourceHint === 'off' && activeTab === 0
+        && offNutritionStatus(food, API.offNutritionInfo(food.barcode)) !== 'ok') {
+      return openEditor(food, 'foodList');
     }
     if (!pickMode) {
       // Meals/Recipes open the meal editor; Foods open the read-only
@@ -1129,6 +1190,19 @@
     await _addFoodToDiary(food, 1);
   }
 
+  // Ingredients of a saved meal whose source food is no longer in the
+  // catalogue. The meal still logs correctly, because name, portion and
+  // nutrition are snapshotted onto each ingredient when the meal is saved,
+  // but the saved list is stale: it keeps logging a food the user can no
+  // longer find or edit, and the usage bump for it 404s. Naming those
+  // ingredients is the only signal the user gets that the meal needs
+  // repairing. A failed load reports nothing rather than accusing every
+  // ingredient at once.
+  function _staleIngredientNames(meal) {
+    if (loadError) return [];
+    return staleIngredientNames(meal?.items, [localFoods, localMeals, localRecipes]);
+  }
+
   async function _expandMealToDiary(meal) {
     if (_addingToDiary) return;
     _addingToDiary = true;
@@ -1142,14 +1216,42 @@
       if (typeof meal.id === 'number') {
         NtApi.markMealUsed(meal.id, pickDate || undefined).catch(() => {});
       }
+      // One failed ingredient used to abort the loop and leave the rest of
+      // the meal unlogged, with no toast and no navigation, so the user saw
+      // a half-added meal and nothing saying so. Every ingredient is
+      // attempted now, and whatever did not make it is named.
+      const failed = [];
       for (const item of meal.items) {
-        await addDiaryItem(
-          { ...item, quantity: item.quantity || 1 },
-          Number(pickMeal) || 0,
-          pickDate || undefined
-        );
+        try {
+          await addDiaryItem(
+            { ...item, quantity: item.quantity || 1 },
+            Number(pickMeal) || 0,
+            pickDate || undefined
+          );
+        } catch (e) {
+          console.error('[foods] ingredient failed to log:', item?.name, e);
+          failed.push(item?.name || '');
+        }
       }
-      import('../stores/toast.js').then(m => m.showSuccess('Added to diary'));
+      if (meal.items.length && failed.length === meal.items.length) {
+        // Nothing landed. Stay on the page so the user can try again.
+        showError($_('foods.toast.meal_none_added'));
+        return;
+      }
+      // One toast, not two. The stale notice already says the meal was
+      // added, and it gets a longer dwell because it asks for an action.
+      const stale = _staleIngredientNames(meal);
+      if (failed.length) {
+        showError($_('foods.toast.meal_partly_added', {
+          values: { names: failed.filter(Boolean).join(', ') },
+        }));
+      } else if (stale.length) {
+        showToast($_('foods.toast.meal_stale_ingredients', {
+          values: { names: stale.join(', ') },
+        }), 6000, 'info');
+      } else {
+        showSuccess($_('foods.toast.added_to_diary'));
+      }
       editorState.lastMealAdded = Number(pickMeal) || 0;
       history.back();
     } finally {
@@ -1179,7 +1281,7 @@
     _addingToDiary = true;
     try {
       await _addFoodToDiaryNoNav(food, qty);
-      import('../stores/toast.js').then(m => m.showSuccess('Added to diary'));
+      import('../stores/toast.js').then(m => m.showSuccess($_('foods.toast.added_to_diary')));
       editorState.lastMealAdded = Number(pickMeal) || 0;
       history.back();
     } finally {
@@ -1195,7 +1297,7 @@
 
   async function confirmMultiAdd() {
     if (selectedFoods.size === 0 || multiAdding) return;
-    const foods = [...selectedFoods];
+    let foods = [...selectedFoods];
 
     // Meals always expand ingredients — no portion prompt even if setting is on
     if (activeTab === 1) {
@@ -1214,6 +1316,9 @@
     }
 
     // Foods & Recipes: if prompt setting on, show single stacked portion sheet
+    foods = await _resolveOffPicks(foods);
+    if (!foods.length) return;
+
     if ($diaryPromptQuantity) {
       multiPortionItems = foods.map(food => ({
         food,
@@ -1474,6 +1579,15 @@
       //    the user can enter the food manually and optionally contribute
       //    it back to OFF via the editor's Contribute button. Previously
       //    this just showed a dead-end "Barcode not found" toast.
+      if (_sourcesOffline) {
+        // Only the user's own foods could be checked, so don't let this read
+        // as "this barcode doesn't exist".
+        scannerOpen = false;
+        const { showInfo: si } = await import('../stores/toast.js');
+        si($_('foods.offline.barcode'));
+        openEditor({ barcode: code }, 'foodList');
+        return;
+      }
       _scanLookupCode   = code;
       _scanLookupActive = true;
       _armScanIndicator();
@@ -1565,15 +1679,16 @@
     // item.id for legacy items (PWA-written items already use the
     // server's id; Android-pre-fix items have local ids that may have
     // renumbered after a re-install — those fall through to name match).
-    const foodStableId = (f) => (typeof f.server_id === 'number') ? f.server_id : f.id;
-    const itemStableId = (typeof item.food_server_id === 'number')
-      ? item.food_server_id
-      : item.id;
-
-    if (typeof itemStableId === 'number') {
-      const m = all.find(f => foodStableId(f) === itemStableId);
-      if (m?.imgUrl) return m.imgUrl;
-    }
+    // A row not yet on the server (server_id null) has no server id, so
+    // it never matches one by its own id. An item logged before its food
+    // reached the server (food_server_id null) only matches that phone
+    // row, by the same name too: ids renumber when the app is reinstalled.
+    const foodServerId = (f) => ('server_id' in f) ? f.server_id : f.id;
+    const ref = itemSourceRef(item, { native: isNative });
+    const m = ref?.serverId != null ? all.find(f => foodServerId(f) === ref.serverId)
+      : ref?.localId != null ? all.find(f => f.id === ref.localId && (!ref.unsent || (f.server_id == null && f.name === item.name)))
+      : null;
+    if (m?.imgUrl) return m.imgUrl;
     const itemName = (item.name || '').trim();
     const itemBrand = (item.brand || '').toLowerCase().trim();
     if (itemName) {
@@ -2108,7 +2223,7 @@
                     {#if item.brand}<span class="food-brand text-3 text-sm">{item.brand}</span>{/if}
                     {#if _foodEnergy}
                       <span class="food-kcal text-sm">
-                        {_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}
+                        {#if source === 'off' && _offNoValues(item)}{$_('foods.off_no_values_listed')}{:else}{_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}{/if}
                         <!-- OFF completeness dot -->
                         {#if source === 'off' && typeof item.completeness === 'number'}
                           <span class="off-quality-dot"
@@ -2150,7 +2265,7 @@
              turn silent 0s into visible signals (e.g. "OFF · 0" tells the
              user OFF didn't return anything, not that ALL is broken).
              Sentinel fires loadMoreAll() when it scrolls into view. #96. -->
-        {#if _allModeItems.length > 0 || _allOffTotal > 0 || _allUsdaTotal > 0 || _allMealieTotal > 0 || _allCooktraceTotal > 0 || _allCtPantryTotal > 0}
+        {#if _sourcesOffline || _allModeItems.length > 0 || _allOffTotal > 0 || _allUsdaTotal > 0 || _allMealieTotal > 0 || _allCooktraceTotal > 0 || _allCtPantryTotal > 0}
           {@const _localCount = (_ownList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).length}
           {@const _sharedCount = _tabHasShared ? (_groupList || []).filter(f => search.trim() ? _fuzzyMatch(f, search) : false).length : 0}
           <div class="all-source-counts">
@@ -2159,19 +2274,19 @@
               <span class="asc-chip"><span class="asc-dot asc-shared"></span>Shared · {_sharedCount}</span>
             {/if}
             {#if _mealieEnabled && activeTab === 0}
-              <span class="asc-chip"><span class="asc-dot asc-mealie"></span>Mealie · {mealieResults.length}{#if _allMealieTotal > mealieResults.length} of {_allMealieTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-mealie"></span>Mealie · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{mealieResults.length}{#if _allMealieTotal > mealieResults.length} of {_allMealieTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
             {#if _cooktraceEnabled && activeTab === 2}
-              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {cooktraceResults.length}{#if _allCooktraceTotal > cooktraceResults.length} of {_allCooktraceTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{cooktraceResults.length}{#if _allCooktraceTotal > cooktraceResults.length} of {_allCooktraceTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
             {#if _cooktraceEnabled && activeTab === 0}
-              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {ctPantryResults.length}{#if _allCtPantryTotal > ctPantryResults.length} of {_allCtPantryTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-cooktrace"></span>CookTrace · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{ctPantryResults.length}{#if _allCtPantryTotal > ctPantryResults.length} of {_allCtPantryTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
             {#if $offEnabled}
-              <span class="asc-chip"><span class="asc-dot asc-off"></span>OFF · {offResults.length}{#if _allOffTotal > offResults.length} of {_allOffTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-off"></span>OFF · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{offResults.length}{#if _allOffTotal > offResults.length} of {_allOffTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
             {#if $usdaEnabled}
-              <span class="asc-chip"><span class="asc-dot asc-usda"></span>USDA · {usdaResults.length}{#if _allUsdaTotal > usdaResults.length} of {_allUsdaTotal.toLocaleString()}{/if}</span>
+              <span class="asc-chip"><span class="asc-dot asc-usda"></span>USDA · {#if _sourcesOffline}{$_('foods.offline.source')}{:else}{usdaResults.length}{#if _allUsdaTotal > usdaResults.length} of {_allUsdaTotal.toLocaleString()}{/if}{/if}</span>
             {/if}
           </div>
         {/if}
@@ -2218,7 +2333,9 @@
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search_off</span>
           <p>No matches for "{search}"</p>
-          {#if activeTab === 0}
+          {#if _sourcesOffline}
+            <p class="empty-state-hint">{$_('foods.offline.search_hint')}</p>
+          {:else if activeTab === 0}
             <p class="empty-state-hint">{$_('foods.search_empty_hint')}</p>
           {/if}
         </div>
@@ -2377,7 +2494,7 @@
                     </span>
                     {#if food.brand}<span class="food-brand text-3 text-sm">{food.brand}</span>{/if}
                     <span class="food-kcal text-sm">
-                      {_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}
+                      {#if searchSource === 'off' && _offNoValues(food)}{$_('foods.off_no_values_listed')}{:else}{_foodEnergy.value.toLocaleString()} {_foodEnergy.unit}{/if}
                       {#if searchSource === 'off' && typeof food.completeness === 'number'}
                         <!-- OFF data-completeness dot. Green when the entry has most
                              nutriment fields filled in, yellow when partial, grey when
@@ -2536,6 +2653,7 @@
       <FoodDetailSheet
         embedded={true}
         food={_paneFood}
+        offStatus={_paneOffStatus}
         onDismiss={() => _paneFood = null}
         on:edit={onDetailEdit}
         on:addToDiary={onDetailAddToDiary}
@@ -2595,6 +2713,7 @@
 <FoodDetailSheet
   bind:open={detailSheetOpen}
   food={detailSheetFood}
+  offStatus={_detailOffStatus}
   on:edit={onDetailEdit}
   on:addToDiary={onDetailAddToDiary}
   on:deleted={() => { detailSheetFood = null; load(); }} />
@@ -3850,4 +3969,18 @@
      override that inset them 452px to clear the pane is no longer
      needed and was making the buttons look adrift in the middle
      of wide screens on the user's report. */
+
+  /* A foldable open flat is about 852px: wide enough for two food cards
+     side by side, but not for the rail and preview pane the 1280/1440 tiers
+     add. Widening the list is a pure gain because it does not change what a
+     tap does, the food sheet still opens exactly as it does on a phone. */
+  @media (max-width: 1279px) {
+    :global(html.wide-content) :global(.food-list) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+    :global(html.wide-content) :global(.food-item) { min-width: 0; }
+  }
 </style>

@@ -105,7 +105,8 @@
       "mobile_data": "您通过移动数据连接。此服务器可能需要您的家庭 Wi-Fi 或 VPN。",
       "check_connection": "检查您的 Wi-Fi、VPN 或服务器。",
       "saved_locally": "您的更改已保存在本地，并将自动同步。"
-    }
+    },
+    "sign_out_waiting_title": "更改仍然在等待中"
   },
   "settings": {
     "appearance": {

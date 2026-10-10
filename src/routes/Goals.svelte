@@ -15,6 +15,9 @@
   import { loadEntry } from '../stores/diary.js';
   import { showSuccess } from '../stores/toast.js';
   import MacroRing from '../components/diary/MacroRing.svelte';
+  import { foldText } from '../lib/search-text.js';
+  import { fold } from '../lib/fold.js';
+
 
   // Mirror settings/Goals.svelte: any wearable that reports calorie burn
   // unlocks Dynamic mode. Uses the shared derived fitbitFamilyEnabled so
@@ -208,6 +211,29 @@
   // Fire as soon as settings stores resolve true — avoids the first-load race
   // where onMount ran before settings loaded from server (both start false).
   $: if (($fitbitFamilyEnabled || $garminEnabled) && !_wellnessLoaded) loadWellnessToday();
+
+  // Half open like a book, the targets go on the left-hand page and the
+  // preview on the right, with the crease as the gutter between them: the
+  // flat two-column split put the targets across the crease. Only when both
+  // pages have room for them; otherwise the preview follows below.
+  let goalsBodyEl, goalsBodyLeft = 0, goalsBodyW = 0;
+  function measureGoalsBody() {
+    const box = goalsBodyEl?.getBoundingClientRect();
+    goalsBodyLeft = box?.left ?? 0;
+    goalsBodyW = box?.width ?? 0;
+  }
+  onMount(() => {
+    measureGoalsBody();
+    const ro = new ResizeObserver(measureGoalsBody);
+    if (goalsBodyEl) ro.observe(goalsBodyEl);
+    return () => ro.disconnect();
+  });
+  $: if ($fold !== undefined && goalsBodyEl) measureGoalsBody();
+  $: goalsFoldLeftW = $fold?.posture === 'book' && goalsBodyW > 0 ? $fold.start - goalsBodyLeft : null;
+  $: goalsHinge = $fold?.posture === 'book' ? Math.max(0, $fold.end - $fold.start) : 0;
+  $: goalsFoldPages = goalsFoldLeftW != null
+    && goalsFoldLeftW >= 280
+    && goalsBodyW - goalsFoldLeftW - goalsHinge >= 280;
 
   onMount(async () => {
     // #146 migration on page load. See _migrateKilojoulesGoal above.
@@ -640,9 +666,9 @@
   // ── All-fields filter (desktop search input) ───────────────────────────
   let _allFieldsQuery = '';
   function _matchesQuery(stat) {
-    const q = _allFieldsQuery.trim().toLowerCase();
+    const q = foldText(_allFieldsQuery).trim();
     if (!q) return true;
-    return ((stat.label || stat.id) + '').toLowerCase().includes(q);
+    return foldText((stat.label || stat.id) + '').includes(q);
   }
 
   // ── Reset-all-goals (rail button on desktop) ───────────────────────────
@@ -681,7 +707,8 @@
   <div class="page-content">
   <!-- Desktop three-pane wrapper (≥1280px). On mobile / force-mobile-layout
        .goals-body is a plain block; the rails are display:none. -->
-  <div class="goals-body">
+  <div class="goals-body" bind:this={goalsBodyEl} class:fold-pages={goalsFoldPages}
+    style={goalsFoldPages ? `--goals-left-w: ${goalsFoldLeftW}px; --goals-hinge: ${goalsHinge}px;` : ''}>
 
     <!-- ─── LEFT RAIL (desktop only) ────────────────────────────────────── -->
     <aside class="goals-left-rail">
@@ -1928,4 +1955,41 @@
     }
   }
 
+
+  /* A foldable open flat is about 852px. The three-column desktop tier
+     (260 + 1fr + 360) leaves no usable middle here, but the goals content is
+     short and the page has room to spare, so the preview rail earns the
+     space: you see the ring while you set the targets. The section nav rail
+     stays on desktop, where there is room for both. */
+  @media (max-width: 1279px) {
+    :global(html.wide-content) .goals-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      column-gap: 20px;
+      align-items: start;
+    }
+    :global(html.wide-content) .goals-right-rail {
+      display: block;
+      position: sticky;
+      top: calc(var(--page-top, var(--safe-top)) + 72px + var(--hamburger-row, 0px));
+      align-self: start;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+    }
+    /* Half open like a book: targets on the left-hand page, the preview on
+       the right, the crease between them; with too little room either side,
+       the preview follows below. */
+    :global(html.fold-book.wide-content) .goals-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    :global(html.fold-book.wide-content) .goals-body.fold-pages {
+      grid-template-columns: var(--goals-left-w) minmax(0, 1fr);
+      column-gap: var(--goals-hinge);
+    }
+    :global(html.fold-book.wide-content) .goals-body:not(.fold-pages) .goals-right-rail {
+      position: static;
+    }
+  }
 </style>

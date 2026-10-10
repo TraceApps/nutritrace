@@ -2,13 +2,16 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
+import { ensureUuids } from '../lib/diary-merge.js';
 
 const router = Router();
 router.use(requireAuth);
 
 const uid = req => userMgmtActive() ? req.user.id : null;
 
-// Clear all app data (scoped to current user)
+// Clear all app data (scoped to current user). Rows phones mirror go by
+// deleted_at, or for wellness and workouts through sync_deletions (db.js),
+// so a phone's next sync drops them too.
 router.delete('/', wrap((req, res) => {
   const u = uid(req);
   if (u == null) {
@@ -16,6 +19,7 @@ router.delete('/', wrap((req, res) => {
     db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
+    db.prepare(`UPDATE fasts SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`DELETE FROM wellness_data`).run();
     db.prepare(`DELETE FROM workouts`).run();
     db.prepare(`DELETE FROM ai_chat_history`).run();
@@ -24,6 +28,7 @@ router.delete('/', wrap((req, res) => {
     db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
+    db.prepare(`UPDATE fasts SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`DELETE FROM wellness_data WHERE user_id = ?`).run(u);
     db.prepare(`DELETE FROM workouts WHERE user_id = ?`).run(u);
     db.prepare(`DELETE FROM ai_chat_history WHERE user_id = ?`).run(u);
@@ -114,9 +119,11 @@ router.post('/import', wrap((req, res) => {
       if (!e.date) continue;
       insDiary.run(
         u, e.date,
-        JSON.stringify(e.items || []),
+        // #239: exports from before per-item uuids carry none; give them one
+        // on the way in, or the app's first save of each day doubles it.
+        JSON.stringify(ensureUuids(e.items || [])),
         JSON.stringify(e.bodyStats || e.body_stats || {}),
-        JSON.stringify(e.water || []),
+        JSON.stringify(ensureUuids(e.water || [])),
         (typeof e.notes === 'string' && e.notes.trim()) ? e.notes : null
       );
     }

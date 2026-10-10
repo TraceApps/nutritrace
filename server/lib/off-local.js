@@ -42,6 +42,7 @@ import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { logger } from '../logger.js';
+import { stripAccents } from './search-text.js';
 
 // OFF removed their pre-built DuckDB snapshot from challenges.openfoodfacts.org
 // some time before rc.38 shipped (the URL now 302s back to the main site,
@@ -59,6 +60,16 @@ let _instance = null;        // DuckDB instance — kept so we can close + reope
 let _initPromise = null;     // single-flight init guard
 let _disabled = false;       // permanent kill switch after init failure
 let _dbPath = null;          // resolved path for log messages
+
+// A DuckDB connection runs one statement at a time. Two at once, a search and
+// its count or two people searching together, fail now and then with "Failed
+// to execute prepared statement", so every request-time query waits its turn.
+let _queue = Promise.resolve();
+function _query(conn, sql, params) {
+  const run = _queue.then(() => conn.runAndReadAll(sql, params));
+  _queue = run.catch(() => {});
+  return run;
+}
 let _isParquet = false;      // true when the mirror is the HF Parquet shape;
                              // controls which SQL + which JS adapter run
 // #186 — set when the parquet mirror carries the OFF popularity_key
@@ -230,7 +241,7 @@ export async function lookupByBarcode(code) {
   const safeCode = String(code || '').trim();
   if (!safeCode) return null;
   try {
-    let rows = (await conn.runAndReadAll(
+    let rows = (await _query(conn,
       `SELECT * FROM products WHERE code = $1 LIMIT 1`,
       [safeCode]
     )).getRowObjects();
@@ -245,7 +256,7 @@ export async function lookupByBarcode(code) {
     // Single retry, only when the original code is exactly 12 digits, so
     // we don't accidentally widen the search for other formats.
     if (!rows.length && /^\d{12}$/.test(safeCode)) {
-      rows = (await conn.runAndReadAll(
+      rows = (await _query(conn,
         `SELECT * FROM products WHERE code = $1 LIMIT 1`,
         ['0' + safeCode]
       )).getRowObjects();
@@ -300,8 +311,20 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
   // matches. The prefix-rank CASE keeps using the full phrase so
   // exact-phrase starts still sort first.
   const _escLike = t => t.toLowerCase().replace(/[%_]/g, c => '\\' + c);
-  const toks = q.split(/\s+/).filter(Boolean).map(t => `%${_escLike(t)}%`);
+  // A query typed without accents cannot match a catalog that spells the
+  // product with them ("creme" vs "crème fraîche"), and Spanish, Portuguese
+  // and French products in OFF are full of them. DuckDB can strip accents in
+  // SQL, but doing it per row costs roughly 7x the scan on a stock snapshot,
+  // so the folded comparison is a fallback rather than the default: the fast
+  // pass runs first and the folded one only when it found nothing at all.
+  // strip_accents() drops combining marks only, so the needle is folded the
+  // same way (stripAccents, not foldText).
+  const _escLikeFolded = t => stripAccents(t).replace(/[%_]/g, c => '\\' + c);
+  const words = q.split(/\s+/).filter(Boolean);
+  const toks = words.map(t => `%${_escLike(t)}%`);
+  const toksFolded = words.map(t => `%${_escLikeFolded(t)}%`);
   const startPattern = `${_escLike(q)}%`;
+  const startPatternFolded = `${_escLikeFolded(q)}%`;
   const offset = Math.max(0, (page - 1) * pageSize);
   try {
     // Two SQL shapes — Parquet's product_name is LIST<{lang,text}> so we
@@ -337,29 +360,32 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     // $1..$N are the token patterns (each AND-joined against name /
     // brands / code), $(N+1) is the full-phrase start-pattern used
     // by the rank CASE, and $(N+2), $(N+3) are page + offset.
-    const tokWhereParquet = toks.map((_, i) =>
-      `(LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $${i+1} ESCAPE '\\')) > 0
-             OR LOWER(brands) LIKE $${i+1} ESCAPE '\\'
+    // `folded` swaps LOWER(x) for strip_accents(LOWER(x)) on the text
+    // columns. `code` is digits, so it never needs folding.
+    const _txt = (expr, folded) => folded ? `strip_accents(LOWER(${expr}))` : `LOWER(${expr})`;
+    const tokWhereParquetFor = (folded) => toks.map((_, i) =>
+      `(LEN(list_filter(product_name, x -> ${_txt('x.text', folded)} LIKE $${i+1} ESCAPE '\\')) > 0
+             OR ${_txt('brands', folded)} LIKE $${i+1} ESCAPE '\\'
              OR code LIKE $${i+1} ESCAPE '\\')`
     ).join('\n         AND ');
-    const tokWhereLegacy = toks.map((_, i) =>
-      `(LOWER(product_name) LIKE $${i+1} ESCAPE '\\'
-             OR LOWER(brands) LIKE $${i+1} ESCAPE '\\'
+    const tokWhereLegacyFor = (folded) => toks.map((_, i) =>
+      `(${_txt('product_name', folded)} LIKE $${i+1} ESCAPE '\\'
+             OR ${_txt('brands', folded)} LIKE $${i+1} ESCAPE '\\'
              OR code LIKE $${i+1} ESCAPE '\\')`
     ).join('\n         AND ');
     const startIdx = toks.length + 1;
     const pageIdx  = toks.length + 2;
     const offIdx   = toks.length + 3;
-    const sql = _isParquet
+    const sqlFor = (folded) => _isParquet
       ? `SELECT *,
-              CASE WHEN LEN(list_filter(product_name, x -> LOWER(x.text) LIKE $${startIdx} ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
+              CASE WHEN LEN(list_filter(product_name, x -> ${_txt('x.text', folded)} LIKE $${startIdx} ESCAPE '\\')) > 0 THEN 0 ELSE 1 END AS _rank
            FROM products
-          WHERE ${tokWhereParquet}
+          WHERE ${tokWhereParquetFor(folded)}
           ORDER BY _rank ASC, ${parquetTiebreak}, code ASC
           LIMIT $${pageIdx} OFFSET $${offIdx}`
-      : `SELECT *, CASE WHEN LOWER(product_name) LIKE $${startIdx} ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
+      : `SELECT *, CASE WHEN ${_txt('product_name', folded)} LIKE $${startIdx} ESCAPE '\\' THEN 0 ELSE 1 END AS _rank
            FROM products
-          WHERE ${tokWhereLegacy}
+          WHERE ${tokWhereLegacyFor(folded)}
           ORDER BY _rank ASC, LENGTH(COALESCE(product_name, '')) ASC, code ASC
           LIMIT $${pageIdx} OFFSET $${offIdx}`;
     // #189 (@systems-monitor): return the real match total. The
@@ -380,18 +406,30 @@ export async function searchByName(query, { page = 1, pageSize = 20 } = {}) {
     // share a barcode (data errors in OFF), and letting the user
     // pick between them beats silently dropping one. The client's
     // defensive each-key handles the renderer crash separately.
-    const countSql = _isParquet
-      ? `SELECT COUNT(*) AS n FROM products WHERE ${tokWhereParquet}`
-      : `SELECT COUNT(*) AS n FROM products WHERE ${tokWhereLegacy}`;
-    const [reader, countReader] = await Promise.all([
-      conn.runAndReadAll(sql,      [...toks, startPattern, pageSize, offset]),
-      conn.runAndReadAll(countSql, [...toks]),
-    ]);
-    const rows = reader.getRowObjects();
+    const countSqlFor = (folded) => _isParquet
+      ? `SELECT COUNT(*) AS n FROM products WHERE ${tokWhereParquetFor(folded)}`
+      : `SELECT COUNT(*) AS n FROM products WHERE ${tokWhereLegacyFor(folded)}`;
+    const _read = (folded) => {
+      const pats = folded ? toksFolded : toks;
+      const start = folded ? startPatternFolded : startPattern;
+      return Promise.all([
+        _query(conn, sqlFor(folded),      [...pats, start, pageSize, offset]),
+        _query(conn, countSqlFor(folded), [...pats]),
+      ]);
+    };
+    let [reader, countReader] = await _read(false);
+    let rows = reader.getRowObjects();
     // Number() unwraps the BigInt the @duckdb/node-api bindings return
     // for COUNT — otherwise the response JSON would include a raw
     // BigInt which JSON.stringify refuses and the whole response 500s.
-    const total = Number(countReader.getRowObjects()[0]?.n ?? rows.length);
+    let total = Number(countReader.getRowObjects()[0]?.n ?? rows.length);
+    // Nothing matched at all, which is what an unaccented query looks like
+    // against an accented catalog, so pay for the folded scan and retry.
+    if (total === 0) {
+      [reader, countReader] = await _read(true);
+      rows = reader.getRowObjects();
+      total = Number(countReader.getRowObjects()[0]?.n ?? rows.length);
+    }
     return {
       hits: rows.map(_toOffProduct),
       count: total,

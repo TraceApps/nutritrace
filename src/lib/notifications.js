@@ -5,6 +5,7 @@
  * Uses @capacitor/local-notifications on native, Notification API on PWA.
  */
 
+import { settingPrefix } from './setting-key.js';
 import { isNative, resolveAssetUrl } from './platform.js';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
@@ -223,8 +224,7 @@ export async function cancelMealReminders() {
 
 function _getSetting(key, def) {
   // Read from localStorage directly (same as DB.getSetting but without circular import)
-  const userId = localStorage.getItem('wl:userId');
-  const storageKey = userId ? `wl_u${userId}_${key}` : `wl_${key}`;
+  const storageKey = settingPrefix() + key;
   const raw = localStorage.getItem(storageKey);
   if (raw === null) return def;
   try { return JSON.parse(raw); } catch { return raw; }

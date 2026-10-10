@@ -1,6 +1,7 @@
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
+  import { fold } from '../lib/fold.js';
   import { push } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import DatePicker from '../components/ui/DatePicker.svelte';
@@ -563,7 +564,9 @@
     // exactly on top of the reserved cell.
     const gridRect = _diaryContentEl.getBoundingClientRect();
     const colWidth = _railFixedWidthPx; // 360, the explicit grid track
-    const leftPx = Math.max(0, Math.round(gridRect.right - colWidth));
+    // gridRect.right is the padded edge; the track ends one padding in.
+    const padRight = parseFloat(getComputedStyle(_diaryContentEl).paddingRight || '0') || 0;
+    const leftPx = Math.max(0, Math.round(gridRect.right - padRight - colWidth));
 
     // Vertical anchor: the aside's natural top when NOT taken out of
     // flow. Since we're already position:fixed, we can't read that
@@ -600,6 +603,92 @@
       try { _railResizeObs?.disconnect(); } catch {}
     };
   });
+
+  // #207: the day status bar is fixed and portaled to <body>, so it cannot
+  // follow the sticky date bar (or the desktop week strip) on its own. Its
+  // top used to be a hard-coded guess of that stack's height, which fell
+  // short of the real bar and let the status bar ride up over it. Measure
+  // the real bottom edge instead, and size the content's top padding from
+  // the bar's real height so the first card clears it.
+  const DDS_GAP_PX = 8;     // space between the date bar and the status bar
+  const DDS_CARD_GAP_PX = 12; // space between the status bar and the first card
+  let _diaryHeaderEl = null;
+  let _stickyNavEl = null;     // the date bar and the week strip, one sticky block
+  let _dateBarEl = null;
+  let _weekStripWrapEl = null;
+  let _dayStatusEl = null;
+  let _stickyNavTopPx = null;  // exposed as --dsn-top: where the header ends
+  let _dayStatusTopPx = null;  // exposed as --dds-top on the portaled bar
+  let _dayStatusPadPx = null;  // exposed as --dds-pad on .diary-content
+  let _dayStatusBand = null;   // { top, height } of the band behind the bar
+  function _measureDayStatus() {
+    if (!_stickyNavEl || !_diaryHeaderEl) return;
+    if (!_stickyNavEl.offsetHeight) return; // not laid out yet
+    const pin = (el) => { const v = parseFloat(getComputedStyle(el).top); return Number.isFinite(v) ? v : 0; };
+    // The date bar block pins exactly where the header ends (the header is
+    // sticky too), so it sits flush under it whether or not the page is
+    // scrolled. The header grows with the safe area on Android, often by a
+    // fraction of a pixel: rounding down tucks the block under the header
+    // (which paints above it) instead of leaving a hairline between them.
+    const headerRect = _diaryHeaderEl.getBoundingClientRect();
+    const navTop = Math.floor(pin(_diaryHeaderEl) + headerRect.height);
+    if (navTop !== _stickyNavTopPx) _stickyNavTopPx = navTop;
+    if (!_dayStatusEl || !_diaryContentEl) return;
+    // The block's bottom on screen once pinned: the scroll area's top (the
+    // header sits pinned at its own top there) plus where the block pins
+    // plus its height, which includes the week strip when that is shown.
+    // Rounded down, so the band starts under the block's last pixel row.
+    const scrollTop0 = headerRect.top - pin(_diaryHeaderEl);
+    const stackBottom = Math.floor(scrollTop0 + navTop + _stickyNavEl.getBoundingClientRect().height);
+    const topPx = stackBottom + DDS_GAP_PX;
+    // The band fills the gap above the bar, the margins beside it, and the
+    // same gap below it, so the stack reads as one solid block.
+    const bandHeight = Math.ceil(DDS_GAP_PX + _dayStatusEl.offsetHeight + DDS_GAP_PX);
+    if (!_dayStatusBand || _dayStatusBand.top !== stackBottom || _dayStatusBand.height !== bandHeight) {
+      _dayStatusBand = { top: stackBottom, height: bandHeight };
+    }
+    // Content starts right under the stack in normal flow; pad it so the
+    // first card sits a card gap below the status bar at scroll 0.
+    const contentTop = _diaryContentEl.getBoundingClientRect().top + pageScrollTop(_diaryContentEl);
+    const padPx = Math.max(0, Math.ceil(topPx + _dayStatusEl.offsetHeight + DDS_CARD_GAP_PX - contentTop));
+    const padChanged = padPx !== _dayStatusPadPx;
+    if (topPx !== _dayStatusTopPx) _dayStatusTopPx = topPx;
+    if (padChanged) {
+      _dayStatusPadPx = padPx;
+      // The desktop rail anchors to the content's top padding.
+      tick().then(() => requestAnimationFrame(_measureRail));
+    }
+  }
+  let _dayStatusResizeObs = null;
+  let _dayStatusObservedEl = null;
+  function _observeDayStatus(...els) {
+    if (!_dayStatusResizeObs) return;
+    // border-box: a safe-area inset that arrives after load grows the
+    // header's padding only, which a content-box observer would miss.
+    for (const el of els) if (el) _dayStatusResizeObs.observe(el, { box: 'border-box' });
+  }
+  onMount(() => {
+    try {
+      _dayStatusResizeObs = new ResizeObserver(() => _measureDayStatus());
+      _observeDayStatus(_diaryHeaderEl, _stickyNavEl, _dateBarEl, _weekStripWrapEl, _dayStatusEl);
+    } catch { /* ResizeObserver unavailable: mount and resize measurements stand */ }
+    requestAnimationFrame(() => requestAnimationFrame(_measureDayStatus));
+    window.addEventListener('resize', _measureDayStatus);
+    return () => {
+      window.removeEventListener('resize', _measureDayStatus);
+      try { _dayStatusResizeObs?.disconnect(); } catch {}
+    };
+  });
+  // The bar mounts and unmounts with the setting, and swaps content when the
+  // day is closed or reopened; watch whichever element is current.
+  $: if (_dayStatusEl !== _dayStatusObservedEl) {
+    try { if (_dayStatusObservedEl) _dayStatusResizeObs?.unobserve(_dayStatusObservedEl); } catch {}
+    _dayStatusObservedEl = _dayStatusEl;
+    if (_dayStatusEl) {
+      _observeDayStatus(_dayStatusEl);
+      requestAnimationFrame(_measureDayStatus);
+    }
+  }
 
   // Polish batch 4: right-rail mode. Two states:
   //   'pinned' — rail always visible in the desktop grid (default)
@@ -1242,6 +1331,8 @@
   // ── Multi-select / bulk delete ──────────────────────────────────────────────
   let selectMode    = false;
   let selectedItems = new Set(); // stores _i (original item indices)
+  // Photos that failed to load, so a retry doesn't flicker on every redraw.
+  let _brokenThumbs = new Set(); // stores imgUrl
   let showMultiDeleteDialog = false;
 
   function enterSelectMode(item) {
@@ -1686,6 +1777,34 @@
       if (_onSyncComplete) window.removeEventListener('nt:sync-complete', _onSyncComplete);
     };
   });
+
+  // Half open like a book, the day's meals fall onto the two pages: the
+  // columns the diary already deals into, with the crease as the gutter
+  // between them. The two-column layout below waits for a desktop-sized
+  // viewport, which a foldable's inner display never reaches, so this turns
+  // the same thing on from the crease, and only when both pages are wide
+  // enough for a meal card.
+  let mealColsEl, mealColsLeft = 0, mealColsW = 0;
+  function measureMealCols() {
+    const box = mealColsEl?.getBoundingClientRect();
+    mealColsLeft = box?.left ?? 0;
+    mealColsW = box?.width ?? 0;
+  }
+  onMount(() => {
+    measureMealCols();
+    const ro = new ResizeObserver(measureMealCols);
+    if (mealColsEl) ro.observe(mealColsEl);
+    return () => ro.disconnect();
+  });
+  $: if ($fold !== undefined && mealColsEl) measureMealCols();
+  $: mealFoldLeftW = $fold?.posture === 'book' && mealColsW > 0 ? $fold.start - mealColsLeft : null;
+  $: mealHinge = $fold?.posture === 'book' ? Math.max(0, $fold.end - $fold.start) : 0;
+  // Below 1280px, half open like a book, the rail goes in the page under the
+  // meals (see the fold-book rules in the style block) rather than fixed.
+  $: _railInline = $fold?.posture === 'book' && !_wideViewport && !$forceMobileLayout;
+  $: mealFoldSnap = mealFoldLeftW != null
+    && mealFoldLeftW >= 280
+    && mealColsW - mealFoldLeftW - mealHinge >= 280;
 </script>
 
 <!-- Rail widgets snippet. Defined at the top level so it's in
@@ -1826,7 +1945,7 @@
   </div>
 
   <!-- Standard page-header — identical to every other page -->
-  <header class="page-header diary-header" class:banner-gradient={$bannerStyle === 'gradient' && !selectMode} class:banner-animated={$bannerStyle === 'animated' && !selectMode}>
+  <header bind:this={_diaryHeaderEl} class="page-header diary-header" class:banner-gradient={$bannerStyle === 'gradient' && !selectMode} class:banner-animated={$bannerStyle === 'animated' && !selectMode}>
     {#if selectMode}
       <h1 class="select-mode-title">{selectedItems.size} selected</h1>
     {:else}
@@ -1834,8 +1953,12 @@
     {/if}
   </header>
 
-  <!-- Date navigation — sticky sub-bar directly below the header -->
-  <div class="diary-date-bar">
+  <!-- Date navigation and the desktop week strip pin as one block right
+       under the header, so nothing can show between them. -->
+  <div bind:this={_stickyNavEl} class="diary-sticky-nav"
+    style={_stickyNavTopPx != null ? `--dsn-top: ${_stickyNavTopPx}px;` : ''}>
+  <!-- Date navigation, directly below the header -->
+  <div bind:this={_dateBarEl} class="diary-date-bar">
     <button class="btn-icon accent" on:click={prevDay} aria-label={$_('diary.nav.previous_day')} title={$_('diary.nav.previous_day')}>
       <span class="material-symbols-rounded">chevron_left</span>
     </button>
@@ -1856,10 +1979,10 @@
     </button>
   </div>
 
-  <!-- Week strip (Phase 6 desktop). Sticky below the date bar at
+  <!-- Week strip (Phase 6 desktop). Pinned with the date bar, below it, at
        ≥1280px; hidden on mobile. Data refetches whenever the diary
        store fires an update (bumps refreshKey). -->
-  <div class="diary-week-strip-wrap">
+  <div bind:this={_weekStripWrapEl} class="diary-week-strip-wrap">
     <!-- #180 — pass the UNADJUSTED base goal. caloriesGoalAdjusted
          mixes in the CURRENT day's activity kcal, and WeekStrip
          divides every day's food total by that same denominator,
@@ -1878,6 +2001,7 @@
       onDropMeal={_onDropMealOnWeekDay}
       showCompletion={$diaryShowCompletion}
     />
+  </div>
   </div>
 
   {#if $diaryShowCompletion}
@@ -1902,9 +2026,16 @@
       } catch {}
       return formatDate($currentDate);
     })()}
-    <div use:portal class="diary-day-status" class:complete={_dayIsComplete}
-      style="--sidebar-w-offset: var(--sidebar-w, 0px);">
+    <!-- A solid band from the bottom of the sticky block to just below the
+         status bar, so no content shows above, beside or under its edges. -->
+    {#if _dayStatusBand}
+      <div use:portal class="diary-day-status-band" aria-hidden="true"
+        style="top: {_dayStatusBand.top}px; height: {_dayStatusBand.height}px;"></div>
+    {/if}
+    <div use:portal bind:this={_dayStatusEl} class="diary-day-status" class:complete={_dayIsComplete}
+      style="--sidebar-w-offset: var(--sidebar-w, 0px);{_dayStatusTopPx != null ? ` --dds-top: ${_dayStatusTopPx}px;` : ''}">
       {#if _dayIsComplete}
+        <span class="dds-lead">
         <span class="dds-icon material-symbols-rounded">task_alt</span>
         <span class="dds-text">
           <span class="dds-headline">{$_('diary.day_complete.status.closed_headline')}</span>
@@ -1927,17 +2058,18 @@
             {#if _ts}<span class="dds-sub">· {$_('diary.day_complete.status.closed_at', { values: { time: _ts } })}</span>{/if}
           {/if}
         </span>
+        </span>
         <button class="btn btn-secondary btn-sm dds-cta" on:click={_toggleDayCompletion}
           aria-label={$_('diary.day_complete.status.reopen')}>
           {$_('diary.day_complete.status.reopen')}
         </button>
       {:else}
+        <span class="dds-lead">
         <span class="dds-icon material-symbols-rounded" style="color:var(--accent)">restaurant</span>
         <span class="dds-text">
-          <span class="dds-headline">{_dayLabelShort}</span>
-          <span class="dds-sub">·
-            {$_('diary.day_complete.status.progress', { values: { done: _mealsLogged, total: _mealsTotal } })}
-          </span>
+          <span class="dds-headline dds-day">{_dayLabelShort}</span>
+          <span class="dds-sub"><span class="dds-dot">· </span>{$_('diary.day_complete.status.progress', { values: { done: _mealsLogged, total: _mealsTotal } })}</span>
+        </span>
         </span>
         <button class="btn btn-primary btn-sm dds-cta" on:click={_toggleDayCompletion}
           aria-label={$_('diary.actions.mark_day_complete')}>
@@ -1954,7 +2086,8 @@
     class:rail-notes-active={$diaryRailShowNotes && $diaryShowNotes}
     class:rail-hidden={_railMode === 'hidden'}
     class:day-loading={_daySwapLoading}
-    style="padding-bottom:{contentPad}"
+    class:fold-pages={mealFoldSnap}
+    style="padding-bottom:{contentPad};{_dayStatusPadPx != null ? ` --dds-pad: ${_dayStatusPadPx}px;` : ''}{mealFoldSnap ? ` --meal-left-w: ${mealFoldLeftW}px; --meal-hinge: ${mealHinge}px;` : ''}"
   >
     <!-- Main column: meal groups + activities + notes. On desktop
          (≥1280px) this sits inside a 2-col grid alongside the right
@@ -2068,8 +2201,12 @@
                   </button>
                 {/if}
                 <button class="diary-item-btn" on:click={() => selectMode ? toggleItemSelect(item) : openEditItem(item)}>
-                  {#if $diaryShowThumbnails && item.imgUrl}
-                    <img class="item-thumb" src={resolveAssetUrl(item.imgUrl)} alt="" loading="lazy" />
+                  {#if $diaryShowThumbnails && item.imgUrl && !_brokenThumbs.has(item.imgUrl)}
+                    <!-- A photo that can't be fetched (offline, or removed on the
+                         server) falls back to the same placeholder an item with no
+                         picture gets, rather than a broken-image icon (#211). -->
+                    <img class="item-thumb" src={resolveAssetUrl(item.imgUrl)} alt="" loading="lazy"
+                      on:error={() => { _brokenThumbs = new Set([..._brokenThumbs, item.imgUrl]); }} />
                   {:else if $diaryShowThumbnails}
                     <div class="item-thumb-placeholder">
                       <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">restaurant</span>
@@ -2245,7 +2382,9 @@
          at initial page mount, not on every re-render). Fade honors
          the disableAnimations setting. -->
     {#key $currentDate}
-      <div class="meal-cols" in:fade|local={{ duration: $disableAnimations ? 0 : 180 }}>
+      <div class="meal-cols" class:fold-snap={mealFoldSnap} bind:this={mealColsEl}
+        style={mealFoldSnap ? `--meal-left-w:${mealFoldLeftW}px; --meal-hinge:${mealHinge}px` : ''}
+        in:fade|local={{ duration: $disableAnimations ? 0 : 180 }}>
         <div class="meal-col">
           {#each mealsLeft as m (m.mealIdx)}
             {@render mealCard(m)}
@@ -2384,7 +2523,13 @@
          .diary-content) so both this render and the portaled
          overlay render below can resolve it — Svelte 5 snippets
          have block scope. -->
-    {#if _railMode === 'pinned'}
+    {#if _railInline}
+      <!-- Half open like a book (below 1280px): the rail follows the meals
+           in the page instead of sitting fixed on the right-hand page. -->
+      <aside class="diary-right-col diary-rail-inline">
+        {@render railWidgets()}
+      </aside>
+    {:else if _railMode === 'pinned'}
       <!-- Portaled to document.body so position:fixed resolves against
            the viewport, not against .page-transition (which has
            will-change:transform + is the app's scroll container, so
@@ -3264,15 +3409,38 @@
      with no ancestor containing-block gotchas. left accounts for the
      desktop sidebar rail via --sidebar-w. Stays put period regardless
      of what happens in .page-transition. */
+  /* --dds-top is the measured bottom of the date bar (or the desktop week
+     strip) plus a gap, set inline by _measureDayStatus. The calcs here and
+     for --dds-pad are only first-frame fallbacks matching the usual
+     geometry: header (61px) + date bar (57px) + 8px gap. */
+  /* The band behind the fixed status bar: from the bottom of the sticky
+     block to a gap below the bar, full width, in the date bar's glass, so
+     scrolled content never shows above, beside or under the bar's edges.
+     Placed by _measureDayStatus. It takes taps, as the bar does, so a tap
+     on it never reaches a meal row hidden behind it. */
+  :global(body > .diary-day-status-band) {
+    position: fixed;
+    left: var(--sidebar-w, 0px);
+    right: 0;
+    z-index: 39;
+    background: var(--glass-surface);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--border);
+  }
   :global(body > .diary-day-status) {
     position: fixed;
-    top: calc(var(--page-top, var(--safe-top)) + 108px + var(--hamburger-row, 0px));
+    top: var(--dds-top, calc(var(--page-top, var(--safe-top)) + 126px + var(--hamburger-row, 0px)));
     left: calc(var(--sidebar-w, 0px) + 12px);
     right: 12px;
     z-index: 40;
     display: flex;
     align-items: center;
-    gap: 8px;
+    /* What doesn't fit on one line wraps instead of being cut off: the
+       button drops to its own row (and fills it), the text to more lines.
+       Long translations and the narrowest phones read in full. */
+    flex-wrap: wrap;
+    gap: 4px 8px;
     padding: 2px 12px;
     margin: 0;
     border-radius: 8px;
@@ -3286,13 +3454,13 @@
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     transition: background 200ms, border-color 200ms;
   }
-  /* Content beneath the fixed bar needs top padding equal to the bar's
-     own height so the first meal card is not covered on the initial
-     render. Applied via body-level class toggle instead of hard-coding
+  /* Content beneath the fixed bar needs top padding that clears the bar
+     (gap + its height + a card gap, measured into --dds-pad) so the first
+     meal card is not covered on the initial render. Applied via body-level class toggle instead of hard-coding
      into .diary-content because the bar only exists when the setting
      is on. */
   :global(body.has-day-status) .diary-content {
-    padding-top: 40px;
+    padding-top: var(--dds-pad, 44px);
   }
   :global(.diary-day-status.complete) {
     background: color-mix(in srgb, var(--success, #10b981) 10%, var(--surface-1));
@@ -3306,16 +3474,24 @@
   :global(.diary-day-status.complete .dds-icon) {
     color: var(--success, #10b981);
   }
+  /* The icon and the text stay together on the first row. The pair takes
+     the line's free space ahead of the button (999 to 1), so the button
+     only grows when it sits on a row of its own. */
+  :global(.diary-day-status .dds-lead) {
+    flex: 999 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   :global(.diary-day-status .dds-text) {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
     display: flex;
     align-items: baseline;
-    gap: 5px;
-    flex-wrap: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    gap: 0 5px;
+    flex-wrap: wrap;
+    padding: 2px 0;
   }
   :global(.diary-day-status .dds-headline) {
     font-weight: 600;
@@ -3330,7 +3506,8 @@
        the slim status bar. Without these the bar's own padding gets
        pushed out to 44px by the button, which is what made the button
        look like it was floating above / below the visible sticky area. */
-    flex-shrink: 0;
+    flex: 1 0 auto;
+    position: relative;
     height: auto;
     padding: 3px 10px;
     font-size: 12px;
@@ -3339,6 +3516,13 @@
     line-height: 1.15;
     white-space: nowrap;
     border-radius: 6px;
+  }
+  /* A finger-sized tap area around the slim button, reaching into the
+     band above and below the bar (which takes taps itself). */
+  :global(.diary-day-status .dds-cta::after) {
+    content: '';
+    position: absolute;
+    inset: -8px -4px;
   }
   :global(.diary-day-status.complete .dds-cta) {
     /* Reopen is a subdued affordance; keep it secondary regardless of
@@ -3357,13 +3541,22 @@
      the sidebar-offset viewport (no manual sidebar math needed). */
   @media (min-width: 1280px) {
     :global(html:not(.force-mobile-layout) body > .diary-day-status) {
-      top: calc(var(--page-top, var(--safe-top)) + 200px + var(--hamburger-row, 0px));
+      top: var(--dds-top, calc(var(--page-top, var(--safe-top)) + 210px + var(--hamburger-row, 0px)));
+    }
+    :global(html:not(.force-mobile-layout) body.has-day-status) .diary-content {
+      padding-top: var(--dds-pad, 48px);
     }
   }
   @media (max-width: 480px) {
     .diary-day-status {
-      margin: 4px 8px 0;
+      margin: 0 8px;
       padding: 2px 10px;
+    }
+    /* The day is already named in the date bar right above: on a phone the
+       bar leaves it out and keeps the room for the progress and the button. */
+    :global(.diary-day-status:not(.complete) .dds-day),
+    :global(.diary-day-status:not(.complete) .dds-dot) {
+      display: none;
     }
     :global(.diary-day-status .dds-cta) {
       padding: 2px 8px;
@@ -3388,14 +3581,17 @@
 
   /* H1 height/alignment now lives in base.css .page-header h1 (uniform 40px). */
 
-  /* Sticky date navigation sub-bar — pins flush below the page-header.
-     62 + var(--hamburger-row): hamburger-row is 48 normally and 0 when the
-     persistent sidebar is pinned, so the bar tracks the actual header height
-     in both modes. With banner: 122 + hamburger-row. */
-  .diary-date-bar {
+  /* The date bar and the desktop week strip pin together in one block,
+     flush under the header: --dsn-top is the header's measured height
+     (_measureDayStatus); the calc is only the first-frame fallback.
+     Separate sticky offsets for each bar never quite added up and left
+     see-through gaps between them. */
+  .diary-sticky-nav {
     position: sticky;
-    top: calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px));
+    top: var(--dsn-top, calc(var(--page-top, var(--safe-top)) + 60px + var(--hamburger-row, 0px)));
     z-index: 9;
+  }
+  .diary-date-bar {
     background: var(--glass-surface);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -3405,10 +3601,6 @@
     gap: 4px;
     padding: 8px var(--page-px);
   }
-  .diary-date-bar.has-banner {
-    top: calc(var(--page-top, var(--safe-top)) + 122px + var(--hamburger-row, 0px));
-  }
-
   .date-btn {
     flex: 1;
     display: flex;
@@ -3444,9 +3636,6 @@
   @media (min-width: 1280px) {
     :global(html:not(.force-mobile-layout)) .diary-week-strip-wrap {
       display: block;
-      position: sticky;
-      top: calc(var(--page-top, var(--safe-top)) + 120px + var(--hamburger-row, 0px));
-      z-index: 8;
     }
   }
 
@@ -4379,7 +4568,10 @@
   .meal-menu-btn:active { color: var(--text-1); }
 
   /* Copy meal to another date sheet */
-  .copy-date-sheet { padding: 0 20px 20px; }
+  /* The bottom padding has to carry the safe-area inset the .bs-sheet rule
+     sets, or this shorthand drops it and the buttons land under Android's
+     navigation bar (#233). */
+  .copy-date-sheet { padding: 0 20px calc(20px + var(--safe-bottom)); }
   .copy-date-sheet .sheet-title { padding: 4px 0 12px; }
   .copy-date-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-2); }
   .copy-date-input {
@@ -4671,4 +4863,92 @@
     padding: 4px 14px 10px;
   }
 
+
+  /* Half open like a book: one page of meals either side of the crease. The
+     columns are the ones the diary already deals into, so this only has to
+     stop them flattening and put the gutter where the hinge is. */
+  :global(html.fold-book) .meal-cols.fold-snap {
+    display: grid;
+    grid-template-columns: var(--meal-left-w) minmax(0, 1fr);
+    column-gap: var(--meal-hinge);
+    row-gap: 12px;
+    align-items: start;
+  }
+  :global(html.fold-book) .meal-cols.fold-snap .meal-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  /* A foldable open flat is about 852px: room for the day's meals beside the
+     summary rail (440 + 360), though not for the meal/snack column dealing
+     the 1280 tier adds inside the main column. Only the outer split is
+     lifted here; everything else stays on desktop. */
+  @media (max-width: 1279px) {
+    :global(html.wide-content) .diary-content {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      column-gap: 20px;
+      align-items: start;
+    }
+    :global(html.wide-content) .diary-right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: fixed;
+      top: calc(var(--page-top, var(--safe-top)) + var(--diary-rail-top, 210px) + var(--hamburger-row, 0px));
+      left: var(--diary-rail-left, auto);
+      width: var(--diary-rail-width, 360px);
+      z-index: 5;
+      max-height: calc(100vh
+        - var(--page-top, var(--safe-top))
+        - var(--diary-rail-top, 210px)
+        - 10px
+        - var(--hamburger-row, 0px)
+        - var(--nav-h, 0px)
+        - var(--safe-bottom, 0px));
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+      padding-right: 4px;
+    }
+    :global(html.wide-content) .diary-right-col > :global(*) { flex-shrink: 0; }
+  }
+
+  /* Half open like a book, the side rail would take the right-hand page and
+     squeeze the meals into one column across the crease. The meals get the
+     whole width instead, so they fall onto the two pages (.meal-cols.fold-snap
+     above), and the rail follows below them in the page, its widgets dealt
+     onto the two pages the same way. Open flat, and at 1280px and wider,
+     nothing changes. */
+  @media (max-width: 1279px) {
+    :global(html.fold-book.wide-content) .diary-content {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    :global(html.fold-book.wide-content) .diary-right-col.diary-rail-inline {
+      position: static;
+      top: auto;
+      left: auto;
+      width: auto;
+      max-height: none;
+      overflow: visible;
+      padding-right: 0;
+      z-index: auto;
+    }
+    :global(html.fold-book.wide-content) .diary-content.fold-pages .diary-right-col.diary-rail-inline {
+      display: grid;
+      grid-template-columns: var(--meal-left-w) minmax(0, 1fr);
+      column-gap: var(--meal-hinge);
+      row-gap: 12px;
+      align-items: start;
+    }
+    /* The rail's heading runs above both pages; the widgets take one page each. */
+    :global(html.fold-book.wide-content) .diary-content.fold-pages .diary-rail-inline > :global(.rail-title) {
+      grid-column: 1 / -1;
+    }
+  }
 </style>

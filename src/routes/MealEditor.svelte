@@ -4,6 +4,7 @@
   import { pop } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { NtApi, API, USDA } from '../lib/api.js';
+  import { offNutritionStatus, needsFullLookup } from '../lib/off-nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
   import { DB } from '../lib/db.js';
@@ -20,8 +21,10 @@
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, visibleNutriments, nutrimentsOrder, catName as _catName, catDisplay as _catDisplay, energyUnit, foodsSort, mealsSort, recipesSort, offEnabled, usdaEnabled, usdaApiKey } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
-  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist } from '../lib/editor-draft.js';
-  import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
+  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
+  import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
+  import { foldText } from '../lib/search-text.js';
+
 
   export let params = {};
 
@@ -65,10 +68,12 @@
   // editorState.mealPrefill.id. Without this, editing meal A leaks
   // into the next "add new meal" (same class of bug as FoodEditor,
   // fixed together for Wildenhaus's #157 feedback).
-  $: _draftKey = _mkDraftKey('meal', params?.id ?? editorState.mealPrefill?.id ?? null);
+  // Worked out once, as the editor opens: a key that followed editorState
+  // would switch mid-edit when the editor resets it ("Open existing") and
+  // write this form into another item's draft.
+  const _draftKey = _mkDraftKey('meal', params?.id ?? editorState.mealPrefill?.id ?? null, editorState.mealPrefill);
   let _draftReady = false;
-  let _persistDraft = null;
-  $: if (_draftKey) _persistDraft = makeDebouncedPersist(_draftKey, 400);
+  const _persistDraft = makeDebouncedPersist(_draftKey, 400);
   // Bundle every field the user can mutate before save. Transient
   // picker/camera UI state is deliberately NOT persisted.
   $: _draftState = { meal, photoPreviewUrl, recipeAmount, recipeUnit, recipeYields, isRecipe };
@@ -141,6 +146,7 @@
 
 
   onMount(async () => {
+    sweepDrafts();
     isRecipe = editorState.mealIsRecipe || false;
     store    = isRecipe ? 'recipes' : 'meals';
     if (editorState.mealPrefill) {
@@ -500,8 +506,8 @@
   $: pickerFiltered = (_isExternalSearch || !pickerSearch)
     ? _pickerListSorted
     : _pickerListSorted.filter(f =>
-        (f.name||'').toLowerCase().includes(pickerSearch.toLowerCase()) ||
-        (f.brand||'').toLowerCase().includes(pickerSearch.toLowerCase()));
+        foldText(f.name).includes(foldText(pickerSearch)) ||
+        foldText(f.brand).includes(foldText(pickerSearch)));
 
   // Switching the outer tab (Foods/Meals/Recipes) resets cross-source state
   // so the Foods source filter doesn't leak into Meals/Recipes views.
@@ -588,6 +594,21 @@
         return mine;
       }
       if (_pickerSource === 'off' || _pickerSource === 'usda' || _pickerSource === 'mealie') {
+        if (_pickerSource === 'off') {
+          // #241: an OFF product with no "as sold" values would become a
+          // 0 kcal ingredient. Search results leave some values out, so ask
+          // for the full product first: if it has them, use them.
+          let info = API.offNutritionInfo(food.barcode);
+          if (needsFullLookup(info)) {
+            const full = await API.fetchProductByCode(food.barcode).catch(() => null);
+            info = API.offNutritionInfo(food.barcode);
+            if (full && offNutritionStatus(full, info) === 'ok') food = { ...food, ...full };
+          }
+          if (offNutritionStatus(food, info) !== 'ok') {
+            showError($_('meal_editor.errors.off_no_values', { values: { name: food.name } }));
+            return null;
+          }
+        }
         // OFF / USDA / Mealie items arrive without a numeric id — strip
         // whatever placeholder is there and createFood to mint a real row.
         const { id: _drop, ...rest } = food;
@@ -1456,16 +1477,19 @@
      Right column (fills) — Ingredients + Nutrition Totals summary.
      Ingredients is where meal/recipe editing spends its time, so
      it gets the wider column. Gated by force-mobile-layout. */
-  @media (min-width: 1024px) {
-    :global(html:not(.force-mobile-layout)) .editor-content {
+  /* 340px + the rest fits a foldable open flat (about 852px, so 340 + 460),
+     it just never reached a 1024px viewport. Gated on the room available
+     instead; html.wide-content already excludes Force Mobile Layout. */
+  @media all {
+    :global(html.wide-content) .editor-content {
       display: grid;
       grid-template-columns: 340px minmax(0, 1fr);
       column-gap: 16px;
       row-gap: 0;
       align-items: start;
     }
-    :global(html:not(.force-mobile-layout)) .editor-left-col,
-    :global(html:not(.force-mobile-layout)) .editor-right-col {
+    :global(html.wide-content) .editor-left-col,
+    :global(html.wide-content) .editor-right-col {
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -1477,7 +1501,7 @@
        internal scroll: if the left stack exceeds viewport, sticky
        un-sticks against .editor-content's bottom and the whole
        column is still reachable via page scroll. */
-    :global(html:not(.force-mobile-layout)) .editor-left-col {
+    :global(html.wide-content) .editor-left-col {
       position: sticky;
       top: calc(var(--safe-top, 0px) + 76px);
       align-self: start;

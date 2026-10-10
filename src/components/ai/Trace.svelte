@@ -1,5 +1,7 @@
 <script>
+  import AttachImageButton from './AttachImageButton.svelte';
   import { closeOnBack } from '../../lib/back-stack.js';
+  import { offNutritionStatus, needsFullLookup } from '../../lib/off-nutrition.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
@@ -31,6 +33,8 @@
   import { showError } from '../../stores/toast.js';
   import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
   import { acquireScreenWakeLock } from '../../lib/wake-lock.js';
+  import { foldText } from '../../lib/search-text.js';
+
 
   // ── State ──────────────────────────────────────────────────────────────────
   let panelOpen  = false;
@@ -57,21 +61,12 @@
   // prior pending food card. Commit path is one of:
   //   _commitFoodCatalogOnly  — create food row, no diary write
   //   _commitFoodAndLog       — create food row AND log it to diary
-  let _pendingFoodProposal = null; // { name, brand, portion, unit, nutrition, meal_hint }
+  let _pendingFoodProposal = null; // { name, brand, portion, unit, nutrition, notes }
   let _foodProposalCommitted = false;
   let _foodProposalCommittedKind = '';   // 'catalog' | 'logged'
-  let _foodProposalCommittedMealIdx = 0;
-  let fileInput;
-  let _cameraInput;
-  let _showAttachMenu = false;
-  let _hasCamera = false;
-
-  // Check if device has a camera (PWA only)
-  if (!isNative && navigator.mediaDevices?.enumerateDevices) {
-    navigator.mediaDevices.enumerateDevices().then(devices => {
-      _hasCamera = devices.some(d => d.kind === 'videoinput');
-    }).catch(() => {});
-  }
+  // null = Don't Log. The card starts there: saving a food must never
+  // quietly pick a meal for a diary entry nobody asked for.
+  let _foodProposalCommittedMealIdx = null;
 
   // Whether AI config is locked via env vars (proxy mode). Derived from
   // the global envLocks store (populated by App.svelte's startup fetch
@@ -288,12 +283,12 @@
               if (typeof m.notes === 'string' && m.notes.trim()) out.notes = m.notes.trim();
               return out;
             };
-            const q = (args.query || '').toLowerCase().trim();
+            const q = foldText(args.query).trim();
             let list = [
               ...rawMeals.map(m => shape(m, 'meal')),
               ...rawRecipes.map(m => shape(m, 'recipe')),
             ];
-            if (q) list = list.filter(m => m.name?.toLowerCase().includes(q));
+            if (q) list = list.filter(m => foldText(m.name).includes(q));
             return { count: list.length, meals: list.slice(0, 50) };
           } catch { return { error: 'Could not load meals library' }; }
         }
@@ -666,10 +661,37 @@
             const exactOff = offHits.find(h => _norm(h.name) === qNorm);
             const pickedOff = exactOff || (offHits.length === 1 ? offHits[0] : null);
             if (pickedOff) {
+              // #241: an OFF product with no "as sold" values used to be logged
+              // as 0 kcal and reported as a success. Search results leave some
+              // values out, so check the full product: log its values if it has
+              // them, and otherwise log nothing and say why.
+              let chosenOff = pickedOff;
+              {
+                const { API } = await import('../../lib/api.js');
+                let info = API.offNutritionInfo(pickedOff.barcode);
+                if (needsFullLookup(info)) {
+                  const full = await API.fetchProductByCode(pickedOff.barcode).catch(() => null);
+                  info = API.offNutritionInfo(pickedOff.barcode);
+                  if (full && offNutritionStatus(full, info) === 'ok') chosenOff = { ...pickedOff, ...full };
+                }
+                const offStatus = offNutritionStatus(chosenOff, info);
+                if (offStatus !== 'ok') {
+                  const preparedOnly = offStatus === 'prepared' || offStatus === 'implausible';
+                  return {
+                    no_nutrition: true,
+                    food_name: chosenOff.name,
+                    as_prepared_only: preparedOnly,
+                    message: `Open Food Facts has no "as sold" nutrition values for "${chosenOff.name}"`
+                      + (preparedOnly ? ', only "as prepared" ones (for example made up with milk or water), which may not match what the user weighs.' : '.')
+                      + ' Nothing was logged. Tell the user, and suggest adding it under Foods, where they can enter the values from the label'
+                      + (preparedOnly ? ' or choose to use the "as prepared" ones.' : '.'),
+                  };
+                }
+              }
               try {
                 // Create in local catalog so future asks hit local tier and
                 // the food row exists for the diary item to reference.
-                const saved = await NtApi.createFood({ ...pickedOff, created_at: new Date().toISOString() });
+                const saved = await NtApi.createFood({ ...chosenOff, created_at: new Date().toISOString() });
                 const item = {
                   ...saved,
                   portion: portionOverride ?? saved.portion ?? 100,
@@ -794,7 +816,6 @@
           const portionRaw = Number(args?.portion);
           const portion = Number.isFinite(portionRaw) && portionRaw > 0 ? Math.round(portionRaw) : 100;
           const unit  = (typeof args?.unit === 'string' && args.unit.trim()) ? args.unit.trim().slice(0, 16) : 'g';
-          const mealHint = args?.meal_hint != null ? Math.max(0, Math.min(3, Math.round(Number(args.meal_hint)))) : 3;
           const notes    = typeof args?.notes === 'string' ? args.notes.trim().slice(0, 120) : '';
           const knownIds = new Set(NUTRIMENTS.map(n => n.id));
           const clean = {};
@@ -803,11 +824,11 @@
             const n = Number(v);
             if (Number.isFinite(n) && n >= 0) clean[k] = Math.round(n * 10) / 10;
           }
-          const payload = { name, brand, portion, unit, nutrition: clean, meal_hint: mealHint, notes };
+          const payload = { name, brand, portion, unit, nutrition: clean, notes };
           _pendingFoodProposal = payload;
           _foodProposalCommitted = false;
           _foodProposalCommittedKind = '';
-          _foodProposalCommittedMealIdx = mealHint;
+          _foodProposalCommittedMealIdx = null;
           _pendingProposal = null;
           return { ok: true, kind: 'food_proposal', ...payload };
         }
@@ -1630,6 +1651,7 @@ LOGGING A REAL FOOD — When the user wants to add a NAMED food to their diary (
 - For "200g of X" — pass portion=200, unit="g". For "two apples" — pass quantity=2 (and leave portion/unit as defaults).
 - If the tool returns \`candidates\`, present the names back to the user and ask which one; then call log_food again with the chosen name as the \`food\` field.
 - If the tool returns \`no_match\`, tell the user to add it via the Foods tab (barcode scan or manual entry) and then try again.
+- If the tool returns \`no_nutrition\`, Open Food Facts has the product but no "as sold" values, so nothing was logged. Relay its message. Do not use log_quick_calories or any other tool to force the food in.
 - DO NOT use log_quick_calories when the user names a food. Quick Calories is ONLY for kcal-number asks.
 - When the tool returns ok:true, confirm using the \`meal_name\` and \`food_name\` from the tool result — do not assume the meal name from the index you passed. This is how you avoid telling the user "I added X to snacks" when it actually went to a different meal.
 - MANUAL ESTIMATE PATH: if the user EXPLICITLY asks you to estimate ("don't search, just estimate it", "skip the database, estimate it yourself", "you estimate it and log it"), skip log_food and use propose_food instead. Pass a full nutrition estimate you're confident about. The user gets a review card and picks the meal and Save & Add to Diary. This is the ONLY sanctioned bypass — do not use it when the user hasn't explicitly opted out of the search.
@@ -1640,6 +1662,12 @@ LOGGING QUICK CALORIES — When the user gives a kcal number WITH NO FOOD NAME (
 - Optional name field: if the user said "for office snack" or similar, pass that as name (max 60 chars).
 - If the user named a food ("apple", "banana", "chicken breast"), use log_food NOT log_quick_calories.
 - Tool refuses kcal=0 and refuses if the user has disabled Quick Calories in Settings — relay any error message verbatim.
+
+CREATING A FOOD WITHOUT LOGGING IT (no photo): when the user asks you to add a food to their FOODS LIBRARY rather than to their diary ("create a food called X", "add X to my foods", "save X as a food but don't log it", "make a food entry for my protein shake"), call propose_food. Rules:
+- propose_food is the ONLY tool that can create a food. log_food writes a diary entry, so it is the wrong tool here even though the user named a food.
+- If the user says anything like "don't log it", "don't add it to my diary", "just save it", then the card's Save to Foods button is the whole point. Tell them to tap it and stop there. Do NOT call log_food afterwards, and do not treat their refusal as a reason to skip the card.
+- Pass the user's own numbers when they give them. If they describe the food instead, estimate it under the honesty rules below and say the numbers are an estimate they can correct on the card.
+- Ask for the serving size when the user has not said one and you cannot infer it. A food row saved against the wrong portion basis is worse than one more question.
 
 PHOTO MEAL HANDLING — When the user attaches a MEAL PHOTO, never write to the diary directly. The user's intent decides which of these four paths you take:
 
@@ -1780,18 +1808,25 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       // "use propose_X instead of log_X" prose in the system prompt
       // when the user's verb matches a write tool's purpose.
       //
-      // Text-only turn: REMOVE the propose_* tools so a mini model that
-      // saw a previous propose_* call in chat history doesn't re-call
-      // them on a follow-up text question ("kept showing me the
-      // nutrition card" — the propose card kept re-rendering because
-      // the chat history primed the model to keep calling propose_*).
-      // Stripping the tools from the schema is bulletproof; the model
-      // physically cannot call a tool that isn't in the schema this
-      // round.
+      // Text-only turn: propose_quick_calories is the photo estimate
+      // path, and log_quick_calories covers "log 200 kcal" in text, so
+      // it stays out. propose_food must stay IN. Stripping it left no
+      // tool that can create a food without writing to the diary, so
+      // "save this as a food, don't log it" fell through to log_food and
+      // the user got a diary entry they had explicitly refused.
+      //
+      // It comes out only while an uncommitted card is still on screen.
+      // That is the case the blanket strip was for: a mini model that saw
+      // a propose_* call in chat history re-called it on the next text
+      // question, and the card appeared to keep coming back. Stripping the
+      // tool from the schema is bulletproof, because the model physically
+      // cannot call a tool that isn't there this round, but it has to be
+      // aimed at that case alone.
+      const _cardAwaitingUser = !!_pendingProposal || !!_pendingFoodProposal;
       const toolsForRound = image
         ? TOOLS.filter(t => t.name !== 'log_quick_calories')
         : TOOLS.filter(t => t.name !== 'propose_quick_calories'
-                         && t.name !== 'propose_food');
+                         && !(t.name === 'propose_food' && _cardAwaitingUser));
       const reply = aiEnvLocked
         ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall })
         : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall });
@@ -1828,34 +1863,17 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     return { role: 'user', content: text };
   }
 
-  function _attachImage() {
-    if (isNative) {
-      import('@capacitor/camera').then(({ Camera, CameraResultType, CameraSource }) => {
-        Camera.getPhoto({ quality: 80, resultType: CameraResultType.Base64, source: CameraSource.Prompt, width: 1024 })
-          .then(photo => { attachedImage = { base64: photo.base64String, mimeType: `image/${photo.format || 'jpeg'}`, preview: `data:image/${photo.format || 'jpeg'};base64,${photo.base64String}` }; })
-          .catch(() => {});
-      });
-    } else if (_hasCamera) {
-      _showAttachMenu = !_showAttachMenu;
-    } else {
-      fileInput?.click();
-    }
-  }
-
-  function _attachFromCamera() { _showAttachMenu = false; _cameraInput?.click(); }
-  function _attachFromFile()   { _showAttachMenu = false; fileInput?.click(); }
-
-  function _onFileSelected(e) {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
+  // From the shared attach button: an array of image Files. Trace takes one.
+  function _useImageFiles(files) {
+    const file = files?.[0];
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result;
-      const base64 = dataUrl.split(',')[1];
-      attachedImage = { base64, mimeType: file.type, preview: dataUrl };
+      const base64 = String(dataUrl).split(',')[1] || '';
+      attachedImage = { base64, mimeType: file.type || 'image/jpeg', preview: dataUrl };
     };
     reader.readAsDataURL(file);
-    e.target.value = '';
   }
 
   function _removeImage() { attachedImage = null; }
@@ -1889,7 +1907,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     _pendingFoodProposal = null;
     _foodProposalCommitted = false;
     _foodProposalCommittedKind = '';
-    _foodProposalCommittedMealIdx = 0;
+    _foodProposalCommittedMealIdx = null;
   }
 
   function quickAsk(q) { input = q; send(); }
@@ -1967,7 +1985,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
    *  at the meal they picked on the card. Two steps because diary items
    *  need an existing food row (the diary item references the food). */
   async function _commitFoodAndLog() {
-    if (!_pendingFoodProposal) return;
+    // No meal chosen means Don't Log; the button is disabled then, and this
+    // guard keeps a stray call from logging to a meal nobody picked.
+    if (!_pendingFoodProposal || _foodProposalCommittedMealIdx == null) return;
     try {
       const food = await _saveProposedFood();
       const p    = _pendingFoodProposal;
@@ -2259,8 +2279,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                     forceShowAll={true} />
                   <div class="proposal-meal-picker">
                     <label>
-                      If logging, meal:
+                      {$_('trace.food_card.log_to')}
                       <select bind:value={_foodProposalCommittedMealIdx}>
+                        <option value={null}>{$_('trace.food_card.dont_log')}</option>
                         {#each (mealNames.get() || ['Breakfast','Lunch','Dinner','Snacks']) as mn, mi}
                           <option value={mi}>{mn}</option>
                         {/each}
@@ -2275,7 +2296,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                       <span class="material-symbols-rounded" style="font-size:16px">bookmark_add</span>
                       Save to Foods
                     </button>
-                    <button class="btn btn-primary btn-sm" on:click={_commitFoodAndLog}>
+                    <button class="btn btn-primary btn-sm" on:click={_commitFoodAndLog}
+                      disabled={_foodProposalCommittedMealIdx == null}>
                       <span class="material-symbols-rounded" style="font-size:16px">add</span>
                       Save & Add to Diary
                     </button>
@@ -2327,21 +2349,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         </div>
       {/if}
       <div class="ai-input-bar">
-        <div style="position:relative">
-          <button class="ai-attach-btn" on:click={_attachImage} disabled={loading} title={$_('trace.attach_image')}>
-            <span class="material-symbols-rounded">photo_camera</span>
-          </button>
-          {#if _showAttachMenu}
-            <div class="ai-attach-menu">
-              <button class="ai-attach-option" on:click={_attachFromCamera}>
-                <span class="material-symbols-rounded" style="font-size:18px">photo_camera</span> Camera
-              </button>
-              <button class="ai-attach-option" on:click={_attachFromFile}>
-                <span class="material-symbols-rounded" style="font-size:18px">photo_library</span> Gallery
-              </button>
-            </div>
-          {/if}
-        </div>
+        <AttachImageButton disabled={loading} title={$_('trace.attach_image')}
+          on:files={e => _useImageFiles(e.detail)} />
         <textarea
           class="ai-textarea"
           bind:value={input}
@@ -2354,8 +2363,6 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
           <span class="material-symbols-rounded">send</span>
         </button>
       </div>
-      <input type="file" accept="image/*" bind:this={fileInput} on:change={_onFileSelected} style="display:none" />
-      <input type="file" accept="image/*" capture="environment" bind:this={_cameraInput} on:change={_onFileSelected} style="display:none" />
     </aside>
   {/if}
 
@@ -2391,7 +2398,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     backdrop-filter: blur(12px) saturate(180%);
     -webkit-backdrop-filter: blur(12px) saturate(180%);
     cursor: pointer;
-    z-index: 400;
+    /* Below the lowest sheet (90) and above the bottom bar (50), so the
+       button never draws over an open sheet or dialog (#233). */
+    z-index: 80;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2849,49 +2858,6 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   .ai-send-btn:not(:disabled):active { transform: scale(0.94); }
   .ai-send-btn .material-symbols-rounded { font-size: 20px; }
 
-  .ai-attach-btn {
-    width: 40px; height: 40px;
-    border-radius: 50%;
-    background: none;
-    color: var(--text-3);
-    border: 1px solid var(--border);
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    transition: color var(--dur-fast), border-color var(--dur-fast);
-  }
-  .ai-attach-btn:hover { color: var(--accent); border-color: var(--accent); }
-  .ai-attach-btn:disabled { opacity: 0.4; cursor: default; }
-  .ai-attach-btn .material-symbols-rounded { font-size: 20px; }
-
-  .ai-attach-menu {
-    position: absolute;
-    bottom: 48px;
-    left: 0;
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-    overflow: hidden;
-    z-index: 10;
-    min-width: 140px;
-  }
-  .ai-attach-option {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 10px 14px;
-    background: none;
-    border: none;
-    color: var(--text-1);
-    font-size: 14px;
-    cursor: pointer;
-    text-align: left;
-  }
-  .ai-attach-option:hover { background: var(--surface-2); }
-  .ai-attach-option + .ai-attach-option { border-top: 1px solid var(--border); }
-
   .ai-image-preview {
     position: relative;
     padding: 8px 16px 0;
@@ -2953,8 +2919,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   .proposal-brand {
     font-weight: 400; color: var(--text-3); font-size: 12px;
   }
-  /* Meal selector that lets the user override the AI's meal guess
-     before the food is logged. */
+  /* Log to: starts on Don't Log, and choosing a meal is what enables
+     Save & Add to Diary. */
   .proposal-meal-picker {
     margin-top: 10px;
     display: flex; align-items: center;

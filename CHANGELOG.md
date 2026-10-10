@@ -9,6 +9,270 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.0] - 2026-10-09
+
+Minor release. Big themes: offline mode in the browser, an Android app whose sync keeps your accounts, offline edits and deletes straight, preliminary foldable support, search that ignores accents, Open Food Facts products that come in with the right values, Spanish and Russian, two privacy changes (fonts from your own server, update checks off until you ask), and security fixes worth updating for.
+
+> **Upgrade note.** The database updates itself on first start. Update the Android app too, not only the server: the protection between accounts and a critical Capacitor fix live in the app. New optional settings: `PUBLIC_URL` (the address emailed links use), `ALLOW_PRIVATE_IMAGE_URLS=1` (lets every account, not only an admin, download photos from your network) and `UPDATE_CHECK=off`. Existing installs keep checking for updates as before; new installs ask first.
+
+### Added
+
+- **Offline mode** ([#211](https://github.com/TraceApps/nutritrace/issues/211)). Your diary, your own foods, meals and recipes, manual activity, settings and goals, the fasting timer and your profile are kept in the browser, so the app opens in a dead zone and the day still adds up. What you change goes up on its own when the connection returns, merged the same way the Android app's changes are, and the menu button shows an amber cloud while anything is waiting. Your own foods are searchable offline from the first load. Searches beyond them, lookups, the wellness providers, Trace and admin need a connection and say so. Works on iPhone too. [What works offline](https://traceapps.github.io/docs/nutritrace/features/#offline).
+- **Preliminary foldable support.** NutriTrace knows where a foldable's crease is, in the Android app and in browsers that report it. Half open like a book, the day's meals fall onto the two pages with the summary below, Goals puts targets and preview a page each, and Settings puts its list on one side; dialogs, sheets, menus and Trace keep off the fold; in laptop posture Trace sits on the half lying flat. Opened flat, the wider layouts turn on.
+- **Body composition through MCP and the REST API** ([#234](https://github.com/TraceApps/nutritrace/pull/234)). A `get_body_composition` tool and `/api/v1/body-composition` return your scale readings over a date range, each source kept separate. Contributed by @kgenerozov.
+- **Settings has a Support page**, next to About: Ko-fi and GitHub Sponsors, plus free ways to help (star the repo, report a bug, translate). About also links to the TraceApps family.
+
+### Changed
+
+- **Update checks are off until you turn them on.** Every browser and phone used to ask GitHub directly every 4 hours. Setup now asks, and a fresh install contacts nothing on its own; the web app asks through your server, and the Android app asks only once you say yes. Existing installs keep checking as before, and `UPDATE_CHECK=off` turns the server's checks off for good. Reported on r/selfhosted.
+- **Fonts are served by your own instance.** The app loaded its fonts from Google on every page load, so Google saw the address of everyone who opened it. Reported on r/selfhosted.
+- **Search ignores accents.** "platano" finds "Plátano" and "cafe" finds "Café" everywhere you search, offline and on a local Open Food Facts mirror too.
+- **Trace's attach button offers Camera or Gallery on phones and in the Android app** ([#254](https://github.com/TraceApps/nutritrace/pull/254)), like the other Trace apps. Thanks @librarian.
+- **Trace's new-food card no longer picks a meal for you.** It starts on Don't Log, so saving a food touches only your foods.
+- **The in-app updater reuses an update it already downloaded**, and the button says Install.
+- **Trace's model lists are current.** Claude Haiku 5.5 is the new default, Claude Sonnet 5.5 and Opus 5.5, GPT-6 Luna, and Gemini 3.8 Flash and 3.1 Flash Lite are added, Gemini 3.1 Pro is listed as the preview it is, and Gemini 2.5 leaves the list (open to existing Google users only). A model you already chose keeps working; shut-down Gemini models switch to the default.
+
+### Fixed
+
+- **Syncing the Android app no longer wipes the day's note or a food's CookTrace origin.** The newer note wins, a cleared note included.
+- **Foods and meals edited offline in the Android app reach the server after the app restarts.**
+- **Editing or deleting a food or meal in the Android app before it syncs no longer changes a different one**, and diary items logged from it link to it once it syncs.
+- **A phone whose clock is off no longer decides which edit wins.** The newer edit wins by the server's clock, and a phone whose edit lost gets the winning copy.
+- **Marking a day or meal complete in the Android app while offline sticks**, and an older change no longer undoes a newer one made elsewhere.
+- **A setting changed in the Android app before it reached the server is no longer set back** when the app loads your settings.
+- **Connecting the Android app to a server with Upload or Merge sends everything, once**: recipes, activities, fasts and Health Connect data too, without duplicates even when the upload runs again.
+- **Clear all data reaches the Android app**, wellness, workouts and fasts included, and clears fasts on the server too.
+- **Recipe servings set in the Android app survive syncing** ([#255](https://github.com/TraceApps/nutritrace/pull/255)), and **editing a food or recipe in the app no longer clears its photo** ([#256](https://github.com/TraceApps/nutritrace/pull/256)). Thanks @librarian.
+- **Health Connect counts every part of a night's sleep, and sleep stages show up** ([#236](https://github.com/TraceApps/nutritrace/issues/236)). A night split where you woke counted only its last piece; a night recorded by two apps counts once, and a nap no longer replaces it. Thanks @kgenerozov for the report and the analysis behind it.
+- **Food logged through MCP, the API or a diet import no longer appears twice after you save the day** ([#239](https://github.com/TraceApps/nutritrace/issues/239)). Entries already stored are repaired when the server starts; duplicates that already happened need deleting by hand. Thanks @Chrristin for the report and the fix it builds on.
+- **Changing a diary entry from a household unit to grams converts instead of multiplying** ([#237](https://github.com/TraceApps/nutritrace/issues/237)). A slice of bread changed to 66 g read about 8,700 kcal. Thanks @herver1971 for the report, the root cause and the test.
+- **The top of the Diary is one solid block.** Entries no longer show through between the date bar, the week strip and the Mark Day Complete bar; that bar no longer runs into the date bar, reads in full on phones, and the week strip's day preview opens above it.
+- **A recipe photo changed while editing shows in the web diary** ([#261](https://github.com/TraceApps/nutritrace/pull/261), [#262](https://github.com/TraceApps/nutritrace/pull/262)). Photos already saved the wrong way are converted when the server starts. Thanks @librarian.
+- **A saved meal that logs a food you've since deleted names those ingredients**, and one failing ingredient no longer drops the rest of the meal.
+- **Refresh from OFF brings a food up to date with Open Food Facts** ([#241](https://github.com/TraceApps/nutritrace/issues/241)), products with both "as sold" and "as prepared" values come in "as sold", and products with no values no longer come in as 0 kcal. Thanks @fatman00 for the report.
+- **Open Food Facts products with no name in their main language are found** ([#238](https://github.com/TraceApps/nutritrace/issues/238)), and show in your chosen Open Food Facts language when they have one. Thanks @meggiman for the report.
+- **Searches and scans on a local Open Food Facts mirror no longer fail now and then**, and Trace, Smart Log and the meal editor use a product's real values when a search result leaves them out.
+- **Opening a recipe or food from CookTrace, Mealie, Open Food Facts or USDA no longer shows the one you opened before** ([#260](https://github.com/TraceApps/nutritrace/issues/260)). Thanks @herver1971.
+- **Trace shows your newest messages when you open it.** Past 100 messages, the latest ones never appeared.
+- **Trace works with OpenAI-compatible endpoints that stream unless told not to** ([#258](https://github.com/TraceApps/nutritrace/issues/258)) **and with ones that check every field** ([#259](https://github.com/TraceApps/nutritrace/issues/259)). Thanks @jsapede for the reports.
+- **Trace can create a food without adding it to your diary.**
+- **The Trace button no longer covers what's on top of it, and the Copy sheet's buttons no longer sit under Android's navigation bar** ([#233](https://github.com/TraceApps/nutritrace/issues/233)). Thanks @nomad64 for the report.
+- **SSO with an email that already has an account no longer creates a second account.** When the provider doesn't mark the email verified (Authentik's default since 2025.10), sign-in is refused with a pointer to link the provider from your profile.
+- **SSO works with Authelia 4.39 and later out of the box**, the SSO callback works at `/api/oidc/callback` and without the provider number, and `OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings.
+- **Signing in on a plain-HTTP address explains what's wrong instead of looping**, and the app no longer loads behind the sign-in screen.
+- **The weekly summary email is sent.** It failed every time, so no one received it.
+- **"A New Version Is Available" on the web says what it means, and Reload works.**
+- **The installed app keeps working when NutriTrace is served from a subpath** ([#250](https://github.com/TraceApps/nutritrace/pull/250)). Thanks @kgenerozov.
+- **A file of the wrong type, or over the size limit, is turned away with a clear message** instead of a server error.
+- **Settings pages line up with the section list, and the list keeps its place**, on desktop and foldables.
+
+### Translations
+
+- **Spanish**, translated almost in full on [Weblate](https://hosted.weblate.org/projects/nutritrace) by @herver1971. Choose it in Settings, Regional & Units, Language.
+- **Russian**, translated almost in full on Weblate by Михаил Малов.
+- **German** is complete again, and the diagnostics note about GitHub issues now translates as a whole sentence ([#253](https://github.com/TraceApps/nutritrace/pull/253)). Thanks @KAiSER086.
+
+A few newer labels show in English until they're translated.
+
+### Security
+
+- **Sync can no longer change another account's data.** Any account could overwrite or delete another account's foods, meals, activities or fasts through sync by naming their ids.
+- **Signing in to another account on the same phone no longer shows or sends the previous account's data**, its settings and unsaved drafts included. If that account left changes that never synced, the app asks before discarding them.
+- **The server answers as the account whose token a request carries, never as the one a leftover sign-in cookie names.** After an account switch on Android, Health Connect data could go to the previous account. The app now forgets NutriTrace's sign-in cookie on every switch and sign-out, and keeps other sites' cookies, such as a sign-in gate in front of your server.
+- **Diary items no longer show another account's food details.** Only your own foods, foods shared with you, and ingredients of meals shared with you fill an item in.
+- **The CookTrace and Mealie connections forward only the requests the app makes.** Any account could send any request through them, including to other services on your network.
+- **A photo given as a link is only kept when it is an image**, downloads never reach cloud-metadata addresses and check every redirect, and only an admin can download from your network unless `ALLOW_PRIVATE_IMAGE_URLS=1`. Push notifications and `/api/proxy` follow the same rules.
+- **The image proxy passes images only**, and images can't act as a page.
+- **A password reset link can no longer be pointed at someone else's site.** Reset, invite and sharing emails link to `PUBLIC_URL` when set, or to an address an admin uses.
+- **Names in emails can no longer carry markup.** Everything an email shows is escaped.
+- **The Android app's SSO sign-in no longer passes the session token through the `nutritrace://` link.** It carries a single-use code only the app that started the sign-in can redeem.
+- **Uploaded files get unguessable names.**
+- **Dependency updates:** Capacitor 8.5.3 in the Android app ([GHSA-rvm3-566m-v7fv](https://github.com/advisories/GHSA-rvm3-566m-v7fv), critical: remote content could be loaded as part of the app), proxy-addr 2.0.8 ([GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h), critical; NutriTrace trusts no proxies, so it wasn't exposed), nodemailer 10.0.12 ([GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v)), @modelcontextprotocol/sdk 1.32.1 ([GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h); NutriTrace uses only its server side), undici 6.29.0 ([GHSA-3wwx-pv8p-q78v](https://github.com/advisories/GHSA-3wwx-pv8p-q78v)) and ip-address 10.7.2 ([GHSA-2vr4-cq9g-pvrc](https://github.com/advisories/GHSA-2vr4-cq9g-pvrc)), plus build tools. `npm audit` reports 0 vulnerabilities for the app and the server.
+
+---
+
+## [1.4.0-dev05] - 2026-10-08 (pre-release)
+
+A dev pre-release of the 1.4.0 minor. Russian, Android sync rebuilt so accounts, offline edits and deletes stay right, SSO fixes, the weekly summary email, and security updates.
+
+### Added
+
+- **Russian.** NutriTrace can be used in Russian: pick it in Settings → Regional & Units. Translated almost in full by Михаил Малов on Weblate; only the new account-switch prompts are still in English. Thank you!
+
+### Changed
+
+- **Trace's attach button offers Camera or Gallery on phones and in the Android app** ([#254](https://github.com/TraceApps/nutritrace/pull/254)), like the other Trace apps. On a computer it opens the file picker. Thanks @librarian.
+
+### Fixed
+
+- **The weekly summary email is sent.** It failed every time, so no one received it. With Weekly Summary on, it now arrives with the notification, and its weight change counts weights logged in the diary.
+- **SSO with an email that already has an account no longer creates a second account.** When the provider doesn't mark the email verified (Authentik's default since 2025.10), sign-in is refused with a pointer to link the provider from your profile.
+- **SSO works with Authelia 4.39 and later out of the box.** Email, username and groups are read from userinfo when the ID token leaves them out.
+- **The SSO callback works without the provider number, and at `/api/oidc/callback`**, the address older docs gave. Both ended on a blank page.
+- **`OIDC_ENABLE_EMAIL_PASSWORD_LOGIN` works for providers added in Settings.**
+- **Signing in on a plain-HTTP address explains what's wrong instead of looping**, links to the fix (`INSECURE_COOKIES=1`), and says so in the server log.
+- **The app no longer loads behind the sign-in screen.** It waits to learn who is signed in.
+- **The installed app keeps working when NutriTrace is served from a subpath** ([#250](https://github.com/TraceApps/nutritrace/pull/250)). Thanks @kgenerozov.
+- **Recipe servings set in the Android app survive syncing** ([#255](https://github.com/TraceApps/nutritrace/pull/255)). Thanks @librarian.
+- **Editing a food or recipe in the Android app no longer clears its photo** ([#256](https://github.com/TraceApps/nutritrace/pull/256)). Thanks @librarian.
+- **The diagnostics note about GitHub issues translates as a whole sentence** ([#253](https://github.com/TraceApps/nutritrace/pull/253)), and the German translation is complete. Thanks @KAiSER086.
+- **Trace works with OpenAI-compatible endpoints that stream unless told not to** ([#258](https://github.com/TraceApps/nutritrace/issues/258), reported by @jsapede). Chat and Smart Log failed with "Unexpected non-whitespace character after JSON".
+- **Trace's tools work with OpenAI-compatible endpoints that check every field** ([#259](https://github.com/TraceApps/nutritrace/issues/259), reported by @jsapede).
+- **Opening a recipe or food from CookTrace, Mealie, Open Food Facts or USDA no longer shows the one you opened before** ([#260](https://github.com/TraceApps/nutritrace/issues/260)). Unsaved typing still comes back when you reopen the same item. Thanks @herver1971.
+- **The Diary's Mark Day Complete bar sits below the date bar** instead of running into it, at every screen size, in the browser and the Android app.
+- **Syncing the Android app no longer wipes the day's note or a food's CookTrace origin.** The newer note wins, a cleared note included. Older servers and older apps keep working.
+- **Foods and meals edited offline in the Android app reach the server after the app restarts.**
+- **Editing or deleting a food or meal in the Android app before it syncs no longer changes a different one.** Diary items logged from it link to it once it syncs.
+- **Clear all data reaches the Android app**, wellness, workouts and fasts included, and clears fasts on the server too.
+- **A phone whose clock is off no longer decides which edit wins.** The newer edit wins by the server's clock, and a phone whose edit lost gets the winning copy.
+- **Marking a day or meal complete in the Android app while offline sticks**, and an older change no longer undoes a newer one made elsewhere.
+- **A setting changed in the Android app before it reached the server is no longer set back** when the app loads your settings. It goes up with the next sync.
+- **Connecting the Android app to a server with Upload or Merge also sends recipes, activities, fasts and Health Connect data, without duplicates**, even when the upload runs again. Anything that doesn't go up goes with the next sync.
+
+### Security
+
+- **Sync can no longer change another account's data.** Any account could overwrite or delete another account's foods, meals, activities or fasts through sync by naming their ids.
+- **Diary items no longer show another account's food details.** Only your own foods, foods shared with you, and ingredients of meals shared with you fill an item in.
+- **The image proxy passes images only**, and images can't act as a page. It passed through whatever came back from the app's own address, before sign-in.
+- **A password reset link can no longer be pointed at someone else's site.** Reset, invite and sharing emails link to `PUBLIC_URL` when set, or to an address an admin uses, and keep the `BASE_URL` subpath.
+- **Names in emails can no longer carry markup.** Everything an email shows is escaped.
+- **The CookTrace and Mealie connections forward only the requests the app makes.** Any account could send any request through them, including to other services on your network.
+- **A photo given as a link is only kept when it is an image.** Downloads never reach cloud-metadata addresses and check every redirect; only an admin can download from your network, other accounts only with `ALLOW_PRIVATE_IMAGE_URLS=1`.
+- **Push notifications never reach cloud-metadata addresses** and follow redirects only on the same server. The open `/api/proxy` checks every redirect too.
+- **The Android app's SSO sign-in no longer passes the session token through the `nutritrace://` link.** It carries a single-use code only the app that started the sign-in can redeem.
+- **Uploaded files get unguessable names.**
+- **Signing in to another account on the same phone no longer shows or sends the previous account's data**, its settings and unsaved drafts included. If that account left changes that never synced, the app asks before discarding them. The same user id on another server counts as another account.
+- **The server answers as the account whose token a request carries, never as the one a leftover sign-in cookie names.** After an account switch on Android, Health Connect data could go to the previous account. The app also forgets NutriTrace's sign-in cookie on every switch, connect, disconnect and sign-out, and keeps other sites' cookies, such as a sign-in gate in front of your server.
+- **Capacitor** bumped 8.3.4 to 8.5.3 in the Android app, closes [GHSA-rvm3-566m-v7fv](https://github.com/advisories/GHSA-rvm3-566m-v7fv) (critical: remote content could be loaded as part of the app through Capacitor's internal HTTP proxy path).
+- **proxy-addr** bumped 2.0.7 to 2.0.8 on the server, closes [GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h) (critical: an IPv4-mapped IPv6 address could pass as a trusted proxy). NutriTrace trusts no proxy addresses, so it wasn't exposed.
+- **@modelcontextprotocol/sdk** bumped 1.30.0 to 1.32.1, closes [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h) (high: its OAuth client could send credentials to a server an MCP server picked). NutriTrace only uses its MCP server side.
+- **brace-expansion** and **source-map-js** bumped, closing [GHSA-q2hr-2g5m-vwhr](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr), [GHSA-qhr7-859c-m2p7](https://github.com/advisories/GHSA-qhr7-859c-m2p7), [GHSA-6j4f-fj2g-mc7p](https://github.com/advisories/GHSA-6j4f-fj2g-mc7p) and [GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q) (high: denial of service). Both are only used to build the app.
+- `npm audit` reports 0 vulnerabilities for the app and the server.
+
+---
+
+## [1.4.0-dev04] - 2026-09-29 (pre-release)
+
+A dev pre-release of the 1.4.0 minor. Spanish, a Support page in Settings, uploads that say what went wrong, and security updates.
+
+### Added
+
+- **Spanish.** NutriTrace can be used in Spanish: pick it in Settings → Regional & Units. Translated almost in full by @herver1971 on Weblate; only the new Support page is still in English. Thank you!
+- **Settings has a Support page**, next to About: Ko-fi and GitHub Sponsors, plus free ways to help (star the repo, report a bug, translate). It replaces the support row that used to sit in About.
+- **About links to the TraceApps family.**
+
+### Changed
+
+- **The in-app updater reuses an update it already downloaded.** Coming back to Updates goes straight to installing instead of downloading the whole APK again, and the button says Install. Older downloads are cleared so they stop piling up on the phone.
+
+### Fixed
+
+- **A file of the wrong type, or over the size limit, is turned away with a clear message.** Uploading one answered with a server error instead of saying what was wrong. A file that is too large now says what the limit is.
+- **Settings pages line up with the section list** on desktop and foldables. Every page started 12px below the list beside it.
+- **The Settings section list keeps its place** on desktop and foldables. Opening a section from the Settings page scrolled the list beside it back to Profile.
+
+### Security
+
+- **undici** bumped 6.28.0 to 6.29.0, closes [GHSA-3wwx-pv8p-q78v](https://github.com/advisories/GHSA-3wwx-pv8p-q78v) (moderate: a WebSocket server could crash the process). NutriTrace opens no WebSocket connections.
+- **ip-address** bumped 10.4.0 to 10.7.2, closes [GHSA-2vr4-cq9g-pvrc](https://github.com/advisories/GHSA-2vr4-cq9g-pvrc) (moderate: one IPv6 range was not recognized as local). It only comes in through the MCP server's rate limiter; NutriTrace's own SSRF guard does not use it.
+- **nodemailer** bumped 9.1.1 to 10.0.12 on the server, closes [GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v) (moderate: separate mail transports could share one TLS server name). Removed from the web app's own dependencies, where nothing used it.
+- `npm audit` reports 0 vulnerabilities for the app and the server.
+
+---
+
+## [1.4.0-dev03] - 2026-09-27 (pre-release)
+
+Third dev pre-release of 1.4.0: preliminary foldable support, search that ignores accents, and Open Food Facts products that come in with the right values.
+
+### Added
+
+- **Preliminary foldable support.** NutriTrace knows where a foldable's crease is, in the Android app and in browsers that report it, and lays out around it:
+  - Half open like a book, Settings puts its section list on one side and the section on the other, and the day's meals fall onto the two pages.
+  - Dialogs, sheets, pickers, menus and Trace keep off the fold, and a menu opened near it takes the roomier side.
+  - In laptop posture, Trace sits on the half lying flat, leaving the day readable on the half standing up.
+  - Opened flat, or on any screen that size, the wider layouts turn on: Settings in two panes, Foods two cards across, side rails on Diary and Goals, the food and meal editors side by side, and Wellness insights alongside.
+  - Diagnostics shows what the hinge reports.
+
+  Charts and photos still cross the fold, since an opened foldable is a bigger screen to read them on.
+
+### Changed
+
+- **Trace's new-food card no longer picks a meal for you.** It starts on Don't Log, so saving a food touches only your foods, and Save & Add to Diary turns on once you choose a meal under Log to.
+
+### Fixed
+
+- **Search ignores accents.** "platano" finds "Plátano" and "cafe" finds "Café" wherever you search: your foods, meals and recipes, activities, Settings, Smart Log, Trace, the public API and MCP, offline too. A local Open Food Facts mirror finds accented names as well. Text without accents matches as before.
+- **Searches and scans on a local Open Food Facts mirror no longer fail now and then.** Two at once could fail, and the server then asked Open Food Facts instead, or answered nothing when air-gapped.
+- **Refresh from OFF brings a food up to date with Open Food Facts** ([#241](https://github.com/TraceApps/nutritrace/issues/241)). It only filled empty fields, and a server with a local Open Food Facts mirror answered from its older copy. It now updates the values Open Food Facts has, converted to the food's portion. Thanks @fatman00 for the report.
+- **Open Food Facts products with both "as sold" and "as prepared" values come in "as sold"** ([#241](https://github.com/TraceApps/nutritrace/issues/241)). Open Food Facts' API gave NutriTrace only the "as prepared" values for these, such as canned beans, drink powders and baby formula.
+- **Open Food Facts products with no values no longer come in as 0 kcal** ([#241](https://github.com/TraceApps/nutritrace/issues/241)). Search results say "No values listed", the product can't be added to the diary or a meal until it has values, and Trace and Smart Log say so. If Open Food Facts only has "as prepared" values, the food editor offers them and notes it on the food.
+- **Trace, Smart Log and the meal editor use a product's real values when a search result leaves them out.** They used to save it as 0 kcal.
+
+### Security
+
+- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, there are no open Dependabot alerts, and the only new dependency is androidx.window 1.3.0 on Android, which tells the app where a foldable's crease is.
+
+---
+
+## [1.4.0-dev02] - 2026-09-25 (pre-release)
+
+Second dev pre-release of 1.4.0, all fixes: food logged through MCP no longer doubles when you save the day, Health Connect counts a whole night's sleep, and more fixes from tester reports.
+
+### Changed
+
+- Chinese (Simplified) translation updated through Weblate.
+
+### Fixed
+
+- **Food logged through MCP, the API or a diet import no longer appears twice after you save the day** ([#239](https://github.com/TraceApps/nutritrace/issues/239)). Saving the day in the app kept a second copy of each entry, and those entries could not be deleted from the app. Entries already stored are repaired when the server starts, but duplicates that already happened need deleting by hand. Restoring an old export is fixed too. Thanks @Chrristin for the report and the fix it builds on.
+- **Health Connect counts every part of a night's sleep, and sleep stages show up** ([#236](https://github.com/TraceApps/nutritrace/issues/236)). Samsung Health splits a night wherever you woke, and only the last piece counted, so 00:46-05:00 plus 05:45-06:53 read as 68 minutes. Every piece counts now, a night recorded by two apps counts once, and a nap no longer replaces it. Deep, Light, REM and the Sleep Quality cards now fill in when you sync from the app, not just from the hourly background sync. Thanks @kgenerozov for the report and the analysis behind it.
+- **Changing a diary entry from a household unit to grams converts instead of multiplying** ([#237](https://github.com/TraceApps/nutritrace/issues/237)). A slice of bread changed to 66 g read about 8,700 kcal instead of 159. Entries already saved on Android are fixed too. Thanks @herver1971 for the report, the root cause and the test.
+- **Open Food Facts products with no name in their main language are found** ([#238](https://github.com/TraceApps/nutritrace/issues/238)). They were reported as missing even with a name in another language, and some dropped out of searches. If you picked a language other than English for Open Food Facts, names show in that language when a product has one. Thanks @meggiman for the report.
+- **Trace can create a food without adding it to your diary.** Asking it to save a food and not log it got you a diary entry anyway. It now shows the review card with Save to Foods.
+- **A saved meal that logs a food you've since deleted now tells you which ingredients those are**, so you can fix the meal.
+- **One ingredient failing no longer drops the rest of the meal.** Every ingredient is attempted, and anything that didn't make it is named.
+
+### Security
+
+- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, there are no open Dependabot alerts, and no dependencies changed since 1.4.0-dev01.
+
+---
+
+## [1.4.0-dev01] - 2026-09-22 (pre-release)
+
+First dev pre-release of the 1.4.0 minor. The headline is offline mode: your diary and your own foods are kept in the browser, what you log offline goes up on its own, and the installed app opens in a dead zone. Also in: body composition through MCP and the REST API, update checks that are off until you ask for them, and fonts served by your own instance instead of Google.
+
+### Added
+
+- **Body composition through MCP and the REST API** ([#234](https://github.com/TraceApps/nutritrace/pull/234)). A new `get_body_composition` read tool returns your saved scale readings over a date range, keeping each source separate rather than merging them. Also at `/api/v1/body-composition` when the Public API is on. Contributed by @kgenerozov. [MCP tools](https://traceapps.github.io/docs/reference/mcp-tools/).
+- **Offline mode** ([#211](https://github.com/TraceApps/nutritrace/issues/211)). Your diary and your own foods are kept in the browser, so the app opens in a dead zone, the day still adds up, and what you log goes up on its own when the connection returns, merged the same way the Android app's changes are. The menu button shows an amber cloud while anything is waiting. Works the same on iPhone, since it doesn't rely on Background Sync. [What works offline](https://traceapps.github.io/docs/nutritrace/features/#offline).
+- **What else works in offline mode** ([#211](https://github.com/TraceApps/nutritrace/issues/211)). Your own foods, meals and recipes, manual activity, settings and goals, the fasting timer, your profile and picture, and the wellness figures you have already seen. Anything you make offline can be used straight away and keeps its identity when the queue goes up.
+- **Offline mode says what it cannot reach** ([#211](https://github.com/TraceApps/nutritrace/issues/211)). Searches, lookups, photos, the wellness providers, Trace and anything admin need a connection, and each says so where you would otherwise see an empty screen or a wrong answer. If your server refuses what is waiting, it says why and keeps trying.
+
+### Changed
+
+- **Update checks are off until you turn them on, and your server does the asking.** Every browser and phone used to ask GitHub directly every 4 hours. Setup now asks, skipping the question leaves checks off, and a fresh install contacts nothing on its own. Existing installs keep checking as before. `UPDATE_CHECK=off` keeps them off for good. Reported on r/selfhosted.
+
+### Fixed
+
+- **"A New Version Is Available" on the web now says what it means, and Reload works.** The browser banner used the Android wording and its Reload button could do nothing at all, and a tab left open never noticed a new version. Same fix in all four Trace apps.
+- **The Copy sheet's buttons no longer sit under Android's navigation bar** ([#233](https://github.com/TraceApps/nutritrace/issues/233)). That one sheet overwrote the spacing that keeps content clear of the bar. Thanks @nomad64 for the report.
+- **The Trace button no longer covers what's on top of it** ([#233](https://github.com/TraceApps/nutritrace/issues/233)). It floated above every sheet and dialog, so wherever you had dragged it, it could sit over a title or a button. Thanks @nomad64 for the report.
+- **Something deleted while online stays deleted when the connection goes.** An older copy of the list could be carried over from before you signed in, so what you removed came back the moment you were offline. Reported in testing.
+- **A photo kept offline is scaled to something a request comfortably carries**, so your server never turns it away after you have been told it was saved.
+- **Adding a photo with no connection no longer fails on an installed app.** The part of the app that keeps a photo was fetched from your server at the exact moment there was nothing to fetch from. It travels with the app now.
+- **The copy this browser keeps now has a ceiling**, and if storage runs out, what you have changed is kept and the copy makes way for it, rather than the app refusing to log anything offline.
+- **Work queued while a sync was running no longer waits for you to do something else** before it goes up, and a change made before the page had built its connection now carries the token your server asks for.
+- **A picture kept offline holds its transparency, and an unusual camera format is converted rather than lost.** A drawing could come back with a black background, and an iPhone's HEIC would have been refused on arrival without saying so.
+- **What a row created offline became is now remembered on disk**, not just while the page stays open, so a sync that stopped halfway can't leave work queued against an id your server never had.
+- **A profile saved before the app had finished checking your server no longer goes to the wrong place.** Your name and picture could be written to local settings instead of your account.
+- **Fonts are served by your own instance.** The app loaded Inter and the icon font from Google on every page load, so Google saw the address of everyone who opened it, whatever your settings said. They are split by script, so a page still downloads only the alphabets it needs. Reported on r/selfhosted.
+
+### Security
+
+- No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts. The privacy changes above (fonts, update checks) came out of a review on r/selfhosted.
+---
+
 ## [1.3.1] - 2026-09-20
 
 Patch release. A Default Field setting for the add and edit sheets, and a round of Android fixes: the back button closes what's open first, dragging the Trace button no longer refreshes the page, Settings categories open at their top, and sheets and dialogs stay below the status bar.
@@ -32,8 +296,6 @@ Patch release. A Default Field setting for the add and edit sheets, and a round 
 ### Security
 
 - No security fixes this cycle. `npm audit` reports 0 vulnerabilities for the app and the server, and there are no open Dependabot alerts.
-
-NutriTrace is free and always will be. The [iOS fund](https://ko-fi.com/traceapps) is raising $1,300 toward a Mac and an iPhone, so the Trace apps can run properly on iPhone.
 
 ---
 
@@ -1943,8 +2205,6 @@ Aggregate feature surface (everything below is shipped):
 
 ### Fixed
 - **Trace FAB invisible on desktop PWA after viewport changes.** The FAB position is persisted in `localStorage` (`wl:aiFabPos`), but clamping was only applied during a drag — never on load or window resize. A position dragged on a wider monitor (or saved at a different viewport size) could end up off-screen on a smaller one, with no way to recover short of clearing localStorage. Mobile devices weren't affected because they have separate localStorage origins. Fix: added `_clampFabPos()` helper that clamps to current viewport bounds; runs on mount (writes back the corrected value) and inside `_updatePanelPos` on every resize. LiftTrace already had this guard — NutriTrace was the lone outlier.
-
-
 
 ### Added
 - **Collapsible "Yesterday's Meals" + "Saved Meals" sections** in Foods → Meals tab. Each section header is now a clickable row with a chevron; collapse state persists per-section (`foodsYesterdayCollapsed`, `foodsSavedCollapsed`, both default expanded). The new "Saved Meals" header only renders when "Yesterday's Meals" is also visible — acts as a divider between the two parallel sections rather than a redundant label on a single tab. Search behavior unchanged: typing hides both headers and results take over; user-set collapse state preserved across search clears.

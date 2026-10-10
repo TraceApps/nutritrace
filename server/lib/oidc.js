@@ -10,6 +10,7 @@
  * secrets are stored encrypted via server/lib/token-crypto.js.
  */
 import { Issuer, generators, custom } from 'openid-client';
+import crypto from 'crypto';
 import db from '../db.js';
 import { encrypt, decrypt } from './token-crypto.js';
 import { logger } from '../logger.js';
@@ -102,7 +103,11 @@ export async function getClient(providerId) {
     response_types: _safeJsonArray(provider.response_types),
     token_endpoint_auth_method: provider.token_endpoint_auth_method,
     id_token_signed_response_alg: provider.id_token_signed_response_alg,
-    userinfo_signed_response_alg: provider.userinfo_signed_response_alg,
+    // Providers are stored with 'none' here, meaning a plain JSON userinfo
+    // response. openid-client reads any value as "expect a signed JWT", so
+    // only pass a real algorithm through.
+    ...(provider.userinfo_signed_response_alg && provider.userinfo_signed_response_alg !== 'none'
+      ? { userinfo_signed_response_alg: provider.userinfo_signed_response_alg } : {}),
   });
 }
 
@@ -113,11 +118,12 @@ export function invalidateDiscovery(providerId) {
 
 // ── PKCE / state persistence (reuses oauth_state) ─────────────────────────
 
-export function persistState({ providerId, redirectUri, returnPath, codeVerifier, state, nonce, mobile, linkUserId }) {
+export function persistState({ providerId, redirectUri, returnPath, codeVerifier, state, nonce, mobile, linkUserId, appChallenge }) {
   const expiresAt = new Date(Date.now() + STATE_TTL_MS).toISOString();
   const data = { providerId, redirectUri, returnPath, codeVerifier, nonce };
   if (mobile)      data.mobile = true;
   if (linkUserId)  data.linkUserId = linkUserId;
+  if (appChallenge) data.appChallenge = appChallenge;
   db.prepare(
     `INSERT OR REPLACE INTO oauth_state (state, user_id, provider, data, expires_at)
      VALUES (?, ?, ?, ?, ?)`
@@ -142,6 +148,45 @@ export function consumeState(state) {
   catch { return null; }
 }
 
+// ── Native app hand-off ───────────────────────────────────────────────────
+// The Android app finishes SSO through a nutritrace:// deep link, which any
+// installed app can register for. Instead of the session token, that link
+// carries a short-lived single-use code, and only the app that started the
+// sign-in can swap it for the token: it sent the SHA-256 of a secret
+// (app_challenge) when it opened the login URL, and must present the secret
+// itself (verifier) with the code. Same idea as PKCE, one hop further.
+
+const HANDOFF_TTL_MS = 2 * 60 * 1000;
+const APP_CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;   // base64url SHA-256
+
+export function isValidAppChallenge(v) {
+  return typeof v === 'string' && APP_CHALLENGE_RE.test(v);
+}
+
+export function persistHandoff({ appChallenge, token, idTokenHint, providerId }) {
+  const code = crypto.randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + HANDOFF_TTL_MS).toISOString();
+  db.prepare(
+    `INSERT INTO oauth_state (state, user_id, provider, data, expires_at) VALUES (?, NULL, 'oidc-handoff', ?, ?)`
+  ).run(code, JSON.stringify({ appChallenge, token, idTokenHint: idTokenHint || null, providerId }), expiresAt);
+  return code;
+}
+
+/** Single use: the row is deleted whether or not the verifier matches. */
+export function consumeHandoff(code, verifier) {
+  if (typeof code !== 'string' || typeof verifier !== 'string' || !code || !verifier) return null;
+  const row = db.prepare(`SELECT * FROM oauth_state WHERE state = ? AND provider = 'oidc-handoff'`).get(code);
+  if (!row) return null;
+  db.prepare(`DELETE FROM oauth_state WHERE state = ?`).run(code);
+  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  let data;
+  try { data = JSON.parse(row.data); } catch { return null; }
+  const expected = Buffer.from(String(data.appChallenge || ''), 'utf8');
+  const actual = Buffer.from(crypto.createHash('sha256').update(verifier).digest('base64url'), 'utf8');
+  if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return null;
+  return data;
+}
+
 // ── Auth flow helpers ─────────────────────────────────────────────────────
 
 export function generateAuthChecks() {
@@ -158,8 +203,9 @@ export function generateAuthChecks() {
 
 /**
  * Map OIDC claims to a NutriTrace user. Implements the resolved
- * email-collision policy: auto-link only when email_verified === true
- * AND the provider has auto_register=1.
+ * email-collision policy: link to an existing account by email only when
+ * the IdP says email_verified === true and auto-link is on; a matching email
+ * that can't be linked is refused (never given a second account).
  *
  * Returns: { user, created, linked } — or throws with a user-facing message.
  */
@@ -206,12 +252,17 @@ export function resolveUser(provider, claims) {
       return { user: localByEmail, created: false, linked: true };
     }
   }
-  // 2b. Email collision but auto-link is off → reject so the user can link
-  // via Profile after a password login.
+  // 2b. Email matches an existing account but we may not link it
+  // automatically (auto-link off, or the IdP didn't vouch for the email).
+  // Refuse and point at the manual link, instead of falling through to
+  // auto-register, which would create a second account with the same
+  // email and sign the person into that one instead of their own.
+  // Authentik >= 2025.10 sends email_verified=false by default, so this
+  // is the common case there.
   if (email) {
     const collision = db.prepare(`SELECT id FROM users WHERE email = ?`).get(email);
-    if (collision && !autoLink) {
-      throw new Error(`Your ${provider.display_name || 'OIDC'} account matches an existing NutriTrace user. Sign in once with your password and link this provider from Profile → Linked accounts. After that, SSO will sign you in directly.`);
+    if (collision && (!autoLink || !emailVerified)) {
+      throw new Error(`Your ${provider.display_name || 'OIDC'} account matches an existing NutriTrace user. Sign in the usual way once, then link this provider from Profile → Linked Accounts. After that, SSO will sign you in directly.`);
     }
   }
 

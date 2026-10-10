@@ -7,7 +7,10 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { Nutrition } from '../lib/nutrition.js';
   import { mealNames, energyUnit, goals, weightUnit, heightUnit, lengthUnit, distUnit, tempUnit, waterUnit, bulkSet } from '../stores/settings.js';
-  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState, signInProblem } from '../stores/auth.js';
+  import { get } from 'svelte/store';
+  import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
+  import CookieWarning from '../components/ui/CookieWarning.svelte';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { showError } from '../stores/toast.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
@@ -29,6 +32,16 @@
   const _isPwa               = !isNative;
   const _forceAccountCreation = _isPwa && $setupRequired;
 
+  // A new account signs straight in, so a plain-HTTP page with an HTTPS-only
+  // cookie would loop here too. Say so on the account step (cookie-check.js).
+  let _authStatus = null;
+  if (_isPwa) {
+    fetch(apiUrl('/api/auth/status'), { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { _authStatus = d; if (cookieBlockedByHttp(d)) signInProblem.set('http'); })
+      .catch(() => {});
+  }
+
   // Steps: usermgmt (optional on native, mandatory on PWA), welcome, units, ...
   // Native local mode: drops usermgmt (no auth needed) but inserts a single
   // 'name' step right after welcome so we can still personalize the UI
@@ -37,12 +50,30 @@
   // step gets inserted so they can still set a display name. Multi-user
   // doesn't need it — the admin's full_name was captured on the usermgmt
   // step itself.
-  const BASE_STEPS = ['welcome','units','gender','dob','height','weight','target','activity','integrations','notifications','summary'];
+  const BASE_STEPS = ['welcome','units','gender','dob','height','weight','target','activity','integrations','notifications','updates','summary'];
   $: ALL_STEPS = _isNativeLocal
-    ? ['welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','summary']
+    ? ['welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','updates','summary']
     : (enableUserMgmt
         ? ['usermgmt', ...BASE_STEPS]
-        : ['usermgmt', 'welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','summary']);
+        : ['usermgmt', 'welcome', 'name', 'units','gender','dob','height','weight','target','activity','integrations','notifications','updates','summary']);
+
+  // ── Update checks ────────────────────────────────────────────────────────
+  // Off unless it's answered here, so a new install contacts nothing on its
+  // own. Skipping the wizard leaves it off too, and Settings, Updates shows
+  // a one-time note saying so. An instance that already existed keeps
+  // checking (server/lib/update-check.js).
+  let updateChecks = false;
+
+  async function _saveUpdateChoice() {
+    try {
+      const { setAutoCheck } = await import('../lib/updates.js');
+      setAutoCheck(updateChecks);
+    } catch { /* storage unavailable */ }
+    try {
+      const { setServerUpdateCheck } = await import('../lib/updates.js');
+      await setServerUpdateCheck(updateChecks);
+    } catch { /* single-user or offline: the device answer still stands */ }
+  }
 
   let step = 0;
   let dir  = 1;
@@ -258,6 +289,13 @@
           if (!res.ok) { umError = data.error || 'Registration failed'; umLoading = false; return; }
           localStorage.setItem('wl:userId', data.user.id);
           await loadAuthState();
+          // The account exists, but the browser didn't keep the sign-in
+          // cookie, so every later step would fail. Stop and say why.
+          if (_isPwa && !get(currentUser)) {
+            signInProblem.set(droppedCookieReason(_authStatus));
+            umLoading = false;
+            return;
+          }
         } catch(e) {
           umError = 'Could not connect to server';
           umLoading = false;
@@ -281,6 +319,10 @@
     }
     if (currentStepName === 'notifications') {
       await _saveNotifications();
+    }
+
+    if (currentStepName === 'updates') {
+      await _saveUpdateChoice();
     }
 
     dir = 1;
@@ -490,6 +532,9 @@
 
         {#if enableUserMgmt}
           <div class="um-form" transition:fly={{ y: 10, duration: 200 }}>
+            {#if $signInProblem}
+              <CookieWarning reason={$signInProblem} />
+            {/if}
             <p class="um-section-label">{$_('wizard.usermgmt.admin_section')}</p>
 
             <div class="form-row-2">
@@ -821,6 +866,27 @@
         </div>
 
       <!-- ── Notifications ── -->
+      {:else if currentStepName === 'updates'}
+        <div class="step-hero compact">
+          <span class="material-symbols-rounded hero-icon">system_update</span>
+          <h1 class="step-title">{$_('wizard.updates.title')}</h1>
+          <p class="step-desc">{$_('wizard.updates.desc')}</p>
+        </div>
+
+        <div class="int-cards">
+          <div class="int-card" class:int-card-skipped={!updateChecks}>
+            <div class="int-card-head">
+              <div class="int-card-icon">⬆️</div>
+              <div class="int-card-info">
+                <div class="int-card-title">{$_('wizard.updates.toggle')}</div>
+                <div class="int-card-sub">{$_('wizard.updates.toggle_sub')}</div>
+              </div>
+              <Toggle checked={updateChecks} on:change={e => updateChecks = e.detail} />
+            </div>
+          </div>
+          <p class="step-note">{$_('wizard.updates.note')}</p>
+        </div>
+
       {:else if currentStepName === 'notifications'}
         <div class="step-hero compact">
           <span class="material-symbols-rounded hero-icon">notifications</span>

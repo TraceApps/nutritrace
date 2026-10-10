@@ -1,0 +1,370 @@
+{
+  "nav": {
+    "diary": "Diário",
+    "foods": "Alimentos",
+    "statistics": "Estatísticas",
+    "goals": "Metas",
+    "settings": "Configurações"
+  },
+  "common": {
+    "saving": "Salvando…",
+    "cancel": "Cancelar",
+    "signing_out": "Saindo…",
+    "back": "Voltar",
+    "close": "Fechar",
+    "errors": {
+      "network_error_upload": "Erro de rede no upload",
+      "name_required": "Nome necessário"
+    },
+    "experimental": "Experimental",
+    "save": "Salvo",
+    "delete": "Apagar"
+  },
+  "routes": {
+    "statistics": {
+      "title": "Estatísticas"
+    },
+    "diary": {
+      "title": "Diário"
+    },
+    "foods": {
+      "title": "Alimentos"
+    },
+    "goals": {
+      "title": "Metas"
+    },
+    "settings": {
+      "title": "Configuração"
+    }
+  },
+  "sync": {
+    "sync_offline": "Off-line",
+    "retry": "Tentar novamente",
+    "retrying": "Tentando…",
+    "connected": "Conectado",
+    "server_unavailable": "Servidor indisponível",
+    "error_title": "Sincronização falhou",
+    "connection": {
+      "check_connection": "Verifique seu Wi-Fi, VPN ou servidor.",
+      "server_fallback": "servidor",
+      "no_network_title": "Sem conexão",
+      "reconnect": "Reconectando.",
+      "saved_locally": "Sua alterações foram salvas localmente e serão sincronizadas automaticamente."
+    },
+    "syncing": "Sincronizando…",
+    "time": {
+      "seconds_ago": "{count}s atrás"
+    }
+  },
+  "settings": {
+    "appearance": {
+      "theme": "Tema",
+      "navigation_style": "Tipo de Navegação"
+    },
+    "regional": {
+      "section": "Região e Unidades",
+      "language": "Idioma",
+      "temperature": "Temperatura",
+      "date_format": "Formato da Data",
+      "weight": "Peso",
+      "height": "Altura",
+      "circumference": "Circunferência",
+      "distance": "Distância",
+      "time_12h": "12-horas (AM/PM)",
+      "time_24h": "24-horas"
+    },
+    "water": {
+      "section": "Água"
+    },
+    "categories": {
+      "section": "Categorias"
+    },
+    "nutrients": {
+      "section": "Nutrientes"
+    },
+    "goals": {
+      "section": "Meta de Calorias"
+    },
+    "statistics": {
+      "section": "Estatísticas",
+      "categories": "Categorias"
+    },
+    "notifications": {
+      "section": "Notificações"
+    },
+    "connected_services": {
+      "off": {
+        "auto_refresh_monthly": "Mensal",
+        "auto_refresh_weekly": "Semanal",
+        "auto_refresh_daily": "Diária",
+        "upload_country_auto": "Automático"
+      }
+    },
+    "ai": {
+      "section": "Assistente de IA"
+    },
+    "profile_hero": {
+      "label_fallback": "Meu Perfil",
+      "subtitle_empty": "Click para adicionar nome e foto"
+    },
+    "users": {
+      "username": "Nome de Usuário",
+      "username_required": "Usuário*",
+      "full_name": "Nome Completo (Opcional)",
+      "password_required": "Senha*",
+      "confirm_required": "Confirmar*",
+      "delete_user_title": "Apagar {name}?",
+      "delete": "Apagar",
+      "reset_password": "Redefinir Senha",
+      "reset_password_prompt": "Defina uma nova senha para {name}\n\n(Mais de 8 caracteres, letras maiúsculas, minúsculas, números e caracteres especiais.)",
+      "invite_user": "Convidar Usuário",
+      "email_optional": "E-mail (Opcional)",
+      "send_invite": "Enviar Convite",
+      "generate_link": "Gerar Link de Convite",
+      "invite_sent": "Convite enviado",
+      "invite_sent_to": "Convite enviado para {e-mail}",
+      "user_fallback": "usuário",
+      "share_link_intro": "Compartilhar link:",
+      "copy": "Copiar",
+      "copy_link": "Copiar Link",
+      "add_user_show": "Adicionar Usuário Manualmente",
+      "section": "Usuários",
+      "users_heading": "Usuários",
+      "role_user": "usuário",
+      "role_self_suffix": "(você)",
+      "creating": "Criando…",
+      "promote_title": "Promover {name}?",
+      "create_directly": "Criar Usuário",
+      "session_never": "Não expira",
+      "session_8h": "8 horas",
+      "session_1d": "1 dia",
+      "session_7d": "7 dias",
+      "session_30d": "30 dias",
+      "session_90d": "90 dias",
+      "session_1y": "1 ano",
+      "save": "Salvar",
+      "create_admin_account": "Criar Conta de Administrador",
+      "create_admin_explainer": "A primeira conta é sempre de administrador. Todos os alimentos, refeições e informações diárias desse servidor serão vinculados a ele.",
+      "toast_user_created": "Usuário adicionado",
+      "toast_user_deleted": "Usuário apagado",
+      "toast_password_reset": "Senha redefinida",
+      "toast_invite_sent": "Convite enviado",
+      "toast_link_copied": "Copiado!",
+      "err_failed_to_add": "Falha ao adicionar usuário",
+      "err_failed_create_invite": "Falha ao criar convite",
+      "link_only": "Somente link (sem e-mail)",
+      "role_admin_display": "Administrador",
+      "role_user_display": "Usuário"
+    },
+    "diary": {
+      "section": "Diário"
+    },
+    "authentication": {
+      "section": "Autenticação"
+    }
+  },
+  "updates": {
+    "interval": {
+      "every_12h": "A cada 12 horas",
+      "hourly": "A cada hora",
+      "every_4h": "A cada 4 horas",
+      "daily": "Dariamente",
+      "manual": "Manualmente"
+    },
+    "last_checked": "Ultima checagem",
+    "check_now": "Checar agora",
+    "checking": "Checando…",
+    "up_to_date": "Você esta na versão mais recente",
+    "available_headline": "{version} esta disponível",
+    "release_notes_heading": "Novidades",
+    "view_on_github": "Veja no GitHub",
+    "download_install": "Baixar e Instalar",
+    "install_downloaded": "Instalar",
+    "downloading": "Baixando... {percent}%",
+    "install_starting": "Abrindo instalador…",
+    "install_failed": "Falha na instalação. Tente novamente.",
+    "skip_this_version": "Pular essa Versão",
+    "banner_cta": "Click para ver as novidades e instalar.",
+    "banner_view": "Veja",
+    "available_generic": "Uma Nova Versão esta Disponível",
+    "ready_headline": "Atualização Pronta",
+    "ready_cta": "Recarregue para obter a ultima versão.",
+    "banner_reload": "Recarregar",
+    "storage": {
+      "clearing": "Limpando…",
+      "cleared": "Cache limpo."
+    },
+    "server": {
+      "heading": "Servidor",
+      "headline": "Atualização do servidor {lasted} disponível",
+      "behind_desc": "Atualização disponível: {lasted}",
+      "current_desc": "Você esta na ultima versão",
+      "versions": "Servidor na versão {current}. Ultima atualização: {lasted}.",
+      "available_chip": "Atualização Disponível",
+      "copy_command": "Copiar comando",
+      "copied": "Copiado para área de trabalho.",
+      "copy_failed": "Falha ao copiar, Copie o camando manualmente."
+    }
+  },
+  "login": {
+    "username": "Nome de Usuário",
+    "username_placeholder": "Digite o Nome de Usuário",
+    "password": "Senha",
+    "password_placeholder": "Digite a senha",
+    "forgot_password": "Esqueceu a Senha?",
+    "sso_or": "ou",
+    "recovery": {
+      "disabling": "Desabilitando…",
+      "failed": "Falha na recuperação"
+    }
+  },
+  "forgot_password": {
+    "email_label": "Endereço de e-mail",
+    "sending": "Enviando…"
+  },
+  "reset_password": {
+    "title": "Nova Senha",
+    "verifying": "Verificando Link…",
+    "success": "Senha atualizada. Redirecionando…",
+    "new_password": "Nova senha",
+    "confirm_password": "Confirmar senha",
+    "password_placeholder": "8+ caracteres, letras maiúsculas, minusculas e símbolos",
+    "submit": "Defina uma Nova Senha",
+    "saving": "Salvando…",
+    "errors": {
+      "mismatch": "Senhas não são iguais"
+    }
+  },
+  "native_setup": {
+    "use_locally": "Uso Local",
+    "use_locally_desc": "Todas as informações permanecerão nesse aparelho. Funcionando off-line, sem a necessidade de um servidor. Você pode se conectar a um servidor depois pelas configurações.",
+    "connect_to_server": "Conectado ao Servidor",
+    "connect_to_server_desc": "Sincronizado com seu Servidor NutriTrace. Suas informações estarão disponíveis em todos os seus dispositivos e na pagina web.",
+    "server_url": "URL do Servidor",
+    "server_url_placeholder": "https://nutritrace.example.com",
+    "back": "Voltar",
+    "checking": "Checando…",
+    "next": "Próximo",
+    "or": "ou",
+    "username": "Nome de Usuário",
+    "username_placeholder": "Seu Usuário",
+    "password": "Senha",
+    "password_placeholder": "Sua senha",
+    "errors": {
+      "server_url_required": "Digite a URL do seu servidor",
+      "connected": "Conectado ao servidor",
+      "login_failed": "Falha ao entrar"
+    }
+  },
+  "profile": {
+    "title": "Perfil",
+    "change_photo": "Alterar Foto",
+    "full_name": "Nome Completo",
+    "full_name_placeholder": "Seu nome completo",
+    "nickname": "Apelido / Nome de Exibição",
+    "nickname_placeholder": "Como gostaria de ser chamado?",
+    "birthday": "Aniversário",
+    "gender": "Genêro",
+    "gender_unset": "Prefiro não informar",
+    "change_password": "Alterar Senha",
+    "set_password": "Definir Senha",
+    "current_password": "Senha Atual",
+    "confirm_new_password": "Confirmar Senha",
+    "saved": "Perfil Salvo",
+    "password_changed": "Senha Alterada",
+    "danger_zone": "Zona de Perigo",
+    "delete_account": "Apagar Minha Conta",
+    "delete_account_title": "Apagar sua Conta?",
+    "delete_account_confirm": "Conta Apagada",
+    "deleting": "Apagando…",
+    "account_deleted": "Conta apagada"
+  },
+  "wizard": {
+    "nav": {
+      "skip": "Pular",
+      "next": "Próximo",
+      "finish": "Concluído"
+    },
+    "welcome": {
+      "title": "Bem-Vindo ao NutriTrace"
+    },
+    "name": {
+      "placeholder": "Seu nome (Opcional)"
+    },
+    "usermgmt": {
+      "create_account_title": "Criar Sua Conta",
+      "admin_section": "Conta de Administrador",
+      "username_label": "Nome de Usuário*",
+      "username_placeholder": "administrador",
+      "nickname_label": "Apelido",
+      "nickname_placeholder": "Opcional",
+      "full_name_label": "Nome Completo",
+      "full_name_placeholder": "Opcional",
+      "email_label": "Endereço de E-mail"
+    },
+    "units": {
+      "metric": "Metrico",
+      "imperial": "Imperial"
+    },
+    "gender": {
+      "title": "Qual o seu genêro?",
+      "desc": "Usado para calcular suas calorias diárias."
+    },
+    "height": {
+      "title": "Qual a sua altura?",
+      "desc": "Usado para estimar suas calorias diárias.",
+      "label_cm": "Altura (cm)",
+      "label": "Altura",
+      "feet": "Pés",
+      "inches": "Polegadas"
+    },
+    "integrations_cards": {
+      "skip_this": "Pular",
+      "ai": "Assistente de IA"
+    },
+    "weight": {
+      "title": "Qual o seu peso?"
+    },
+    "target": {
+      "title": "Qual seu peso alvo?"
+    },
+    "activity": {
+      "title": "Qual o seu nível de atividade?",
+      "desc": "Afeta sua necessidade de calorias diária."
+    },
+    "integrations": {
+      "title": "Integrações"
+    },
+    "updates": {
+      "title": "Checar Atualizações",
+      "toggle": "Checar por atualizações automaticamente"
+    },
+    "summary": {
+      "title": "Suas Metas Diárias"
+    },
+    "skip_modal": {
+      "title": "Pular Configuração?",
+      "continue": "Continuar Configuração"
+    }
+  },
+  "diary": {
+    "add_food": "Adicionar Alimento",
+    "quick_calories": {
+      "name_label": "Nome (Opcional)",
+      "add": "Adicionar",
+      "adding": "Adicionando…",
+      "cancel": "Cancelar"
+    },
+    "nav": {
+      "previous_day": "Dia Anterior",
+      "next_day": "Dia Seguinte",
+      "jump_to_date": "Ir para Data"
+    },
+    "actions": {
+      "cancel_selection": "Cancelar Seleção",
+      "delete_selected": "Apagar Selecionados",
+      "mark_day_complete": "Marque o Dia como Completo",
+      "unmark_day_complete": "Desmarque o Dia como Completo"
+    }
+  }
+}

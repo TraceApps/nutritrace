@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
+import { localizeImage } from '../lib/image-localizer.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import db from '../db.js';
@@ -8,6 +10,7 @@ import { listProviders as oidcListProviders, publicProvider as oidcPublicProvide
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
 import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/password-strength.js';
 import { claimAnonymousData, purgeUnreferencedUserData, purgeUserRows } from '../lib/claim-anonymous-data.js';
+import { ownerOrOptIn } from '../lib/outbound-policy.js';
 
 const router = Router();
 
@@ -82,6 +85,24 @@ const COOKIE_OPTS = {
   secure:   !_insecureCookies,
 };
 
+// A browser drops a Secure cookie on a plain-HTTP page (localhost aside), so
+// signing in from one succeeds and then lands back on the login page with
+// nothing in the log to say why (#20, #41, #43, #195). The browser's Origin
+// header shows the page it was on, whatever proxy sits in between. Said once
+// an hour at most. The login page shows the same thing on screen.
+let _plainHttpWarnedAt = 0;
+function warnIfPlainHttp(req) {
+  if (_insecureCookies) return;
+  const origin = String(req.get('origin') || req.get('referer') || '');
+  if (!/^http:\/\//i.test(origin)) return;
+  if (/^http:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i.test(origin)) return;
+  if (Date.now() - _plainHttpWarnedAt < 60 * 60 * 1000) return;
+  _plainHttpWarnedAt = Date.now();
+  let page = origin;
+  try { page = new URL(origin).origin; } catch {}
+  console.warn(`[WARN] Sign-in from a plain-HTTP page (${page}). The sign-in cookie only works over HTTPS, so the browser drops it and the user lands back on the login page. Serve NutriTrace over HTTPS, or set INSECURE_COOKIES=1 on a trusted LAN. See https://traceapps.github.io/docs/getting-started/lan-http/`);
+}
+
 function safeUser(u) {
   const { password_hash, ...rest } = u;
   // Linked OIDC providers + password-set flag — surfaced so the Profile page
@@ -92,6 +113,15 @@ function safeUser(u) {
 }
 
 // ── Status: is user management active? ────────────────────────────────────
+// This server's random id (see /status), made once and kept in app_config.
+// Made again if a restore emptied app_config.
+function serverInstanceId() {
+  const row = db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get();
+  if (row?.value) return row.value;
+  db.prepare(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('instance_id', ?)`).run(crypto.randomUUID());
+  return db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get()?.value || null;
+}
+
 router.get('/status', wrap((req, res) => {
   const active = userMgmtActive();
   // setup_required tells the client whether to force the wizard's
@@ -114,6 +144,17 @@ router.get('/status', wrap((req, res) => {
     oidc: { providers, enable_email_password_login: isPasswordLoginEnabled() },
     password_policy: policy,                  // 'standard' | 'strong'
     password_min_score: policy === 'strong' ? STRONG_MIN_SCORE : 0,
+    // Whether the sign-in cookie is HTTPS-only, so the login page can say up
+    // front that signing in from a plain-HTTP page will not stick.
+    secure_cookies: !_insecureCookies,
+    // A random id for this server, so the Android app can tell the same
+    // server at another address (LAN IP, domain) from a different one.
+    instance_id: serverInstanceId(),
+    // What the Android sync speaks. 2: notes and completion marks carry
+    // their edit time (newer wins), a save without a note keeps the
+    // day's note. Servers before this report none, and treat a save
+    // without a note as clearing it, so the app sends its note every time.
+    sync_version: 2,
   });
 }));
 
@@ -146,6 +187,7 @@ router.post('/login', rateLimitLogin, wrap((req, res) => {
 
   const token = signToken(user);
   const cookieOpts = { ...COOKIE_OPTS, maxAge: sessionMaxAge() };
+  warnIfPlainHttp(req);
   res.cookie('nt_token', token, cookieOpts);
   res.json({ user: safeUser(user), token });
 }));
@@ -191,6 +233,7 @@ router.post('/register', wrap((req, res) => {
   // Both have to be claimed or the data silently disappears (issue #2).
   if (isFirst) {
     claimAnonymousData(user.id);
+    warnIfPlainHttp(req);
     res.cookie('nt_token', signToken(user), COOKIE_OPTS);
   }
 
@@ -198,8 +241,12 @@ router.post('/register', wrap((req, res) => {
 }));
 
 // ── Update own profile ─────────────────────────────────────────────────────
-router.put('/profile', requireAuth, wrap((req, res) => {
-  const { full_name, nickname, birthday, gender, avatar_url, email } = req.body;
+router.put('/profile', requireAuth, wrap(async (req, res) => {
+  const { full_name, nickname, birthday, gender, email } = req.body;
+  // A picture chosen with no connection arrives embedded in this request,
+  // since there was nowhere to upload it to. It becomes a file here, the
+  // same way a food's photo does.
+  const avatar_url = await localizeImage(req.body?.avatar_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') });
   db.prepare(
     `UPDATE users SET full_name=?, nickname=?, birthday=?, gender=?, avatar_url=?, email=? WHERE id=?`
   ).run(full_name || null, nickname || null, birthday || null, gender || null, avatar_url || null,
@@ -406,10 +453,9 @@ router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
   const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
   db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);
 
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-  const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+  const baseUrl = linkBase(req);
   try {
-    await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
+    if (baseUrl) await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
   } catch (e) {
     // Don't surface email-send errors to the client — it would leak existence.
     // The token is still issued; the admin can investigate the email backend.
@@ -456,8 +502,8 @@ router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
   db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
     .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires);
 
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-  const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+  const baseUrl = linkBase(req);
+  if (!baseUrl) return res.status(500).json({ error: 'The app\'s address is unknown. Set PUBLIC_URL, then try again.' });
   const inviteUrl = `${baseUrl}/#/accept-invite?token=${token}`;
 
   if (email && isEmailConfigured()) {

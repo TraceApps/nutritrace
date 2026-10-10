@@ -28,6 +28,11 @@
   async function chooseLocal() {
     setNativeMode('local');
     setServerUrl(null);
+    // Data made from here on is the phone's own (lib/local-account.js).
+    try {
+      const { setLocalOwner } = await import('../lib/local-account.js');
+      await setLocalOwner();
+    } catch {}
     // Reload — SQLite will initialize naturally when NtApiNative is first called
     window.location.reload();
   }
@@ -118,8 +123,9 @@
     try {
       const ret = encodeURIComponent('#/');
       const { Browser } = await import('@capacitor/browser');
+      const { appChallengeParam } = await import('../lib/oidc-app-handoff.js');
       await Browser.open({
-        url: `${validatedUrl}/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}`,
+        url: `${validatedUrl}/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}${await appChallengeParam()}`,
         presentationStyle: 'popover',
       });
       // Deep-link callback (nutritrace://oidc-callback?token=…) handled by

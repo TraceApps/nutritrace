@@ -67,6 +67,20 @@ Each user brings their own Mealie instance and API token. The recipes and
 data pulled from Mealie belong to whoever owns that Mealie instance.
 NutriTrace acts only as a client.
 
+## Bundled assets
+
+| Asset | License | Where |
+| ----- | ------- | ----- |
+| **Inter** (UI typeface) | [SIL Open Font License 1.1][ofl] | `public/fonts/inter-*.woff2` |
+| **Material Symbols Rounded** (icons) | [Apache License 2.0][apache] | `public/fonts/material-symbols-rounded.woff2` |
+
+Fonts are served by your own instance, never from a CDN. One file per script
+subset, so a browser downloads only the scripts a page needs. Regenerate them
+with `scripts/fetch-fonts.mjs`.
+
+[ofl]: https://openfontlicense.org/
+[apache]: https://www.apache.org/licenses/LICENSE-2.0
+
 ## Third-party code dependencies
 
 Bundled Node.js dependencies (Express, better-sqlite3, DuckDB bindings,

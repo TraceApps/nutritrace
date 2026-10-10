@@ -504,8 +504,8 @@
   async function clearAllSettings() {
     try {
       await fetch(apiUrl('/api/settings'), { method: 'DELETE', ..._fetchOpts() });
-      const userId = localStorage.getItem('wl:userId');
-      const prefix = userId ? `wl_u${userId}_` : 'wl_';
+      const { settingPrefix } = await import('../../lib/setting-key.js');
+      const prefix = settingPrefix();
       const keys = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);

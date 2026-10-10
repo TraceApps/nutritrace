@@ -1,0 +1,944 @@
+{
+  "nav": {
+    "diary": "Dagbok",
+    "wellness": "Velvære",
+    "statistics": "Statistikk",
+    "goals": "Mål",
+    "settings": "Instillinger",
+    "foods": "Mat"
+  },
+  "routes": {
+    "diary": {
+      "title": "Dagbok"
+    },
+    "foods": {
+      "title": "Mat"
+    },
+    "wellness": {
+      "title": "Velvære"
+    },
+    "statistics": {
+      "title": "Statistikk"
+    },
+    "goals": {
+      "title": "Mål"
+    },
+    "settings": {
+      "title": "Instillinger"
+    }
+  },
+  "common": {
+    "sign_out": "Logge ut",
+    "log_out": "Logg ut",
+    "signing_out": "Logger ut…",
+    "experimental": "Eksperimentell",
+    "hide": "Skjul",
+    "save": "Lagre",
+    "saving": "Lagrer…",
+    "cancel": "Avbryt",
+    "back": "Tilbake",
+    "close": "Lukk",
+    "delete": "Slett",
+    "signed_in": "Logget inn",
+    "signed_out": "Logget ut",
+    "linked": "Koblet",
+    "unlinked": "Ukoblet",
+    "admin": "administrator",
+    "errors": {
+      "cant_reach_server": "Kunne ikke nå server",
+      "failed": "Feilet",
+      "unlink_failed": "Kunne ikke frakoble",
+      "save_failed": "Lagring feilet",
+      "delete_failed": "Sletting feilet",
+      "name_required": "Navn påkrevd",
+      "network_error_upload": "Nettverks feil under opplastning",
+      "voice_unsupported": "Taleinput ikke støttet i denne nettleseren",
+      "cant_start_mic": "Kunne ikke starte mikrofon"
+    }
+  },
+  "sync": {
+    "synced": "Synkronisert",
+    "sync_offline": "Frakoblet",
+    "refused": "Din server godtok ikke det som venter: {reason}. Det beholdes her og vil bli forsøkt igjen.",
+    "sign_out_waiting_title": "Endringer venter fortsatt",
+    "sign_out_waiting": "{count, plural, one {# endring har ikke nådd serveren din enda. Å logge ut nå vil forkaste den. Koble til og prøv igjen for å beholde dem.} other {# endringer har ikke nådd serveren din enda. Å logge ut nå vil forkaste dem.}}",
+    "sign_out_anyway": "Logg ut uansett",
+    "sync_failing": "Kan ikke nå serveren",
+    "not_synced": "Ikke synkronisert enda",
+    "sync_now": "Synkroniser nå",
+    "syncing": "Synkroniserer…",
+    "retry": "Prøv på nytt",
+    "retrying": "Prøver på nytt…",
+    "dismiss_message": "Avvis synkroniseringsmelding",
+    "error_title": "Synkronisering feilet",
+    "connected": "Tilkoblet",
+    "server_unavailable": "Server utilgjengelig",
+    "last_synced": "Sist Synkronisert",
+    "time": {
+      "never": "aldri",
+      "just_now": "akkurat nå",
+      "seconds_ago": "{count}s siden",
+      "minutes_ago": "{count}m siden",
+      "hours_ago": "{count}t siden",
+      "days_ago": "{count}d siden"
+    },
+    "connection": {
+      "server_fallback": "server",
+      "no_network_title": "ingen nettverksforbindelse",
+      "cant_reach_title": "Kan ikke nå {host}",
+      "reconnect": "Koble til internett på nytt.",
+      "server_error": "Serveren returnerte HTTP {status}. Forsøk igjen snart.",
+      "mobile_data": "Du er koblet til gjennom mobildata. Det kan være denne serveren trenger hjemme Wi-Fi eller VPN.",
+      "check_connection": "Sjekk din Wi-Fi, VPN, eller server.",
+      "saved_locally": "Dine endringer er lagret lokalt og vil synkroniseres automatisk."
+    }
+  },
+  "settings": {
+    "appearance": {
+      "section": "Utseende",
+      "theme": "Tema",
+      "accent_color": "Temafarge",
+      "navigation_style": "Navigasjons stil"
+    },
+    "regional": {
+      "section": "Region & målesystem",
+      "language": "Språk",
+      "date_format": "Datoformat",
+      "time_format": "Tidsformat",
+      "energy": "Energi",
+      "weight": "Vekt",
+      "height": "Høyde",
+      "circumference": "Omkrets",
+      "distance": "Avstand",
+      "temperature": "Temperatur",
+      "time_12h": "12-timersformat (AM/PM)",
+      "time_24h": "24-timersformat"
+    },
+    "diary": {
+      "section": "Dagbok",
+      "show_quick_calories": "Vis knapp for raske kalorier",
+      "show_quick_calories_desc": "Legger til et lynikon ved hver måltidsdel for rask registrering av kun kalorier (uten spesifikk matvare eller porsjonsstørrelse). Praktisk når du kjenner kaloriantallet men ikke ønsker å registrere selve matvaren, eller hvis du er vant til hurtigregistrering av kalorier slik det gjøres i Fitbit.",
+      "quick_calories_display": "Rask visning av kalorier",
+      "quick_calories_display_desc": "Hvordan flere raske kaloriregistreringer for samme måltid i dagboken vises. Oppsummert slår dem sammen til én rad; Separat viser hver registrering i sin egen rad.",
+      "quick_calories_summed": "Oppsummert",
+      "quick_calories_separate": "Separat"
+    },
+    "water": {
+      "section": "Vann"
+    },
+    "foods": {
+      "section": "Mat"
+    },
+    "categories": {
+      "section": "Kategorier"
+    },
+    "nutrients": {
+      "section": "Næringsstoffer"
+    },
+    "goals": {
+      "section": "Kalorimål"
+    },
+    "body_stats": {
+      "section": "Kroppsdata"
+    },
+    "statistics": {
+      "section": "Statistikk",
+      "categories": "Kategorier",
+      "categories_help": "Dra for å reorganisere måleelementene på statistikk-siden. Deaktiver kategorier du aldri ser på."
+    },
+    "connected_services": {
+      "section": "Matvarekilder",
+      "off": {
+        "header": "Open Food Facts",
+        "enable": "Aktiver Open Food Facts",
+        "enable_desc": "Søk på den globale, brukergenererte matdatabasen når du legger til matvarer. Du trenger ikke brukerkonto for å søke; det kreves kun for å laste opp endringer.",
+        "search_language": "Søk språk",
+        "search_country": "Søk Land",
+        "upload_country": "Last opp land",
+        "upload_country_auto": "Automatisk",
+        "import_portion": "Importer porsjon som",
+        "import_portion_100g": "Per 100g",
+        "import_portion_serving": "Per porsjon",
+        "import_portion_desc": "Når det skannede produktet har informasjon om porsjonsstørrelse, fyll maten med per-porsjon verdier istedenfor per 100g. Produkter uten informasjon om porsjonsstørrelse på AV brukes alltid verdier per 100g.",
+        "account_username": "Konto brukernavn",
+        "account_password": "Konto Passord",
+        "account_note": "Valgfri, trengs kun ved opplastning av redigeringer.",
+        "account_create_link": "Lag en OFF bruker →",
+        "username_placeholder": "OFF konto brukernavn",
+        "password_placeholder": "OFF konto passord",
+        "auto_refresh": "Automatisk oppdatering",
+        "auto_refresh_desc": "Hvor ofte speilet fra Open Food Facts skal lastes ned på nytt. Hver oppdatering henter hele øyeblikksbildet (~4 GB).",
+        "auto_refresh_off": "Av",
+        "auto_refresh_daily": "Daglig",
+        "auto_refresh_weekly": "Ukentlig",
+        "auto_refresh_monthly": "Månedlig"
+      }
+    },
+    "ai": {
+      "section": "KI assistent"
+    },
+    "notifications": {
+      "section": "Notifikasjoner"
+    },
+    "wellness": {
+      "section": "Velvære"
+    },
+    "sharing": {
+      "section": "Mat deling"
+    },
+    "profile_hero": {
+      "label_fallback": "Min Profil",
+      "subtitle_empty": "Trykk for å legge til navn og foto"
+    },
+    "authentication": {
+      "section": "Autentisering"
+    },
+    "users": {
+      "section": "Brukere",
+      "users_heading": "Brukere",
+      "add_user": "+ Legg til bruker",
+      "username": "Brukernavn",
+      "username_required": "Brukernavn *",
+      "full_name": "Fult navn (Valgfri)",
+      "password_required": "Passord *",
+      "confirm_required": "Bekreft *",
+      "role": "Rolle",
+      "role_admin": "admin",
+      "role_user": "bruker",
+      "role_self_suffix": "(deg)",
+      "create": "Lag",
+      "creating": "Lager…",
+      "delete_user_title": "Slett {name}?",
+      "delete_user_message": "Alt av denne brukerens data — mat, måltider, dagbok innlegg, innstillinger — vil bli slettet. Dette kan ikke reverseres.",
+      "delete": "Slett",
+      "promote_title": "Forfremme {name}?",
+      "promote_message": "De vil være i stand til å administrere brukere, deling, e-postkonfigurasjon og OIDC-leverandører.",
+      "promote_confirm": "Forfrem",
+      "demote_title": "Degrader {name}?",
+      "demote_message": "De vil miste administrator tilgang. Du kan forfremme dem igjen senere.",
+      "demote_confirm": "Degrader",
+      "reset_password": "Tilbakestill passord",
+      "reset_password_prompt": "Sett nytt passord for {name}\n\n(Må være 8+ tegn, inkludert store og små bokstaver, tall og spesialtegn.)",
+      "invite_user": "Inviter bruker",
+      "invite_user_explainer": "Send en registreringslink så brukeren kan velge deres eget passord. Oppgi en e-postadresse for å sende den direkte (krever SMTP), eller la feltet stå tomt for å generere en link du kan kopiere og dele slik du ønsker.",
+      "email_optional": "E-post (Valgfri)",
+      "send_invite": "Send Invitasjon",
+      "generate_link": "Generer invitasjonslink",
+      "invite_sent": "Invitasjon sendt",
+      "invite_sent_to": "Invitasjon sendt til {email}",
+      "user_fallback": "bruker",
+      "share_link_intro": "Del denne lenken:",
+      "copy": "Kopier",
+      "copy_link": "Kopier link",
+      "add_user_show": "Legg til bruker manuelt",
+      "add_user_hide": "Skjul legg til manuelt",
+      "add_user_explainer": "Du setter opp bruker og passord selv, så deler du den med brukeren. Nyttig når SMTP ikke er konfigurert eller for oppsett uten nettilgang.",
+      "create_directly": "Lag Bruker",
+      "session_duration": "Sesjonsvarighet",
+      "session_never": "Utløper aldri",
+      "session_8h": "8 timer",
+      "session_1d": "1 dag",
+      "session_7d": "7 dager",
+      "session_30d": "30 dager",
+      "session_90d": "90 dager",
+      "session_1y": "1 år",
+      "save": "Lagre",
+      "disable_um": "Deaktiver brukeradministrasjon",
+      "disable_um_subtitle": "Fjerner alle brukerkontoer og går tilbake til enkeltbrukermodus",
+      "disable_um_title": "Deaktivere brukeradministrasjon?",
+      "disable_um_message": "Dette vil fjerne alle konto brukere og dataene deres kan ikke gjenopprettes. Appen vil gå tilbake til enkeltbrukermodus.",
+      "disable_um_confirm": "Deaktiver & slett alt",
+      "enable_um": "Aktiver brukeradministrasjon",
+      "enable_um_subtitle": "Legg til flere bruker kontoer med separate data og innstillinger",
+      "create_admin_account": "Lag administrator konto",
+      "create_admin_explainer": "Den første kontoen er alltid administrator. All eksisterende mat, måltider og dagbok data på denne serveren vil bli tilordnet denne kontoen.",
+      "enable_create": "Aktiver & lag administrator",
+      "enabling": "Aktiverer…",
+      "toast_user_created": "Bruker lagt til",
+      "toast_user_deleted": "Bruker slettet",
+      "toast_password_reset": "Tilbakestilling av passord",
+      "toast_role_changed": "{name} er nå {role}",
+      "toast_um_enabled": "Brukeradministrasjon aktivert",
+      "toast_um_disabled": "Brukeradministrasjon deaktivert",
+      "toast_invite_sent": "Invitasjon sendt",
+      "toast_link_copied": "Kopiert!",
+      "err_username_required": "Brukernavn er påkrevd",
+      "err_passwords_mismatch": "Passord stemmer ikke overens",
+      "err_username_password_required": "Brukernavn og passord påkrevd",
+      "err_registration_failed": "Registrering feilet",
+      "err_failed_to_add": "Kunne ikke legge til bruker",
+      "err_could_not_change_role": "Kunne ikke endre rolle",
+      "err_could_not_reset_password": "Kunne ikke tilbakestille passordet",
+      "err_could_not_reach_server": "Kunne ikke nå serveren",
+      "revoke_invite_title": "Trekke tilbake invitasjon?",
+      "revoke_invite_message": "Linken vil slutte å fungere umiddelbart. Mottakeren vil ikke kunne bruke den etter dette.",
+      "revoke_confirm": "Oppheve",
+      "invite_revoked": "Invitasjon trukket tilbake",
+      "err_could_not_revoke": "Kunne ikke trekke tilbake invitasjon",
+      "invite_email_hint": "Oppgi inn en gyldig e-postadresse, eller tøm feltet for å generere en link som kan deles.",
+      "err_invite_email": "Oppgi en gyldig e-post eller la feltet være tomt for å generere en link som kan deles",
+      "err_failed_create_invite": "Feil ved oppretting av invitasjon",
+      "err_could_not_create_invite": "Kunne ikke opprette invitasjon",
+      "pending_invites": "Ventende invitasjoner",
+      "link_only": "Kun link (ingen e-post)",
+      "role_admin_display": "Admin",
+      "role_user_display": "Bruker",
+      "expires_short": "utløper {date}",
+      "revoke_invite_aria": "Trekk tilbake invitasjon",
+      "strong_passwords": "Krev sterke passord",
+      "strong_passwords_desc": "Avvis svake passord (zxcvbn styrke under 3) i tillegg til standardkravene om minst 8 tegn + store og små bokstaver + tall + spesialtegn. Gjelder nye registreringer, invitasjoner og passordendringer. Eksisterende passord blir ikke kontrollert på nytt.",
+      "saved_short": "Lagret.",
+      "session_desc": "Hvor lenge brukere forblir pålogget. Gjelder nye pålogginger.",
+      "err_password_policy_prefix": "Kunne ikke lagre passordpolicy: {msg}. Serveren må kanskje startes på nytt.",
+      "err_password_policy": "Kunne ikke lagre passordpolicy: {msg}",
+      "save_failed_status": "Lagring feilet. ({status})",
+      "network_error": "nettverks feil",
+      "hide": "Skjul",
+      "show": "Vis"
+    },
+    "email": {
+      "section": "E-post (SMTP)"
+    },
+    "backup": {
+      "section": "Sikkerhetskopier & gjenopprett"
+    },
+    "importExport": {
+      "section": "Import & eksport"
+    },
+    "server": {
+      "section": "Server tilkobling"
+    },
+    "diagnostics": {
+      "section": "Diagnostikk"
+    },
+    "updates": {
+      "section": "Oppdateringer"
+    },
+    "api_tokens": {
+      "section": "API-tokener"
+    },
+    "webhooks": {
+      "section": "Webhooks"
+    },
+    "support": {
+      "section": "Støtte"
+    },
+    "about": {
+      "section": "Om"
+    }
+  },
+  "updates": {
+    "current_version": "Nåværende versjon",
+    "channel": {
+      "label": "Oppdateringskanal",
+      "stable": "Stabil",
+      "dev": "Utvikler",
+      "help": "Stabil følger merkede utgivelser. Utvikler er den løpende utviklingsversjonen; forvent feil."
+    },
+    "auto_check": "Sjekk automatisk for oppdateringer",
+    "auto_check_desc": "Sjekk for nye utgivelser i bakgrunnen.",
+    "off_resting": "Av. Din server vil ikke kontakte GitHub. Skru den på for å høre om nye funksjoner, feilrettinger og sikkerhetsoppdateringer.",
+    "off_notice_title": "Oppdaterings sjekk er av",
+    "off_notice": "Ingenting vil fortelle deg om nye funksjoner. feilrettinger eller sikkerhetsoppdateringer. Hvis aktivert, spør GitHub for den nyeste utgivelsen med noen timers mellomrom, uten å sende noen opplysninger om deg.",
+    "turn_on": "Skru på",
+    "not_now": "Ikke nå",
+    "interval": {
+      "label": "Sjekkfrekvens",
+      "desc": "Hvor ofte appen sjekker for en ny utgave når den er åpen. Kun Manuelt skrur kun av alle automatiske sjekkere.",
+      "hourly": "Hver time",
+      "every_4h": "Hver 4. time",
+      "every_12h": "Hver 12. time",
+      "daily": "En gang om dagen",
+      "manual": "Kun Manuelt"
+    },
+    "last_checked": "Sist sjekket",
+    "last_checked_never": "Aldri",
+    "check_now": "Sjekk nå",
+    "checking": "Sjekker…",
+    "check_failed": "Oppdatering sjekk feilet. Prøv igjen snart.",
+    "up_to_date": "Du er på den nyeste versjonen",
+    "available_headline": "{version} er tilgjengelig",
+    "released": "Utgitt {when}",
+    "release_notes_heading": "Hva er nytt",
+    "no_release_notes": "Ingen utgivelsesnotater ble publisert for denne versjonen.",
+    "view_on_github": "Se på GitHub",
+    "download_install": "Last ned & installer",
+    "install_downloaded": "Installer",
+    "downloading": "Laster ned... {percent}%",
+    "install_starting": "Åpner installasjonsprogrammet…",
+    "install_failed": "Installasjon feilet. Prøv igjen.",
+    "skip_this_version": "Hopp over denne versjonen",
+    "no_apk_asset": "Denne utgivelsen har ingen vedlagt APK-fil.",
+    "banner_cta": "Trykk for å se hva som er nytt og installer.",
+    "banner_view": "Se",
+    "available_generic": "En ny versjon er tilgjengelig",
+    "ready_headline": "Oppdatering tilgjengelig",
+    "ready_cta": "Last inn på nytt for å få den nyeste versjonen.",
+    "banner_reload": "Last inn på nytt",
+    "storage": {
+      "heading": "Bufrede oppdaterings-APK-er",
+      "empty": "Ingen bufrede APK-er. Oppryddingsprosessene ble fullført uten problemer.",
+      "clear_now": "Tøm nå",
+      "clearing": "Tømmer…",
+      "cleared": "Buffer tømt."
+    },
+    "server": {
+      "heading": "Server",
+      "headline": "Server oppdatering {latest} tilgjengelig",
+      "behind_desc": "Oppdatering tilgjengelig: {latest}",
+      "current_desc": "Du er på den nyeste versjonen",
+      "versions": "Serveren er på {current}. Nyeste versjon: {latest}.",
+      "available_chip": "Oppdatering tilgjengelig",
+      "instructions": "For å oppdatere serveren, kjør på vertsmaskinen:",
+      "copy_command": "Kopier kommando",
+      "copied": "Kopiert til utskriftstavle.",
+      "copy_failed": "Kopiering feilet. Kopier kommandoen manuelt.",
+      "view_notes": "Vis endringslogg",
+      "channel_note": "For å bytte serverkanal må du endre bildetaggen (:latest, :dev) i din docker-compose.yml og kjøre docker-compose pull && docker-compose up -d på nytt."
+    }
+  },
+  "attach_image": {
+    "button": "Legg ved bilde",
+    "camera": "Kamera",
+    "gallery": "Galleri"
+  },
+  "login": {
+    "subtitle": "Logg inn på kontoen din",
+    "username": "Brukernavn",
+    "username_placeholder": "Skriv inn brukernavn",
+    "password": "Passord",
+    "password_placeholder": "Skriv inn passord",
+    "sign_in": "Logg inn",
+    "signing_in": "Logger inn…",
+    "forgot_password": "Glemt passord?",
+    "locked_out": "Låst ute?",
+    "sso_sign_in_with": "Logg inn med {provider}",
+    "sso_or": "eller",
+    "no_signin_methods": "Ingen innloggingsmetode tilgjengelig. Spør din administrator.",
+    "biometric": {
+      "sign_in_button": "Logg inn med biometri",
+      "prompt": "Logg inn på NutriTrace",
+      "no_saved": "Ingen lagrede pålogging. Vennligst bruk passordet ditt én gang først.",
+      "expired": "Ditt lagrede innlogging har utløpt. Bruk passordet ditt for å logge inn.",
+      "failed": "Biometrisk innlogging feilet. Bruk passordet ditt istedenfor."
+    },
+    "errors": {
+      "failed": "Innlogging feilet"
+    },
+    "cookie_warning": {
+      "http_title": "Innlogging vil ikke fungere på denne adressen",
+      "http_body": "Denne siden bruker vanlig HTTP, men serveren sender kun påloggingsinformasjonen(cookie) over HTTPS. Derfor forkaster nettleseren din den og du blir sendt tilbake til påloggingssiden når du prøver å logge inn. Åpne NutriTrace over HTTPS, eller sett INSECURE_COOKIES=1 på serveren og start den på nytt, hvis du er på et pålitelig hjemmenettverk.",
+      "dropped_title": "Nettleseren din holdt deg ikke innlogget",
+      "dropped_body": "Ditt passord var riktig, men nettleseren beholdt ikke innloggingsinformasjonen(cookie). Sjekk at cookies er tillatt for denne siden, og hvis NutriTrace er bak en omvendt proxy (reverse proxy), at den slipper cookies igjennom.",
+      "fix_link": "Hvordan fikse det"
+    },
+    "recovery": {
+      "confirm": "Dette vil slette alle bruker kontoer. Din mat & dagbok data vil bli behold. Fortsette?",
+      "explainer": "Hvis du aldri setter opp bruker kontoer med vilje, kan du deaktivere brukerbehandling. <strong>Dette vil slette alle bruker kontoer.</strong> Din mat &amp; dagbok data vil bli beholdt.",
+      "token_prompt": "Skriv inn <code>RECOVERY_TOKEN</code> fra servermiljøet ditt:",
+      "token_placeholder": "Gjenopprettingsnøkkel",
+      "action": "Deaktiver brukerbehandling og nullstill",
+      "disabling": "Deaktiverer…",
+      "failed": "Gjenoppretting feilet",
+      "success": "Brukerbehandling er deaktivert – du er nå i enkeltbrukermodus",
+      "done": "Brukerbehandling har blitt deaktivert. <br>Omdirigerer…"
+    }
+  },
+  "forgot_password": {
+    "title": "Tilbakestill passord",
+    "intro": "Skriv inn e-postadressen din og vi vil sende deg en link for å tilbakestille passordet ditt.",
+    "email_label": "E-postadresse",
+    "send_link": "send tilbakestillings link",
+    "sending": "Sender…",
+    "back_to_signin": "Tilbake til innlogging",
+    "sent": "Hvis en konto eksisterer for <strong>{email}</strong>, er en tilbakestillings link blitt sent. Sjekk din innboks."
+  },
+  "reset_password": {
+    "title": "Nytt passord",
+    "verifying": "Verifiserer link…",
+    "invalid_link": "Denne tilbakestillings linken er ugyldig eller har utløpt.",
+    "request_new": "Be om en ny link",
+    "success": "Passord oppdatert. Omdirigerer…",
+    "set_for": "Sett et nytt passord for <strong>{username}</strong>",
+    "new_password": "Nytt passord",
+    "confirm_password": "Bekreft passord",
+    "password_placeholder": "8+ tegn, store og små bokstaver, tall og symboler",
+    "submit": "Sett et nytt passord",
+    "saving": "Lagrer…",
+    "errors": {
+      "required": "Passord er påkrevd",
+      "mismatch": "Passordene stemmer ikke",
+      "failed": "Tilbakestilling feilet"
+    }
+  },
+  "native_setup": {
+    "subtitle": "Spor hver bit",
+    "use_locally": "Bruk lokalt",
+    "use_locally_desc": "All dataen blir på denne enheten. Fungerer frakoblet, ingen behov for server. Du kan koble til en server senere i Innstillinger.",
+    "connect_to_server": "Koble til server",
+    "connect_to_server_desc": "Synkroniser med din NutriTrace server. Din data er tilgjengelig på all enheter og i web appen.",
+    "server_url": "Server URL",
+    "server_url_placeholder": "https://nutritrace.example.com",
+    "server_url_hint": "Når du har tastet inn serveradressen, vises de påloggingsmetodene som er tilgjengelige for serveren (passord eller SSO).",
+    "back": "Tilbake",
+    "checking": "Sjekker…",
+    "next": "Neste",
+    "or": "Eller",
+    "oidc_sign_in_with": "Logg inn med {name}",
+    "username": "Brukernavn",
+    "username_placeholder": "Ditt brukernavn",
+    "password": "Passord",
+    "password_placeholder": "Ditt passord",
+    "no_auth_warning": "Denne serveren har ingen påloggingsmetoder konfigurert. Spør administratoren din om å aktivere passord innlogging eller om å konfigurere en OIDC-leverandør.",
+    "signing_in": "Logger inn…",
+    "sign_in": "Logg inn",
+    "errors": {
+      "server_url_required": "Angi din server URL",
+      "credentials_required": "Oppgi din påloggingsinformasjon",
+      "browser_open_failed": "Kunne ikke åpne påloggingssiden",
+      "connected": "Koblet til serveren",
+      "login_failed": "Innlogging feilet"
+    }
+  },
+  "profile": {
+    "title": "Profil",
+    "personal_info": "Personlig info",
+    "security": "Sikkerhet",
+    "change_photo": "Endre bilde",
+    "full_name": "Fult navn",
+    "full_name_placeholder": "Ditt fulle navn",
+    "email_placeholder": "Brukt for tilbakestilling av passord",
+    "nickname": "Kallenavn / Visningsnavn",
+    "nickname_placeholder": "Hva skal vi kalle deg?",
+    "birthday": "Fødselsdag",
+    "gender": "Kjønn",
+    "gender_unset": "Ønsker ikke å oppgi",
+    "change_password": "Endre passord",
+    "set_password": "Sett passord",
+    "current_password": "Gjeldende passord",
+    "confirm_new_password": "Bekreft nytt passord",
+    "saved": "Profil lagret",
+    "password_changed": "Passord endret",
+    "linked_accounts": "Tilknyttede kontoer",
+    "no_linked_accounts": "Ingen tilknyttede kontoer.",
+    "link_with": "Tilknytt med",
+    "unlink": "Fjern tilknytning",
+    "danger_zone": "Faresone",
+    "delete_account": "Slett min konto",
+    "delete_account_explainer": "Fjern din konto med all tilhørende data permanent — mat, måltider, dagbok, velvære og innstillinger.",
+    "delete_account_title": "Slette kontoen din?",
+    "delete_account_message": "Din mat, måltider, dagbok, innstillinger og velvære data vil bli fjernet permanent. Dette kan ikke reverseres.",
+    "delete_account_confirm": "Slett konto",
+    "deleting": "Sletter…",
+    "account_deleted": "Konto slettet",
+    "errors": {
+      "save_failed": "Kunne ikke lagre profil",
+      "upload_failed": "Opplastning feilet",
+      "password_change_failed": "Kunne ikke endre passord",
+      "delete_account_failed": "Kunne ikke slette konto"
+    }
+  },
+  "wizard": {
+    "nav": {
+      "skip": "Hopp over",
+      "get_started": "Kom i gang",
+      "next": "Neste",
+      "finish": "Fullfør"
+    },
+    "welcome": {
+      "title": "Velkommen til NutriTrace",
+      "desc": "Din personlige kostholdsmåler. La oss gjøre klart oppsettet ditt, det tar rundt ett minutt."
+    },
+    "name": {
+      "title": "Hva skal vi kalle deg?",
+      "desc": "Brukt i hilsener, sidemenyen og KI-assistenten din. Du kan endre det senere i innstillinger.",
+      "placeholder": "Ditt navn (optional)"
+    },
+    "usermgmt": {
+      "create_account_title": "Opprett kontoen din",
+      "create_account_desc": "Opprett administratorkontoen din for å sikre NutriTrace-instansen din. Du kan invitere andre brukere senere i innstillinger.",
+      "multi_user_title": "Fler-bruker støtte",
+      "multi_user_desc": "NutriTrace kan kjøres i enkeltbrukermodus (standard) eller flerbrukermodus med separate innlogginger og passord tilbakestillinger. Du kan alltids aktivere dette senere i instillinger.",
+      "enable_toggle": "Aktiver bruker kontoer",
+      "enable_toggle_hint": "Hver bruker får sin egen mat dagbok, innstillinger og profil",
+      "admin_section": "Administrator konto",
+      "username_label": "Brukernavn *",
+      "username_placeholder": "administrator",
+      "nickname_label": "Kallenavn",
+      "nickname_placeholder": "Valgfri",
+      "full_name_label": "Fult navn",
+      "full_name_placeholder": "Valgfri",
+      "email_label": "E-postadresse",
+      "email_placeholder": "Brukt for tilbakestilling av passord (valgfri)"
+    },
+    "units": {
+      "title": "Målesystem",
+      "desc": "Hvordan måler du ting?",
+      "metric": "Metrisk",
+      "imperial": "Imperial"
+    },
+    "gender": {
+      "title": "Hva er ditt kjønn?",
+      "desc": "Brukt for å kalkulere kaloribehovet ditt."
+    },
+    "dob": {
+      "title": "Når var du født?",
+      "desc": "Alderen din påvirker forbrenningen din."
+    },
+    "height": {
+      "title": "Hva er høyden din?",
+      "desc": "Brukt for å kalkulere kaloribehovet ditt.",
+      "label_cm": "Høyde (cm)",
+      "label": "Høyde",
+      "feet": "Fot",
+      "inches": "Tommer"
+    },
+    "integrations_cards": {
+      "configure": "Konfigurer",
+      "skip_this": "Hopp over dette",
+      "off": "Open Food Facts",
+      "usda": "USDA FoodData sentral",
+      "mealie": "Mealie",
+      "ai": "KI-Assistent"
+    },
+    "weight": {
+      "title": "Hva er vekten din?"
+    },
+    "target": {
+      "title": "Hva er mål vekten din?"
+    },
+    "activity": {
+      "title": "Hvor aktiv er du?",
+      "desc": "Påvirker ditt daglige kalori behov."
+    },
+    "integrations": {
+      "title": "Integrasjoner",
+      "desc": "Koble til valgfrie tjenester. Hopp over det du ikke trenger — Du kan konfigurere dem senere i innstillinger."
+    },
+    "notifications": {
+      "title": "Hold på de gode vanene",
+      "desc": "Få nyttige påminnelser og feir seirene dine. Du kan tilpasse alt dette senere i innstillinger."
+    },
+    "updates": {
+      "title": "Sjekk for oppdateringer",
+      "desc": "Serveren din kan fortelle deg når en ny NutriTrace har blitt utgitt.",
+      "toggle": "Sjekk for oppdateringer automatisk",
+      "toggle_sub": "Det er hvordan du hører om nye funksjoner, rettelser og sikkerhetsoppdateringer",
+      "note": "Serveren din spør GitHub med noen timers mellomrom om det finnes en ny versjon av NutriTrace. Ingen informasjon om deg eller dataene dine blir sendt. Du kan når som helst endre dette under Innstillinger, Oppdateringer."
+    },
+    "summary": {
+      "title": "Dine daglige mål",
+      "desc": "Kalkulert fra din statistikk med bruk av Mifflin-St Jeor formelen."
+    },
+    "skip_modal": {
+      "title": "Hopp over oppsett?",
+      "desc": "Du kan sette opp dine mål, enheter og integrasjoner når som helst under <strong>Innstillinger</strong>. Frem til det er gjort, vil ikke kalorimål beregnes automatisk.",
+      "continue": "Fortsett oppsett",
+      "skip_now": "Hopp over for nå"
+    }
+  },
+  "diary": {
+    "add_food": "Legg til mat",
+    "notes_placeholder": "Hvordan føltes dagen i dag? Søvn, energi, sult og søtsug…",
+    "quick_calories": {
+      "title": "Hurtigkalorier",
+      "title_meal": "Hurtigkalorier: {meal}",
+      "default_name": "Hurtigkalorier",
+      "help": "Registrer kun {unit} når du ikke har fullstendig næringsinformasjon, eller når du ikke ønsker å spesifisere matvaren nærmere. Legges direkte til i dagboken; det opprettes ingen egen matvareoppføring.",
+      "name_label": "Navn (valgfri)",
+      "name_placeholder": "Kontorsnacks, hotellfrokost...",
+      "value_label": "{unit}",
+      "add": "Legg til",
+      "adding": "Legger til…",
+      "cancel": "Avbryt",
+      "summed_hint": "Bytt til separat for å redigere individuelle oppføringer"
+    },
+    "nav": {
+      "previous_day": "Forrige dag",
+      "next_day": "Neste dag",
+      "jump_to_date": "Hopp til dato"
+    },
+    "actions": {
+      "cancel_selection": "Avbryt valg",
+      "delete_selected": "Slett valgte",
+      "log_water": "Loggfør vann",
+      "log_water_long": "Vann — loggfør ditt vanninntak",
+      "nutrition_summary": "Ernæringssammendrag",
+      "nutrition_summary_long": "Ernæringssammendrag — full oversikt over dagens næringsstoffer",
+      "mark_day_complete": "Merk dag som fullført",
+      "unmark_day_complete": "Fjern markering for fullført dag",
+      "body_stats": "Kroppsstatistikk",
+      "body_stats_long": "Kroppsstatistikk — loggfør vekt, fettprosent og målinger"
+    },
+    "day_complete": {
+      "marked_toast": "Markert dag som fullført",
+      "auto_marked_toast": "Alle måltider markert; lukket dagen automatisk",
+      "unmarked_toast": "Fjernet markering for fullført dag",
+      "error_toast": "Kunne ikke oppdatere markeringen for dagen",
+      "meal_reminders_hint": "Tips: Slå på måltidspåminner i Innstillinger, Notifikasjoner så du ikke glemmer et måltid før slutten av dagen.",
+      "confirm_empty_title": "Fullfør dagen med tomme måltider?",
+      "confirm_empty_msg": "Disse måltidene er tomme og har ikke blitt markert som hoppet over: {names}. Vil du fullføre likevel? De tomme måltidene vil bli markert som bevisst hoppet over så du vil ikke bli spurt igjen idag.",
+      "confirm_empty_ok": "Lukk likevel",
+      "confirm_empty_cancel": "Hold åpen",
+      "status": {
+        "today": "Idag",
+        "yesterday": "Igår",
+        "progress": "{done} av {total] måltider loggført",
+        "mark_complete": "Marker dag som fullført",
+        "closed_headline": "Dag fullført",
+        "closed_at": "Lukket {time}",
+        "reopen": "Gjenåpne"
+      }
+    },
+    "toast": {
+      "body_stats_saved": "Kroppsmål lagret",
+      "updated": "Oppdatert",
+      "item_removed": "Oppføringen fjernet",
+      "activity_removed": "Aktivitet fjernet"
+    },
+    "empty": {
+      "tap_to_add_food": "Trykk for å legge til mat"
+    },
+    "server_error": {
+      "unreachable": "Kunne ikke nå serveren —",
+      "retry": "Forsøk igjen"
+    },
+    "water": {
+      "custom": "Tilpass",
+      "add": "Legg til",
+      "remove": "Fjern"
+    },
+    "edit_item": {
+      "save": "Lagre",
+      "remove_ingredient": "Fjern ingrediens",
+      "remove_qc_entry": "Fjern oppføring",
+      "remove_qc_aria": "Fjern Hurtigkalorier oppføring"
+    },
+    "confirm": {
+      "remove_item": "Fjern {name} oppføringen?",
+      "remove_fallback": "oppføring",
+      "clear_all_meal": "Fjern alle oppføringer fra {meal}?",
+      "clear_all_fallback": "måltid"
+    },
+    "errors": {
+      "note_save_failed": "Lagring av notat feilet",
+      "name_required": "Vennligst skriv inn et navn",
+      "nothing_to_save": "Ingenting å lagre",
+      "activity_save_failed": "Kunne ikke lagre aktivitet",
+      "activity_delete_failed": "Kunne ikke slette aktivitet"
+    },
+    "activity": {
+      "section": "Aktivitet",
+      "tap_to_add": "Trykk for å legge til aktivitet",
+      "add": "Legg til aktivitet",
+      "add_to_diary": "Legg til i dagbok",
+      "save_changes": "Lagre endringer",
+      "title_add": "Legg til aktivitet",
+      "title_edit": "Endre aktivitet",
+      "field_name": "Aktivitet",
+      "field_name_placeholder": "F.eks. morgentur",
+      "field_kcal": "Forbrente kalorier",
+      "field_kcal_placeholder": "kcal",
+      "field_duration": "Varighet",
+      "field_duration_placeholder": "minutter",
+      "field_distance": "Distanse",
+      "field_distance_placeholder": "F.eks. 10 km",
+      "field_optional": "(valgfri)",
+      "saving": "Legger til…",
+      "estimated_short": "ca.",
+      "wellness_hint": "Synkroniserte treningsøkter fra enheten din vises i Velvære",
+      "not_counted": "Telles ikke — bruker bærbar enhet",
+      "policy_chip": "Regel: bærbar enhet har prioritet. Endre dette i Innstillinger → Dagbok.",
+      "save_as_template": "Lagre som mal",
+      "save_as_template_hint": "(festet øverst neste gang du velger)",
+      "kcal_preview": "MET {met} × {weight_display} × {duration} min → {kcal} kcal",
+      "no_weight_hint": "Registrer en vekt i Kroppsstatistikk for å aktivere MET-basert autoberegning",
+      "suggest": {
+        "templates": "Maler",
+        "past_entries": "Tidligere innlegg",
+        "compendium": "Compendium",
+        "template_badge": "Maler"
+      },
+      "browse": {
+        "title": "Utforsk aktiviteter",
+        "search_placeholder": "Søk i alle aktiviteter",
+        "all_categories": "Alle kategorier",
+        "no_matches": "Ingen treff for \"{q}\"",
+        "aria": "Utforsk aktivitetssamlingen",
+        "tooltip": "Utforsk aktiviteter"
+      },
+      "actions": {
+        "edit": "Rediger",
+        "delete": "Slett"
+      },
+      "errors": {
+        "name_required": "Navn påkrevd",
+        "kcal_required": "Kalorier påkrevd"
+      }
+    }
+  },
+  "foods": {
+    "off_no_values_listed": "Ingen verdier oppført",
+    "off_skipped": "Ble utelatt fordi Open Food Facts mangler verdier for produktet slik det selges: {names}. Legg dem til under Matvarer med verdiene fra etiketten.",
+    "search_empty_hint": "Prøv å søke i Open Food Facts eller USDA over",
+    "category_all": "Alle",
+    "saved_meals": "Lagrede måltider",
+    "multi_portion_sheet": "Angi porsjoner ({count} oppføringer)",
+    "add_to_diary": "Legg til i dagbok",
+    "tier": {
+      "reset": "Tilbakestill",
+      "off_data_quality": "OFF-datakvalitet",
+      "usda_data_type": "USDA-datatype",
+      "off_high": "Høy",
+      "off_high_hint": "(≥70%)",
+      "off_medium": "Medium",
+      "off_medium_hint": "(40-69%)",
+      "off_low": "Lav",
+      "off_low_hint": "(<40%)",
+      "off_unknown": "Ukjent",
+      "off_unknown_hint": "(ingen data)",
+      "usda_foundation": "Basismatvare",
+      "usda_foundation_hint": "(kvalitetssikret)",
+      "usda_sr_legacy": "SR Legacy",
+      "usda_sr_legacy_hint": "(referanse)",
+      "usda_survey": "Undersøkelse (FNDDS)",
+      "usda_survey_hint": "(sammensatt)",
+      "usda_branded": "Merkevare",
+      "usda_branded_hint": "(innsend av produsent)",
+      "usda_experimental": "Eksperimentell",
+      "usda_experimental_hint": "(forskning)"
+    },
+    "search_placeholder": "Søk etter mat eller skann strekkode...",
+    "scan_barcode": "Skann strekkode",
+    "add_new": "Legg til ny",
+    "n_selected": "{n} valgt",
+    "add_n": "Legg til {n}",
+    "adding": "Legger til…",
+    "add_selected_to_diary": "Legg til valgte i dagbok",
+    "search_in": "Søk {source}",
+    "searching_in": "Søker {source}…",
+    "no_results_in": "Ingen resultater i {source}",
+    "looking_up_barcode": "Slår opp strekkode",
+    "detail": {
+      "edit": "Rediger",
+      "edit_aria": "Rediger mat",
+      "add_to_diary": "Legg til i dagbok",
+      "add_to_diary_aria": "Legg til i dagbok",
+      "add_to_which_meal": "Legg til i hvilket måltid?",
+      "off_prepared_only": "Open Food Facts viser kun \"som tilberedt\"-verdier for dette produktet. Trykk på Rediger for å se dem og velge om du vil bruke dem.",
+      "off_implausible": "Open Food Facts viser kun \"som tilberedt\"-verdier for dette produktet, og de kan ikke stemme. Trykk Rediger for legge inn verdiene fra etiketten.",
+      "off_none": "Open Food Facts har ingen næringsverdier for dette produktet. Trykk på Rediger for å legge dem inn fra etiketten.",
+      "per_serving": "per porsjon",
+      "barcode": "Strekkode",
+      "added_to": "Legg til i {meal}",
+      "delete_aria": "Slett mat",
+      "delete_confirm_title": "Slett denne matvaren?",
+      "delete_confirm_body": "\"{name} vil bli fjernet fra maten din. Eksisterende dagbokoppføringer som viser denne maten blir behold.",
+      "deleted": "Mat slettet"
+    },
+    "sources": {
+      "local": "Lokal",
+      "from_others": "Fra andre",
+      "all": "Alle",
+      "shared": "Delt",
+      "mealie": "Mealie"
+    },
+    "all_mode": {
+      "search_hint": "Søk på tvers av alle aktiverte kilder",
+      "searching": "Søker gjennom alle kilder…",
+      "no_matches": "Ingen treff for \"{q}\" noe sted",
+      "loading_more": "Laster inn mer…",
+      "still_searching_others": "Søker fortsatt andre kilder…"
+    },
+    "offline": {
+      "source": "Trenger en tilkobling",
+      "search_hint": "Du er frakoblet. Det ble kun søkt blant dine egne matvarer. Open Food Facts, USDA og de andre kildene krever en internettforbindelse.",
+      "barcode": "Du er frakoblet. Det ble kun søkt blant dine egne matvarer for denne strekkoden.",
+      "import": "Den importen trenger en tilkobling. Den vil fungere så snart du er på nett igjen."
+    },
+    "loading_library": "Laster inn…",
+    "pagination": {
+      "showing_x_of_y": "Viser {shown} av {total}",
+      "loading_more": "Laster inn mer…"
+    },
+    "toast": {
+      "deleted": "Slettet",
+      "cloned": "Klonet",
+      "added_to_diary": "Lagt til i dagbok",
+      "meal_partly_added": "Noen ingredienser kunne ikke bli lagt til: {names}",
+      "meal_none_added": "Kunne ikke legge til dette måltidet. Sjekk tilkoblingen din og prøv igjen.",
+      "meal_stale_ingredients": "Lagt til i dagbok. Disse ingrediensene er ikke lenger i din mat: {names}. Rediger måltidet for å rette opp i dette."
+    }
+  },
+  "trace": {
+    "food_card": {
+      "log_to": "Loggfør i",
+      "dont_log": "Ikke loggfør"
+    },
+    "panel_label": "KI-veileder chat",
+    "ask_placeholder": "Spør meg om hva som helst…",
+    "clear_conversation": "Tøm samtale",
+    "clear_confirm_title": "Tøm denne samtalen?",
+    "clear_confirm_message": "Meldinger i denne samtalen vil bli slettet. Dette kan ikke reverseres.",
+    "clear_confirm_ok": "Tøm",
+    "attach_image": "Legg ved bilde",
+    "fab": {
+      "release_to_cancel": "Slipp for å avbryte",
+      "recording_release": "Tar opp — slipp for å loggføre",
+      "open_with_voice_hint": "Åpne KI-veileder (hold for å diktere mat)",
+      "tap_chat_hold_voice": "Trykk for å chatte · hold inne for å logge mat med stemmen",
+      "open_short": "Ki-assistent"
+    },
+    "setup": {
+      "api_key_required": "API-nøkkel påkrevd",
+      "api_key_desc": "Legg til API-nøkkelen fra din KI-tilbyder under <strong>Innstillinger → KI-veileder</strong> for å starte chatten.",
+      "supported_providers": "Støtter Anthropic Claude, OpenAI og Google Gemini.",
+      "open_settings": "Åpne Innstillinger"
+    }
+  },
+  "goals_page": {
+    "adaptive": {
+      "title": "Adaptiv TDEE",
+      "learned": "Beregnet: <strong>{value} {unit}/dag</strong> · vekttrend: {trend} kg/uke",
+      "building": "Samler inn data: <strong>{available} / {required}</strong> dager med både vekt og dagbok",
+      "help_button": "Hvordan det funker",
+      "today_goal": "Dagens mål",
+      "confidence": "Pålitelighet",
+      "weight_source": "Kilde for vektdata",
+      "until_ready": "Frem til det er klart, vil ditt faste mål på {value} {unit} gjelde.",
+      "help_headline": "Hvordan det funker.",
+      "help_intro": "Adaptiv TDEE beregner ditt faktiske daglige energiforbruk basert på vekttrenden din de siste 35 dagene, sett i sammenheng med hvor mye du faktisk har spist. Regnestykket:",
+      "help_step_1": "Utjevne vektsvingningene dine (lineær regresjon over 35 dager).",
+      "help_step_2": "Omgjør trenden til daglig energibalanse (1 kg kroppsmasse ≈ 7 700 kcal).",
+      "help_step_3": "TDEE = gjennomsnittlig daglig inntak − den daglige balansen.",
+      "help_best_intro": "For beste resultater:",
+      "help_best_weigh": "<strong>Vei deg ofte</strong> — daglig er best, annenhver dag er helt fint. Manglende målinger fylles inn automatisk, men flere målinger = mer nøyaktig resultat. En tilkoblet vekt (Withings, Fitbit, Garmin, Health Connect) går automatisk, men manuelle registreringer under Kroppsmål fungerer også.",
+      "help_best_log": "<strong>Logg maten din konsekvent.</strong> Manglende dager droppes fra beregningen. Estimatet blir unøyaktig hvis du bare registrerer halvparten av dagene.",
+      "help_best_switch": "<strong>Ikke bytt mål underveis.</strong> Det løpende gjennomsnittet over 35 dager stabiliserer seg over tid. Hvis du hopper mellom å kutte og å bulke hver uke, vil den lærte TDEE-en henge etter.",
+      "help_best_reweigh": "<strong>vei deg under samme forhold</strong> — det første du gjør om morgenen, etter dobesøk, før mat og drikke. Daglige svingninger er mest vann; det er trenden som teller.",
+      "help_caveats": "<strong>Viktig å merke seg.</strong> Store endringer i aktivitet (begynt med løping, brukket et bein) tar rundt 2 uker før de vises fult ut. Reiseuker med mangelfull matregistrering kan trekke estimatet opp. Den beregnede TDEE-en ganges med målfaktoren din (Ned -20% / Hold vekten / Opp 20%) for å gi deg det faktiske daglige målet."
+    },
+    "empty": {
+      "no_goals": "Ingen mål enda.",
+      "add_hint": "Gå til fanen <strong>Alle felt</strong> for å legge til mål.",
+      "no_templates": "Ingen maler enda.",
+      "no_templates_hint": "Lagre dine nåværende mål for å lage din første mal."
+    },
+    "sections": {
+      "body_stats": "Kroppsstatistikk",
+      "nutrients": "Næringsstoffer",
+      "water": "Vann",
+      "wellness": "Velvære"
+    },
+    "row": {
+      "not_set": "Ikke definert",
+      "no_goal": "Ingen mål",
+      "min": "(min)",
+      "stale_tip": "Den nyeste målingen innenfor de siste 30 dagene, brukes frem til du registrerer en ny verdi",
+      "daily_water_goal": "Daglig vannmål"
+    },
+    "all_fields": {
+      "intro": "Trykk på et felt for å angi eller redigere målet."
+    }
+  }
+}

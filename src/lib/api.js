@@ -1,7 +1,10 @@
 /**
  * api.js - External API calls (Open Food Facts)
  */
+import { settingPrefix } from './setting-key.js';
 import { rankOFFResults } from './off-rank.js';
+import { offProductName } from './off-name.js';
+import { asSoldNutriments } from './off-nutrition-sets.js';
 
 // In native mode, call external APIs directly (no CORS in WebView).
 // In web mode, go through the server proxy to avoid CORS.
@@ -14,7 +17,12 @@ import { rankOFFResults } from './off-rank.js';
 // strictly opt-in — users who haven't enabled the mirror see no behavior
 // change. Standalone native (no server) keeps the direct call because
 // there's no proxy to route through. Issue #22.
-async function _extFetch(url) {
+// `live`: ask Open Food Facts itself even when the server has a local OFF
+// mirror (#241). The mirror is a periodic dump, so a product edited on OFF
+// since then comes back old; Refresh from OFF is the one place that must see
+// the edit. An air-gapped server (OFF_LOCAL_ONLY) still answers from the mirror.
+async function _extFetch(url, { live = false } = {}) {
+  const proxyPath = '/api/proxy?url=' + encodeURIComponent(url) + (live ? '&live=1' : '');
   if (isNative) {
     const { CapacitorHttp } = await import('@capacitor/core');
     const { apiUrl, getServerUrl, getAuthToken } = await import('./platform.js');
@@ -27,7 +35,7 @@ async function _extFetch(url) {
     if (envLockedOffLocal && getServerUrl()) {
       // Server-connected native + admin enabled local OFF mirror: route
       // through /api/proxy on the server so the local DB intercept fires.
-      const proxyUrl = apiUrl('/api/proxy?url=' + encodeURIComponent(url));
+      const proxyUrl = apiUrl(proxyPath);
       const headers = { 'Accept': 'application/json' };
       const token = getAuthToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -50,7 +58,7 @@ async function _extFetch(url) {
   // Lazy-import to avoid an early-load circular reference; apiUrl() prefixes
   // the path with the BASE_URL when running at a subpath.
   const { apiUrl } = await import('./platform.js');
-  return fetch(apiUrl('/api/proxy?url=' + encodeURIComponent(url)));
+  return fetch(apiUrl(proxyPath));
 }
 
 // Read the user's saved OFF country-filter preference from localStorage.
@@ -59,8 +67,7 @@ async function _extFetch(url) {
 // localStorage instead of the store to keep this module store-free.
 function _getOffSearchCountry() {
   try {
-    const userId = localStorage.getItem('wl:userId');
-    const setKey = userId ? `wl_u${userId}_offSearchCountry` : 'wl_offSearchCountry';
+    const setKey = settingPrefix() + 'offSearchCountry';
     const raw = localStorage.getItem(setKey);
     if (!raw) return null;
     const country = JSON.parse(raw);
@@ -114,8 +121,7 @@ function _offSearchUrl(query, page, pageSize) {
 // _getOffSearchCountry.
 function _getOffSearchLanguage() {
   try {
-    const userId = localStorage.getItem('wl:userId');
-    const setKey = userId ? `wl_u${userId}_offSearchLanguage` : 'wl_offSearchLanguage';
+    const setKey = settingPrefix() + 'offSearchLanguage';
     const raw = localStorage.getItem(setKey);
     if (!raw) return 'en';
     const lang = JSON.parse(raw);
@@ -145,10 +151,102 @@ function _isOffSuccess(data) {
   return !!data.product;
 }
 
+// OFF nutriment keys behind each NutriTrace nutrient, with the factor that
+// turns OFF's unit into ours (g to mg is 1000, g to mcg 1000000). Calories
+// are handled separately (kcal, or kJ / 4.184).
+const _OFF_NUTRIENTS = [
+  ['kilojoules', 'energy'],
+  ['fat', 'fat'],
+  ['saturated-fat', 'saturated-fat'],
+  ['trans-fat', 'trans-fat'],
+  ['polyunsaturated-fat', 'polyunsaturated-fat'],
+  ['monounsaturated-fat', 'monounsaturated-fat'],
+  ['carbohydrates', 'carbohydrates'],
+  ['sugars', 'sugars'],
+  ['added-sugars', 'added-sugars'],
+  ['fiber', 'fiber'],
+  ['proteins', 'proteins'],
+  ['salt', 'salt'],
+  ['sodium', 'sodium', 1000],
+  ['potassium', 'potassium', 1000],
+  ['cholesterol', 'cholesterol', 1000],
+  ['caffeine', 'caffeine', 1000],
+  ['alcohol', 'alcohol'],
+  ['calcium', 'calcium', 1000],
+  ['iron', 'iron', 1000],
+  ['magnesium', 'magnesium', 1000],
+  ['vitamin-c', 'vitamin-c', 1000],
+  ['vitamin-a', 'vitamin-a', 1000000],
+  ['vitamin-d', 'vitamin-d', 1000000],
+  ['vitamin-e', 'vitamin-e', 1000],
+  ['vitamin-k', 'vitamin-k', 1000000],
+  ['b1', 'vitamin-b1', 1000],
+  ['b2', 'vitamin-b2', 1000],
+  ['b3', 'vitamin-b3', 1000],
+  ['b6', 'vitamin-b6', 1000],
+  ['b9', 'vitamin-b9', 1000000],
+  ['b12', 'vitamin-b12', 1000000],
+  ['zinc', 'zinc', 1000],
+  ['phosphorus', 'phosphorus', 1000],
+];
+
+// #241: what Open Food Facts actually has for each product seen this session,
+// by barcode. The OFF mapper turns missing values into 0, so a product with no
+// "as sold" values arrives looking like a real 0 kcal food. Screens copy
+// product objects around (spreads drop the hidden markers on them), so they
+// ask here by barcode instead. In memory only: nothing here is ever saved.
+// A full product lookup always beats a search hit, which carries less.
+const _OFF_INFO_MAX = 500;
+const _offInfo = new Map();
+function _rememberOffInfo(code, info) {
+  if (!code) return;
+  const key = String(code);
+  const prior = _offInfo.get(key);
+  if (prior && prior.full && !info.full) return;
+  _offInfo.delete(key);
+  if (_offInfo.size >= _OFF_INFO_MAX) _offInfo.delete(_offInfo.keys().next().value);
+  _offInfo.set(key, info);
+}
+
 const API = {
   OFF_BASE: 'https://world.openfoodfacts.org',
 
-  async lookupBarcode(barcode) {
+  /** What OFF has for a product seen this session, or null (see _offInfo). */
+  // #241: a full product lookup, with the product's "as sold" values when
+  // v3 leaves them out. v3 serves one set of values and prefers "as prepared",
+  // so a product that has both comes back "as prepared" only; v3.5 serves all
+  // the sets (see off-nutrition-sets.js). Asked only in that case, and any
+  // failure or surprise keeps the v3 answer, as does an "as sold" set with no
+  // calories (a formula listing only "sugars 0"): 0 kcal is worse than the
+  // "as prepared" values the user is offered then.
+  async _mapFullOFFProduct(product, code, { live = false } = {}) {
+    const mapped = this._mapOFFProduct(product, { full: true });
+    if (!mapped || !mapped._offPreparedOnly) return mapped;
+    try {
+      const url = `${this.OFF_BASE}/api/v3.5/product/${code}?fields=nutrition`;
+      const res = await _extFetch(url, { live });
+      if (!res.ok) return mapped;
+      const data = await res.json();
+      const asSold = _isOffSuccess(data) ? asSoldNutriments(data.product?.nutrition, product.serving_quantity) : null;
+      if (!asSold) return mapped;
+      const merged = this._mapOFFProduct({
+        ...product,
+        nutriments: { ...(product.nutriments || {}), ...asSold.nutriments },
+        nutrition_data_per: asSold.per,
+      }, { full: true });
+      if (merged && merged._offPresent.includes('calories')) return merged;
+      // The merge registered its own reading of the product; put back v3's.
+      return this._mapOFFProduct(product, { full: true });
+    } catch {
+      return mapped;
+    }
+  },
+
+  offNutritionInfo(barcode) {
+    return barcode ? (_offInfo.get(String(barcode)) || null) : null;
+  },
+
+  async lookupBarcode(barcode, { live = false } = {}) {
     try {
       const lc = _getOffSearchLanguage();
       // v3 is the current canonical product endpoint. v0/v2 still work
@@ -159,11 +257,11 @@ const API = {
       // { status: 1 } — accept both so a mirror hit and a live v3 hit
       // are treated the same.
       const url = `${this.OFF_BASE}/api/v3/product/${barcode}?lc=${encodeURIComponent(lc)}`;
-      const res = await _extFetch(url);
+      const res = await _extFetch(url, { live });
       if (!res.ok) return null;
       const data = await res.json();
       if (!_isOffSuccess(data)) return null;
-      return this._mapOFFProduct(data.product);
+      return await this._mapFullOFFProduct(data.product, barcode, { live });
     } catch(e) {
       console.error('Barcode lookup failed:', e);
       return null;
@@ -202,7 +300,7 @@ const API = {
       if (!res.ok) return null;
       const data = await res.json();
       if (!_isOffSuccess(data)) return null;
-      const mapped = this._mapOFFProduct(data.product);
+      const mapped = await this._mapFullOFFProduct(data.product, code);
       if (mapped) {
         if (this._offHydrateCache.size >= this._OFF_HYDRATE_MAX) {
           const oldest = this._offHydrateCache.keys().next().value;
@@ -385,15 +483,17 @@ const API = {
     }
   },
 
-  _mapOFFProduct(p) {
-    if (!p || !p.product_name) return null;
+  _mapOFFProduct(p, { full = false } = {}) {
+    // #238: product_name is blank on products whose main language has no
+    // name, even when other languages do. See off-name.js for the order.
+    const name = offProductName(p, _getOffSearchLanguage());
+    if (!p || !name) return null;
     const n = p.nutriments || {};
     // Per-serving import: enabled by the user via Settings → Connected Services →
     // Open Food Facts → Import Portion As, and only when the product actually
     // exposes serving_quantity + at least one *_serving nutriment. Otherwise the
     // 100g path is used unchanged.
-    const userId = localStorage.getItem('wl:userId');
-    const setKey = userId ? `wl_u${userId}_offImportPortion` : 'wl_offImportPortion';
+    const setKey = settingPrefix() + 'offImportPortion';
     let importPortion = 'per100g';
     try {
       const raw = localStorage.getItem(setKey);
@@ -460,6 +560,52 @@ const API = {
     // surface higher than sparse ones) and to render a small quality dot
     // next to each result so the user can pick informed. All fields are
     // optional; anything missing degrades gracefully to null / undefined.
+    // #241: which nutrients OFF actually has for this product. g() turns a
+    // missing value into 0, and Refresh from OFF must not write that 0 over
+    // a real number, so the refresh only updates what is listed here.
+    const has = (baseKey) => n[baseKey + '_modifier'] !== '~'
+      && n[baseKey + suffix] !== undefined && n[baseKey + suffix] !== null && n[baseKey + suffix] !== '';
+    const nutrition = { calories: Math.round(kcal * 10) / 10 };
+    const present = new Set();
+    if (has('energy-kcal') || has('energy')) present.add('calories');
+    for (const [id, key, mult] of _OFF_NUTRIENTS) {
+      nutrition[id] = g(key, mult);
+      if (has(key)) present.add(id);
+    }
+    // Salt and sodium are one datum; deriveSodiumSalt fills either from the other.
+    if (present.has('salt') || present.has('sodium')) { present.add('salt'); present.add('sodium'); }
+    // No as-sold values at all, but "as prepared" ones: say so rather than
+    // reporting an empty product.
+    const preparedOnly = present.size === 0
+      && Object.keys(n).some(k => k.endsWith('_prepared' + suffix) && n[k] !== '' && n[k] != null);
+    // Only for a product with no "as sold" values at all: its "as prepared"
+    // ones, so the user can choose them. Never used unasked: for a drink
+    // powder they describe the finished drink, not the powder you weigh.
+    let prepared = null;
+    if (preparedOnly) {
+      const pn = (key) => n[key + '_prepared_100g'];
+      const pHas = (key) => n[key + '_prepared_modifier'] !== '~' && pn(key) !== undefined && pn(key) !== null && pn(key) !== '';
+      const pg = (key, mult) => pHas(key) ? (parseFloat(pn(key)) || 0) * (mult || 1) : 0;
+      const pNutrition = { calories: 0 };
+      const pPresent = new Set();
+      const pKcal = pHas('energy-kcal') ? pg('energy-kcal') : (pHas('energy') ? pg('energy') / 4.184 : 0);
+      pNutrition.calories = Math.round(pKcal * 10) / 10;
+      if (pHas('energy-kcal') || pHas('energy')) pPresent.add('calories');
+      for (const [id, key, mult] of _OFF_NUTRIENTS) {
+        pNutrition[id] = pg(key, mult);
+        if (pHas(key)) pPresent.add(id);
+      }
+      if (pPresent.has('salt') || pPresent.has('sodium')) { pPresent.add('salt'); pPresent.add('sodium'); }
+      if (pPresent.size) {
+        const per = String(p.nutrition_data_prepared_per || '').toLowerCase();
+        prepared = {
+          nutrition: Nutrition.deriveSodiumSalt(pNutrition),
+          present: [...pPresent],
+          portion: 100,
+          unit: per === '100ml' ? 'ml' : 'g',
+        };
+      }
+    }
     const completeness = typeof p.completeness === 'number' ? p.completeness : null;
     const nutriscore   = (p.nutriscore_grade || p.nutrition_grades || '').toLowerCase() || null;
     const nova         = typeof p.nova_group === 'number' ? p.nova_group : null;
@@ -473,8 +619,8 @@ const API = {
     const originTag = (Array.isArray(p.origins_tags) && p.origins_tags[0])
                    || (Array.isArray(p.manufacturing_places_tags) && p.manufacturing_places_tags[0])
                    || null;
-    return {
-      name:      (p.product_name || '').trim(),
+    const mapped = {
+      name,
       brand:     (Array.isArray(p.brands) ? (p.brands[0] || '') : (p.brands || '').split(',')[0] || '').trim(),
       barcode:   p.code || p._id || p.id || '',
       unit,
@@ -489,43 +635,13 @@ const API = {
       nutriscore,
       nova,
       originTag,
-      nutrition: Nutrition.deriveSodiumSalt({
-        calories:        Math.round(kcal * 10) / 10,
-        kilojoules:      g('energy'),
-        fat:                   g('fat'),
-        'saturated-fat':       g('saturated-fat'),
-        'trans-fat':           g('trans-fat'),
-        'polyunsaturated-fat': g('polyunsaturated-fat'),
-        'monounsaturated-fat': g('monounsaturated-fat'),
-        carbohydrates:         g('carbohydrates'),
-        sugars:          g('sugars'),
-        'added-sugars':  g('added-sugars'),
-        fiber:           g('fiber'),
-        proteins:        g('proteins'),
-        salt:            g('salt'),
-        sodium:          g('sodium', 1000),
-        potassium:       g('potassium', 1000),
-        cholesterol:     g('cholesterol', 1000),
-        caffeine:        g('caffeine', 1000),
-        alcohol:         g('alcohol'),
-        calcium:         g('calcium', 1000),
-        iron:            g('iron', 1000),
-        magnesium:       g('magnesium', 1000),
-        'vitamin-c':     g('vitamin-c', 1000),
-        'vitamin-a':     g('vitamin-a', 1000000),
-        'vitamin-d':     g('vitamin-d', 1000000),
-        'vitamin-e':     g('vitamin-e', 1000),
-        'vitamin-k':     g('vitamin-k', 1000000),
-        b1:              g('vitamin-b1', 1000),
-        b2:              g('vitamin-b2', 1000),
-        b3:              g('vitamin-b3', 1000),
-        b6:              g('vitamin-b6', 1000),
-        b9:              g('vitamin-b9', 1000000),
-        b12:             g('vitamin-b12', 1000000),
-        zinc:            g('zinc', 1000),
-        phosphorus:      g('phosphorus', 1000),
-      })
+      nutrition: Nutrition.deriveSodiumSalt(nutrition),
     };
+    Object.defineProperty(mapped, '_offPresent', { value: [...present], enumerable: false });
+    Object.defineProperty(mapped, '_offPreparedOnly', { value: preparedOnly, enumerable: false });
+    Object.defineProperty(mapped, '_offPrepared', { value: prepared, enumerable: false });
+    _rememberOffInfo(mapped.barcode, { present: [...present], preparedOnly, prepared, full });
+    return mapped;
   }
 };
 const _USDA_BASE = 'https://api.nal.usda.gov/fdc/v1';
@@ -856,6 +972,11 @@ const _NtApiHttp = {
   updateActivity(id, data)   { return this.put(`/api/activity/${id}`, data); },
   deleteActivity(id)         { return this.del(`/api/activity/${id}`); },
 
+  // Your own profile. Through here rather than a raw fetch, so the offline
+  // layer sees it and a picture chosen with no connection is kept until
+  // there is one. Same shape in LiftTrace and CookTrace.
+  updateProfile(data)        { return this.put('/api/auth/profile', data); },
+
   // Upload
   async uploadImage(file) {
     const form = new FormData();
@@ -876,6 +997,13 @@ import { NtApiNative } from './api-native.js';
 // Dynamic proxy — resolves which implementation to use on EVERY call.
 // Three modes: web (HTTP), native standalone (local SQLite), native server (cached).
 import { NtApiCached } from './api-cached.js';
+import { createOfflineApi } from './offline-api.js';
+
+// The browser's API, wrapped so the diary keeps working without a connection
+// (#211). Built on first use, so a page that never calls the API never opens
+// IndexedDB.
+let _offlineHttp = null;
+const _webApi = () => (_offlineHttp ||= createOfflineApi(_NtApiHttp));
 
 export const NtApi = new Proxy({}, {
   get(_, prop) {
@@ -886,7 +1014,7 @@ export const NtApi = new Proxy({}, {
 
     let impl, implName;
     if (!isNative) {
-      impl = _NtApiHttp;    implName = 'HTTP';       // Web PWA — always server
+      impl = _webApi();     implName = 'HTTP';       // Web PWA: server, with an offline mirror
     } else if (!getServerUrl()) {
       impl = NtApiNative;   implName = 'Native';     // Native standalone — always local
     } else {

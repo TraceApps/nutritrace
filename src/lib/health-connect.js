@@ -36,6 +36,7 @@ import {
   parseRespiratoryRate,
   parseVo2Max,
 } from './health-connect-parsers.js';
+import { deriveHealthConnectSleep, localDate } from './sleep-sessions.js';
 
 function _getPlugin() {
   if (!isNative) return null;
@@ -192,7 +193,7 @@ export async function getGrantedPermissions() {
  * Read today's health data from Health Connect.
  * Returns an object of wellness_data-compatible metrics.
  */
-export async function readTodayData() {
+export async function readTodayData(dateStr) {
   const hc = _getPlugin();
   if (!hc) return {};
 
@@ -304,77 +305,24 @@ export async function readTodayData() {
     }
   } catch (e) { console.warn('[health-connect] Weight error:', e.message); }
 
-  // Sleep session (look back 24h for last night's sleep)
+  // Sleep: every session of the night, not just the last one (#236). A
+  // night can be several records (Samsung Health splits it wherever you
+  // woke), and more than one app can write the same night.
+  // deriveHealthConnectSleep decides which records are last night, removes
+  // overlap, and writes the canonical Wellness ids. The background worker
+  // runs a Kotlin port of the same code, so both paths store the same
+  // numbers. The window opens at yesterday's midnight so a night that
+  // began yesterday evening is read whole, whenever today the sync runs.
   try {
-    const sleepStart = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const sleepFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toISOString();
     const { records } = await hc.readRecords({
-      start: sleepStart, end: todayEnd,
+      start: sleepFrom, end: todayEnd,
       type: 'SleepSession',
     });
-    _dlog(`[health-connect] Sleep: ${records.length} records`);
-    if (records.length > 0) {
-      const sleep = records[records.length - 1]; // Most recent session
-      if (sleep.startTime && sleep.endTime) {
-        const durMs = new Date(sleep.endTime) - new Date(sleep.startTime);
-        metrics.sleep_duration_min = Math.round(durMs / 60000);
-      }
-      // Parse stages if available — also derive Sleep Quality sub-metrics
-      // (Fitbit Public Preview Sleep Score) from the per-stage timeline so
-      // they match the server-side compute when on Google Health.
-      if (sleep.stages && Array.isArray(sleep.stages)) {
-        let deep = 0, rem = 0, light = 0, awake = 0;
-        // Stages sorted chronologically + normalized to { type, durMin }
-        const segs = [...sleep.stages]
-          .map(s => {
-            const durMin = s.duration ? Math.round(s.duration / 60000)
-                         : (s.startTime && s.endTime ? Math.round((new Date(s.endTime) - new Date(s.startTime)) / 60000) : 0);
-            const t = String(s.stage || '').toLowerCase();
-            return { type: t, durMin, startTime: s.startTime || null };
-          })
-          .sort((a, b) => (a.startTime && b.startTime) ? new Date(a.startTime) - new Date(b.startTime) : 0);
-        for (const s of segs) {
-          if (s.type === 'deep')  deep += s.durMin;
-          else if (s.type === 'rem')   rem += s.durMin;
-          else if (s.type === 'light') light += s.durMin;
-          else if (s.type === 'awake') awake += s.durMin;
-        }
-        if (deep)  metrics.sleep_deep_min  = deep;
-        if (rem)   metrics.sleep_rem_min   = rem;
-        if (light) metrics.sleep_light_min = light;
-        if (awake) metrics.sleep_awake_min = awake;
-
-        // Time to Sound Sleep — minutes until first DEEP/REM segment
-        let ttss = 0;
-        for (const s of segs) {
-          if (s.type === 'deep' || s.type === 'rem') break;
-          ttss += s.durMin;
-        }
-        if (segs.some(s => s.type === 'deep' || s.type === 'rem')) {
-          metrics.sleep_time_to_sound_min = ttss;
-        }
-
-        // Sound Sleep — DEEP + REM + LIGHT segments <5min (brief light = "sound")
-        let sound = deep + rem;
-        for (const s of segs) {
-          if (s.type === 'light' && s.durMin < 5) sound += s.durMin;
-        }
-        if (sound > 0) metrics.sleep_sound_min = sound;
-
-        // Restlessness — sum of AWAKE segments <5min (HC doesn't expose motion
-        // data; this is an approximation, same as the server's GH compute)
-        // Interruptions — count of AWAKE segments ≥5min
-        let restlessness = 0;
-        let interruptions = 0;
-        for (const s of segs) {
-          if (s.type !== 'awake') continue;
-          if (s.durMin < 5) restlessness += s.durMin;
-          else interruptions++;
-        }
-        if (restlessness > 0) metrics.sleep_restlessness_min = restlessness;
-        metrics.sleep_interruptions = interruptions;
-      }
-    }
-  } catch {}
+    const night = deriveHealthConnectSleep(records, dateStr || localDate(now.getTime()));
+    _dlog(`[health-connect] Sleep: ${records.length} records -> ${JSON.stringify(night)}`);
+    Object.assign(metrics, night);
+  } catch (e) { console.warn('[health-connect] Sleep error:', e?.message); }
 
   // Exercise sessions — sum duration for the active_minutes metric.
   // The permission dialog already requests ExerciseSession (line 64 above).
@@ -705,7 +653,7 @@ export async function readExerciseSessions(fromIso, toIso) {
  * Called during sync cycle when Health Connect is enabled.
  */
 export async function syncHealthConnect(dateStr) {
-  const metrics = await readTodayData();
+  const metrics = await readTodayData(dateStr);
   const { dbUpsertWellness, dbUpsertWorkoutLocal } = await import('./db-native.js');
 
   for (const [type, value] of Object.entries(metrics)) {

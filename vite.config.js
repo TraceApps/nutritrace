@@ -37,12 +37,23 @@ export default defineConfig({
       // for the Svelte-side bridge.
       registerType: 'prompt',
       workbox: {
-        // Precache the offline fallback page
-        globPatterns: ['offline.html'],
-        // navigateFallback explicitly disabled — navigation requests are
-        // handled by the NetworkFirst runtimeCaching route below.
-        navigateFallback: null,
-        navigateFallbackDenylist: [/.*/],
+        // Precache the whole app shell, not just the fallback page. Without
+        // this a reload with no connection loaded index.html and then failed
+        // to fetch its own JavaScript, so the installed app looked broken
+        // exactly when offline mode was supposed to carry it (#211).
+        globPatterns: ['**/*.{js,mjs,css,html,woff2,woff,ttf,png,svg,ico,webmanifest}'],
+        // The barcode scanner libraries are left out: scanning is only useful
+        // with a connection anyway. So are the install icons, which the browser
+        // fetches from the manifest. The icon font stays, or every button in the
+        // app would read as a word offline.
+        globIgnores: ['vendor/**', 'icons/**', '**/*.map'],
+        // Chart, zip and emoji chunks are over the 2 MiB default.
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+        // Navigation still prefers the network (see the NetworkFirst route
+        // below, 3s timeout) so a deploy is picked up at once; the precached
+        // index.html is what answers when the server can't be reached.
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//],
         cleanupOutdatedCaches: true,
         // Keep skipWaiting + clientsClaim: once WE call updateSW(true)
         // from the banner's Reload button, workbox activates immediately
@@ -59,6 +70,29 @@ export default defineConfig({
             options: {
               cacheName: 'pages-cache',
               networkTimeoutSeconds: 3,
+            }
+          },
+          {
+            // Food photos served by your own instance. Cache first: an image
+            // never changes under its filename, so this is what makes the
+            // diary and the food list look right offline instead of showing
+            // broken thumbnails (#211).
+            urlPattern: ({ url }) => url.pathname.includes('/uploads/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'uploads-cache',
+              expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            }
+          },
+          {
+            // Product photos for foods taken from Open Food Facts.
+            urlPattern: /^https:\/\/images\.openfoodfacts\.org\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'off-images-cache',
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
             }
           },
           {

@@ -38,6 +38,11 @@ COPY --from=build /app/dist ./dist
 # /src/lib/nutrition.js — mirror that path in the container so local dev
 # and Docker resolve the same file without a re-export shim.
 COPY src/lib/nutrition.js /src/lib/nutrition.js
+# Same arrangement for the Sleep Quality walk: Google Health derives it on
+# the server, Health Connect on the phone, from this one file (#236).
+# scripts/docker-src-imports.test.js fails if a server import of src/lib has
+# no COPY line here.
+COPY src/lib/sleep-quality.js /src/lib/sleep-quality.js
 # Also ship the root package.json so the server can read APP_VERSION from
 # it at runtime when TRACEAPPS_APP_VERSION isn't injected via ARG below.
 # Keeps versioning working even for builds that don't pass the build-arg.

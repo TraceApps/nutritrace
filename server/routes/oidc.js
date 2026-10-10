@@ -13,7 +13,7 @@ import {
   listProviders, publicProvider, getProvider, getClient,
   generateAuthChecks, persistState, consumeState,
   resolveUser, applyAdminMapping, linkUser, unlinkUser, listUserLinks,
-  isPasswordLoginEnabled,
+  isPasswordLoginEnabled, isValidAppChallenge, persistHandoff, consumeHandoff,
 } from '../lib/oidc.js';
 import db from '../db.js';
 
@@ -77,6 +77,9 @@ router.get('/login/:providerId', wrap(async (req, res) => {
   const checks = generateAuthChecks();
   const linkMode = req.query.link === '1' && !!req.user;
   const isMobile = req.query.mobile === '1';
+  // Newer Android builds send app_challenge so the deep link at the end can
+  // carry a single-use code instead of the session token (see /handoff).
+  const appChallenge = isMobile && isValidAppChallenge(req.query.app_challenge) ? req.query.app_challenge : null;
   const returnPath = typeof req.query.return === 'string' ? req.query.return.slice(0, 256) : '';
   persistState({
     providerId: provider.id,
@@ -87,6 +90,7 @@ router.get('/login/:providerId', wrap(async (req, res) => {
     nonce: checks.nonce,
     mobile: isMobile,
     linkUserId: linkMode ? req.user.id : null,
+    appChallenge,
   });
 
   const url = client.authorizationUrl({
@@ -102,21 +106,27 @@ router.get('/login/:providerId', wrap(async (req, res) => {
 
 /**
  * GET /api/auth/oidc/callback/:providerId
+ * GET /api/auth/oidc/callback
  * Validates state/nonce, exchanges code for tokens, mints nt_token, redirects.
+ *
+ * The provider ID in the path is optional: the state row already records
+ * which provider the sign-in started with. Older docs gave the callback
+ * without the ID (and at /api/oidc/callback, which index.js forwards here),
+ * so registrations copied from them keep working.
  */
-router.get('/callback/:providerId', wrap(async (req, res) => {
-  const provider = getProvider(req.params.providerId);
-  if (!provider) return res.status(404).send('Provider not found');
-
+async function handleCallback(req, res) {
   const params = new URLSearchParams(req.url.split('?')[1] || '');
   const state = params.get('state');
   if (!state) return res.status(400).send('Missing state');
 
   const stored = consumeState(state);
   if (!stored) return res.status(400).send('Invalid or expired state');
-  if (Number(stored.providerId) !== Number(provider.id)) {
+  const providerId = req.params.providerId ?? stored.providerId;
+  if (Number(stored.providerId) !== Number(providerId)) {
     return res.status(400).send('State / provider mismatch');
   }
+  const provider = getProvider(providerId);
+  if (!provider) return res.status(404).send('Provider not found');
 
   let tokenSet, claims;
   try {
@@ -128,6 +138,18 @@ router.get('/callback/:providerId', wrap(async (req, res) => {
       code_verifier: stored.codeVerifier,
     });
     claims = tokenSet.claims();
+    // Some IdPs only put email, name, username and groups in the userinfo
+    // response (Authelia 4.39+ by default). Fill in what the ID token lacks;
+    // the ID token wins where both have a value, and userinfo is ignored
+    // unless it names the same subject.
+    if (tokenSet.access_token && client.issuer?.metadata?.userinfo_endpoint) {
+      try {
+        const info = await client.userinfo(tokenSet.access_token);
+        if (info && info.sub === claims.sub) claims = { ...info, ...claims };
+      } catch (e) {
+        logger.warn(`[oidc] userinfo failed for provider ${provider.id}: ${e?.message || e}`);
+      }
+    }
   } catch (e) {
     logger.warn(`[oidc] callback failed for provider ${provider.id}: ${e?.message || e}`);
     if (stored.mobile) return res.redirect(`nutritrace://oidc-callback/?error=callback_failed`);
@@ -179,6 +201,17 @@ router.get('/callback/:providerId', wrap(async (req, res) => {
     // along so the app can persist them locally for RP-initiated logout
     // later — the cookie-based path used by PWA doesn't reach the WebView's
     // separate cookie jar, so the client has to remember these itself.
+    if (stored.appChallenge) {
+      // Single-use code the app swaps for the token at POST /handoff.
+      const code = persistHandoff({
+        appChallenge: stored.appChallenge,
+        token,
+        idTokenHint: tokenSet?.id_token,
+        providerId: provider.id,
+      });
+      return res.redirect(`nutritrace://oidc-callback/?code=${encodeURIComponent(code)}`);
+    }
+    // Older app builds (no app_challenge) still get the token in the link.
     let deepLink = `nutritrace://oidc-callback/?token=${encodeURIComponent(token)}`;
     if (tokenSet?.id_token) {
       deepLink += `&id_token_hint=${encodeURIComponent(tokenSet.id_token)}`;
@@ -197,6 +230,20 @@ router.get('/callback/:providerId', wrap(async (req, res) => {
     res.clearCookie(LOGOUT_COOKIE);
   }
   return _redirectToLogin(res, stored.returnPath, null, 'ok');
+}
+
+router.get('/callback/:providerId', wrap(handleCallback));
+router.get('/callback', wrap(handleCallback));
+
+/**
+ * POST /api/auth/oidc/handoff  { code, verifier }
+ * The Android app swaps the single-use code from the deep link, plus the
+ * secret whose hash it sent as app_challenge, for its session token.
+ */
+router.post('/handoff', wrap((req, res) => {
+  const data = consumeHandoff(req.body?.code, req.body?.verifier);
+  if (!data) return res.status(400).json({ error: 'Sign-in expired. Please try again.' });
+  res.json({ token: data.token, id_token_hint: data.idTokenHint, provider_id: data.providerId });
 }));
 
 function _redirectToLogin(res, returnPath, error, ok) {

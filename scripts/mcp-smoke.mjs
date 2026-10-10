@@ -96,6 +96,7 @@ const READ_TOOLS = [
   'get_goals',
   'get_profile',
   'get_steps',
+  'get_body_composition',
   'list_diary_entries',
   'list_diary_entries_range',
   'get_daily_totals',
@@ -155,6 +156,7 @@ async function checkTool(name, args, resultKey, note) {
 await checkTool('get_goals',           {},                       'goals');
 await checkTool('get_profile',         {},                       'gender',   '(gender/birthday)');
 await checkTool('get_steps',           { start: '2000-01-01', end: '2000-01-02' }, 'steps', '(explicit range)');
+await checkTool('get_body_composition', { start: '2000-01-01', end: '2000-01-02' }, 'measurements', '(explicit range)');
 await checkTool('get_daily_totals',    {},                       'totals',    '(today)');
 await checkTool('get_daily_totals_range', { start: '2000-01-01', end: '2000-01-02' }, 'totals', '(explicit range)');
 await checkTool('list_diary_entries',  {},                       'items',     '(today)');

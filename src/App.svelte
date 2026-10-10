@@ -2,6 +2,7 @@
   import { onMount }   from 'svelte';
   import { fade, slide } from 'svelte/transition';
   import { portal } from './lib/portal.js';
+  import { initFold } from './lib/fold.js';
   import { isPullSyncExempt } from './lib/pull-sync.js';
   import { handleBack } from './lib/back-stack.js';
   import Router, { location } from 'svelte-spa-router';
@@ -12,16 +13,33 @@
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import { DB, localDateStr } from './lib/db.js';
   import { currentDate, loadEntry } from './stores/diary.js';
+  import { reloadSettingStores } from './stores/settings.js';
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation, forceMobileLayout } from './stores/settings.js';
   import { locale, _ } from 'svelte-i18n';
   import { currentUser, userMgmtActive, setupRequired, loadAuthState, handleOidcCallback } from './stores/auth.js';
-  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl } from './lib/platform.js';
+  import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
   import { describeConnectionIssue } from './lib/connection-message.js';
-  import { writable } from 'svelte/store';
+  import { writable, get as getStore } from 'svelte/store';
+  import { accountGate, ensureLocalAccount, accountReadyFor } from './lib/local-account.js';
 
   // Sync state — mirrored from the real sync store (dynamically imported)
+  // The browser's offline queue (web only); see src/lib/offline-api.js.
+  import { offlineState } from './lib/offline-api.js';
   const syncState = writable({ syncing: false, phase: '', progress: '', lastSync: null, error: null, online: true, connectionIssue: null, showErrorBanner: false });
   $: _syncModeActive = isNative && getNativeMode() === 'server';
+  // On the web the same badge reports the offline queue: amber while work is
+  // waiting to go up, red when the server answers but refuses the push.
+  $: _webOffline = !isNative && (!$offlineState.online || $offlineState.pending > 0 || !!$offlineState.error);
+  $: _webFailing = !isNative && !!$offlineState.error;
+  // A red cloud on its own tells nobody why. Say it once, in words, when the
+  // server refuses what is waiting; the queue is kept and keeps trying.
+  let _toldRefusal = null;
+  $: if (_webFailing && $offlineState.error !== _toldRefusal) {
+    _toldRefusal = $offlineState.error;
+    const _why = $offlineState.error;
+    import('./stores/toast.js').then(({ showError }) => showError($_('sync.refused', { values: { reason: _why } })));
+  }
+  $: if (!_webFailing) _toldRefusal = null;
   $: _serverReachable = $syncState.online && !$syncState.connectionIssue;
   // The server answers but the sync is failing, as opposed to no network at all.
   $: _syncFailing = $syncState.online && !!$syncState.connectionIssue;
@@ -305,6 +323,14 @@
   // (single-column diary, drill-in settings, no rail, no week strip).
   $: if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('force-mobile-layout', !!$forceMobileLayout);
+    // Room for two panes beside whatever sidebar is pinned, rather than a
+    // desktop-sized viewport. A foldable's inner display is around 840px
+    // open flat, so a 1024px gate left it on the phone layout on the one
+    // screen with the most room. Matches NoteTrace.
+    document.documentElement.classList.toggle(
+      'wide-content',
+      !$forceMobileLayout && _viewportW - (sidebarPinned ? 280 : 0) >= 720,
+    );
   }
   // Apply/remove banner-gradient class on the document so portaled top-bar
   // action buttons (which live outside the .page-header in the DOM, e.g.
@@ -322,6 +348,11 @@
   }
 
   onMount(async () => {
+    initFold();
+    // Update checks: a device that was already using the app keeps checking,
+    // a fresh one stays quiet until setup asks. Runs first so nothing above
+    // can skip it (see lib/updates.js).
+    import('./lib/updates.js').then(({ migrateAutoCheck }) => migrateAutoCheck()).catch(() => {});
     // Local-mode scheduled backup tick — JS-side scheduler that fires
     // exportLocalBackup() when the user's schedule is due. No-ops in
     // PWA / server modes. See src/lib/local-backup-scheduler.js for
@@ -439,9 +470,22 @@
             if (host === 'oidc-callback') {
               const errMsg = params.get('error');
               const linked = params.get('linked');
-              const token = params.get('token');
-              const idTokenHint = params.get('id_token_hint');
-              const providerId  = params.get('provider_id');
+              let token = params.get('token');
+              let idTokenHint = params.get('id_token_hint');
+              let providerId  = params.get('provider_id');
+              const code = params.get('code');
+              if (code && !errMsg) {
+                try {
+                  const { redeemHandoff } = await import('./lib/oidc-app-handoff.js');
+                  const data = await redeemHandoff(code);
+                  token = data.token;
+                  idTokenHint = data.id_token_hint || null;
+                  providerId = data.provider_id != null ? String(data.provider_id) : null;
+                } catch (e) {
+                  import('./stores/toast.js').then(({ showError }) => showError(e?.message || 'Sign-in failed'));
+                  return;
+                }
+              }
               if (errMsg) {
                 import('./stores/toast.js').then(({ showError }) => showError(decodeURIComponent(errMsg)));
               } else if (linked) {
@@ -508,8 +552,12 @@
       });
     }
 
+    // Editor drafts from before they were kept per account belong to the
+    // account still signed in from last time; moved before anyone else
+    // can sign in (lib/editor-draft.js).
+    try { (await import('./lib/editor-draft.js')).migrateUnscopedDrafts(); } catch {}
     // Load auth state first (sets $currentUser and $userMgmtActive)
-    await loadAuthState();
+    try { await loadAuthState(); } finally { authLoaded = true; }
 
     // Mirror serverUrl + authToken from localStorage into the native SQLite
     // sync_meta table so the Kotlin HealthConnectSyncWorker (background HC
@@ -526,25 +574,11 @@
     // we don't double-fetch on cold load.
     await handleOidcCallback();
 
-    // Env-lock state: which Settings sections are configured via env vars.
-    // Fetched globally so the Trace FAB knows about env-set AI_ENABLED
-    // without waiting for the user to visit Settings. Issue #36.
-    // Native server mode needs the Bearer token header explicitly —
-    // credentials:'include' alone (cookies) returns 401 there.
-    if (!isNative || getServerUrl()) {
-      const { getAuthToken } = await import('./lib/platform.js');
-      const headers = {};
-      const token = getAuthToken();
-      if (isNative && token) headers['Authorization'] = `Bearer ${token}`;
-      fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers })
-        .then(r => r.ok ? r.json() : null)
-        .then(async d => {
-          if (!d) return;
-          const { envLocks } = await import('./stores/settings.js');
-          envLocks.set(d);
-        })
-        .catch(() => {});
-    }
+    // Env-lock state for AI / SMTP / OIDC. Fetched globally so the Trace
+    // FAB knows about env-set AI_ENABLED without waiting for Settings to
+    // load. Mirrors NutriTrace #36. Signed out it would only be refused;
+    // signing in loads it (see _wasNeedsLogin below).
+    if (!($userMgmtActive && !$currentUser)) loadEnvLocks();
 
     // Show wizard on first launch:
     // - Native server mode: NEVER show wizard (server is already configured)
@@ -591,10 +625,26 @@
         mod.startNetworkMonitor();
         mod.fullSync(); // Initial automatic sync; failure stays in compact status
         // Periodic sync every 30 seconds (silent — only shows bar if changes found)
-        setInterval(() => mod.fullSync(true), 30000);
+        // Only while the app is actually in front of you. A WebView keeps its
+        // timers running when the app is backgrounded and the screen is off,
+        // and an app still on top with the screen off is not frozen, so an
+        // ungated interval keeps waking the radio with nobody looking.
+        // Stopping loses nothing: coming back fires a sync of its own.
+        let poll = null;
+        const startPolling = () => {
+          if (poll == null) poll = setInterval(() => mod.fullSync(true), 30000);
+        };
+        const stopPolling = () => {
+          if (poll != null) { clearInterval(poll); poll = null; }
+        };
+        startPolling();
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) stopPolling(); else startPolling();
+        });
         // Sync on app resume (visible)
         import('@capacitor/app').then(({ App }) => {
-          App.addListener('resume', () => mod.fullSync());
+          App.addListener('resume', () => { startPolling(); mod.fullSync(); });
+          App.addListener('pause', () => stopPolling());
         });
       });
     }
@@ -708,7 +758,43 @@
   });
 
   // Auth gate: bypass for password reset / invite pages
+  /**
+   * Which sections the server holds by environment variable, Trace included.
+   * Sends the Android app's token: cookies alone were refused there, which
+   * left Trace looking unconfigured even with AI_* set on the server.
+   */
+  async function loadEnvLocks() {
+    if (isNative && !getServerUrl()) return;
+    try {
+      const headers = {};
+      const token = isNative ? getAuthToken() : null;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers });
+      if (!res.ok) return;
+      const { envLocks } = await import('./stores/settings.js');
+      envLocks.set(await res.json());
+    } catch { /* defaults stay: Trace waits for a key in Settings */ }
+  }
+
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];
+  // The web app learns who is signed in from the server. Until it knows,
+  // nothing renders: the app used to load first and fire its requests
+  // signed out, before the sign-in screen replaced it. Android starts from
+  // the account it cached, so it never waits.
+  let authLoaded = isNative;
+  // Web: searching your foods offline (Add food from the Diary) reads this
+  // browser's copy of them, which only the Foods screen used to fill. Fill it
+  // once per account on first load, a moment after the page settles, so a
+  // fresh browser that only ever opened the Diary still finds them offline.
+  let _catalogWarmedFor = null;
+  $: if (!isNative && authLoaded && $currentUser?.id != null && _catalogWarmedFor !== $currentUser.id) {
+    _catalogWarmedFor = $currentUser.id;
+    setTimeout(() => {
+      Promise.all([import('./lib/offline-catalog.js'), import('./lib/api.js')])
+        .then(([off, { NtApi }]) => off.warmOfflineCatalog(NtApi))
+        .catch(() => {});
+    }, 1500);
+  }
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
 
   // When the user transitions from unauthenticated → authenticated (after a
@@ -723,10 +809,36 @@
     if (_wasNeedsLogin && !needsLogin && $currentUser) {
       _wasNeedsLogin = false;
       import('./stores/settings.js').then(({ loadServerSettings }) => loadServerSettings()).catch(() => {});
+      loadEnvLocks();
       import('./stores/diary.js').then(({ diaryLoadError }) => diaryLoadError.set(false)).catch(() => {});
     } else if (needsLogin) {
       _wasNeedsLogin = true;
     }
+  }
+
+  // Android, server mode: the phone's copy of the data must be this
+  // account's before the app shows any of it (lib/local-account.js). A
+  // different account than last time clears the copy; if that account
+  // left changes that never went up, the person is asked first, and
+  // saying no signs them back out. Every sign-in path ends by setting
+  // $currentUser, so this is the one place that sees them all. Keyed on
+  // the id, so a refreshed user object doesn't ask again; the gate itself
+  // runs one check per account at a time.
+  // Every platform: the setting stores follow the account signed in
+  // (stores/settings.js), so another account never sees or saves the last
+  // one's values.
+  $: _settingsFor = $currentUser?.id ?? null;
+  $: _settingsFor, reloadSettingStores();
+  $: _accountId = isNative && getNativeMode() === 'server' && $currentUser?.id != null ? $currentUser.id : null;
+  $: if (_accountId != null) _checkAccount();
+  $: accountReady = _accountId == null || accountReadyFor($accountGate, _accountId);
+  async function _checkAccount() {
+    const user = getStore(currentUser);
+    if (!user || user.id == null) return;
+    const ok = await ensureLocalAccount(user, {
+      signOut: async () => { const { logout } = await import('./stores/auth.js'); await logout(); },
+    });
+    if (ok) import('./lib/sync.js').then(m => m.fullSync()).catch(() => {});
   }
 </script>
 
@@ -743,8 +855,27 @@
   <Toast />
 
 <!-- Login gate (when user management active and not authenticated) -->
+{:else if !authLoaded}
+  <!-- Asking the server who is signed in: a blank page, never the app. -->
 {:else if needsLogin}
   <Login />
+{:else if !accountReady}
+  <!-- Checking the phone's copy is this account's: never another account's data (the confirm dialog is mounted below). -->
+  {#if $accountGate.state === 'checking' || $accountGate.state === 'signing_out'}
+    <div class="account-check-wait" role="status" aria-label={$_('updates.checking')}>
+      <span class="material-symbols-rounded account-check-spin" aria-hidden="true">progress_activity</span>
+    </div>
+  {:else if $accountGate.state === 'error'}
+    <div class="account-check-error" role="alert">
+      <span class="material-symbols-rounded" aria-hidden="true">error</span>
+      <h2>{$_('sync.account_check_failed_title')}</h2>
+      <p>{$_('sync.account_check_failed')}</p>
+      <div class="account-check-actions">
+        <button class="btn btn-primary" on:click={_checkAccount}>{$_('sync.retry')}</button>
+        <button class="btn btn-ghost" on:click={async () => { const { logout } = await import('./stores/auth.js'); await logout(); }}>{$_('common.sign_out')}</button>
+      </div>
+    </div>
+  {/if}
 {:else}
 
 <!-- Sidebar (hamburger menu) -->
@@ -758,11 +889,12 @@
       aria-label="Open menu"
     >
       <span class="material-symbols-rounded">menu</span>
-      {#if _syncModeActive && !_serverReachable}
+      {#if (_syncModeActive && !_serverReachable) || _webOffline}
         <!-- Amber while simply offline (nothing lost, it just hasn't gone yet),
              red when the server is reachable but the sync is failing. -->
-        <span class="conn-badge" class:conn-failing={_syncFailing} class:conn-offline={!_syncFailing}>
-          <span class="material-symbols-rounded" style="font-size:10px">{_syncFailing ? 'cloud_alert' : 'cloud_off'}</span>
+        <span class="conn-badge" class:conn-failing={_syncFailing || _webFailing} class:conn-offline={!(_syncFailing || _webFailing)}
+          title={_webOffline ? $_('sync.pending_web_changes', { values: { count: $offlineState.pending } }) : ''}>
+          <span class="material-symbols-rounded" style="font-size:10px">{(_syncFailing || _webFailing) ? 'cloud_alert' : 'cloud_off'}</span>
         </span>
       {/if}
     </button>
@@ -863,6 +995,23 @@
 
 <style>
   :global(body) { overflow-x: hidden; }
+
+  .account-check-error {
+    min-height: 100vh; min-height: 100dvh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; padding: 24px 16px; text-align: center;
+    background: var(--bg); color: var(--text-1);
+  }
+  .account-check-error .material-symbols-rounded { font-size: 40px; color: var(--danger, #d33); }
+  .account-check-error h2 { margin: 0; font-size: 18px; }
+  .account-check-error p { margin: 0; max-width: 360px; color: var(--text-3); font-size: 14px; line-height: 1.5; }
+  .account-check-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; justify-content: center; }
+  .account-check-wait {
+    min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--accent);
+  }
+  .account-check-spin { font-size: 36px; animation: account-check-spin 1s linear infinite; }
+  @keyframes account-check-spin { to { transform: rotate(360deg); } }
 
   /* Kill all transitions & animations when user enables "Disable animations" */
   :global(.no-animations *) {

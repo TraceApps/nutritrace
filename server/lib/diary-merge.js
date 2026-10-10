@@ -68,6 +68,26 @@ function _dedupe(entries, tombstoneSet) {
 }
 
 /**
+ * #237 follow-on, #239: an entry that reaches the merge without a uuid is
+ * an echo. Clients generate a uuid for everything they create, so a
+ * client entry with none is a copy of a server entry that was itself
+ * stored without one (MCP and REST writes, the diet import, old exports).
+ * Giving the two copies independent random uuids is what duplicated every
+ * MCP-logged item on the next save from the app. Instead, the echo adopts
+ * its server twin's uuid.
+ *
+ * A twin is the same addedAt (to the millisecond) and the same name; the
+ * meal, portion and nutrition are left out so an edit or a move still
+ * matches. Each server entry can be claimed once, in order, so two truly
+ * identical entries stay two. An entry with no addedAt is never matched.
+ */
+function _twinKey(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  if (typeof entry.addedAt !== 'string' || !entry.addedAt) return null;
+  return `${entry.addedAt}\u0000${entry.name ?? ''}\u0000${entry.type ?? ''}`;
+}
+
+/**
  * Core merge routine, shared by items and water.
  *
  * @param {Array} serverEntries - the row's current entries (post-parse).
@@ -94,6 +114,22 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
   const serverDeduped = _dedupe(server, tombstoneSet);
   const serverByUuid = new Map(serverDeduped.map(e => [e.uuid, e]));
 
+  // Server entries an echo may adopt: not already named by the client and
+  // not tombstoned (serverDeduped has dropped those). Keyed by _twinKey,
+  // in server order, each taken at most once.
+  const namedByClient = new Set();
+  for (const e of client) {
+    if (e && typeof e === 'object' && typeof e.uuid === 'string' && e.uuid) namedByClient.add(e.uuid);
+  }
+  const twins = new Map();
+  for (const e of serverDeduped) {
+    if (namedByClient.has(e.uuid)) continue;
+    const key = _twinKey(e);
+    if (!key) continue;
+    if (!twins.has(key)) twins.set(key, []);
+    twins.get(key).push(e.uuid);
+  }
+
   // Order follows the CLIENT's array, not the server's. The client
   // resends its complete item list on every save, so it's authoritative
   // for arrangement — a future within-meal reorder feature, or a
@@ -119,7 +155,8 @@ export function mergeEntries(serverEntries, clientEntries, deletedUuids, tombsto
   for (let entry of client) {
     if (!entry || typeof entry !== 'object') continue;
     if (!entry.uuid || typeof entry.uuid !== 'string') {
-      entry = { ...entry, uuid: randomUUID() };
+      const pool = twins.get(_twinKey(entry));
+      entry = { ...entry, uuid: (pool && pool.length) ? pool.shift() : randomUUID() };
     }
     if (tombstoneSet.has(entry.uuid)) continue;
     const priorIdx = posByUuid.get(entry.uuid);

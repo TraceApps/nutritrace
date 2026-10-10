@@ -10,6 +10,7 @@
   import { localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { isNative, getServerUrl } from '../lib/platform.js';
+  import { offlineState } from '../lib/offline-api.js';
   import { portal } from '../lib/portal.js';
   import FitbitIcon from '../components/icons/FitbitIcon.svelte';
   import HealthConnectIcon from '../components/icons/HealthConnectIcon.svelte';
@@ -2165,7 +2166,11 @@
             <div class="empty-state">
               <span class="material-symbols-rounded" style="font-size:48px;opacity:0.18">monitor_heart</span>
               <p>No data for {isToday ? 'today' : fmtDate(dateStr)}.</p>
-              <p class="text-3 text-sm">Tap <strong>Sync</strong> to pull the latest from your device.</p>
+              {#if $offlineState.online === false}
+                <p class="text-3 text-sm">{$_('wellness_page.empty.offline')}</p>
+              {:else}
+                <p class="text-3 text-sm">Tap <strong>Sync</strong> to pull the latest from your device.</p>
+              {/if}
             </div>
           {/if}
         {/if}
@@ -2261,7 +2266,11 @@
             <div class="empty-state">
               <span class="material-symbols-rounded" style="font-size:48px;opacity:0.18">scale</span>
               <p>No body composition data for {isToday ? 'today' : fmtDate(dateStr)}.</p>
-              <p class="text-3 text-sm">Sync your scale or fitness tracker to see body stats here.</p>
+              {#if $offlineState.online === false}
+                <p class="text-3 text-sm">{$_('wellness_page.empty.offline')}</p>
+              {:else}
+                <p class="text-3 text-sm">Sync your scale or fitness tracker to see body stats here.</p>
+              {/if}
             </div>
           {/if}
 
@@ -3822,6 +3831,37 @@
     }
     :global(html:not(.force-mobile-layout)) .wl-manage-link .material-symbols-rounded {
       font-size: 14px;
+    }
+  }
+
+  /* A foldable open flat is about 852px. Desktop is 240 + 1fr + 340, which
+     needs roughly 960, but two of the three fit: the metric cards keep the
+     bulk of the width and the Insights rail comes along, filling what was a
+     large empty area below the cards. The provider rail stays desktop-only,
+     as it does on a phone.
+
+     In flow rather than sticky on purpose. The desktop rail pins with a
+     hardcoded 132px offset, which is the pattern that left a gap when scrolled
+     and detached on long content in LiftTrace's program page. Here the column
+     is short, so it simply sits in its cell. */
+  @media (max-width: 1279px) {
+    :global(html.wide-content) .wl-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      column-gap: 20px;
+      align-items: start;
+    }
+    /* The rail's own cards are hidden by default and only revealed in the
+       desktop tier, so the rail rendered as an empty heading without this. */
+    :global(html.wide-content) .wl-rail-only { display: block; }
+    :global(html.wide-content) .wl-right-rail {
+      display: block;
+      position: static;
+      align-self: start;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 12px;
     }
   }
 </style>

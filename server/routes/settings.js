@@ -3,6 +3,25 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
+import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
+
+// Push services usually live on the home network, so that's allowed for
+// every account; the address is still checked, and a redirect only
+// followed on the same server.
+const _sendPush = (url, init) => fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
+
+// The service's own short error ("unauthorized"), never its raw reply.
+async function _pushErrorMessage(resp) {
+  const raw = await resp.text().catch(() => '');
+  let message = '';
+  try {
+    const j = JSON.parse(raw);
+    for (const v of [j?.errorDescription, j?.error?.message, j?.error, j?.message]) {
+      if (typeof v === 'string' && v) { message = v; break; }
+    }
+  } catch {}
+  return message ? `: ${message.slice(0, 100)}` : '';
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -116,7 +135,7 @@ async function _pushTestHandler(req, res) {
       const url = _s('gotifyUrl');
       const token = _s('gotifyToken');
       if (!url || !token) return res.status(400).json({ error: 'Gotify URL and token required — save settings first' });
-      resp = await fetch(`${url.replace(/\/+$/, '')}/message?token=${encodeURIComponent(token)}`, {
+      resp = await _sendPush(`${serviceBase(url) ?? url}/message?token=${encodeURIComponent(token)}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: title || 'NutriTrace', message: message || 'Test notification — connected!', priority: priority || 5 }),
       });
@@ -127,7 +146,7 @@ async function _pushTestHandler(req, res) {
       if (!topic) return res.status(400).json({ error: 'ntfy topic required' });
       const headers = { 'Title': title || 'NutriTrace', 'Priority': String(Math.min(5, priority || 5)) };
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      resp = await fetch(`${url.replace(/\/+$/, '')}/${encodeURIComponent(topic)}`, {
+      resp = await _sendPush(`${serviceBase(url) ?? url}/${encodeURIComponent(topic)}`, {
         method: 'POST', headers, body: message || 'Test notification — connected!',
       });
     } else if (svc === 'apprise') {
@@ -136,7 +155,7 @@ async function _pushTestHandler(req, res) {
       if (!url) return res.status(400).json({ error: 'Apprise URL required' });
       const body = { title: title || 'NutriTrace', body: message || 'Test notification — connected!', type: 'info' };
       if (tag) body.tag = tag;
-      resp = await fetch(`${url.replace(/\/+$/, '')}/notify`, {
+      resp = await _sendPush(`${serviceBase(url) ?? url}/notify`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
     } else {
@@ -144,9 +163,9 @@ async function _pushTestHandler(req, res) {
     }
 
     if (!resp.ok) {
-      const body = await resp.text().catch(() => '');
-      return res.status(resp.status).json({ error: `${svc} ${resp.status}: ${body.slice(0, 100)}` });
+      return res.status(resp.status).json({ error: `${svc} ${resp.status}${await _pushErrorMessage(resp)}` });
     }
+    try { await resp.body?.cancel(); } catch {}
     res.json({ ok: true });
   } catch (e) {
     res.status(502).json({ error: `${svc}: ${e.message}` });

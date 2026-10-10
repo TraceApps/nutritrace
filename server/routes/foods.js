@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
@@ -7,6 +8,8 @@ import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { sendFoodShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
+import { ownerOrOptIn } from '../lib/outbound-policy.js';
+import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -106,6 +109,10 @@ router.post('/', wrap(async (req, res) => {
     source_app, source_external_id, source_url } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
+  // Sent again (a retry, or the answer was lost): the food made the first time.
+  const createKey = cleanCreateKey(req.body.client_key);
+  const made = findByCreateKey('foods', u, createKey);
+  if (made) return res.status(200).json(parse(made));
   // #183: when the client omits visibility, honor the caller's
   // defaultShareVisibility setting instead of hard-coding 'private'.
   const vis = visibility || resolveNewItemVisibility(u);
@@ -132,7 +139,7 @@ router.post('/', wrap(async (req, res) => {
         : isExternalUrl(img_url));
       const localImg2 = img_url === undefined
         ? found.img_url
-        : (_shouldLocalize ? await localizeImage(img_url, { trustedOrigins: trusted }) : (img_url || null));
+        : (_shouldLocalize ? await localizeImage(img_url, { trustedOrigins: trusted, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null));
       db.prepare(
         `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, nutrition_basis=?, alt_units=?, density_g_ml=?, source_url=?, updated_at=datetime('now') WHERE id=?`
       ).run(name ?? found.name, brand ?? found.brand,
@@ -170,7 +177,7 @@ router.post('/', wrap(async (req, res) => {
   const _shouldLocalizeNew = img_url && (cleanSourceApp
     ? (img_url.startsWith('http') || img_url.startsWith('data:'))
     : isExternalUrl(img_url));
-  const localImg = _shouldLocalizeNew ? await localizeImage(img_url, { trustedOrigins: trustedNew }) : (img_url || null);
+  const localImg = _shouldLocalizeNew ? await localizeImage(img_url, { trustedOrigins: trustedNew, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null);
   const result = db.prepare(
     `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
@@ -180,6 +187,7 @@ router.post('/', wrap(async (req, res) => {
     _serializeAltUnitsForFood(alt_units),
     _normalizeDensity(density_g_ml),
     cleanSourceApp, cleanSourceExtId, source_url || null);
+  setCreateKey('foods', result.lastInsertRowid, createKey);
   res.status(201).json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(result.lastInsertRowid)));
 }));
 
@@ -201,7 +209,7 @@ router.put('/:id', wrap(async (req, res) => {
   // used below for nutrition_basis / alt_units / density_g_ml.
   const localImg = img_url === undefined
     ? existing.img_url
-    : ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url) : (img_url || null));
+    : ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null));
   const fav = favorite != null ? (favorite ? 1 : 0) : existing.favorite;
   // For the OFF metadata: undefined → keep existing, null → explicit clear,
   // any other value → normalize-and-store. Lets the client patch one field
@@ -290,14 +298,13 @@ router.patch('/:id/share', wrap((req, res) => {
       ? db.prepare('SELECT full_name, username FROM users WHERE id = ?').get(u)
       : null;
     const sharerName = sharer?.full_name || sharer?.username || null;
-    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-    const host  = req.headers['x-forwarded-host']  || req.headers.host || '';
-    const viewUrl = `${proto}://${host}/#/foods`;
+    const base = linkBase(req);
+    const viewUrl = `${base}/#/foods`;
     const rows = db.prepare(
       `SELECT id, email FROM users WHERE id IN (${newGrantees.map(() => '?').join(',')})`
     ).all(...newGrantees);
     for (const row of rows) {
-      if (!row.email) continue;
+      if (!row.email || !base) continue;
       sendFoodShared(row.email, food.name, sharerName, viewUrl)
         .catch(e => logger.debug?.(`[share] food email to ${row.email} failed: ${e.message}`));
     }

@@ -8,7 +8,9 @@
   import { pop, push } from 'svelte-spa-router';
   import { NtApi } from '../lib/api.js';
   import { NUTRIMENTS } from '../lib/nutrition.js';
-  import { showSuccess, showError } from '../stores/toast.js';
+  import { showSuccess, showError, showInfo } from '../stores/toast.js';
+  import { offlineState } from '../lib/offline-api.js';
+  import { offNutritionStatus, needsFullLookup, applyOffPrepared } from '../lib/off-nutrition.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import Toggle from '../components/settings/Toggle.svelte';
   import UnitPicker from '../components/ui/UnitPicker.svelte';
@@ -19,7 +21,7 @@
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, energyUnit, showUnitMetadata, warnUnitMismatch, catName as _catName, catDisplay as _catDisplay, disableAnimations } from '../stores/settings.js';
   import { callAI, callAIProxy } from '../lib/aiChat.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
-  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist } from '../lib/editor-draft.js';
+  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
   import { acquireScreenWakeLock } from '../lib/wake-lock.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
 
@@ -171,10 +173,12 @@
   // lives on editorState.foodPrefill.id. Without this, every session
   // shares one 'new' draft key and typing while editing food A leaks
   // into a subsequent "add new food" (Wildenhaus, #157).
-  $: _draftKey = _mkDraftKey('food', params?.id ?? editorState.foodPrefill?.id ?? null);
+  // Worked out once, as the editor opens: a key that followed editorState
+  // would switch mid-edit when the editor resets it ("Open existing") and
+  // write this form into another item's draft.
+  const _draftKey = _mkDraftKey('food', params?.id ?? editorState.foodPrefill?.id ?? null, editorState.foodPrefill);
   let _draftReady = false;      // gate: don't persist before onMount overlays the draft
-  let _persistDraft = null;
-  $: if (_draftKey) _persistDraft = makeDebouncedPersist(_draftKey, 400);
+  const _persistDraft = makeDebouncedPersist(_draftKey, 400);
   // Fire on every food change once we're past mount. Debounced inside
   // makeDebouncedPersist so rapid typing collapses into a single write.
   $: if (_draftReady && _persistDraft) _persistDraft(food);
@@ -383,27 +387,57 @@
     food = food; // trigger Svelte reactivity
   }
 
+  // #241: when OFF has no "as sold" values for this product, say so rather
+  // than let a 0 pass for real data, and offer its "as prepared" values as an
+  // explicit choice. Never applied unasked: see off-nutrition.js.
+  let _offNotice = null; // { status, kcal, unit, info }
+  function _showOffNotice(barcode, info) {
+    const status = offNutritionStatus({ barcode }, info);
+    const p = info?.prepared;
+    _offNotice = status === 'ok' ? null
+      : { status, kcal: p ? Math.round(Number(p.nutrition?.calories) || 0) : null, unit: p?.unit || 'g', info };
+  }
+  function usePreparedValues() {
+    if (!_offNotice?.info) return;
+    const { food: next, changed } = applyOffPrepared(food, _offNotice.info, NUTRIMENTS.map(n => n.id), $_('food_editor.off_prepared.note'));
+    food = next;
+    _offNotice = null;
+    showSuccess(changed
+      ? $_('food_editor.toast.off_prepared_used', { values: { count: changed } })
+      : $_('food_editor.toast.off_up_to_date'));
+  }
+
   async function downloadFromOFF() {
     if (!food.barcode) return;
+    // Offline, the lookup fails and used to read as "Not found in Open Food
+    // Facts". Say what is actually wrong.
+    if ($offlineState.online === false) { showInfo($_('food_editor.toast.off_offline')); return; }
     downloading = true; downloadSuccess = false;
     try {
       const { API } = await import('../lib/api.js');
-      const result = await API.lookupBarcode(food.barcode);
+      // live: past a local OFF mirror, which may predate an edit made on OFF.
+      const result = await API.lookupBarcode(food.barcode, { live: true });
       if (!result) { showError($_('food_editor.toast.off_not_found')); return; }
-      // Only fill empty fields (smart mode)
-      if (!food.name && result.name)   food.name  = result.name;
-      if (!food.brand && result.brand) food.brand = result.brand;
-      if (result.nutrition) {
-        for (const n of NUTRIMENTS) {
-          const v = result.nutrition[n.id];
-          if ((food[n.id] === '' || food[n.id] == null) && v != null) food[n.id] = v;
-        }
+      // #241: bring the nutrition up to what OFF has now, converted to this
+      // food's portion. It used to fill empty fields only, so a refresh
+      // never changed a number. See off-refresh.js.
+      const { applyOffRefresh } = await import('../lib/off-refresh.js');
+      const { food: next, changed, reason } = applyOffRefresh(food, result, NUTRIMENTS.map(n => n.id));
+      food = next;
+      if (reason === 'updated' || reason === 'up_to_date') _offNotice = null;
+      if (reason === 'updated') {
+        downloadSuccess = true;
+        setTimeout(() => downloadSuccess = false, 2500);
+        showSuccess($_('food_editor.toast.off_updated', { values: { count: changed } }));
+      } else if (reason === 'up_to_date') {
+        showSuccess($_('food_editor.toast.off_up_to_date'));
+      } else if (reason === 'units_differ') {
+        showInfo($_('food_editor.toast.off_units_differ', { values: { unit: food.unit } }));
+      } else {
+        // prepared_only or no_nutrition: the notice under the buttons says
+        // which, and offers the "as prepared" values when there are any.
+        _showOffNotice(food.barcode, API.offNutritionInfo(food.barcode));
       }
-      if (!food.imgUrl && result.imgUrl) food.imgUrl = result.imgUrl;
-      food = { ...food };
-      downloadSuccess = true;
-      setTimeout(() => downloadSuccess = false, 2500);
-      showSuccess($_('food_editor.toast.off_refreshed'));
     } catch(e) {
       showError($_('food_editor.toast.refresh_failed', { values: { error: e.message } }));
     } finally { downloading = false; }
@@ -413,7 +447,7 @@
   // Camera flow: user taps the icon in the Nutrition card header, takes a photo
   // of the food's nutrition label, the configured AI provider extracts values,
   // and OVERWRITES the form's nutrition fields (the label is the source of
-  // truth in this moment, distinct from Refresh from OFF which smart-fills).
+  // truth in this moment, unlike Refresh from OFF, which updates only what OFF has).
   // Gated on $aiEffectivelyEnabled — button is hidden when AI isn't configured.
   let scanningLabel = false;
   let scanLabelFileInput;
@@ -550,6 +584,7 @@
 
 
   onMount(async () => {
+    sweepDrafts();
     store = editorState.foodStore || 'foodList';
     // Cache the user's library for duplicate-barcode detection. Best-effort —
     // if the call fails the duplicate warning just stays inactive.
@@ -559,6 +594,21 @@
       // Flatten nested nutrition into top-level fields for editing
       const flatNutrition = (prefill.nutrition && typeof prefill.nutrition === 'object') ? { ...prefill.nutrition } : {};
       food = { ...food, ...prefill, ...flatNutrition };
+      if (!(params && params.id) && typeof prefill.id !== 'number' && prefill.barcode) {
+        const { API } = await import('../lib/api.js');
+        let info = API.offNutritionInfo(prefill.barcode);
+        if (needsFullLookup(info)) {
+          await API.fetchProductByCode(prefill.barcode).catch(() => null);
+          info = API.offNutritionInfo(prefill.barcode);
+        }
+        _showOffNotice(prefill.barcode, info);
+        // Its values are the mapper's stand-in zeros, not data: start the
+        // fields empty so they read as "fill me in", not as 0 kcal.
+        if (_offNotice) {
+          for (const n of NUTRIMENTS) if (Number(food[n.id]) === 0) food[n.id] = '';
+          food = { ...food };
+        }
+      }
     } else if (params && params.id) {
       const existing = await NtApi.getFood(params.id).catch(() => null);
       if (existing) {
@@ -580,7 +630,12 @@
     _serverBaseline = { ...food };
     try {
       const _draft = loadDraft(_draftKey);
-      if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0) {
+      // A scan of an unknown barcode shares the blank-item draft (#157: a
+      // label photo can get the app killed), so only bring it back onto a
+      // scan of that same barcode.
+      const _otherScan = editorState.foodPrefill?.barcode && _draft?.barcode
+        && String(_draft.barcode) !== String(editorState.foodPrefill.barcode);
+      if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0 && !_otherScan) {
         food = { ...food, ..._draft };
         _draftRestored = true;
       }
@@ -1056,6 +1111,21 @@
               {downloading ? 'Loading…' : downloadSuccess ? 'Updated!' : 'Refresh from OFF'}
             </button>
           </div>
+          {#if _offNotice}
+            <div class="off-prepared-notice" role="status">
+              <span class="material-symbols-rounded" aria-hidden="true">info</span>
+              <div class="off-prepared-body">
+                {#if _offNotice.status === 'prepared'}
+                  <p>{$_('food_editor.off_prepared.only_prepared', { values: { kcal: _offNotice.kcal, unit: _offNotice.unit } })}</p>
+                  <button class="btn btn-secondary btn-sm" on:click={usePreparedValues}>{$_('food_editor.off_prepared.use')}</button>
+                {:else if _offNotice.status === 'implausible'}
+                  <p>{$_('food_editor.off_prepared.implausible', { values: { kcal: _offNotice.kcal, unit: _offNotice.unit } })}</p>
+                {:else}
+                  <p>{$_('food_editor.off_prepared.none')}</p>
+                {/if}
+              </div>
+            </div>
+          {/if}
           {#if offSuccess}
             <div class="off-verify-row">
               {#if offVerified === null}
@@ -1262,19 +1332,22 @@
      Right column (fills) — Nutrition. The primary work area; needs
      the wider column so each field row (label + value + unit) sits
      on one line without wrapping.
-     Gated by :global(html:not(.force-mobile-layout)) so the Force
+     Gated by :global(html.wide-content) so the Force
      Mobile Layout toggle collapses the editor back to a single
      column at every viewport. */
-  @media (min-width: 1024px) {
-    :global(html:not(.force-mobile-layout)) .editor-content {
+  /* 340px + the rest fits a foldable open flat (about 852px, so 340 + 460),
+     it just never reached a 1024px viewport. Gated on the room available
+     instead; html.wide-content already excludes Force Mobile Layout. */
+  @media all {
+    :global(html.wide-content) .editor-content {
       display: grid;
       grid-template-columns: 340px minmax(0, 1fr);
       column-gap: 16px;
       row-gap: 0;
       align-items: start;
     }
-    :global(html:not(.force-mobile-layout)) .editor-left-col,
-    :global(html:not(.force-mobile-layout)) .editor-right-col {
+    :global(html.wide-content) .editor-left-col,
+    :global(html.wide-content) .editor-right-col {
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -1287,7 +1360,7 @@
        so the whole column is still reachable via page scroll. Users
        don't have to hunt for an internal scrollbar to see cards at
        the bottom of the left column. */
-    :global(html:not(.force-mobile-layout)) .editor-left-col {
+    :global(html.wide-content) .editor-left-col {
       position: sticky;
       top: calc(var(--safe-top, 0px) + 76px);
       align-self: start;
@@ -1300,16 +1373,16 @@
        button pairs stack vertically. Compact side-by-side inputs
        like Serving Size (input) + Unit (select) still fit because
        they aren't .btn elements. */
-    :global(html:not(.force-mobile-layout)) .editor-left-col :global(.form-row) {
+    :global(html.wide-content) .editor-left-col :global(.form-row) {
       flex-wrap: wrap;
     }
-    :global(html:not(.force-mobile-layout)) .editor-left-col :global(.form-row) :global(> .btn) {
+    :global(html.wide-content) .editor-left-col :global(.form-row) :global(> .btn) {
       flex: 1 1 100%;
     }
     /* Nutrition fields inside the right column: 2-column grid at
        ≥1024px so pairs of related fields sit side-by-side instead
        of every number spanning the full column width. */
-    :global(html:not(.force-mobile-layout)) .nutrition-fields {
+    :global(html.wide-content) .nutrition-fields {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       column-gap: 16px;
@@ -1319,7 +1392,7 @@
        their parent macro — in the 2-col grid they'd otherwise
        flow into the second column, breaking the visual grouping.
        Force them onto their own row with a narrow indent. */
-    :global(html:not(.force-mobile-layout)) .nutrition-fields :global(.nutrient-sub) {
+    :global(html.wide-content) .nutrition-fields :global(.nutrient-sub) {
       grid-column: 1 / -1;
       padding-left: 16px;
     }
@@ -1328,10 +1401,10 @@
      an entire ~700px half-column. Kicks in at ≥1600 so it only
      applies when there's genuinely room. */
   @media (min-width: 1600px) {
-    :global(html:not(.force-mobile-layout)) .nutrition-fields {
+    :global(html.wide-content) .nutrition-fields {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
     }
-    :global(html:not(.force-mobile-layout)) .nutrition-fields :global(.nutrient-sub) {
+    :global(html.wide-content) .nutrition-fields :global(.nutrient-sub) {
       grid-column: auto;
       padding-left: 8px;
     }
@@ -1432,6 +1505,17 @@
     font-size: 14px;
   }
   .alt-unit-add:hover { text-decoration: underline; }
+  /* #241: OFF has no "as sold" values; offers the "as prepared" ones. */
+  .off-prepared-notice {
+    display: flex; gap: 8px; align-items: flex-start;
+    margin-top: 10px; padding: 10px 12px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 13px; color: var(--text-2);
+  }
+  .off-prepared-notice > .material-symbols-rounded { font-size: 18px; color: var(--accent); flex-shrink: 0; }
+  .off-prepared-body { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0; }
+  .off-prepared-body p { margin: 0; line-height: 1.4; }
   .off-verify-row {
     display: flex; align-items: center; justify-content: space-between;
     gap: 8px; font-size: 12px; padding: 6px 2px 0;

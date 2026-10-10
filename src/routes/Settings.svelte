@@ -1,6 +1,8 @@
 <script context="module">
   // Survives the remount between /settings and /settings/<slug> (#227).
-  const _scrollMemo = { scroller: null, indexTop: 0 };
+  // railTop: the desktop rail is rebuilt by that remount too, so opening a
+  // section from the index would otherwise snap the rail back to Profile.
+  const _scrollMemo = { scroller: null, indexTop: 0, railTop: 0 };
 </script>
 
 <script>
@@ -16,6 +18,7 @@
   // deep-link scroll) and the shared CSS descendants need via :global.
 
   import { onMount, tick, afterUpdate, onDestroy } from 'svelte';
+  import { fold } from '../lib/fold.js';
   import { push, querystring } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
   import { slide, fade } from 'svelte/transition';
@@ -52,8 +55,11 @@
   import Email             from './settings/Email.svelte';
   import ApiTokens         from './settings/ApiTokens.svelte';
   import Webhooks          from './settings/Webhooks.svelte';
+  import Support           from './settings/Support.svelte';
   import About             from './settings/About.svelte';
   import Profile           from './Profile.svelte';
+  import { foldText } from '../lib/search-text.js';
+
 
   // ── Route param → current section ──────────────────────────────────────
   // svelte-spa-router route `/settings/:section` → params.section.
@@ -99,8 +105,13 @@
     const s = _pageScroller();
     // Same scroller as last time: we came here from elsewhere in Settings.
     // A different one: Settings was opened fresh and already starts at 0.
-    if (s && s === _scrollMemo.scroller) _placeScroll(currentSection);
-    else _scrollMemo.indexTop = 0;
+    if (s && s === _scrollMemo.scroller) {
+      _placeScroll(currentSection);
+      if (_railEl) _railEl.scrollTop = _scrollMemo.railTop;
+    } else {
+      _scrollMemo.indexTop = 0;
+      _scrollMemo.railTop = 0;
+    }
     _scrollMemo.scroller = s;
     _scrollerEl = s;
     s?.addEventListener('scroll', _recordIndexScroll, { passive: true });
@@ -145,7 +156,7 @@
 
   // ── Settings search (index only) ───────────────────────────────────────
   let settingsSearch = '';
-  $: settingsQuery = settingsSearch.toLowerCase().trim();
+  $: settingsQuery = foldText(settingsSearch).trim();
 
   // On mobile / narrow, typing into the search bar while on a
   // sub-page auto-navigates back to the index with the query so
@@ -243,6 +254,7 @@
     email:             { titleKey: 'settings.email.section',             icon: 'mail' },
     apiTokens:         { titleKey: 'settings.api_tokens.section',        icon: 'key' },
     webhooks:          { titleKey: 'settings.webhooks.section',          icon: 'webhook' },
+    support:           { titleKey: 'settings.support.section',           icon: 'volunteer_activism' },
     about:             { titleKey: 'settings.about.section',             icon: 'info' },
     profile:           { titleKey: 'profile.title',                      icon: 'person' },
   };
@@ -276,6 +288,7 @@
     email:             Email,
     apiTokens:         ApiTokens,
     webhooks:          Webhooks,
+    support:           Support,
     about:             About,
     profile:           Profile,
   };
@@ -299,7 +312,7 @@
     bodyStats:         ['body stats','body','weight','measurements','stats','body fat','body water','hydration','muscle','bone'],
     statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
     connectedServices: ['food sources','connected services','usda','open food facts','mealie','cooktrace','recipe','recipes','pull','import','import all','bulk import','bulk','pantry','import pantry','read:recipes','read:pantry','search language','country','api key','credentials','username','password','bearer','token'],
-    ai:                ['ai','trace','assistant','provider','model','custom model','model id','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','openai compatible','oai-compat','base url'],
+    ai:                ['ai','trace','assistant','provider','model','custom model','model id','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights','claude','openai','gemini','sonnet','opus','haiku','fable','gpt','gpt-6','luna','sol','terra','gemini 3','flash','flash lite','pro preview','ollama','lm studio','deepseek','groq','openai compatible','oai-compat','base url'],
     notifications:     ['notifications','reminders','water reminder','meal reminder','weigh-in','weigh in','gotify','apprise','ntfy','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
     wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress','lifttrace','workout','calories burned','wearable','mirror wellness weight','scale weight','body stats weight','weight mirror'],
     sharing:           ['sharing','share','group','catalogue','catalog','visibility','private','everyone','members','food sharing','auto share','autoshare','automatic sharing','default visibility','default sharing','new items','new foods','new meals','new recipes','bulk share'],
@@ -312,7 +325,8 @@
     webhooks:          ['webhooks','webhook','automation','n8n','home assistant','ifttt','push','event','integration','integrations','http post','callback url','signature','hmac','secret'],
     helpImprove:       ['diagnostics','logs','verbose','calibration','export','bug','report','troubleshoot'],
     updates:           ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose'],
-    about:             ['about','version','nutritrace'],
+    support:           ['support','donate','donation','sponsor','github sponsors','ko-fi','kofi','tip','star','report a bug','bug','translate','weblate','help'],
+    about:             ['about','version','nutritrace','license'],
   };
 
   // Visibility predicate for section-toggle rows. Only filters when
@@ -418,7 +432,7 @@
     // laid out its final geometry before we measure/scroll.
     await tick();
     await new Promise(r => setTimeout(r, 60));
-    const q_norm = q.toLowerCase().trim();
+    const q_norm = foldText(q).trim();
     if (!q_norm) return;
     const scope = document.querySelector('.subpage-view');
     if (!scope) return;
@@ -427,7 +441,7 @@
     );
     let hit = null;
     for (const el of candidates) {
-      if ((el.textContent || '').toLowerCase().includes(q_norm)) { hit = el; break; }
+      if (foldText(el.textContent).includes(q_norm)) { hit = el; break; }
     }
     if (!hit) return;
     // Climb to the enclosing .setting-row for the highlight anchor —
@@ -468,6 +482,30 @@
     })();
     return () => { mounted = false; };
   });
+  // Half open like a book, the section list fills the panel on the left of the
+  // crease and the section itself the panel on the right, with the crease as
+  // the divider. The page's own left edge is measured rather than worked out
+  // from the sidebar's width, since a pinned sidebar, a rail and an overlay
+  // are all different numbers and a centred page would be none of them.
+  let paneEl, paneLeft = 0, paneW = 0;
+  function measurePane() {
+    const box = paneEl?.getBoundingClientRect();
+    paneLeft = box?.left ?? 0;
+    paneW = box?.width ?? 0;
+  }
+  onMount(() => {
+    measurePane();
+    const ro = new ResizeObserver(measurePane);
+    if (paneEl) ro.observe(paneEl);
+    return () => ro.disconnect();
+  });
+  // Folding moves the crease without resizing the page.
+  $: if ($fold !== undefined && paneEl) measurePane();
+  $: foldRailW = $fold?.posture === 'book' && paneW > 0 ? $fold.start - paneLeft : null;
+  // Only when both panels are left usable.
+  $: railSnap = foldRailW != null && foldRailW >= 200 && paneW - foldRailW >= 320;
+  $: hingeW = railSnap ? Math.max(0, $fold.end - $fold.start) : 0;
+
 </script>
 
 <!-- Settings section-list snippet. Defined at the top level so it's
@@ -639,6 +677,12 @@
     {/if}
   {/if}
 
+  <p class="settings-group-label">NutriTrace</p>
+  <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'support')} class:active={currentSection === 'support'} aria-current={currentSection === 'support' ? 'page' : undefined} on:click={() => toggleSection('support')}>
+    <span class="material-symbols-rounded si">volunteer_activism</span>
+    <span>{$_('settings.support.section')}</span>
+    <span class="material-symbols-rounded chevron">expand_more</span>
+  </button>
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'about')} class:active={currentSection === 'about'} aria-current={currentSection === 'about' ? 'page' : undefined} on:click={() => toggleSection('about')}>
     <span class="material-symbols-rounded si">info</span>
     <span>{$_('settings.about.section')}</span>
@@ -709,12 +753,14 @@
 
   <div class="page-content settings-content" class:subpage-view={!!currentSection}>
 
-    <div class="settings-two-pane">
+    <div class="settings-two-pane" bind:this={paneEl} class:fold-snap={railSnap}
+      style={railSnap ? `--rail-w:${foldRailW}px; --hinge:${hingeW}px` : ''}>
 
       <!-- Left rail (desktop only, ≥1024px). Always shows the full
            section list so users can jump between sections without
            going back to the index. Hidden on mobile via CSS. -->
-      <aside class="settings-nav-rail" bind:this={_railEl}>
+      <aside class="settings-nav-rail" bind:this={_railEl}
+             on:scroll={() => { _scrollMemo.railTop = _railEl.scrollTop; }}>
         <!-- Sliding highlight pill (desktop rail). Absolutely
              positioned; its translateY + height animate to the
              active rail button on every section change. Behind
@@ -1436,23 +1482,28 @@
   .settings-desktop-hero { display: none; }
   .settings-mobile-index { display: block; }
 
-  @media (min-width: 1024px) {
+  @media all {
     /* Settings fills the viewport width — no outer max-width cap.
        Same principle you asked for on Diary: don't waste horizontal
        real estate on ultrawides. */
-    :global(html:not(.force-mobile-layout)) .settings-two-pane {
+    :global(html.wide-content) .settings-two-pane {
       display: grid;
       grid-template-columns: 280px minmax(0, 1fr);
       gap: 24px;
       align-items: start;
     }
+    /* The pane's first card starts level with the rail's top edge.
+       .section-body's 12px top padding (right for the phone's stacked
+       view) pushed every section 12px below the rail here. */
+    :global(html.wide-content) .settings-pane :global(.section-body) { padding-top: 0; }
+
 
     /* Left rail — sticky below the header + search bar, own scroll
        if the section list overflows. Uses :global(*) on children
        because .section-toggle is a shared class rendered inside a
        snippet — the same reason the Diary rail needed :global(*)
        on its widget children. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail {
+    :global(html.wide-content) .settings-nav-rail {
       display: flex;
       flex-direction: column;
       gap: 2px;
@@ -1474,7 +1525,7 @@
       scrollbar-width: thin;
       scrollbar-color: var(--border) transparent;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.section-toggle) {
+    :global(html.wide-content) .settings-nav-rail :global(.section-toggle) {
       background: transparent;
       border: none;
       min-height: 36px;
@@ -1488,10 +1539,10 @@
       z-index: 1;
       transition: color 160ms ease;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.section-toggle:hover) {
+    :global(html.wide-content) .settings-nav-rail :global(.section-toggle:hover) {
       background: var(--surface-2);
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.section-toggle.active) {
+    :global(html.wide-content) .settings-nav-rail :global(.section-toggle.active) {
       /* Background comes from .rail-active-pill (slides in from prior
          active item). Only the text/icon color flips here. */
       background: transparent;
@@ -1499,7 +1550,7 @@
     }
     /* Sliding highlight pill — the shared background element that
        animates its transform + height to the active rail button. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill {
+    :global(html.wide-content) .settings-nav-rail .rail-active-pill {
       position: absolute;
       left: 8px;
       right: 8px;
@@ -1511,10 +1562,10 @@
       z-index: 0;
       will-change: transform, height;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.visible {
+    :global(html.wide-content) .settings-nav-rail .rail-active-pill.visible {
       opacity: 1;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .rail-active-pill.ready {
+    :global(html.wide-content) .settings-nav-rail .rail-active-pill.ready {
       transition:
         transform 320ms cubic-bezier(0.32, 0.72, 0, 1),
         height 260ms cubic-bezier(0.32, 0.72, 0, 1),
@@ -1522,29 +1573,29 @@
     }
     /* Focus-visible ring for keyboard nav — makes Tab-through of
        the rail obvious without adding a mouse-hover ring. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.section-toggle:focus-visible) {
+    :global(html.wide-content) .settings-nav-rail :global(.section-toggle:focus-visible) {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
       background: var(--surface-2);
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.section-toggle .si) {
+    :global(html.wide-content) .settings-nav-rail :global(.section-toggle .si) {
       width: 24px;
       height: 24px;
       font-size: 18px;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.section-toggle .chevron) { display: none; }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label) {
+    :global(html.wide-content) .settings-nav-rail :global(.section-toggle .chevron) { display: none; }
+    :global(html.wide-content) .settings-nav-rail :global(.settings-group-label) {
       margin: 12px 4px 4px;
       font-size: 10px;
       letter-spacing: 0.1em;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail :global(.settings-group-label:first-child) {
+    :global(html.wide-content) .settings-nav-rail :global(.settings-group-label:first-child) {
       margin-top: 2px;
     }
     /* Empty-search state — small centered placeholder inside the
        rail with a Clear affordance so the user can escape without
        manually reaching for the search input. */
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-empty {
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -1553,16 +1604,16 @@
       text-align: center;
       color: var(--text-3);
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty :global(.material-symbols-rounded) {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-empty :global(.material-symbols-rounded) {
       font-size: 28px;
       opacity: 0.7;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-empty p {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-empty p {
       margin: 0;
       font-size: 12px;
       line-height: 1.4;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-clear {
       background: transparent;
       border: 1px solid var(--border);
       color: var(--text-2);
@@ -1572,7 +1623,7 @@
       font-weight: 600;
       cursor: pointer;
     }
-    :global(html:not(.force-mobile-layout)) .settings-nav-rail .settings-nav-clear:hover {
+    :global(html.wide-content) .settings-nav-rail .settings-nav-clear:hover {
       background: var(--surface-2);
       color: var(--text-1);
     }
@@ -1581,8 +1632,8 @@
        rows extend to the viewport edge. */
 
     /* Desktop-only vs mobile-only content in the pane */
-    :global(html:not(.force-mobile-layout)) .settings-mobile-index { display: none; }
-    :global(html:not(.force-mobile-layout)) .settings-desktop-hero { display: block; }
+    :global(html.wide-content) .settings-mobile-index { display: none; }
+    :global(html.wide-content) .settings-desktop-hero { display: block; }
   }
 
   /* Desktop welcome hero: profile card is expandable inline. The
@@ -1696,5 +1747,33 @@
     font-size: 12px;
     color: var(--text-3);
     line-height: 1.4;
+  }
+
+  /* Half open like a book, at any width. The two-pane layout above waits for
+     a desktop-sized viewport, which a foldable's inner display never reaches,
+     so this turns it on from the crease instead and brings the rail with it.
+     Same reasoning as the notes grid and the recipe layout. */
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap {
+    display: grid;
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+    gap: var(--hinge);
+    align-items: start;
+  }
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap .settings-nav-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: sticky;
+    top: calc(var(--page-top, var(--safe-top)) + 12px);
+    max-height: calc(100dvh - var(--page-top, var(--safe-top)) - var(--nav-h, 0px) - var(--safe-bottom, 0px) - 24px);
+    overflow-y: auto;
+    padding: 10px 8px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-sizing: border-box;
+  }
+  :global(html.fold-book:not(.force-mobile-layout)) .settings-two-pane.fold-snap .settings-mobile-index {
+    display: none;
   }
 </style>

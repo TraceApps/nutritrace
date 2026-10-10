@@ -1,0 +1,1 @@
+NutriTrace is free and always will be. Support on [Ko-fi](https://ko-fi.com/traceapps) goes toward a Mac and an iPhone so my apps can come to Apple devices, and [GitHub Sponsors](https://github.com/sponsors/TraceApps?metadata_app=nutritrace&metadata_from=release) helps with the monthly costs.

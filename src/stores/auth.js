@@ -19,6 +19,11 @@ export const userMgmtActive = writable(false);
 
 /** True when the server has no users yet — PWA must show setup screen */
 export const setupRequired = writable(false);
+// Why the last sign-in didn't stick, if it didn't ('http' | 'dropped'), so
+// the login page can say so. A store, not page state, because the login page
+// is torn down and rebuilt when the user flips on and back off. See
+// lib/cookie-check.js.
+export const signInProblem = writable(null);
 
 /** Server-controlled feature flags (mirrors process.env on the server).
  *  Populated from /api/auth/me responses. Currently empty; kept as a
@@ -194,6 +199,10 @@ async function _refreshAuthFromServer() {
         localStorage.removeItem('wl:userId');
         localStorage.removeItem('nt:cachedUser');
         localStorage.removeItem('nt:csrf');
+        try {
+          const { forgetServerCookies } = await import('../lib/local-account.js');
+          await forgetServerCookies();
+        } catch {}
         return;
       }
       if (!meRes.ok) return; // actual server error — keep cached auth
@@ -264,6 +273,17 @@ export async function handleOidcCallback() {
 
 export async function logout() {
   let logoutUrl = null;
+  // Native: the phone keeps its copy of the account, so signing back in to
+  // the same account picks up where it left off. Send what's waiting first,
+  // while the session still works: a push only, cut off after a few
+  // seconds. What can't go now stays for this account (lib/local-account.js
+  // keeps it from going up under anyone else).
+  if (isNative && getServerUrl()) {
+    try {
+      const { pushBeforeSignOut } = await import('../lib/sync.js');
+      await pushBeforeSignOut();
+    } catch { /* never block sign-out */ }
+  }
   try {
     // Mobile flag tells the server to use the nutritrace://oidc-callback
     // deep link as post_logout_redirect_uri so the Capacitor browser can
@@ -285,6 +305,8 @@ export async function logout() {
     const oidcRes = await fetch(_apiUrl(logoutPath), {
       method: 'POST',
       credentials: 'include',
+      // Android: a server that doesn't answer never holds up signing out.
+      ...(isNative ? { signal: AbortSignal.timeout(5000) } : {}),
       headers: { ..._authHeaders(), 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -293,11 +315,43 @@ export async function logout() {
     // Hint served its purpose; clear it whether or not the call succeeded.
     try { localStorage.removeItem('nt:oidc_logout_hint'); } catch {}
   } catch {}
-  try { await fetch(_apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include', headers: _authHeaders() }); } catch {}
-  // Clear auth state — but keep cached data (foods, images, server URL)
+  try { await fetch(_apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include', headers: _authHeaders(), ...(isNative ? { signal: AbortSignal.timeout(5000) } : {}) }); } catch {}
+
+  // The browser's offline mirror and queue belong to the account that just
+  // signed out, so they go with it. Anything still waiting is sent first, so
+  // signing out on a flaky connection doesn't quietly drop a logged meal.
+  if (!isNative) {
+    try {
+      const { flushOutbox, clearOffline, pendingCount } = await import('../lib/offline-api.js');
+      const sent = await flushOutbox().catch(() => false);
+      // If it couldn't go up (signing out in a dead zone), ask first: clearing
+      // it would destroy work the user never saw fail.
+      if (!sent && (await pendingCount()) > 0) {
+        const waiting = await pendingCount();
+        const { confirmDialog } = await import('./confirmDialog.js');
+        const { get: getStore } = await import('svelte/store');
+        const { _: t } = await import('svelte-i18n');
+        const say = getStore(t);
+        const ok = await confirmDialog({
+          title: say('sync.sign_out_waiting_title'),
+          message: say('sync.sign_out_waiting', { values: { count: waiting } }),
+          confirmText: say('sync.sign_out_anyway'),
+          dangerous: true,
+        });
+        if (!ok) return;
+      }
+      await clearOffline();
+    } catch { /* never block sign-out */ }
+  }
+  // Clear auth state, but keep cached data (foods, images, server URL).
   if (isNative) {
     const { setAuthToken } = await import('../lib/platform.js');
     setAuthToken(null);
+    // The server's session cookie goes too (lib/local-account.js).
+    try {
+      const { forgetServerCookies } = await import('../lib/local-account.js');
+      await forgetServerCookies();
+    } catch {}
     // Wipe biometric-cached JWT too, otherwise the next launch could
     // bypass the password gate after the user explicitly signed out.
     try {
@@ -308,6 +362,17 @@ export async function logout() {
   localStorage.removeItem('wl:userId');
   localStorage.removeItem('nt:cachedUser');
   localStorage.removeItem('nt:csrf');
+  // The day, activities and fasts on show are this account's: gone before
+  // anyone else signs in (lib/user-state.js).
+  try {
+    const { resetUserState } = await import('../lib/user-state.js');
+    await resetUserState();
+    if (isNative) {
+      const la = await import('../lib/local-account.js');
+      la.bumpAccountGeneration();
+      la.resetAccountGate();
+    }
+  } catch { /* never block sign-out */ }
   currentUser.set(null);
   // Note: userMgmtActive is a server-wide flag, not per-session. Don't flip
   // it on logout — that hides the Login gate in App.svelte (needsLogin =

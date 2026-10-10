@@ -14,6 +14,7 @@ import diaryRouter from './diary.js';
 import goalsRouter from './goals.js';
 import mealsRouter from './meals.js';
 import stepsRouter from './steps.js';
+import bodyCompositionRouter from './body-composition.js';
 import profileRouter from './profile.js';
 
 const router = Router();
@@ -36,6 +37,7 @@ router.use('/diary', diaryRouter);
 router.use('/goals', goalsRouter);
 router.use('/meals', mealsRouter);
 router.use('/steps', stepsRouter);
+router.use('/body-composition', bodyCompositionRouter);
 router.use('/profile', profileRouter);
 
 export default router;

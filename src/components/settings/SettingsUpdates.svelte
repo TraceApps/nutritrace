@@ -25,7 +25,7 @@
   import { currentUser } from '../../stores/auth.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
-    checkForUpdate, isUpdateAvailable, downloadAndInstallApk,
+    checkForUpdate, isUpdateAvailable, downloadAndInstallApk, isApkStaged,
     getChannel, setChannel, getAutoCheck, setAutoCheck,
     getLastChecked, formatAgo, checkServerUpdate,
     skipVersion, getUpdateCacheInfo, clearUpdateCache, formatBytes,
@@ -52,6 +52,11 @@
   let autoCheck   = getAutoCheck();
   let checking    = false;
   let latest      = null;
+  // The APK for `latest` is already downloaded (the installer was backed out
+  // of, say), so the button says Install: nothing will download again.
+  let apkStaged   = false;
+  async function refreshStaged(l) { apkStaged = l ? await isApkStaged(l) : false; }
+  $: refreshStaged(latest);
   let serverInfo  = null;
   let lastChecked = getLastChecked();
   let error       = '';
@@ -127,10 +132,19 @@
     doCheck(true);
   }
 
-  function onAutoCheckToggle(e) {
+  // The answer lives in two places: this device, and (for an admin) the
+  // instance, which is what actually asks GitHub for the browser.
+  async function onAutoCheckToggle(e) {
     autoCheck = e.detail;
     setAutoCheck(autoCheck);
+    try { localStorage.setItem('wl_updates_off_notice_seen', '1'); } catch {}
+    try {
+      const { setServerUpdateCheck } = await import('../../lib/updates.js');
+      await setServerUpdateCheck(autoCheck);
+    } catch { /* not an admin, or offline: the device answer still stands */ }
+    if (autoCheck) doCheck(true);
   }
+
 
   async function doInstall() {
     if (!latest?.apkAsset) return;
@@ -153,6 +167,7 @@
       showError($_('updates.install_failed'));
     } finally {
       downloading = false;
+      refreshStaged(latest);
     }
   }
 
@@ -264,6 +279,10 @@
       </div>
     </div>
 
+    {#if !autoCheck}
+      <p class="off-resting">{$_('updates.off_resting')}</p>
+    {/if}
+
     {#if autoCheck}
       <div class="divider"></div>
       <div class="row">
@@ -333,8 +352,8 @@
         </span>
       {:else if primaryState === 'install'}
         <span class="btn-label">
-          <span class="material-symbols-rounded">download</span>
-          {$_('updates.download_install')}
+          <span class="material-symbols-rounded">{apkStaged ? 'install_mobile' : 'download'}</span>
+          {apkStaged ? $_('updates.install_downloaded') : $_('updates.download_install')}
         </span>
       {:else}
         <span class="btn-label">
@@ -486,6 +505,8 @@
 {/if}
 
 <style>
+  .off-resting { margin: 0 4px 4px; font-size: 13px; line-height: 1.5; color: var(--text-3); }
+
   .body { padding: 16px; display: flex; flex-direction: column; gap: 4px; }
 
   .row {

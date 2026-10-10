@@ -162,7 +162,7 @@ export const TOOLS = [
   },
   {
     name: 'log_food',
-    description: 'Log a REAL FOOD entry to the user\'s diary with full nutrition (protein, carbs, fat, fiber, sodium, vitamins, etc. — NOT just calories). USE THIS — not log_quick_calories — whenever the user NAMES a food they want to log. Typical phrasings: "add an apple to lunch", "log a banana to today\'s snacks", "add 200g of chicken to dinner", "I had Greek yogurt for breakfast", "two slices of bread for lunch".\n\nSEARCH ORDER: (1) the user\'s local food catalog first (their saved/scanned foods); (2) Open Food Facts if nothing local matches. If the user has the local OFF mirror enabled, OFF goes through that. USDA is NOT searched here (use a separate barcode/manual flow for USDA).\n\nRETURN SHAPES — branch on these:\n- {ok: true, meal_name, food_name, kcal, source, ...} — logged. Use meal_name (the actual name, not just an index) when you confirm to the user; do NOT assume the meal name from the index you passed.\n- {candidates: [...]} — multiple plausible matches. Show the names back to the user and ask which one. Then call again with the chosen name as the food field.\n- {no_match: true, suggestion} — nothing found. Tell the user to add the food via the Foods tab (barcode scan or manual entry) and then try again.\n- {error: "..."} — something else went wrong. Relay verbatim.',
+    description: 'Log a REAL FOOD entry to the user\'s diary with full nutrition (protein, carbs, fat, fiber, sodium, vitamins, etc. — NOT just calories). USE THIS — not log_quick_calories — whenever the user NAMES a food they want to log. Typical phrasings: "add an apple to lunch", "log a banana to today\'s snacks", "add 200g of chicken to dinner", "I had Greek yogurt for breakfast", "two slices of bread for lunch".\n\nSEARCH ORDER: (1) the user\'s local food catalog first (their saved/scanned foods); (2) Open Food Facts if nothing local matches. If the user has the local OFF mirror enabled, OFF goes through that. USDA is NOT searched here (use a separate barcode/manual flow for USDA).\n\nRETURN SHAPES — branch on these:\n- {ok: true, meal_name, food_name, kcal, source, ...} — logged. Use meal_name (the actual name, not just an index) when you confirm to the user; do NOT assume the meal name from the index you passed.\n- {candidates: [...]} — multiple plausible matches. Show the names back to the user and ask which one. Then call again with the chosen name as the food field.\n- {no_match: true, suggestion} — nothing found. Tell the user to add the food via the Foods tab (barcode scan or manual entry) and then try again.\n- {no_nutrition: true, food_name, as_prepared_only, message}: Open Food Facts has the product but no \"as sold\" values, so nothing was logged. Relay the message; do not log it another way (such as quick calories) to force it in.\n- {error: "..."} — something else went wrong. Relay verbatim.\n\nDO NOT CALL THIS TOOL when the user wants a food SAVED rather than LOGGED ("create a food called X", "add it to my foods", "save it but don\'t log it", "don\'t add it to my diary"). This tool always writes a diary entry. Use propose_food instead: its card has a Save to Foods button that creates the food and touches nothing else.',
     parameters: {
       type: 'object',
       properties: {
@@ -211,7 +211,7 @@ export const TOOLS = [
   },
   {
     name: 'propose_food',
-    description: 'Propose a reusable FOOD entry for the user to REVIEW before anything is created. This tool DOES NOT WRITE to the Foods library, DOES NOT WRITE to the diary — it ONLY displays a review card so the user can decide to (a) Save to Foods only, (b) Save & Add to Diary, or (c) Discard. Treat the tool returning `ok: true` as "the card was shown", NOT as "the food was saved" or "added to diary". After calling this tool you MUST NOT say things like "I\'ve added X to your Foods" or "Added X to your diary" — the user has not yet confirmed. Say something like "Here\'s my estimate — pick Save to Foods if you just want to keep it for later, or Save & Add to Diary to also add it to today." Use this when the user wants a REUSABLE food (not a one-off kcal entry): "add this to my foods", "save this as a food", "remember this for later", "create a food entry for this". ALSO USE THIS as the manual-estimate bypass for log_food: when the user explicitly asks you to estimate a named food without searching the database ("don\'t search, just estimate a currywurst", "you estimate it and log it"), pass your best-guess nutrition here so the user reviews the numbers on the card and picks Save & Add to Diary. Nutrition values are per the portion you specify (default 100 g if you cannot tell).',
+    description: 'Propose a reusable FOOD entry for the user to REVIEW before anything is created. This tool DOES NOT WRITE to the Foods library, DOES NOT WRITE to the diary — it ONLY displays a review card so the user can decide to (a) Save to Foods only, (b) Save & Add to Diary, or (c) Discard. Treat the tool returning `ok: true` as "the card was shown", NOT as "the food was saved" or "added to diary". After calling this tool you MUST NOT say things like "I\'ve added X to your Foods" or "Added X to your diary" — the user has not yet confirmed. Say something like "Here\'s my estimate — pick Save to Foods if you just want to keep it for later, or Save & Add to Diary to also add it to today." Use this when the user wants a REUSABLE food (not a one-off kcal entry): "add this to my foods", "save this as a food", "remember this for later", "create a food entry for this". ALSO USE THIS as the manual-estimate bypass for log_food: when the user explicitly asks you to estimate a named food without searching the database ("don\'t search, just estimate a currywurst", "you estimate it and log it"), pass your best-guess nutrition here so the user reviews the numbers on the card and picks Save & Add to Diary. Nutrition values are per the portion you specify (default 100 g if you cannot tell).\n\nThis is the ONLY tool that can create a food, and it works with or without a photo. When the user asks for a food to be created and says not to log it, this is the tool, and the answer is to point them at the card\'s Save to Foods button.',
     parameters: {
       type: 'object',
       properties: {
@@ -220,7 +220,6 @@ export const TOOLS = [
         portion:   { type: 'number', description: 'STRONGLY RECOMMENDED: estimated weight in grams of the photographed portion (e.g. 250 for a typical chicken pot pie slice). The nutrition values you pass are PER this portion. Falls back to 100 (per 100 g/ml) only if you have no basis to estimate.' },
         unit:      { type: 'string', description: 'Portion unit, defaults to "g". Common: g, ml, piece, slice, cup, oz. Prefer "g" for solid foods so the user can correct it numerically.' },
         nutrition: NUTRITION_SCHEMA,
-        meal_hint: { type: 'number', description: 'OPTIONAL meal-index suggestion (0=breakfast, 1=lunch, 2=dinner, 3=snacks) the user can apply on the card if they choose "Save & Log". Defaults to 3 (snacks).' },
         notes:     { type: 'string', description: 'OPTIONAL human-friendly serving descriptor saved to the food\'s Notes field (e.g. "14 chips", "1/4 cup uncooked", "1 medium slice", "approx 1 cup cooked"). Lets the user see what the per-portion weight actually corresponds to in everyday terms. Shown in the diary when "Show item notes" is enabled in Settings. Skip when the portion + unit already says everything that needs saying.' },
       },
       required: ['name', 'nutrition'],
@@ -252,7 +251,7 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
   }
   switch (provider) {
     case 'claude':     return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
-    case 'openai':     return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, 'https://api.openai.com');
+    case 'openai':     return _callOpenAIWithTools(apiKey, renamedModel(model), messages, systemPrompt, tools, onToolCall, 'https://api.openai.com');
     case 'gemini':     return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
     case 'oai-compat': {
       if (!baseUrl) throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
@@ -342,40 +341,62 @@ export const AI_PROVIDERS = [
   { value: 'oai-compat', label: 'OpenAI Compatible' },
 ];
 
+// Checked against the vendors' model and deprecation pages on 2026-10-09
+// (platform.claude.com, developers.openai.com, ai.google.dev). Labels compare
+// list prices within each provider. A saved model that is no longer listed
+// (Gemini 2.5 is open to existing users only) keeps working: the picker
+// shows it as a custom model.
 export const AI_MODELS = {
   claude: [
-    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast, cheap)' },
-    { value: 'claude-sonnet-5',           label: 'Claude Sonnet 5 (balanced)' },
-    { value: 'claude-opus-5',             label: 'Claude Opus 5'              },
-    { value: 'claude-fable-5-1',          label: 'Claude Fable 5.1 (most capable)' },
-    { value: 'claude-fable-5',            label: 'Claude Fable 5 (previous)' },
-    { value: 'claude-opus-4-8',           label: 'Claude Opus 4.8 (previous)' },
-    { value: '__custom__',                label: 'Custom…'                    },
+    { value: 'claude-haiku-5-5',  label: 'Claude Haiku 5.5 (fast, cheapest)'  },
+    { value: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 (balanced)'       },
+    { value: 'claude-opus-5-5',   label: 'Claude Opus 5.5 (smarter)'          },
+    { value: 'claude-fable-5-1',  label: 'Claude Fable 5.1 (most capable)'    },
+    { value: 'claude-sonnet-5',   label: 'Claude Sonnet 5 (previous)'         },
+    { value: 'claude-opus-5',     label: 'Claude Opus 5 (previous)'           },
+    { value: 'claude-fable-5',    label: 'Claude Fable 5 (previous)'          },
+    { value: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (previous)'         },
+    { value: '__custom__',        label: 'Custom…'                            },
   ],
+  // GPT-6.1 Sol and GPT-6 Astra are left out: Trace calls tools through
+  // Chat Completions, which those two don't support (only the Responses
+  // API does, per their model pages).
   openai: [
-    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (fast, cheap)' },
-    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'   },
-    { value: 'gpt-5.6',       label: 'GPT-5.6 (smarter)'          },
-    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'     },
-    { value: 'gpt-4o',        label: 'GPT-4o (previous)'          },
-    { value: '__custom__',    label: 'Custom…'                    },
+    { value: 'gpt-6-luna',    label: 'GPT-6 Luna (fast, cheapest)'   },
+    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'      },
+    { value: 'gpt-5.6-sol',   label: 'GPT-5.6 Sol (most capable)'    },
+    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (previous)'       },
+    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'        },
+    { value: 'gpt-4o',        label: 'GPT-4o (previous)'             },
+    { value: '__custom__',    label: 'Custom…'                       },
   ],
   gemini: [
-    { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (cheapest)' },
-    { value: 'gemini-3.6-flash',      label: 'Gemini 3.6 Flash (fast, cheap)'   },
-    { value: 'gemini-3.1-pro',        label: 'Gemini 3.1 Pro (smarter)'         },
-    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (previous)' },
-    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (previous)'      },
-    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (previous)'        },
-    { value: '__custom__',            label: 'Custom…'                          },
+    { value: 'gemini-3.1-flash-lite',  label: 'Gemini 3.1 Flash Lite (cheapest)'      },
+    { value: 'gemini-3.5-flash-lite',  label: 'Gemini 3.5 Flash Lite (cheap)'         },
+    { value: 'gemini-3.8-flash',       label: 'Gemini 3.8 Flash (fast)'               },
+    { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (most capable)' },
+    { value: 'gemini-3.6-flash',       label: 'Gemini 3.6 Flash (previous)'           },
+    { value: '__custom__',             label: 'Custom…'                               },
   ],
 };
 
+// Used when no model is chosen. Someone who picked a model keeps it.
 export const AI_DEFAULT_MODELS = {
-  claude: 'claude-haiku-4-5-20251001',
+  claude: 'claude-haiku-5-5',
   openai: 'gpt-5.6-luna',
-  gemini: 'gemini-3.6-flash',
+  gemini: 'gemini-3.8-flash',
 };
+
+// Model IDs that changed name: a saved old name is sent as the new one.
+// gemini-3.1-pro never existed (only the preview does), and Google points
+// the shut-down gemini-3-pro-preview at it. gpt-5.6 is the alias of
+// gpt-5.6-sol, which the picker now names.
+export const AI_MODEL_RENAMES = {
+  'gemini-3.1-pro': 'gemini-3.1-pro-preview',
+  'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
+  'gpt-5.6': 'gpt-5.6-sol',
+};
+export const renamedModel = (model) => AI_MODEL_RENAMES[model] || model;
 
 // ── Anthropic Claude (with tool use) ─────────────────────────────────────────
 
@@ -464,7 +485,7 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     // Some self-hosted endpoints (Ollama in particular) reject the
     // Authorization header when it carries a placeholder key. Only send
     // the header when we actually have a key.
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     if (apiKey && apiKey !== 'no-key') headers['Authorization'] = `Bearer ${apiKey}`;
 
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
@@ -502,14 +523,23 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
 // users who never opened Settings don't suddenly start hitting 404 / quota=0
 // errors. The dropdown auto-migration in SettingsTrace handles the visible
 // case; this is the fallback for the no-visit path.
-const GEMINI_RETIRED = new Set([
+// Shut down per ai.google.dev/gemini-api/docs/deprecations (2026-10-09).
+export const GEMINI_RETIRED = new Set([
   'gemini-1.5-flash', 'gemini-1.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+  'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-lite-001',
+  'gemini-2.0-flash-lite-preview', 'gemini-2.0-flash-lite-preview-02-05',
+  'gemini-2.5-pro-preview-03-25', 'gemini-2.5-pro-preview-05-06', 'gemini-2.5-pro-preview-06-05',
+  'gemini-2.5-flash-preview-05-20', 'gemini-2.5-flash-preview-09-25', 'gemini-2.5-flash-lite-preview-09-2025',
+  'gemini-3.1-flash-lite-preview',
 ]);
+/** The Gemini model to call for a saved one: renamed ones by their new name, shut-down ones by the default. */
+export function geminiModelFor(model) {
+  const m = renamedModel(model || AI_DEFAULT_MODELS.gemini);
+  return GEMINI_RETIRED.has(m) ? AI_DEFAULT_MODELS.gemini : m;
+}
 
 async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall) {
-  let m = model || AI_DEFAULT_MODELS.gemini;
-  if (GEMINI_RETIRED.has(m)) m = AI_DEFAULT_MODELS.gemini;
+  const m = geminiModelFor(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
   const geminiTools = (tools || []).length ? [{

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
@@ -7,6 +8,8 @@ import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { sendMealShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
+import { ownerOrOptIn } from '../lib/outbound-policy.js';
+import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -61,6 +64,10 @@ router.post('/', wrap(async (req, res) => {
           source_app, source_external_id, source_url, import_warnings } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
+  // Sent again (a retry, or the answer was lost): the meal made the first time.
+  const createKey = cleanCreateKey(req.body.client_key);
+  const made = findByCreateKey('meals', u, createKey);
+  if (made) return res.status(200).json(parse(made));
   // #183: honor the caller's defaultShareVisibility when the client
   // omits an explicit value. Same rule applies to recipes (is_recipe=1).
   const vis = visibility || resolveNewItemVisibility(u);
@@ -89,7 +96,7 @@ router.post('/', wrap(async (req, res) => {
   const _shouldLocalizeImg = img_url && (cleanSourceApp
     ? (img_url.startsWith('http') || img_url.startsWith('data:'))
     : isExternalUrl(img_url));
-  const localImg = _shouldLocalizeImg ? await localizeImage(img_url, { trustedOrigins: _trustedImgOrigins }) : (img_url || null);
+  const localImg = _shouldLocalizeImg ? await localizeImage(img_url, { trustedOrigins: _trustedImgOrigins, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null);
   const warningsCol = Array.isArray(import_warnings) && import_warnings.length
     ? JSON.stringify(import_warnings.map(w => String(w || '').slice(0, 400)).filter(Boolean).slice(0, 20))
     : null;
@@ -123,11 +130,12 @@ router.post('/', wrap(async (req, res) => {
     servings != null ? Math.max(1, parseInt(servings) || 1) : null,
     vis, source_id || null,
     cleanSourceApp, cleanSourceExtId, cleanSourceUrl, warningsCol);
+  setCreateKey('meals', result.lastInsertRowid, createKey);
   res.status(201).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(result.lastInsertRowid)));
 }));
 
 // ── PUT /:id ──────────────────────────────────────────────────────────────
-router.put('/:id', wrap((req, res) => {
+router.put('/:id', wrap(async (req, res) => {
   const u = uid(req);
   const existing = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
@@ -143,10 +151,11 @@ router.put('/:id', wrap((req, res) => {
   // The old inline `img_url ?? existing.img_url` treated null as nullish and
   // preserved the existing image, so the MealEditor X-remove-photo button
   // silently failed to clear the photo on save. Parallel to the foods.js
-  // PUT fix for kilkalabs's report on #74 follow-up. Note: external-URL /
-  // data-URL localization on this route is a separate parity gap with the
-  // POST handler (line ~61) — out of scope for this fix.
-  const img = 'img_url' in req.body ? (img_url || null) : existing.img_url;
+  // PUT fix for kilkalabs's report on #74 follow-up. Localize supplied
+  // images just as POST does, so the diary can resolve edited recipe photos.
+  const img = 'img_url' in req.body
+    ? ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null))
+    : existing.img_url;
   db.prepare(
     `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?, favorite=?, updated_at=datetime('now') WHERE id=?`
   ).run(name ?? existing.name, JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
@@ -222,15 +231,14 @@ router.patch('/:id/share', wrap((req, res) => {
       ? db.prepare('SELECT full_name, username FROM users WHERE id = ?').get(u)
       : null;
     const sharerName = sharer?.full_name || sharer?.username || null;
-    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-    const host  = req.headers['x-forwarded-host']  || req.headers.host || '';
     // Recipes and non-recipe meals share the same client route family.
-    const viewUrl = `${proto}://${host}/#/foods`;
+    const base = linkBase(req);
+    const viewUrl = `${base}/#/foods`;
     const rows = db.prepare(
       `SELECT id, email FROM users WHERE id IN (${newGrantees.map(() => '?').join(',')})`
     ).all(...newGrantees);
     for (const row of rows) {
-      if (!row.email) continue;
+      if (!row.email || !base) continue;
       sendMealShared(row.email, meal.name, sharerName, viewUrl)
         .catch(e => logger.debug?.(`[share] meal email to ${row.email} failed: ${e.message}`));
     }
