@@ -90,7 +90,6 @@
     "sign_out_waiting_title": "Hay cambios pendientes",
     "sign_out_waiting": "{count, plural, one {# cambio todavía no llegó a tu servidor. Si cierras sesión ahora, se va a perder. Conéctate y vuelve a intentarlo para conservarlo.} other {# cambios todavía no llegaron a tu servidor. Si cierras sesión ahora, se van a perder. Conéctate y vuelve a intentarlo para conservarlos.}}",
     "sign_out_anyway": "Salir de todos modos",
-    "pending_web": "{count, plural, =0 {Sin conexión. Tu diario sigue funcionando y guardando datos aquí.} one {Sin conexión. # día pendiente de subir.} other {Sin conexión. # días pendientes de subir.}}",
     "sync_failing": "No se puede conectar con el servidor",
     "not_synced": "Aún no sincronizado"
   },
