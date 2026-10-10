@@ -3,8 +3,8 @@
   /**
    * SettingsApiTokens.svelte
    *
-   * Admin-only Settings section for federation API token management.
-   * Lists existing tokens, lets the admin create new ones (with name +
+   * Settings section for federation API token management. Lists the
+   * signed-in user's tokens, lets them create new ones (with name +
    * scope checkboxes + optional expiry), and revoke them.
    *
    * The raw token value is shown EXACTLY ONCE on creation — the user
@@ -60,7 +60,7 @@
   async function load() {
     loading = true;
     try {
-      const r = await fetch(apiUrl('/api/admin/api-tokens'), {
+      const r = await fetch(apiUrl('/api/tokens'), {
         credentials: 'include', headers: _csrfHeaders(),
       });
       if (!r.ok) throw new Error($_('settings_api_tokens.toast.load_failed'));
@@ -97,7 +97,7 @@
         expiresAt = new Date(Date.now() + days * 24 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ');
       }
 
-      const r = await fetch(apiUrl('/api/admin/api-tokens'), {
+      const r = await fetch(apiUrl('/api/tokens'), {
         method: 'POST', credentials: 'include',
         headers: _csrfHeaders(),
         body: JSON.stringify({
@@ -131,7 +131,7 @@
       dangerous: true,
     })) return;
     try {
-      const r = await fetch(apiUrl(`/api/admin/api-tokens/${t.id}`), {
+      const r = await fetch(apiUrl(`/api/tokens/${t.id}`), {
         method: 'DELETE', credentials: 'include', headers: _csrfHeaders(),
       });
       if (!r.ok) {

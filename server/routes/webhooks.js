@@ -1,11 +1,11 @@
 /**
  * /api/admin/webhooks, CRUD + test for outgoing webhooks.
  *
- * Mounted INSIDE the regular /api authentication (cookie/session auth),
- * same posture as /api/admin/api-tokens: this is for the Settings UI
- * to manage webhooks, not the delivery path itself (that's
- * dispatchWebhookEvent in server/lib/webhooks.js, called from
- * routes/diary.js).
+ * Mounted INSIDE the regular /api authentication (cookie/session auth):
+ * this is for the Settings UI to manage webhooks, not the delivery path
+ * itself (that's dispatchWebhookEvent in server/lib/webhooks.js, called
+ * from routes/diary.js). Unlike /api/tokens (any signed-in user, own
+ * tokens only), webhooks stay admin-only.
  *
  * Restricted to admins; non-admins get 403. Single-user mode counts as
  * admin (requireAdmin already treats it that way, see middleware/auth.js).

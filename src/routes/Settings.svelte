@@ -590,6 +590,13 @@
     <span>{$_('settings.connected_services.section')}</span>
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
+  {#if !isNativeLocal && $userMgmtActive}
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
+      <span class="material-symbols-rounded si">key</span>
+      <span>{$_('settings.api_tokens.section')}</span>
+      <span class="material-symbols-rounded chevron">expand_more</span>
+    </button>
+  {/if}
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'ai')} class:active={currentSection === 'ai'} aria-current={currentSection === 'ai' ? 'page' : undefined} on:click={() => toggleSection('ai')}>
     <span class="material-symbols-rounded si">smart_toy</span>
     <span>{$_('settings.ai.section')}</span>
@@ -664,11 +671,6 @@
       </button>
     {/if}
     {#if $currentUser?.role === 'admin'}
-      <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
-        <span class="material-symbols-rounded si">key</span>
-        <span>{$_('settings.api_tokens.section')}</span>
-        <span class="material-symbols-rounded chevron">expand_more</span>
-      </button>
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'webhooks')} class:active={currentSection === 'webhooks'} aria-current={currentSection === 'webhooks' ? 'page' : undefined} on:click={() => toggleSection('webhooks')}>
         <span class="material-symbols-rounded si">webhook</span>
         <span>{$_('settings.webhooks.section')}</span>
