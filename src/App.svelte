@@ -893,7 +893,7 @@
         <!-- Amber while simply offline (nothing lost, it just hasn't gone yet),
              red when the server is reachable but the sync is failing. -->
         <span class="conn-badge" class:conn-failing={_syncFailing || _webFailing} class:conn-offline={!(_syncFailing || _webFailing)}
-          title={_webOffline ? $_('sync.pending_web', { values: { count: $offlineState.pending } }) : ''}>
+          title={_webOffline ? $_('sync.pending_web_changes', { values: { count: $offlineState.pending } }) : ''}>
           <span class="material-symbols-rounded" style="font-size:10px">{(_syncFailing || _webFailing) ? 'cloud_alert' : 'cloud_off'}</span>
         </span>
       {/if}

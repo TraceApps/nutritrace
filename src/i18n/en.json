@@ -72,7 +72,7 @@
     "same_server_no": "Different Server",
     "account_check_failed_title": "Couldn't Open Your Data",
     "account_check_failed": "This device couldn't check whose data it holds, so nothing is shown yet. Try again, or sign out.",
-    "pending_web": "{count, plural, =0 {Offline. Your diary still works and saves here.} one {Offline. # day is waiting to go up.} other {Offline. # days are waiting to go up.}}",
+    "pending_web_changes": "{count, plural, =0 {Offline. Your diary still works and saves here.} one {Offline. # change is waiting to go up.} other {Offline. # changes are waiting to go up.}}",
     "sync_failing": "Can't reach the server",
     "not_synced": "Not synced yet",
     "sync_now": "Sync now",

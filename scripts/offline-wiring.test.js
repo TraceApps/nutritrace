@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 
 const read = p => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -52,7 +53,15 @@ test('the header badge reports the queue on the web', () => {
   assert.match(app, /import \{ offlineState \} from '\.\/lib\/offline-api\.js'/);
   assert.match(app, /_webOffline = !isNative &&/);
   assert.match(app, /_webFailing = !isNative && !!\$offlineState\.error/);
-  assert.ok(en.sync.pending_web, 'sync.pending_web copy exists');
+  // The badge counts queued changes (two items on one day are two), so it
+  // says changes, with the plural forms right.
+  assert.match(app, /\$_\('sync\.pending_web_changes', \{ values: \{ count: \$offlineState\.pending \} \}\)/);
+  const { IntlMessageFormat } = createRequire(import.meta.url)('intl-messageformat');
+  const say = n => new IntlMessageFormat(en.sync.pending_web_changes, 'en').format({ count: n });
+  assert.equal(say(0), 'Offline. Your diary still works and saves here.');
+  assert.equal(say(1), 'Offline. 1 change is waiting to go up.');
+  assert.equal(say(2), 'Offline. 2 changes are waiting to go up.');
+  assert.ok(!('pending_web' in en.sync), 'the old key that said days is gone');
 });
 
 test('signing out in a dead zone asks before discarding what is waiting', () => {

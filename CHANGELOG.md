@@ -16,6 +16,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **The Mark Day Complete bar reads in full on phones**, in every language down to 320px wide. Its text and button wrap onto a second line instead of being cut off, and the day's name, already shown in the date bar above, is left out on phones.
 - **The Diary and Goals open like a book on a half-open foldable again.** The day's meals fall onto the two pages, with the summary below them, and Goals puts your targets on one page and the preview on the other; nothing runs across the crease. Open flat and on larger screens nothing changes.
 - **Searching your own foods works offline in a browser that has only opened the Diary.** Your foods, meals and recipes are kept for offline use from the first load, not only after the Foods screen was opened.
+- **The offline cloud's tooltip counts changes, not days.** It said "2 days are waiting to go up" for two changes on one day; it now says "2 changes are waiting to go up".
 
 ---
 

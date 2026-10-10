@@ -540,7 +540,7 @@ async function _flushOnce() {
   return !_ops.length;
 }
 
-/** How many days are waiting to go up. */
+/** How many changes are waiting to go up (each save queued offline is one). */
 export async function pendingCount() {
   return (await _loadOps()).length;
 }
