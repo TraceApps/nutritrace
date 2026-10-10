@@ -782,6 +782,19 @@
   // signed out, before the sign-in screen replaced it. Android starts from
   // the account it cached, so it never waits.
   let authLoaded = isNative;
+  // Web: searching your foods offline (Add food from the Diary) reads this
+  // browser's copy of them, which only the Foods screen used to fill. Fill it
+  // once per account on first load, a moment after the page settles, so a
+  // fresh browser that only ever opened the Diary still finds them offline.
+  let _catalogWarmedFor = null;
+  $: if (!isNative && authLoaded && $currentUser?.id != null && _catalogWarmedFor !== $currentUser.id) {
+    _catalogWarmedFor = $currentUser.id;
+    setTimeout(() => {
+      Promise.all([import('./lib/offline-catalog.js'), import('./lib/api.js')])
+        .then(([off, { NtApi }]) => off.warmOfflineCatalog(NtApi))
+        .catch(() => {});
+    }, 1500);
+  }
   $: needsLogin = $userMgmtActive && !$currentUser && !AUTH_BYPASS.includes($location);
 
   // When the user transitions from unauthenticated → authenticated (after a
