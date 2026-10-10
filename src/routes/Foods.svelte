@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
   import { push, location } from 'svelte-spa-router';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
   import { closeOnBack } from '../lib/back-stack.js';
   import { fade, fly, slide } from 'svelte/transition';
 
@@ -48,7 +48,11 @@
   $: pickMeal  = params.meal;
   $: pickDate  = params.date;
 
-  const TABS = [
+  $: TABS = $locale ? [
+    { label: $_('foods.tabs.foods'),   value: 'foodList' },
+    { label: $_('foods.tabs.meals'),   value: 'meals' },
+    { label: $_('foods.tabs.recipes'), value: 'recipes' },
+  ] : [
     { label: 'Foods',   value: 'foodList' },
     { label: 'Meals',   value: 'meals' },
     { label: 'Recipes', value: 'recipes' },
@@ -2321,12 +2325,12 @@
           <span class="material-symbols-rounded empty-icon">
             {activeTab === 0 ? 'restaurant' : activeTab === 1 ? 'dinner_dining' : 'book'}
           </span>
-          <p>No {TABS[activeTab].label.toLowerCase()} yet</p>
+          <p>{activeTab === 0 ? $_('foods.empty.no_foods') : activeTab === 1 ? $_('foods.empty.no_meals') : $_('foods.empty.no_recipes')}</p>
           <button class="btn btn-primary" on:click={() => {
             if (activeTab === 0) openEditor(null);
             else openMealEditor(null, activeTab === 2);
           }}>
-            Add {TABS[activeTab].label.slice(0,-1)}
+            {activeTab === 0 ? $_('foods.empty.add_food') : activeTab === 1 ? $_('foods.empty.add_meal') : $_('foods.empty.add_recipe')}
           </button>
         </div>
       {:else if filteredList.length === 0 && search}

@@ -12,7 +12,9 @@
    *   Log Stats CTA   — opens the full Body Stats sheet
    */
   import { slide } from 'svelte/transition';
+  import { _, locale } from 'svelte-i18n';
   import { decimalInput, parseDecimal } from '../../lib/decimal-input.js';
+  import { tr } from '../../lib/i18n-label.js';
 
   export let currentWeight = null;
   export let weightUnit    = 'kg';
@@ -77,8 +79,8 @@
 <section class="bs-widget card">
   <header class="bs-header">
     <span class="material-symbols-rounded bs-icon">monitor_weight</span>
-    <span class="bs-title">Body Stats</span>
-    <button class="bs-open" on:click={onOpen} title="Open Body Stats sheet">
+    <span class="bs-title">{$_('diary_deep.body_stats')}</span>
+    <button class="bs-open" on:click={onOpen} title={$_('diary_rail.open_stats')}>
       <span class="material-symbols-rounded">open_in_full</span>
     </button>
   </header>
@@ -91,12 +93,12 @@
           <span class="bs-w-num">{currentWeight}</span>
           <span class="bs-w-unit">{weightUnit}</span>
         </div>
-        <button class="bs-edit-inline" on:click={startEditWeight} title="Edit today's weight">
+        <button class="bs-edit-inline" on:click={startEditWeight} title={$_('diary_rail.edit_weight')}>
           <span class="material-symbols-rounded">edit</span>
         </button>
       {:else}
-        <span class="bs-weight-empty">Weight not logged</span>
-        <button class="bs-quick-log" on:click={startEditWeight}>Log</button>
+        <span class="bs-weight-empty">{$_('diary_rail.weight_empty')}</span>
+        <button class="bs-quick-log" on:click={startEditWeight}>{$_('diary_rail.log')}</button>
       {/if}
     {:else}
       <div class="bs-edit-form" transition:slide={{ duration: 160 }}>
@@ -112,10 +114,10 @@
           disabled={saving}
         />
         <button class="btn btn-primary bs-save" on:click={commitWeight} disabled={saving}>
-          {saving ? '…' : 'Save'}
+          {saving ? '…' : $_('common.save')}
         </button>
         <button class="btn btn-ghost bs-cancel" on:click={cancelWeight} disabled={saving}>
-          Cancel
+          {$_('common.cancel')}
         </button>
       </div>
     {/if}
@@ -128,17 +130,17 @@
     <ul class="bs-list">
       {#each measurementRows as row (row.key)}
         <li class="bs-row">
-          <span class="bs-label">{row.label}</span>
+          <span class="bs-label">{tr('body_metrics', row.key, row.label, $locale)}</span>
           <span class="bs-value">{row.value} <span class="bs-unit">{lengthUnit}</span></span>
         </li>
       {/each}
     </ul>
   {:else}
-    <div class="bs-empty">No measurements logged today</div>
+    <div class="bs-empty">{$_('diary_rail.no_measurements')}</div>
   {/if}
 
   <button class="btn btn-primary bs-log-btn" on:click={onOpen}>
-    Log Stats
+    {$_('diary_rail.log_stats')}
   </button>
 </section>
 

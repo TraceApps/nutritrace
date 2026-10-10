@@ -2,7 +2,8 @@
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy } from 'svelte';
   import { slide } from 'svelte/transition';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../lib/i18n-label.js';
   import { push } from 'svelte-spa-router';
   import { portal } from '../lib/portal.js';
   import { dragScroll } from '../lib/drag-scroll.js';
@@ -123,30 +124,30 @@
       ...(_wlVisible('spo2_avg')          ? [{ value: 'wl_spo2',   label: 'SpO2',          unit: '%',     apiSource: 'fitgarm', apiField: 'spo2_avg' }] : []),
     ] : []),
     ...(($withingsEnabled || $fitbitFamilyEnabled) && _wlVisible('muscle_mass_kg') ? [
-      { value: 'wl_muscle', label: 'Muscle Mass',   unit: '',      apiSource: 'withings', apiField: 'muscle_mass_kg', isWeight: true },
+      { value: 'wl_muscle', label: tr('body_metrics', 'muscle', 'Muscle Mass', $locale), unit: '', apiSource: 'withings', apiField: 'muscle_mass_kg', isWeight: true },
     ] : []),
   ];
 
   // All available metrics = NUTRIMENTS + body stats + wellness
   $: BODY_STATS = [
-    { value: 'weight',     label: 'Weight',     unit: $weightUnit || 'lb' },
-    { value: 'neck',       label: 'Neck',       unit: $lengthUnit || 'in' },
-    { value: 'waist',      label: 'Waist',      unit: $lengthUnit || 'in' },
-    { value: 'hips',       label: 'Hips',       unit: $lengthUnit || 'in' },
-    { value: 'chest',      label: 'Chest',      unit: $lengthUnit || 'in' },
-    { value: 'thighs',     label: 'Thighs',     unit: $lengthUnit || 'in' },
-    { value: 'biceps',     label: 'Biceps',     unit: $lengthUnit || 'in' },
-    { value: 'calves',     label: 'Calves',     unit: $lengthUnit || 'in' },
-    { value: 'body_fat',   label: 'Body Fat',   unit: '%'  },
-    { value: 'body_water', label: 'Body Water', unit: '%'  },
+    { value: 'weight',     label: tr('body_metrics', 'weight', 'Weight', $locale),     unit: $weightUnit || 'lb' },
+    { value: 'neck',       label: tr('body_metrics', 'neck', 'Neck', $locale),         unit: $lengthUnit || 'in' },
+    { value: 'waist',      label: tr('body_metrics', 'waist', 'Waist', $locale),       unit: $lengthUnit || 'in' },
+    { value: 'hips',       label: tr('body_metrics', 'hips', 'Hips', $locale),         unit: $lengthUnit || 'in' },
+    { value: 'chest',      label: tr('body_metrics', 'chest', 'Chest', $locale),       unit: $lengthUnit || 'in' },
+    { value: 'thighs',     label: tr('body_metrics', 'thighs', 'Thighs', $locale),     unit: $lengthUnit || 'in' },
+    { value: 'biceps',     label: tr('body_metrics', 'biceps', 'Biceps', $locale),     unit: $lengthUnit || 'in' },
+    { value: 'calves',     label: tr('body_metrics', 'calves', 'Calves', $locale),     unit: $lengthUnit || 'in' },
+    { value: 'body_fat',   label: tr('body_metrics', 'body_fat', 'Body Fat', $locale), unit: '%'  },
+    { value: 'body_water', label: tr('body_metrics', 'body_water', 'Body Water', $locale), unit: '%'  },
   ];
   // Metric identifier: nutriments use `.id`, everything else uses `.value`.
   // Coalesce so the ordering + hide stores work with a single string key.
   function _metricKey(m) { return m?.value ?? m?.id; }
   $: _rawMetrics = [
-    ...NUTRIMENTS.filter(n => n.default),
+    ...NUTRIMENTS.filter(n => n.default).map(n => ({ ...n, label: tr('nutriments', n.id, n.label, $locale) })),
     ...BODY_STATS.filter(s => !($hiddenBodyStats||[]).includes(s.value)),
-    ...(_waterShowInStats ? [{ value: 'water', label: 'Water', unit: _waterUnit }] : []),
+    ...(_waterShowInStats ? [{ value: 'water', label: tr('body_metrics', 'water', 'Water', $locale), unit: _waterUnit }] : []),
     ...WELLNESS_METRICS,
   ];
   // Apply the user's Statistics-specific hide list, then reorder by the
@@ -186,13 +187,13 @@
   }
 
   const RANGES = [
-    { value: '7',   label: '1W'  },
-    { value: '14',  label: '2W'  },
-    { value: '30',  label: '1M'  },
-    { value: '90',  label: '3M'  },
-    { value: '180', label: '6M'  },
-    { value: '365', label: '1Y'  },
-    { value: 'all', label: 'All' },
+    { value: '7',   key: 'statistics_page.chips.w1' },
+    { value: '14',  key: 'statistics_page.chips.w2' },
+    { value: '30',  key: 'statistics_page.chips.m1' },
+    { value: '90',  key: 'statistics_page.chips.m3' },
+    { value: '180', key: 'statistics_page.chips.m6' },
+    { value: '365', key: 'statistics_page.chips.y1' },
+    { value: 'all', key: 'statistics_page.chips.all' },
   ];
 
   async function loadData() {
@@ -998,14 +999,14 @@
       <div class="range-pills" use:dragScroll>
         {#each RANGES as r}
           <button class="range-btn" class:active={range === r.value} on:click={() => range = r.value}>
-            {r.label}
+            {$_(r.key)}
           </button>
         {/each}
         <button class="range-btn" class:active={range === 'custom'} on:click={() => range = 'custom'}>
-          Custom
+          {$_('statistics_page.chips.custom')}
         </button>
       </div>
-      <button class="chart-type-btn" title="Toggle chart type"
+      <button class="chart-type-btn" title={$_('statistics_page.toggle_chart_type')}
         on:click={() => statsChartType.set($statsChartType === 'bar' ? 'line' : 'bar')}>
         <span class="material-symbols-rounded" style="font-size:18px">
           {$statsChartType === 'bar' ? 'show_chart' : 'bar_chart'}

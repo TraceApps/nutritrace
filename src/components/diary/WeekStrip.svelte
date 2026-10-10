@@ -21,7 +21,7 @@
   import { NtApi } from '../../lib/api.js';
   import { localDateStr } from '../../lib/db.js';
   import { Nutrition } from '../../lib/nutrition.js';
-  import { disableAnimations, dateFormat } from '../../stores/settings.js';
+  import { disableAnimations, dateFormat, language } from '../../stores/settings.js';
 
   // Mirrors Diary.svelte's formatDateSub — respects the user's
   // Settings → Regional → Date Format preference (ISO / US / EU /
@@ -88,8 +88,6 @@
 
   // Full weekday names — desktop has plenty of room. If a narrower
   // rail size is ever added, swap this to a short/abbreviated set.
-  const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
   let byDate = new Map();      // iso → { kcal, protein, carbs, fat, water_ml, items }
   let goalByDate = new Map();  // iso → per-day resolved calorie goal (base + dynamic + activity per day)
   let activeByDate = new Map();// iso → per-day effective active kcal (for popover)
@@ -180,7 +178,7 @@
       const active = activeByDate.get(iso) ?? 0;
       out.push({
         iso,
-        dow: DOW[dt.getDay()],
+        dow: dt.toLocaleDateString($language || 'en', { weekday: 'long' }),
         dnum: dt.getDate(),
         kcal,
         goal,
