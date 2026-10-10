@@ -41,11 +41,22 @@ let server = null, base = null, sqlite = null;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(res => { const s = createServer(); s.listen(0, () => { const p = s.address().port; s.close(() => res(p)); }); });
 
+// Every request this test sends the server goes through here. fetch keeps
+// connections alive, and the server closes one after 5 s idle; a phone run
+// blocks this process for longer than that, so the next request can go out
+// on a connection the server has already closed and fails at once with
+// "fetch failed" (undici UND_ERR_SOCKET "other side closed"). The server
+// never saw that request, so it is sent again on a fresh connection.
+const STALE_SOCKET = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE']);
+async function serverFetch(url, init) {
+  try { return await fetch(url, init); } catch (e) {
+    if (e?.message !== 'fetch failed' || !STALE_SOCKET.has(e?.cause?.code)) throw e;
+    return fetch(url, init);
+  }
+}
+
 async function http(tok, method, path, body) {
-  const go = () => fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
-  // A kept-alive connection the server closed meanwhile (its 5 s idle
-  // timeout, during a long phone run) fails once with "fetch failed".
-  const r = await go().catch(e => { if (e?.message === 'fetch failed') return go(); throw e; });
+  const r = await serverFetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
   const t = await r.text();
   if (!r.ok) throw new Error(`${method} ${path} ${r.status} ${t.slice(0, 200)}`);
   return t ? JSON.parse(t) : null;
@@ -225,7 +236,7 @@ test("settings still coming down for the last account write nothing into the nex
 });
 
 async function account(name, admin) {
-  const r = await fetch(base + '/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(admin ? { Authorization: `Bearer ${admin}` } : {}) }, body: JSON.stringify({ username: name, password: 'Str0ng-Pass-77!x' }) });
+  const r = await serverFetch(base + '/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(admin ? { Authorization: `Bearer ${admin}` } : {}) }, body: JSON.stringify({ username: name, password: 'Str0ng-Pass-77!x' }) });
   if (!admin) return (await http(null, 'POST', '/api/auth/login', { username: name, password: 'Str0ng-Pass-77!x' })).token;
   const { user } = await r.json();
   const jwt = createRequire(new URL('../server/package.json', import.meta.url))('jsonwebtoken');
