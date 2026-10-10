@@ -591,7 +591,7 @@ NutriTrace in phases so no single change carries too much blast radius.
 
 ## Internationalization (i18n)
 
-Infrastructure landed: `svelte-i18n@4` in deps, `src/i18n/` with `en.json` + `fr.json` + `index.js`, ~210+ keys extracted. Locale picker under Settings → Regional & Units (bound to the `language` store). French translation contributed by @antoinech2 in rc.49 (PR #72). What's still pending: continued string extraction sweep as the UI surface grows (re-audit each release per `feedback_i18n_check.md`), Weblate hosted translation flow, and additional locales (Dutch + German volunteers noted in rc.6 but not yet landed).
+Live: `svelte-i18n@4`, one JSON file per locale in `src/i18n/`, and a locale picker under Settings, Regional & Units (bound to the `language` store). Translations happen on [Weblate](https://hosted.weblate.org/projects/nutritrace). The picker offers English, French (@antoinech2, rc.49, PR #72), German, Spanish (@herver1971, 1.4.0) and Russian (1.4.0). Czech, Norwegian Bokmål, Polish, Brazilian Portuguese and Simplified Chinese are in progress on Weblate and join the picker once they're far enough along. Still ongoing: the string extraction sweep as the UI surface grows (re-audit each release), and server-side strings.
 
 Implementation sketch:
 - Add `svelte-i18n` (de-facto choice for Svelte 4) and a `src/i18n/` directory with one JSON file per locale (`en.json`, `fr.json`, etc.).
@@ -602,7 +602,7 @@ Implementation sketch:
 - Server-side strings (email subjects, push notification bodies, AI system prompts) stay English for now, or take a separate pass once the client side is stable.
 
 Translation contribution path:
-- Self-host **Weblate** alongside the demo instance, or use the free tier on `hosted.weblate.org` for libre projects. Weblate is the standard in the self-hosted scene (Mealie, Immich, Paperless-ngx all use it) and lowers the bar for non-developer translators.
+- ~~Self-host **Weblate** or use the free tier on `hosted.weblate.org` for libre projects~~ *(done: hosted.weblate.org, libre tier)*. Weblate is the standard in the self-hosted scene (Mealie, Immich, Paperless-ngx all use it) and lowers the bar for non-developer translators.
 - PR-based fallback: contributors copy `en.json` to `<lang>.json` and submit a PR. Document the workflow in `CONTRIBUTING.md`.
 - Seed initial languages from community requests on Lemmy / GitHub issues. Don't pre-translate machine-only, wait for actual native speakers per language to avoid uncanny-valley UX.
 
@@ -909,7 +909,14 @@ real user feedback on what (if anything) they ask for here.
 
 ---
 
-### Offline PWA editing (family-wide, after the next main release)
+### ~~Offline PWA editing~~ *(RELEASED in 1.4.0, issue #211)*
+
+Released: the diary, your own foods, meals and recipes, manual activity, settings
+and goals, the fasting timer and your profile work offline in the browser, iPhone
+included, with an amber cloud on the menu button while edits wait. Search falls
+back to your own foods, and a photo taken offline travels with its food. Online
+sources (Open Food Facts, USDA, Mealie, CookTrace), wellness providers, Trace and
+admin still need a connection. LiftTrace and CookTrace follow the same pattern.
 
 Bring NoteTrace's browser offline model here, so the installed web app works in a
 dead zone the way the Android app does. This is set for every Trace app once the
@@ -928,7 +935,7 @@ Deliberately NOT the Service Worker Background Sync API: Safari doesn't support
 it, and iOS is the main reason for the work. Flush from the page instead, with
 retries backing off from 3s to 30s plus `online` events.
 
-The sidebar sync pill and the amber / red colour rule are already in place here,
+The sidebar sync pill and the amber / red color rule are already in place here,
 so the state has somewhere to show.
 
 iOS caveats to plan for: Safari evicts site data after about 7 days of no use
@@ -976,4 +983,4 @@ CLAUDE.md was removed from public in rc.36; FUTURE.md is now dev-only too (this 
 
 ---
 
-*Last updated: 2026-07-05, staleness audit pass. Marked done: Nutrition CSV importer v1 header, NutritionFactsBox Phases 1 + 2 (rc.42), Error visibility / sync status (offline `cloud_off` badge), Local OFF data dump (`server/lib/off-local.js` mirror released), dep bumps block (Svelte 5 / Vite 6 / plugin-svelte 5 / Express 5 / bcryptjs 3 all done 2026-05-20; multer 2.2.0 + nodemailer 9.0.3 + vite 6.4.3 done rc.53 as CVE-driven bumps, retired the "multer LTS OK to stay on" rule). Updated: Internationalization (French translation now landed rc.49, locale picker live).*
+*Last updated: 2026-10-09, 1.4.0 pass. Marked done: Offline PWA editing (released in 1.4.0), Weblate translation flow (Spanish and Russian added to the locale picker). Previous pass 2026-07-05: Nutrition CSV importer v1 header, NutritionFactsBox Phases 1 + 2 (rc.42), Error visibility / sync status (offline `cloud_off` badge), Local OFF data dump (`server/lib/off-local.js` mirror released), dep bumps block (Svelte 5 / Vite 6 / plugin-svelte 5 / Express 5 / bcryptjs 3 all done 2026-05-20; multer 2.2.0 + nodemailer 9.0.3 + vite 6.4.3 done rc.53 as CVE-driven bumps).*

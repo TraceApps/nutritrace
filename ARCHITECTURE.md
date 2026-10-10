@@ -6,10 +6,11 @@ house conventions that aren't obvious from reading the source.
 
 ## Stack
 
-- **Frontend:** Svelte 4, svelte-spa-router v4 (hash routing), Vite
+- **Frontend:** Svelte 5 in compatibility mode (`runes: false`, so components
+  keep Svelte 4 syntax), svelte-spa-router v4 (hash routing), Vite 6
 - **Server:** Node + Express, better-sqlite3
 - **Mobile:** PWA + Capacitor 8 (Android)
-- **Deploy:** `docker compose up -d`, serves on port 3000
+- **Deploy:** `docker compose up -d`, serves on port 3001
 
 ## Layout
 
@@ -123,6 +124,47 @@ vs. adaptive daily goal.
 character. Validated server-side in `server/routes/auth.js` and
 client-side in Wizard, Profile, and the invite-accept flow.
 
+### Browser offline mode
+
+`src/lib/offline-api.js` sits in front of every API call in the
+browser. Online it calls the server and keeps what comes back in an
+IndexedDB mirror; unreachable, it answers the diary, your foods,
+meals, recipes, activity, settings, goals, fasts and profile from the
+mirror and queues writes in an outbox. Back online, queued days and
+food, meal, activity and fast edits go up through `/api/sync/push`, so
+the server merges browser edits exactly as it merges the phone's. It deliberately avoids the Background Sync API
+(Safari lacks it, and iPhone is why this exists); the page flushes on
+a backoff and on the `online` event, and a Web Lock keeps two tabs
+from sending at once. The merge rules are pure functions in
+`src/lib/offline-edits.js` so they test without a browser.
+
+### Android account protection
+
+One phone can sign in to more than one account or server, and the
+local SQLite copy is tagged with the account it belongs to
+(`src/lib/local-account.js`). Signing in as someone else clears the
+copy, and unsynced changes from the previous account are never pushed
+under the new one (the app asks first). Every change of account bumps
+an account generation, and a sync started before it writes nothing
+after it. Each switch and sign-out also forgets NutriTrace's own
+cookies (`nt_token`, `nt_oidc_logout`) so the server can't answer as
+the previous account, while a sign-in gate's cookies in front of the
+server stay. `src/lib/user-state.js` resets the in-memory stores
+(day on show, activities, fasts, settings, editor state) before
+anything is shown.
+
+### Fold framework
+
+`src/lib/fold-core.js` is pure and tested: size classes and fold
+reports turned into `{ posture, start, end }`. `src/lib/fold.js` reads
+the fold from the Android `FoldPlugin` (Jetpack WindowManager) or the
+browser's Viewport Segments API and sets `fold-book`, `fold-tabletop`
+or `fold-flat` plus `--fold-start` / `--fold-end` on `<html>`.
+`src/styles/fold.css` moves only surfaces that can't be scrolled out
+of the way (dialogs, sheets, menus, Trace) off the crease; a diary,
+chart or photo may cross it. Wide layouts gate on `html.wide-content`
+(720px of content beside the sidebar), not on the viewport width.
+
 ## Android Local Mode
 
 NutriTrace on Android runs **standalone (offline-only)** or
@@ -163,10 +205,18 @@ picks the mode; Settings, then Mode, changes it later.
   `@capacitor/browser` instead of an in-app WebView. Callback via the
   `nutritrace://` deep link scheme
 - **Mobile OIDC SSO** (server mode only): same
-  `@capacitor/browser` pattern. `Login.svelte#startOidc()` opens the
-  server callback which redirects to `nutritrace://oidc-callback/?token=<jwt>`
-  (note the trailing slash, Chrome Custom Tabs needs it to dispatch
-  the OS intent reliably)
+  `@capacitor/browser` pattern. Any installed app can register for
+  `nutritrace://`, so the deep link never carries the session token.
+  Before opening the sign-in page the app makes a random secret and
+  sends only its SHA-256 as `app_challenge`
+  (`src/lib/oidc-app-handoff.js`). The server callback
+  (`server/routes/oidc.js`) redirects to
+  `nutritrace://oidc-callback/?code=<code>` with a single-use code, and
+  the app swaps code plus secret for the token at
+  `POST /api/auth/oidc/handoff`. An app that caught the link has the
+  code but not the secret. Builds too old to send `app_challenge` still
+  get the token in the link. Keep the trailing slash: Chrome Custom
+  Tabs needs it to dispatch the OS intent reliably
 
 ## Svelte Reactivity Rules
 
@@ -190,6 +240,12 @@ See `.env.example` for the full list. Key ones:
 - Request diagnostics count bytes before parsing and capture selected, bounded request bodies after access checks; `X-Request-ID` correlates client and server logs
 - `SMTP_*`, optional, locks Settings UI fields when set
 - `AI_*`, optional, locks AI Assistant settings when set
+- `PUBLIC_URL`, the address emailed links (reset, invite, sharing)
+  use; unset, an address an admin has used, never request headers
+- `ALLOW_PRIVATE_IMAGE_URLS`, lets every account, not only an admin,
+  download photo links from the server's own network
+- `UPDATE_CHECK=off`, turns the server's GitHub release checks off
+  whatever the in-app setting says
 
 ## Conventions
 

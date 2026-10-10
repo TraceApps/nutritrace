@@ -130,6 +130,7 @@ services:
 | `TRACE_BODY_MAX_BYTES` | No | `32768` | Maximum serialized bytes emitted for one traced request body. |
 | `RECOVERY_TOKEN` | No | — | Lockout-recovery token. Required to use the "Disable user management" recovery option on the login page. Without this, the recovery endpoint is disabled for safety. |
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on JWT + cookie lifetime. The per-user setting in app_config can be lower than this but cannot exceed it. |
+| `PUBLIC_URL` | No | unset | The full address people open the app at, subpath included (e.g. `https://nutrition.example.com` or `https://example.com/nt`). Links in password reset, invite and sharing emails use it. Unset, they use an address an admin has opened the app at; until an admin has opened it once, only an admin's own request sends an email. Never taken from request headers. |
 | `INSECURE_COOKIES` | No | `0` | Set `1` only for non-HTTPS deployments. Default uses `secure: true` cookies (HTTPS-only). |
 | `BACKUPS_PATH` | No | Inside uploads dir | Where full ZIP backups are stored |
 | `SMTP_HOST` | No | — | SMTP server hostname |
@@ -147,10 +148,10 @@ services:
 | `MCP_WRITE_ENABLED` | No | `0` | Set to `1` to allow MCP write tools (`log_food`, `log_water`, `log_meal`, `log_body_stat`) to be registered. Also requires the calling token to hold `mcp:write`. |
 | `MCP_DESTROY_ENABLED` | No | `0` | Set to `1` to allow MCP destructive tools (`delete_diary_entry`, `edit_diary_entry`, `create_food`). Also requires the token to hold `mcp:destroy` AND every call to include `confirm: true`. |
 | `ALLOWED_ORIGINS` | No | — | Comma-separated list of Origins that browser-based MCP clients may use. Server-to-server clients (no Origin header) always pass. Leave empty unless you're specifically using the MCP Inspector in a browser. `*` is refused (DNS-rebinding defense). |
-
-| `PUBLIC_API_ENABLED` | No | `0` | Set to `1` to expose the general-purpose REST routes at `/api/v1/diary`, `/api/v1/goals`, and `/api/v1/meals` for your own scripts and automations. Off by default. Reuses the same `mcp:read`/`mcp:write` token scopes as MCP. Does not affect the sister-app federation routes (`/api/v1/foods`, `/api/v1/workouts`, etc.), which are always on. |
+| `PUBLIC_API_ENABLED` | No | `0` | Set to `1` to expose the general-purpose REST routes for your own scripts and automations: `/api/v1/diary`, `/api/v1/goals`, `/api/v1/meals`, `/api/v1/steps`, `/api/v1/body-composition` and `/api/v1/profile`. Off by default. Reuses the same `mcp:read`/`mcp:write` token scopes as MCP. Does not affect the sister-app federation routes (`/api/v1/me`, `/api/v1/foods`, `/api/v1/workouts`, `/api/v1/activity`, `/api/v1/body-measurements`), which are always on. |
 | `PUBLIC_API_WRITE_ENABLED` | No | `0` | Set to `1` to allow the public API's write routes (logging food, water, a meal, or a body stat). Also requires the calling token to hold `mcp:write`. |
 | `WEBHOOKS_ENABLED` | No | `0` | Set to `1` to let configured outgoing webhooks actually fire. A webhook can be created in Settings before this is set; it just will not deliver until it is. |
+| `ALLOW_PRIVATE_IMAGE_URLS` | No | `0` | Set to `1` to let every account download a food, meal or profile photo given as a link from an address on your own network (private or loopback). Without it only an admin can; on a single-user install with no sign-in, only this variable allows it. Your saved CookTrace or Mealie address always works. Link-local and cloud-metadata addresses stay blocked either way. |
 | `ALLOW_PRIVATE_WEBHOOK_URLS` | No | `0` | Set to `1` to allow a webhook target on a private or loopback address (a same-Docker-network Home Assistant instance, for example). Off by default; public-internet-facing installs should leave this off. |
 
 > **Note:** SMTP and AI settings can also be configured in **Settings → Email** / **Settings → AI Assistant** (admin only). Environment variables take priority over the UI and lock the corresponding fields when set.

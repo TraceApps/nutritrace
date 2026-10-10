@@ -61,9 +61,10 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 - **USDA + Mealie.** Free API key USDA lookups + Mealie recipe import. [Full guide](https://traceapps.github.io/docs/nutritrace/usda-mealie/).
 - **Trace AI.** Reads your diary, meals, wellness, fasting streaks, and Adaptive TDEE state; can log a food, propose one from a photo (you confirm), or add an activity entry, all conversationally. 16 tools total. Smart Log voice/text, propose_food photo flow. [Full guide](https://traceapps.github.io/docs/nutritrace/trace/).
 - **Federation API.** `/api/v1/*` scoped Bearer tokens for CT + LT + external clients. [Full guide](https://traceapps.github.io/docs/nutritrace/federation-api/).
-- **Model Context Protocol (MCP).** Expose your diary, goals, and foods to external AI agents (Claude Desktop, Cursor, Codex) via the standard MCP Streamable HTTP transport. Off by default; opt in with `MCP_ENABLED=1`. Read-only in Phase 1. [Full guide](https://traceapps.github.io/docs/nutritrace/mcp/).
+- **Model Context Protocol (MCP).** Expose your diary, goals, foods, steps and body composition to external AI agents (Claude Desktop, Cursor, Codex) via the standard MCP Streamable HTTP transport. 20 tools: 13 read tools, plus logging tools behind `MCP_WRITE_ENABLED=1` and the `mcp:write` scope, and delete, edit and create-food tools behind `MCP_DESTROY_ENABLED=1`, the `mcp:destroy` scope and a confirm on every call. Off by default; opt in with `MCP_ENABLED=1`. [Full guide](https://traceapps.github.io/docs/nutritrace/mcp/).
 - **Migrations.** MyFitnessPal (with nomad64 scraper), Lose It, Cronometer, Waistline. [Full guide](https://traceapps.github.io/docs/nutritrace/migrate-mfp/).
 - **Multi-user + OIDC SSO.** Authentik/Keycloak/Pocket ID/Authelia/Google/Auth0. [Full guide](https://traceapps.github.io/docs/auth/oidc/).
+- **Offline mode in the browser.** Your diary, your own foods, meals and recipes, manual activity, settings and goals, the fasting timer and your profile are kept in the browser, so the app opens without a connection and the day still adds up. Changes go up on their own when the connection returns. Open Food Facts, USDA, Mealie and CookTrace lookups, wellness providers, Trace and admin need a connection. Works on iPhone too. [What works offline](https://traceapps.github.io/docs/nutritrace/features/#offline).
 - **Native Android app.** Offline mode or server-sync, WorkManager native reminders. [Full guide](https://traceapps.github.io/docs/mobile/install/).
 - **Foldables (preliminary).** Half open like a book, Settings puts its section list on one side of the crease and the section on the other, the day's meals fall onto the two pages, and dialogs, sheets, pickers and Trace keep off the fold. Opened flat or on a tablet, the wider layouts turn on: Foods two cards across, side rails on Diary and Goals, and the food and meal editors side by side.
 
@@ -71,7 +72,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 
 ## Apps
 
-- **Web (PWA).** Runs in any modern browser; add to home screen for full-screen use.
+- **Web (PWA).** Runs in any modern browser; add to home screen for full-screen use. Keeps working offline: your diary, foods and settings stay on the device and sync when the connection returns.
 - **Android.** Native Capacitor build; works standalone or connected to your NutriTrace server. Signed APK on the [Releases page](https://github.com/traceapps/nutritrace/releases/latest).
 - **iOS.** Not currently available (requires Mac + Apple Developer account; see [Support](#support)).
 
@@ -136,7 +137,7 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `TRACE_REQUEST_PATHS` | No | `/api/diary,/api/sync/push` | Comma-separated body-trace path prefixes; `*` traces all and `none` traces no request bodies. |
 | `TRACE_BODY_MAX_BYTES` | No | `32768` | Maximum serialized bytes emitted for one traced request body. |
 | `INSECURE_COOKIES` | If on plain HTTP | unset | `1` drops the `Secure` cookie flag; needed only on plain-HTTP LAN. See [docs/getting-started/lan-http/](https://traceapps.github.io/docs/getting-started/lan-http/). |
-| `MAX_SESSION_HOURS` | No | `720` | Auth cookie lifetime. |
+| `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on the auth cookie lifetime. |
 | `RECOVERY_TOKEN` | No |  | Passphrase to disable user management from the login page (lockout recovery). |
 | `OFF_LOCAL_DB` | No |  | Path to an Open Food Facts Parquet snapshot (or legacy DuckDB file) for an air-gap mirror. |
 | `USDA_API_KEY` | No |  | Optional server-side USDA FoodData Central key (users can also enter their own in Settings). |
