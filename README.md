@@ -82,6 +82,8 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 
 Published to two registries with identical tag sets: `ghcr.io/traceapps/nutritrace` (primary) and `traceapps/nutritrace` on [Docker Hub](https://hub.docker.com/r/traceapps/nutritrace) (mirror). The snippet below uses GHCR; swap in `traceapps/nutritrace:latest` if that suits your setup.
 
+**Unraid:** NutriTrace is in Community Applications. Search for NutriTrace in the Apps tab; the template sets the port, the appdata folders and the settings. Fill in JWT Secret before the first start.
+
 Minimum viable `docker-compose.yml`:
 
 ```yaml
