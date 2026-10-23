@@ -54,6 +54,7 @@ return `403 Forbidden`. Available scopes:
 | Scope             | Grants                                                                           |
 |-------------------|----------------------------------------------------------------------------------|
 | `read:foods`      | List + read foods owned by the user. Used by CookTrace (in private development). |
+| `read:body-measurements` | Read the token owner's persisted weight and body-composition measurements. Used by LiftTrace federation. |
 | `write:workouts`  | Push completed workouts to the user's wellness data via `POST /api/v1/workouts`. Used by LiftTrace so its calorie estimates feed NutriTrace's dynamic-TDEE calculations. |
 | `write:body-measurements` | Push scale readings (weight, body composition) via `POST /api/v1/body-measurements`. Aimed at Home Assistant, Node-RED, Gadgetbridge and other headless integrations that pull data from BLE smart scales the phone can't see. |
 
@@ -252,10 +253,42 @@ curl -X POST https://nutritrace.example.com/api/v1/body-measurements \
   }'
 ```
 
-**Reading data back.** `GET /api/v1/body-measurements` is not yet
-implemented — this phase is write-only, matching the "push from
-integration → NT is the source of truth" pattern. Read endpoints
-will be added on demand.
+### `GET /api/v1/body-measurements`
+
+**Requires scope:** `read:body-measurements`.
+
+Read the authenticated user's persisted weight and body-composition
+observations. The optional query parameters are `start`, `end`, and
+`source`, all using the inclusive `YYYY-MM-DD` date semantics of the
+shared body-composition read core. When both date bounds are omitted,
+the range defaults to the last 90 days ending today; a one-sided bound
+leaves the other side open.
+
+The response preserves each observation's exact `source`. If `source`
+is omitted, observations from different sources on the same date remain
+separate; consumers must not assume one observation per date. Sources
+are never merged or averaged. Only persisted body-composition metrics
+are returned, and a missing metric remains absent rather than being
+synthesized or converted to `null`. An empty result has
+`measurements: []` and `count: 0`.
+
+```json
+{
+  "start": "2026-07-25",
+  "end": "2026-07-25",
+  "measurements": [
+    {
+      "date": "2026-07-25",
+      "source": "health_connect",
+      "metrics": {
+        "weight_kg": 68.4,
+        "body_fat_pct": 15.2
+      }
+    }
+  ],
+  "count": 1
+}
+```
 
 ---
 
