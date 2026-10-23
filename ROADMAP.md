@@ -648,7 +648,7 @@ Likely v1.1 or v1.2 feature. Doing this *before* v1.0 risks delaying launch and 
 
 ### API key scoping
 - **Phase 1 RELEASED**: federation API at `/api/v1/*`, `nt_pat_*` token format, SHA-256 hashed at rest. `SettingsApiTokens.svelte` for management, `server/lib/api-tokens.js` + `server/middleware/bearer-auth.js` for issuance + validation. See `docs/federation.md`.
-- **Registered scopes today:** `read:foods` (CT federation), `write:workouts` (LT federation), `write:body-measurements`, `mcp:read` / `mcp:write` / `mcp:destroy` (MCP server, v1.2.0-dev01). Each scope was added alongside the routes that consume it, matching the "add scopes when the endpoint lands" policy.
+- **Registered scopes today:** `read:foods` (CT federation), `write:workouts` (LT federation), `write:body-measurements`, `read:body-measurements` (LT federation), `mcp:read` / `mcp:write` / `mcp:destroy` (MCP server, v1.2.0-dev01). Each scope was added alongside the routes that consume it, matching the "add scopes when the endpoint lands" policy.
 - **Still deferred:** `read:meals`, `read:diary`, `admin:*`. Gated on the endpoints they'd unlock; add when a real consumer needs them.
 - Useful for third-party dashboards or Home Assistant integrations.
 

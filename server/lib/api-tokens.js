@@ -40,7 +40,7 @@ export const SCOPE_DESCRIPTIONS = {
 
 export const KNOWN_SCOPES = new Set([
   'read:foods',
-  // read:body-measurements unlocks GET /api/v1/body-measurements —
+  // read:body-measurements unlocks GET /api/v1/body-measurements, which is
   // used by LiftTrace to read persisted weight and body-composition
   // observations without depending on the optional Public API.
   'read:body-measurements',
