@@ -1,4 +1,8 @@
 import 'dotenv/config';
+import { rememberAdminOrigin } from './lib/public-url.js';
+import { corsOrigin } from './lib/cors.js';
+import { crossSiteGuard } from './lib/cross-site.js';
+import { framingHeaders, parseFrameAncestors } from './lib/frame-ancestors.js';
 // Forward-proxy support (#177). Self-installs an undici
 // EnvHttpProxyAgent as the global fetch dispatcher when
 // HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
@@ -39,9 +43,11 @@ import apiV1Routes      from './routes/api/v1/index.js';
 import mcpRoutes        from './routes/mcp.js';
 import nutritionImportRoutes from './routes/nutrition-import.js';
 import offLocalRoutes from './routes/off-local.js';
+import offContributeRoutes from './routes/off-contribute.js';
 import updatesRoutes  from './routes/updates.js';
+import coachingRoutes from './routes/coaching.js';
 import { logger }   from './logger.js';
-import { authenticate, userMgmtActive } from './middleware/auth.js';
+import { authenticate, userMgmtActive, setupRequired } from './middleware/auth.js';
 import { csrfProtect } from './middleware/csrf.js';
 import { makeRateLimiter } from './middleware/rate-limit.js';
 import {
@@ -56,6 +62,7 @@ import { seedAiFromEnv } from './ai.js';
 import { initUpdateCheckSetting } from './lib/update-check.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { APP_VERSION } from './routes/version-source.js';
+import { caloriesOutFor } from './lib/effective-goal.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -89,6 +96,13 @@ if (BASE_URL && !BASE_URL.startsWith('/')) {
 // relative to the mount point so existing path checks keep working.
 const router = express.Router();
 
+// Only NutriTrace itself, and the addresses in FRAME_ANCESTORS, may show it
+// in a frame (lib/frame-ancestors.js), so no other site can frame it to
+// trick a click. First, so every answer has it, a refused body included.
+const FRAMING = framingHeaders(process.env.FRAME_ANCESTORS);
+for (const w of parseFrameAncestors(process.env.FRAME_ANCESTORS).warnings) console.warn(`[nutritrace] FRAME_ANCESTORS: ${w}`);
+router.use((req, res, next) => { res.set(FRAMING); next(); });
+
 // Start API request diagnostics before consuming the body so rejected or
 // interrupted requests still have an ID, observed byte count, and outcome.
 router.use(requestLogging);
@@ -120,35 +134,40 @@ const EMBEDDED_PHOTO_LIMIT = '6mb';
 for (const path of ['/api/foods', '/api/meals', '/api/auth/profile']) {
   router.use(path, express.json({ limit: EMBEDDED_PHOTO_LIMIT }));
 }
+// A coaching message can carry one photo (scaled down by the app first).
+router.use('/api/coaching', express.json({ limit: '5mb' }));
 router.use(express.json({ limit: '1mb' }));
 router.use(cookieParser());
 
-// CORS — allow cross-origin requests from the Android app and same-origin.
-// Capacitor WebView origins we accept:
-//   https://localhost                — legacy default before the hostname flip
-//   http://localhost                 — legacy http scheme
-//   https://app.nutritrace.local     — current app identity (see
-//                                      capacitor.config.ts for why)
-// Same-host origins are always allowed (PWA served from this instance).
+// CORS: the Android app's WebView (https://app.nutritrace.local, see
+// capacitor.config.ts, and https://localhost from versions before it) and
+// PUBLIC_URL, each compared exactly (lib/cors.js). The web app calls its own
+// address and needs none. The answer depends on Origin, so caches are told.
 router.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    const host = req.headers.host;
-    const isCapacitor = origin === 'https://localhost'
-      || origin === 'http://localhost'
-      || origin === 'https://app.nutritrace.local';
-    const isSameHost = host && origin.includes(host);
-    if (isCapacitor || isSameHost) {
+  res.vary('Origin');
+  if (req.headers.origin) {
+    const origin = corsOrigin(req, { appOrigins: ['https://app.nutritrace.local', 'https://localhost'] });
+    if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token, X-Request-ID');
-      res.setHeader('Access-Control-Expose-Headers', 'X-Request-ID');
+      res.setHeader('Access-Control-Expose-Headers', 'X-Request-ID, X-NT-Coaching');
       if (req.method === 'OPTIONS') return res.sendStatus(204);
     }
   }
   next();
 });
+
+// A change (anything but GET, HEAD, OPTIONS) from a page on another site
+// is refused (lib/cross-site.js). The browser says where a request comes
+// from; the web app on its own address, the WebView origins above and
+// PUBLIC_URL pass, and so does anything that isn't a browser page (the
+// Android app's native code, the watch, MCP, scripts, other servers).
+// Without it, a page on any site could make the browser of someone using
+// a server with no accounts send a backup restore or an upload, and a
+// page on the same site could do it with the sign-in cookie.
+router.use(crossSiteGuard({ appOrigins: ['https://app.nutritrace.local', 'https://localhost'], warn: (m) => logger.warn(m) }));
 
 // Serve uploaded images BEFORE auth — images are public (needed for Android WebView
 // which can't send Authorization headers on <img src> requests)
@@ -178,6 +197,12 @@ router.use('/uploads', express.static(uploadsPath, {
 router.use('/api/proxy', proxyRoutes);
 
 router.use(authenticate);   // attach req.user on every request
+// Remember the address an admin uses, so emailed links (password reset,
+// invite, sharing) go there instead of to whatever Host a request claims.
+router.use((req, res, next) => {
+  if (req.user?.role === 'admin') rememberAdminOrigin(req);
+  next();
+});
 router.use(csrfProtect);   // CSRF protection for cookie-based sessions
 // Optional body summaries are captured only from parsed, access-checked requests.
 router.use(captureRequestTraceBody);
@@ -185,8 +210,23 @@ router.use(captureRequestTraceBody);
 // Prevent browser/proxy caching of all API responses
 router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
+// Older docs gave the OIDC callback as /api/oidc/callback. An IdP set up from
+// them sends people here; forward to the real callback (which finds the
+// provider from the sign-in state) instead of letting the SPA fallback show
+// a blank page. Before the setup gate so OIDC-first installs work too.
+router.get('/api/oidc/callback', (req, res) => {
+  const q = req.originalUrl.indexOf('?');
+  res.redirect(307, `${BASE_URL}/api/auth/oidc/callback${q >= 0 ? req.originalUrl.slice(q) : ''}`);
+});
+
+// Health answers before setup too: the server is up and only needs its first
+// account, which the Android app's connect screen says instead of "not
+// reachable". A server that is set up still answers exactly { ok: true }.
+router.get('/api/health', (req, res) => res.json(setupRequired() ? { ok: true, setup_required: true } : { ok: true }));
+
 // Setup enforcement — block data APIs until the first user account is created.
-// Only /api/auth/* is allowed so the client can check status + register the admin.
+// /api/auth/* is allowed so the client can check status + register the admin
+// (and /api/health, above, answers before this gate).
 // In intentional single-user mode (admin explicitly disabled user management
 // via DELETE /api/auth/management or POST /api/auth/recover), there are no
 // users by design and data APIs should be open. The single_user_mode flag in
@@ -195,9 +235,7 @@ router.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); n
 // still returning 503 on every data call.
 router.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth')) return next(); // allow auth routes (status, register, login)
-  if (userMgmtActive()) return next();             // users exist — normal operation
-  const singleUser = db.prepare(`SELECT value FROM app_config WHERE key = 'single_user_mode'`).get()?.value === '1';
-  if (singleUser) return next();                   // intentional single-user mode — let data APIs through
+  if (!setupRequired()) return next();              // set up, or single-user mode by choice
   res.status(503).json({ error: 'Setup required', setup_required: true });
 });
 
@@ -244,7 +282,9 @@ router.use('/api/cooktrace',  cooktraceRoutes);
 router.use('/api/settings',  settingsRoutes);
 router.use('/api/app-config',  appConfigRoutes);
 router.use('/api/off-local',   offLocalRoutes);
+router.use('/api/off',         offContributeRoutes);
 router.use('/api/updates',     updatesRoutes);
+router.use('/api/coaching',    coachingRoutes);
 router.use('/api/ai',          aiRoutes);
 router.use('/api/full-backup',        fullBackupRoutes);
 // Per-IP rate limit on OAuth callbacks — these run unauthenticated and trigger
@@ -293,31 +333,8 @@ router.get('/api/wellness/latest', (req, res) => {
 router.get('/api/wellness/calories-out', (req, res) => {
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-  const { date } = req.query;
-  // date param = the diary date; we want the day before
-  const base = date ? new Date(date + 'T12:00:00Z') : new Date();
-  base.setUTCDate(base.getUTCDate() - 1);
-  const yesterday = base.toISOString().slice(0, 10);
-  // Wearables provide true daily TDEE (BMR + activity). LiftTrace is a
-  // per-workout slice that only covers the workout's incremental burn,
-  // so it's the LOWEST priority — it fills in when no wearable has data
-  // for the date. The lifttraceOverlapFill setting (default ON) lets
-  // users flip that: when OFF, LT wins over wearables (use this if your
-  // wearable misses lifting sessions and you trust LT's estimate more).
-  const overlapFill = _readBoolSetting(userId, 'lifttraceOverlapFill', true);
-  const PRIORITY = overlapFill
-    ? ['garmin', 'health_connect', 'fitbit', 'lifttrace']
-    : ['lifttrace', 'garmin', 'health_connect', 'fitbit'];
-  const rows = db.prepare(
-    `SELECT source, value FROM wellness_data
-     WHERE user_id=? AND date=? AND metric_type='calories_out'`
-  ).all(userId, yesterday);
-  let result = null;
-  for (const src of PRIORITY) {
-    const row = rows.find(r => r.source === src);
-    if (row) { result = { calories_out: row.value, source: src, date: yesterday }; break; }
-  }
-  res.json(result || { calories_out: null, source: null, date: yesterday });
+  // date param = the diary date; the day before is read (lib/effective-goal.js).
+  res.json(caloriesOutFor(userId, req.query.date));
 });
 
 function _readBoolSetting(userId, key, defaultValue) {
@@ -342,8 +359,6 @@ router.get('/api/goals/adaptive-tdee', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-
-router.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Serve Svelte frontend (production build) — anything except index.html.
 // Content-hashed assets (in /assets/) are safe to cache forever — new deploy =
@@ -446,9 +461,9 @@ app.listen(PORT, async () => {
     logger.warn(`[scheduler] failed to start: ${e.message}`);
   });
 
-  // #199 one-shot: localize any data-URL img_urls in foods/meals to
+  // Repair legacy data-URL img_urls in foods/meals on every startup to
   // /uploads/ files so the diary hydrator stops amplifying them.
-  // Guarded by app_config flag; idempotent; fire-and-forget so it
+  // Scans inline images only; idempotent; fire-and-forget so it
   // doesn't delay accepting traffic.
   import('./lib/img-url-migration.js').then(({ migrateDataUrlImages }) => migrateDataUrlImages()).catch(e => {
     logger.warn(`[img-url-migration] failed to start: ${e.message}`);

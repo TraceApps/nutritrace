@@ -23,20 +23,19 @@ is a discoverability mirror. Both are first-class; pick whichever fits.
 - **`ghcr.io/traceapps/nutritrace`** (primary)
 - **`traceapps/nutritrace`** on [Docker Hub](https://hub.docker.com/r/traceapps/nutritrace) (mirror)
 
-Pin to whatever risk level fits (examples below use GHCR; swap the prefix
-for Docker Hub if preferred):
+Two tags are published (examples below use GHCR; swap the prefix for
+Docker Hub if preferred):
 
 | Tag | Updates when | Use case |
 |-----|--------------|----------|
-| `ghcr.io/traceapps/nutritrace:1.0.0` | Never (pinned exact) | Reproducible pin to a specific version |
-| `ghcr.io/traceapps/nutritrace:1.0` | Any 1.0.x patch release | Auto-receive bug fixes, no new features |
-| `ghcr.io/traceapps/nutritrace:1` | Any 1.x.y minor release | Auto-minor within a major, no breaking |
-| `ghcr.io/traceapps/nutritrace:latest` | Every stable release | Absolute latest stable |
+| `ghcr.io/traceapps/nutritrace:latest` | Every stable release | Running the app |
 | `ghcr.io/traceapps/nutritrace:dev` | Every push to `dev` branch | Leading edge, not for production |
 
-Legacy `1.0.0-rc.N` tags from before the semver switch remain published
-indefinitely on GHCR; anyone pinned to a specific rc release is unaffected.
-Docker Hub mirroring started post-1.0, so it only carries stable-era tags.
+There are no version-number tags (`:1`, `:1.4`, `:1.4.0`); the ones published
+for the first releases stopped updating and were retired. To hold a server on
+one exact build, pin it by digest
+(`ghcr.io/traceapps/nutritrace@sha256:...`; `docker inspect --format
+'{{index .RepoDigests 0}}' ghcr.io/traceapps/nutritrace:latest` prints the one you run).
 
 ---
 
@@ -50,9 +49,9 @@ Every dev-worthy build refreshes the [`dev-latest`](https://github.com/traceapps
 
 ### Milestone `v<version>-devNN` (occasional, pinnable)
 
-When a specific feature or fix is worth its own tester milestone (a new wearable integration, an Adaptive TDEE change, a big backup rework), a numbered pre-release gets cut: `v1.0.4-dev01`, `v1.1.0-dev01`, etc. These get their own permanent GH release, their own tester-facing notes, and their own Docker tag (`ghcr.io/traceapps/nutritrace:1.0.4-dev01`) alongside `:dev`. `dev-latest` is refreshed to point at the same commit.
+When a specific feature or fix is worth its own tester milestone (a new wearable integration, an Adaptive TDEE change, a big backup rework), a numbered pre-release gets cut: `v1.0.4-dev01`, `v1.1.0-dev01`, etc. These get their own permanent GH release, their own tester-facing notes, but no Docker tag of their own: the server side of a milestone is the `:dev` image. `dev-latest` is refreshed to point at the same commit.
 
-Iteration numbers are zero-padded two digits for 1 through 9 (`dev01`, `dev02`, …, `dev09`) and natural two digits from 10 onward (`dev10`, `dev11`, …). No dot between `dev` and the number. That keeps the identifier inside SemVer 2.0.0 §9 and gives correct lex ordering everywhere (GitHub Tags, `gh release list`, Docker Hub). Historical tags `v1.1.0-dev.1` through `v1.1.0-dev.15` used the older dotted format; they sort correctly ahead of new no-dot tags so no retroactive rename was needed.
+Iteration numbers are zero-padded two digits for 1 through 9 (`dev01`, `dev02`, …, `dev09`) and natural two digits from 10 onward (`dev10`, `dev11`, …). No dot between `dev` and the number. That keeps the identifier inside SemVer 2.0.0 §9 and gives correct lex ordering everywhere (GitHub Tags, `gh release list`). Historical tags `v1.1.0-dev.1` through `v1.1.0-dev.15` used the older dotted format; they sort correctly ahead of new no-dot tags so no retroactive rename was needed.
 
 Use numbered dev builds when reporting bugs ("I saw this on `v1.1.0-dev02`") or if you want to install a specific milestone and stay on it. Everyone else, `dev-latest` covers you.
 
@@ -131,7 +130,8 @@ services:
 | `TRACE_BODY_MAX_BYTES` | No | `32768` | Maximum serialized bytes emitted for one traced request body. |
 | `RECOVERY_TOKEN` | No | — | Lockout-recovery token. Required to use the "Disable user management" recovery option on the login page. Without this, the recovery endpoint is disabled for safety. |
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on JWT + cookie lifetime. The per-user setting in app_config can be lower than this but cannot exceed it. |
-| `INSECURE_COOKIES` | No | `0` | Set `1` only for non-HTTPS deployments. Default uses `secure: true` cookies (HTTPS-only). |
+| `PUBLIC_URL` | No | unset | The full address people open the app at, subpath included (e.g. `https://nutrition.example.com` or `https://example.com/nt`). Links in password reset, invite and sharing emails use it. Unset, they use an address an admin has opened the app at; until an admin has opened it once, only an admin's own request sends an email. Never taken from request headers. The server also takes it as the app's own address when it refuses changes sent from other sites' pages: set it if your reverse proxy passes neither the public `Host` nor `X-Forwarded-Host`; otherwise changes from a browser are refused (403, `cross_site`) over plain http, and over https from older browsers without `Sec-Fetch-Site` (such as Safari before 16.4). |
+| `INSECURE_COOKIES` | No | `0` | Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `BACKUPS_PATH` | No | Inside uploads dir | Where full ZIP backups are stored |
 | `SMTP_HOST` | No | — | SMTP server hostname |
 | `SMTP_PORT` | No | `587` | SMTP port |
@@ -141,18 +141,19 @@ services:
 | `SMTP_FROM` | No | — | From address, e.g. `"NutriTrace" <noreply@example.com>` |
 | `AI_PROVIDER` | No | — | `claude` \| `openai` \| `gemini` \| `oai-compat`. If set, AI calls are proxied server-side and the provider/model/key fields are locked in Settings for all users. |
 | `AI_API_KEY` | No | — | API key for the chosen provider. Server-only, never reaches the browser. Optional when `AI_PROVIDER=oai-compat`. |
-| `AI_MODEL` | No | provider default | Optional model override (e.g. `claude-haiku-4-5-20251001`, `llama3.1:8b`). Required when `AI_PROVIDER=oai-compat`. |
-| `AI_BASE_URL` | No | — | Required when `AI_PROVIDER=oai-compat`. Base URL of your OpenAI-compatible endpoint, e.g. `http://ollama:11434`. Reached from the server container, not the browser — Docker Compose sidecars on internal networks work. |
+| `AI_MODEL` | No | provider default | Optional model override (e.g. `claude-haiku-5-5`, `llama3.1:8b`). Required when `AI_PROVIDER=oai-compat`. |
+| `AI_BASE_URL` | No | — | Required when `AI_PROVIDER=oai-compat`. Base URL of your OpenAI-compatible endpoint, e.g. `http://ollama:11434`, with or without `/v1` on the end, or the whole `/v1/chat/completions` address. Reached from the server container, not the browser, so Docker Compose sidecars on internal networks work. |
 | `AI_ENABLED` | No | — | If `true`, auto-enables the AI Assistant for all users. |
 | `MCP_ENABLED` | No | `0` | Set to `1` to expose the Model Context Protocol endpoint at `/api/mcp`. Off by default. See [the MCP setup guide](https://traceapps.github.io/docs/nutritrace/mcp/) for Claude Desktop / Cursor / Codex config. |
 | `MCP_WRITE_ENABLED` | No | `0` | Set to `1` to allow MCP write tools (`log_food`, `log_water`, `log_meal`, `log_body_stat`) to be registered. Also requires the calling token to hold `mcp:write`. |
 | `MCP_DESTROY_ENABLED` | No | `0` | Set to `1` to allow MCP destructive tools (`delete_diary_entry`, `edit_diary_entry`, `create_food`). Also requires the token to hold `mcp:destroy` AND every call to include `confirm: true`. |
 | `ALLOWED_ORIGINS` | No | — | Comma-separated list of Origins that browser-based MCP clients may use. Server-to-server clients (no Origin header) always pass. Leave empty unless you're specifically using the MCP Inspector in a browser. `*` is refused (DNS-rebinding defense). |
-
-| `PUBLIC_API_ENABLED` | No | `0` | Set to `1` to expose the general-purpose REST routes at `/api/v1/diary`, `/api/v1/goals`, and `/api/v1/meals` for your own scripts and automations. Off by default. Reuses the same `mcp:read`/`mcp:write` token scopes as MCP. Does not affect the sister-app federation routes (`/api/v1/foods`, `/api/v1/workouts`, etc.), which are always on. |
+| `PUBLIC_API_ENABLED` | No | `0` | Set to `1` to expose the general-purpose REST routes for your own scripts and automations: `/api/v1/diary`, `/api/v1/goals`, `/api/v1/meals`, `/api/v1/steps`, `/api/v1/body-composition` and `/api/v1/profile`. Off by default. Reuses the same `mcp:read`/`mcp:write` token scopes as MCP. Does not affect the sister-app federation routes (`/api/v1/me`, `/api/v1/foods`, `/api/v1/workouts`, `/api/v1/activity`, `/api/v1/body-measurements`), which are always on. |
 | `PUBLIC_API_WRITE_ENABLED` | No | `0` | Set to `1` to allow the public API's write routes (logging food, water, a meal, or a body stat). Also requires the calling token to hold `mcp:write`. |
 | `WEBHOOKS_ENABLED` | No | `0` | Set to `1` to let configured outgoing webhooks actually fire. A webhook can be created in Settings before this is set; it just will not deliver until it is. |
+| `ALLOW_PRIVATE_IMAGE_URLS` | No | `0` | Set to `1` to let every account download a food, meal or profile photo given as a link from an address on your own network (private or loopback). Without it only an admin can; on a single-user install with no sign-in, only this variable allows it. Your saved CookTrace or Mealie address always works. Link-local and cloud-metadata addresses stay blocked either way. |
 | `ALLOW_PRIVATE_WEBHOOK_URLS` | No | `0` | Set to `1` to allow a webhook target on a private or loopback address (a same-Docker-network Home Assistant instance, for example). Off by default; public-internet-facing installs should leave this off. |
+| `FRAME_ANCESTORS` | No |  | Addresses allowed to show NutriTrace inside a frame, such as a dashboard (`https://home.example.com`; several separated by spaces or commas). By default only NutriTrace itself may. If you show NutriTrace inside a dashboard (Homarr, Organizr, Home Assistant), it shows blank after this update until you set `FRAME_ANCESTORS` to the dashboard's address, for example `FRAME_ANCESTORS=https://home.example.com`. Origins only; a path is ignored. A proxy that already sets its own frame-ancestors for the dashboard needs `FRAME_ANCESTORS` too. |
 
 > **Note:** SMTP and AI settings can also be configured in **Settings → Email** / **Settings → AI Assistant** (admin only). Environment variables take priority over the UI and lock the corresponding fields when set.
 
@@ -163,6 +164,9 @@ services:
 1. **Open the app** — you'll be prompted with a setup wizard on first visit.
 2. **Create your account** — the first account created is automatically admin.
 3. **Single-user mode** — if you never create a second user account, the app runs without authentication (no login required). Add users in Settings → User Management to enable multi-user mode.
+4. **Coaching (optional).** In multi-user mode, an admin can give an account the Coach role in Settings → Users. Coaching uses the server you already run: no extra setup, environment variable or port. Notifications go through each person's ntfy, Gotify or Apprise (Settings → Notifications); the optional email copy uses your SMTP settings. Message photos are kept under `UPLOADS_PATH/coaching` and never served publicly, so keep backing up `UPLOADS_PATH` as usual.
+
+Opening the app from another device at a plain `http://` address (a LAN IP, an Unraid WebUI link)? Signing in only sticks over HTTPS, or with `INSECURE_COOKIES=1` on a trusted LAN; the sign-in and setup screens say so. `http://localhost` on the server itself works in Chrome and Firefox either way. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/).
 
 ---
 
@@ -278,6 +282,10 @@ If you use Cloudflare Tunnel for external access, no special NutriTrace configur
 
 ---
 
+## Behind a Sign-In Proxy
+
+Behind a sign-in proxy (an Authentik or Authelia outpost, VoidAuth, Cloudflare Access), let `/api/*` through to NutriTrace without it. The Android and Wear apps can't sign in to the proxy; NutriTrace signs people in itself, with SSO when OIDC is set up (its callback is under `/api/auth/oidc/`). If the proxy answers the app instead, the app says that something other than NutriTrace answered with a web page. Examples: [The Android app behind a sign-in proxy](https://traceapps.github.io/docs/getting-started/reverse-proxy/#android-behind-a-login).
+
 ## Reverse Proxy with Subpath
 
 To run NutriTrace behind a reverse proxy at a subpath (e.g. `https://example.com/nutritrace/`), set the `BASE_URL` environment variable to the path prefix:
@@ -338,46 +346,48 @@ If you connect the Android app to a server running at a subpath, enter the full 
 
 ## Connecting from Android
 
-The Android app ships with a strict network security policy on **release-signed APKs** (the ones distributed via Play Store / GitHub Releases): only HTTPS traffic is allowed to a user's NutriTrace server, to protect auth tokens on open WiFi. Debug-signed APKs (built locally) are unrestricted and can use plain HTTP.
+The Android app connects to your NutriTrace server over HTTPS, or over plain HTTP to a server on your own network. Local mode (no server) needs neither.
 
-This only affects **server mode** — local-only Android users never hit this.
+### Plain HTTP on your own network
 
-Four supported paths for server-mode Android users:
+Enter the `http://` address, such as `http://192.168.1.20:3001`. The app first asks **Connect Without Encryption?**: the connection isn't encrypted, and anyone on the same network can read and change what's sent, including your password. Use it only on your home network or over a VPN. Choose **Connect Anyway** and the app remembers the answer for that server. Settings > Server Connection then shows **Not Encrypted** under the address.
 
-### Path 1 — Real domain + Let's Encrypt (recommended)
+Plain HTTP works only with a server at one of these addresses:
 
-Point a real domain at your server (`nutritrace.yourdomain.com`) and terminate TLS with a publicly-trusted cert via Caddy, Traefik, nginx + certbot, etc. The DNS-01 challenge works fine even when your server is on an internal IP — no port forwarding needed. Enter `https://nutritrace.yourdomain.com` in the app and you're done.
+- a private IPv4 address: `10.x.x.x`, `172.16.x.x` to `172.31.x.x`, `192.168.x.x`;
+- a Tailscale address (`100.64.x.x` to `100.127.x.x`), loopback `127.x.x.x` or link-local `169.254.x.x`;
+- an IPv6 unique local (`fc00::/7`), link-local (`fe80::/10`) or `::1` address;
+- a one-word name, such as `http://nutritrace:3001`;
+- a name ending in `.local`, `.home.arpa`, `.internal` or `.lan`.
 
-### Path 2 — Cloudflare Tunnel / Tailscale Funnel / Tailscale mesh
+Any other `http://` address (a public domain or IP) is refused before the app sends anything, and the app points to the HTTPS options below. Over a VPN such as Tailscale or WireGuard, the tunnel already encrypts the traffic.
 
-These hand out publicly-trusted certs automatically, no domain or cert management on your end. Enter the tunnel URL (`https://nutritrace.yourtunnel.example.com`) in the app. See the Cloudflare Tunnel section above for the free-tier upload caveat.
+`INSECURE_COOKIES` makes no difference to the app: it signs in with a token, not the cookie. Set it only if browsers also open NutriTrace over plain HTTP.
 
-### Path 3 — Self-signed cert + install your CA on Android
+Coming from a build that allowed plain HTTP without asking (a debug build you built yourself)? On first start the app asks the same question before it contacts the server. Until you choose Connect Anyway it works with what's on the phone, nothing syncs, and it asks again on the next start. A saved `http://` server that isn't on your own network is refused the same way; to switch it to an HTTPS address, use Disconnect & Use Locally in Settings > Server Connection and connect again.
 
-If you generate your own root CA and use it to sign certs for `nutritrace.home.arpa` (or whatever internal domain you use), the strict APK won't trust it out of the box — but you can install your CA on the device once and the app will accept any cert your CA signed.
+### HTTPS
+
+HTTPS works with no prompt. Three ways to get it:
+
+#### Real domain + Let's Encrypt (recommended)
+
+Point a real domain at your server (`nutritrace.yourdomain.com`) and terminate TLS with a publicly-trusted cert via Caddy, Traefik, nginx + certbot, etc. The DNS-01 challenge works even when your server is on an internal IP, with no port forwarding needed. Enter `https://nutritrace.yourdomain.com` in the app and you're done.
+
+#### Cloudflare Tunnel / Tailscale Funnel / Tailscale mesh
+
+These hand out publicly-trusted certs automatically, with no domain or cert management on your end. Enter the tunnel URL (`https://nutritrace.yourtunnel.example.com`) in the app. See the Cloudflare Tunnel section above for the free-tier upload caveat.
+
+#### Self-signed cert + install your CA on Android
+
+If you generate your own root CA and use it to sign certs for `nutritrace.home.arpa` (or whatever internal domain you use), install your CA on the device once and the app accepts any cert your CA signed.
 
 1. Export your CA's certificate as a `.crt` or `.pem` file
-2. On your phone: Settings → Security & Privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate
-3. Browse to the file and install. Android will warn that anyone with this CA can monitor your traffic — that's expected, you're explicitly trusting your own CA
+2. On your phone: Settings > Security & Privacy > More security settings > Encryption & credentials > Install a certificate > CA certificate
+3. Browse to the file and install. Android warns that anyone with this CA can monitor your traffic; that's expected, you're explicitly trusting your own CA
 4. Open NutriTrace and connect to `https://nutritrace.home.arpa`
 
 This survives app updates. You only need to repeat it if you regenerate the CA or factory-reset the device.
-
-### Path 4 — Plain HTTP (build the APK yourself)
-
-If you really don't want HTTPS at all (LAN-only, fully isolated network, willing to accept the risk), the source includes a permissive debug build profile. Clone the repo and run:
-
-```bash
-npm run build && cd android && ./gradlew assembleDebug
-```
-
-The APK at `android/app/build/outputs/apk/debug/app-debug.apk` allows cleartext (`http://`) connections. Sideload it instead of the release APK.
-
-This is also the fallback if you hit any cert issues with paths 1–3 — the debug build connects to anything.
-
-### What you'll see in the app
-
-If a release-built app tries to connect to an `http://` URL, the connection fails and the in-app error explicitly mentions the HTTPS requirement and points back to this section.
 
 ---
 

@@ -8,7 +8,7 @@
 
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
-import { getServerUrl, getAuthToken } from './platform.js';
+import { getServerUrl, getAuthToken, setImageMap } from './platform.js';
 
 const CACHE_DIR = 'image_cache';
 // Bump when the cache key derivation changes so existing users invalidate
@@ -64,9 +64,10 @@ async function _downloadImage(serverUrl) {
   }
 
   try {
-    // Use CapacitorHttp to bypass CORS (fetch() is blocked by WebView CORS policy)
-    const { CapacitorHttp } = await import('@capacitor/core');
-    const response = await CapacitorHttp.get({
+    // Use CapacitorHttp to bypass CORS (fetch() is blocked by WebView CORS policy),
+    // through lib/native-http.js: plain http:// only to a confirmed local server.
+    const { NativeHttp } = await import('./native-http.js');
+    const response = await NativeHttp.get({
       url: serverUrl,
       responseType: 'blob',
     });
@@ -229,6 +230,9 @@ export async function cacheAllImages(onProgress) {
 
   // Save updated map
   await _saveImageMap(imageMap);
+  // Keep the synchronous resolver and reverse lookup current immediately;
+  // otherwise newly cached images are only visible after the next app boot.
+  setImageMap(imageMap);
 
   console.log(`[image-cache] Done: ${downloaded} downloaded, ${failed} failed, ${Object.keys(imageMap).length} total cached`);
   return { total, downloaded, failed };

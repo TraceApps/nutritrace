@@ -38,10 +38,79 @@ const TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 function _now() { return Date.now(); }
 
 /** Build a namespaced draft key. `kind` = 'food' | 'meal'. `id` = the
- *  edited row's id, or null / undefined for a new (create) draft. */
-export function draftKey(kind, id) {
-  if (id != null) return `nt:${kind}:draft:edit:${id}`;
-  return `nt:${kind}:draft:new`;
+ *  edited row's id, or null / undefined for a new (create) draft.
+ *  `prefill` = what the editor opened with: a pick from CookTrace, Mealie,
+ *  Open Food Facts or USDA has no id yet, so it gets a key of its own from
+ *  what identifies it. Without that every pick shared one key, and
+ *  opening one showed the last one's draft (#260). */
+export function draftKey(kind, id, prefill = null) {
+  const p = `nt:${draftScope()}${kind}:draft:`;
+  if (id != null && id !== '' && id !== 'undefined') return `${p}edit:${id}`;
+  const pick = pickIdentity(prefill);
+  if (pick) return `${p}pick:${pick}`;
+  return `${p}new`;
+}
+
+/** Whose drafts: the account signed in (its user id, and the server's
+ *  address in the Android app), as `u<id>@<server>:`, so another account
+ *  on the same device never opens them and the same one gets them back
+ *  after signing out and in. Empty with no account (single-user mode). */
+export function draftScope() {
+  try {
+    const uid = localStorage.getItem('wl:userId');
+    if (!uid) return '';
+    const srv = String(localStorage.getItem('nt:serverUrl') || '').trim().replace(/\/+$/, '').toLowerCase();
+    // No ':' inside a scope (a port), so keys stay easy to tell apart.
+    return `u${uid}${srv ? `@${srv.replace(/^https?:\/\//, '').replace(/:/g, '_')}` : ''}:`;
+  } catch {
+    return '';
+  }
+}
+
+// Draft keys of any account (and the unscoped ones from before).
+const _DRAFT_KEY = /^nt:(u[^:]*:)?(food|meal):draft:/;
+const _UNSCOPED = /^nt:(food|meal):draft:/;
+
+/** Drafts made before they were kept per account belong to whoever was
+ *  signed in then: the account still signed in when the app starts after
+ *  the update. They move to its scope; with nobody signed in they go.
+ *  Runs once. */
+export function migrateUnscopedDrafts() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    if (localStorage.getItem('nt:drafts:scoped') === '1') return;
+    const scope = draftScope();
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && _UNSCOPED.test(k)) keys.push(k);
+    }
+    for (const k of keys) {
+      if (!scope) { clearDraft(k); continue; }
+      const to = k.replace(/^nt:/, `nt:${scope}`);
+      try { localStorage.setItem(to, localStorage.getItem(k)); } catch { /* full: drop it */ }
+      localStorage.removeItem(k);
+      _idbGet(_idbImgKey(k)).then(img => (img ? _idbPut(_idbImgKey(to), img) : null)).then(() => _idbDelete(_idbImgKey(k)));
+    }
+    localStorage.setItem('nt:drafts:scoped', '1');
+  } catch { /* storage unavailable */ }
+}
+
+/** What identifies a prefilled item that has no id yet, or null. A scan
+ *  of an unknown barcode (a prefill with nothing but the barcode) stays on
+ *  the blank-item draft, so after the app is killed mid-entry (#157: the
+ *  label photo) "Add food" still brings the typing back. */
+export function pickIdentity(p) {
+  if (!p || typeof p !== 'object') return null;
+  if (p.source_app && p.source_external_id) return `${p.source_app}:${p.source_external_id}`;
+  if (p._mealieSlug) return `mealie:${p._mealieSlug}`;
+  if (!String(p.name || '').trim()) return null;
+  if (p.barcode) return `barcode:${p.barcode}`;
+  // Any other prefill with a name: its name and brand, so a different
+  // item never picks up this one's draft.
+  const name = String(p.name || '').trim().toLowerCase();
+  if (name) return `name:${name}|${String(p.brand || '').trim().toLowerCase()}`;
+  return null;
 }
 
 // ── IndexedDB (photo) helpers ─────────────────────────────────────────
@@ -215,4 +284,21 @@ export function makeDebouncedPersist(key, delayMs = 400) {
     if (timer) { clearTimeout(timer); timer = null; }
   };
   return persist;
+}
+
+/** Remove expired drafts (text and photo). Every item opened keeps its
+ *  own draft, so they're swept here rather than left to pile up. Also
+ *  drops the key every CookTrace recipe used to share (#260). */
+export function sweepDrafts() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    clearDraft('nt:meal:draft:edit:undefined');
+    migrateUnscopedDrafts();
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && _DRAFT_KEY.test(k)) keys.push(k);
+    }
+    for (const k of keys) loadDraft(k);
+  } catch { /* storage unavailable: nothing to sweep */ }
 }

@@ -9,7 +9,9 @@ router.use(requireAuth);
 
 const uid = req => userMgmtActive() ? req.user.id : null;
 
-// Clear all app data (scoped to current user)
+// Clear all app data (scoped to current user). Rows phones mirror go by
+// deleted_at, or for wellness and workouts through sync_deletions (db.js),
+// so a phone's next sync drops them too.
 router.delete('/', wrap((req, res) => {
   const u = uid(req);
   if (u == null) {
@@ -17,6 +19,7 @@ router.delete('/', wrap((req, res) => {
     db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
+    db.prepare(`UPDATE fasts SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE deleted_at IS NULL`).run();
     db.prepare(`DELETE FROM wellness_data`).run();
     db.prepare(`DELETE FROM workouts`).run();
     db.prepare(`DELETE FROM ai_chat_history`).run();
@@ -25,6 +28,7 @@ router.delete('/', wrap((req, res) => {
     db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
+    db.prepare(`UPDATE fasts SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND deleted_at IS NULL`).run(u);
     db.prepare(`DELETE FROM wellness_data WHERE user_id = ?`).run(u);
     db.prepare(`DELETE FROM workouts WHERE user_id = ?`).run(u);
     db.prepare(`DELETE FROM ai_chat_history WHERE user_id = ?`).run(u);

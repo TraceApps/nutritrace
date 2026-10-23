@@ -4,6 +4,7 @@
   import { wellnessEnabled, fitbitEnabled, withingsEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled } from '../../stores/settings.js';
   import WellnessIcon from '../icons/WellnessIcon.svelte';
   import { updateAvailable } from '../../lib/updates.js';
+  import { coachingBadge } from '../../stores/coaching.js';
   import { pwaUpdateReady } from '../../lib/pwa-update.js';
 
   $: BASE_TABS = [
@@ -55,6 +56,9 @@
       {:else}
         <span class="material-symbols-rounded nav-icon">
           {tab.icon}
+          {#if tab.path === '/goals' && $coachingBadge}
+            <span class="nav-update-dot" aria-label={$_('coaching.badge')}></span>
+          {/if}
           {#if tab.path === '/settings' && ($updateAvailable.available || $pwaUpdateReady)}
             <span class="nav-update-dot" aria-label="Update available"></span>
           {/if}

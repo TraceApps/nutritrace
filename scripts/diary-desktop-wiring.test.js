@@ -135,3 +135,53 @@ test('DaySummaryWidget mirrors the Nutrition Summary sheet conventions', () => {
   // MacroRing (not a hand-rolled ring) reused for the visualization
   assert.match(daySummarySrc, /import\s+MacroRing/);
 });
+
+// ── The sticky top is one block (no see-through gaps) ─────────────────────
+test('the date bar and the week strip pin as one block, and a band fills behind the status bar', () => {
+  // One sticky wrapper holds both bars, pinned at the header's measured height.
+  const nav = diarySrc.indexOf('class="diary-sticky-nav"');
+  assert.ok(nav > 0, 'sticky wrapper present');
+  const date = diarySrc.indexOf('class="diary-date-bar"'), strip = diarySrc.indexOf('class="diary-week-strip-wrap"');
+  const status = diarySrc.indexOf('class="diary-day-status"');
+  assert.ok(nav < date && date < strip && strip < status, 'date bar and strip inside the wrapper, before the status bar');
+  assert.match(diarySrc, /\.diary-sticky-nav \{\s*position: sticky;\s*top: var\(--dsn-top,/);
+  // Neither bar sticks on its own: separate offsets left gaps between them.
+  const css = diarySrc.slice(diarySrc.indexOf('<style'));
+  const rule = sel => (css.match(new RegExp(`${sel} \\{[^}]*\\}`, 'g')) || []).join('\n');
+  assert.doesNotMatch(rule('\\.diary-date-bar'), /position:\s*sticky/);
+  assert.doesNotMatch(rule('\\.diary-week-strip-wrap'), /position:\s*sticky/);
+  // The band behind the fixed status bar, full width, placed by measurement.
+  assert.match(diarySrc, /class="diary-day-status-band"/);
+  assert.match(css, /body > \.diary-day-status-band\) \{\s*position: fixed;\s*left: var\(--sidebar-w, 0px\);\s*right: 0;/);
+  assert.match(diarySrc, /_dayStatusBand = \{ top: stackBottom, height: bandHeight \}/);
+  // It takes taps, as the bar does, so none reach a meal row hidden behind it.
+  const band = css.slice(css.indexOf('body > .diary-day-status-band) {'), css.indexOf('body > .diary-day-status) {'));
+  assert.doesNotMatch(band, /pointer-events:\s*none/);
+});
+
+// ── The week strip preview sits above the status bar ──────────────────────
+test("the week strip's day preview is portaled above the status bar and opens its day on click", () => {
+  assert.match(weekStripSrc, /import \{ portal \} from '\.\.\/\.\.\/lib\/portal\.js'/);
+  assert.match(weekStripSrc, /<button type="button" tabindex="-1" use:portal class="ws-popover"/);
+  const rule = weekStripSrc.slice(weekStripSrc.indexOf(':global(body > .ws-popover) {'));
+  const body = rule.slice(0, rule.indexOf('}'));
+  assert.match(body, /position: fixed;/);
+  const z = Number((body.match(/z-index: (\d+)/) || [])[1]);
+  assert.ok(z > 40, 'above the status bar (40) and its band (39)');
+  assert.doesNotMatch(body, /pointer-events:\s*none/, 'it takes the pointer, so a click never lands on the bar underneath');
+  assert.match(weekStripSrc, /on:click=\{\(\) => \{ const iso = day\.iso; _hidePopNow\(\); onSelectDate\(iso\); \}\}/);
+});
+
+// ── The status bar never cuts its text off ────────────────────────────────
+test('the day status bar wraps instead of cutting its text off, and leaves the day name to the date bar on phones', () => {
+  const css = diarySrc.slice(diarySrc.indexOf('<style'));
+  const block = sel => { const i = css.indexOf(sel + ' {'); return css.slice(i, css.indexOf('}', i)); };
+  assert.match(block(':global(body > .diary-day-status)'), /flex-wrap: wrap;/);
+  const text = block(':global(.diary-day-status .dds-text)');
+  assert.doesNotMatch(text, /white-space:\s*nowrap|text-overflow:\s*ellipsis|overflow:\s*hidden/);
+  assert.match(text, /flex-wrap: wrap;/);
+  assert.match(block(':global(.diary-day-status .dds-lead)'), /flex: 999 1 auto;/);
+  assert.match(block(':global(.diary-day-status .dds-cta)'), /flex: 1 0 auto;/);
+  assert.match(diarySrc, /<span class="dds-headline dds-day">\{_dayLabelShort\}<\/span>/);
+  assert.match(css, /@media \(max-width: 480px\) \{[\s\S]*?:global\(\.diary-day-status:not\(\.complete\) \.dds-day\),\s*:global\(\.diary-day-status:not\(\.complete\) \.dds-dot\) \{\s*display: none;/);
+});

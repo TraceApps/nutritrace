@@ -18,6 +18,8 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { localDateStr } from '../../lib/db.js';
+  import { weekStartDay } from '../../stores/settings.js';
+  import { leadingBlanks, inWeekOrder } from '../../lib/week.js';
 
   export let value = '';
   export let min = '';
@@ -42,7 +44,7 @@
   let calYear  = _seed.getFullYear();
   let calMonth = _seed.getMonth();
 
-  $: calFirstDay    = new Date(calYear, calMonth, 1).getDay();
+  $: calFirstDay    = leadingBlanks(calYear, calMonth, $weekStartDay);
   $: calDaysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
 
   // Nav-bound caps
@@ -146,7 +148,7 @@
     </div>
   {:else}
     <div class="dp-grid">
-      {#each ['Su','Mo','Tu','We','Th','Fr','Sa'] as dh}
+      {#each inWeekOrder(['Su','Mo','Tu','We','Th','Fr','Sa'], $weekStartDay) as dh}
         <div class="dp-dh">{dh}</div>
       {/each}
       {#each {length: calFirstDay} as _}

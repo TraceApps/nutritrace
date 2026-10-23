@@ -47,6 +47,7 @@
   import { energyUnit, mealNames, disableAnimations } from '../../stores/settings.js';
   import { NtApi } from '../../lib/api.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
+  import { deleteCatalogItem } from '../../lib/catalog-kind.js';
   import { showSuccess, showError } from '../../stores/toast.js';
 
   export let open = false;
@@ -63,6 +64,9 @@
   // Callback fired by the embedded × button to clear the pane.
   // Only rendered in embedded mode; ignored otherwise.
   export let onDismiss = null;
+  // What `food` is: 'food', 'meal' or 'recipe'. The desktop pane shows
+  // meals and recipes too, and Delete must reach their own table (#282).
+  export let kind = 'food';
 
   const dispatch = createEventDispatcher();
 
@@ -149,27 +153,48 @@
     if (_transitioning) return;
     _transitioning = true;
     open = false;
-    dispatch('addToDiary', { food: _displayFood, meal });
+    // kind rides along so the right row's usage is counted (#282).
+    dispatch('addToDiary', { food: _displayFood, meal, kind });
     setTimeout(() => { _transitioning = false; }, 250);
   }
 
+  const DELETE_TEXT = {
+    food:   { aria: 'foods.detail.delete_aria',        title: 'foods.detail.delete_confirm_title',
+              body: 'foods.detail.delete_confirm_body', done: 'foods.detail.deleted' },
+    meal:   { aria: 'foods.detail.delete_meal_aria',        title: 'foods.detail.delete_meal_confirm_title',
+              body: 'foods.detail.delete_meal_confirm_body', done: 'foods.detail.meal_deleted' },
+    recipe: { aria: 'foods.detail.delete_recipe_aria',        title: 'foods.detail.delete_recipe_confirm_title',
+              body: 'foods.detail.delete_recipe_confirm_body', done: 'foods.detail.recipe_deleted' },
+  };
+  $: _deleteText = DELETE_TEXT[kind] || DELETE_TEXT.food;
+  // Only the user's own saved items can be deleted. Another user's shared
+  // item is not ours to delete (the long-press menu offers only Save to My
+  // Catalog for it), and in the Android app its server id would be read as
+  // a local id and delete one of the user's own items instead.
+  $: _canDelete = !!_displayFood?.id && _displayFood?._shared_by == null;
+
   async function onDeleteTap() {
     if (_transitioning) return;
-    if (!_displayFood?.id) return;
+    if (!_canDelete) return;
+    // Captured before the dialog so the item and its kind can't drift
+    // apart while it is open.
+    const target = _displayFood;
+    const text = _deleteText;
+    const itemKind = kind;
     const ok = await confirmDialog({
-      title: $_('foods.detail.delete_confirm_title'),
-      message: $_('foods.detail.delete_confirm_body', { values: { name: _displayFood.name } }),
-      confirmLabel: $_('common.delete'),
-      cancelLabel: $_('common.cancel'),
+      title: $_(text.title),
+      message: $_(text.body, { values: { name: target.name } }),
+      confirmText: $_('common.delete'),
+      cancelText: $_('common.cancel'),
       dangerous: true,
     });
     if (!ok) return;
     _transitioning = true;
     try {
-      await NtApi.deleteFood(_displayFood.id);
+      await deleteCatalogItem(NtApi, itemKind, target.id);
       open = false;
-      dispatch('deleted', { food: _displayFood });
-      showSuccess($_('foods.detail.deleted'));
+      dispatch('deleted', { food: target });
+      showSuccess($_(text.done));
     } catch (e) {
       showError((e?.message) || $_('common.errors.delete_failed'));
     } finally {
@@ -259,13 +284,15 @@
     </div>
 
     <div class="actions">
+      {#if _canDelete}
       <button class="btn btn-secondary danger-btn"
               on:click={onDeleteTap}
-              aria-label={$_('foods.detail.delete_aria')}
-              disabled={!_displayFood?.id || _transitioning}>
+              aria-label={$_(_deleteText.aria)}
+              disabled={_transitioning}>
         <span class="material-symbols-rounded">delete</span>
         {$_('common.delete')}
       </button>
+      {/if}
       <button class="btn btn-secondary"
               on:click={onEditTap}
               aria-label={$_('foods.detail.edit_aria')}>
@@ -337,13 +364,15 @@
       </div>
     </div>
     <div class="actions">
+      {#if _canDelete}
       <button class="btn btn-secondary danger-btn"
               on:click={onDeleteTap}
-              aria-label={$_('foods.detail.delete_aria')}
-              disabled={!_displayFood?.id || _transitioning}>
+              aria-label={$_(_deleteText.aria)}
+              disabled={_transitioning}>
         <span class="material-symbols-rounded">delete</span>
         {$_('common.delete')}
       </button>
+      {/if}
       <button class="btn btn-secondary"
               on:click={onEditTap}
               aria-label={$_('foods.detail.edit_aria')}>

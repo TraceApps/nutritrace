@@ -43,8 +43,11 @@ public class WorkerScheduler {
         }
 
         // HC sync worker — only enqueued when healthConnectEnabled = true
-        boolean hcEnabled = readBoolSetting(context, "healthConnectEnabled");
-        if (hcEnabled) {
+        // A failed read is not "off": the schedule stays as it is (LocalDb).
+        Boolean hcEnabled = readBoolSetting(context, "healthConnectEnabled");
+        if (hcEnabled == null) {
+            Log.w(TAG, "HC sync worker left as it is: the setting couldn't be read");
+        } else if (hcEnabled) {
             enqueueHcWorker(context);
         } else {
             WorkManager.getInstance(context).cancelUniqueWork(HC_SYNC_WORK);
@@ -91,30 +94,32 @@ public class WorkerScheduler {
         Log.d(TAG, "HC sync worker enqueued (1h interval)");
     }
 
-    /** Read a boolean setting from the JS app's SQLite user_settings table */
-    private static boolean readBoolSetting(Context context, String key) {
-        File dbFile = context.getDatabasePath(DB_FILENAME);
-        if (!dbFile.exists()) return false;
+    /**
+     * A boolean setting from the JS app's SQLite user_settings table: true or
+     * false, false when it isn't set, and null when it couldn't be read (see
+     * LocalDb), which callers must not take for false.
+     */
+    static Boolean readBoolSetting(Context context, String key) {
         SQLiteDatabase db = null;
         Cursor c = null;
         try {
-            db = SQLiteDatabase.openDatabase(
-                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
+            db = LocalDb.open(context);
+            if (db == null) return false;
             c = db.rawQuery(
                 "SELECT value FROM user_settings WHERE key = ? LIMIT 1",
                 new String[]{key});
-            if (c.moveToFirst()) {
-                String v = c.getString(0);
-                if (v == null) return false;
-                v = v.replace("\"", "").trim();
-                return "true".equalsIgnoreCase(v) || "1".equals(v);
-            }
+            if (!c.moveToFirst()) return false;
+            String v = c.getString(0);
+            if (v == null) return false;
+            v = v.replace("\"", "").trim();
+            return "true".equalsIgnoreCase(v) || "1".equals(v);
         } catch (Exception e) {
+            if (LocalDb.isMissingTable(e)) return false;
             Log.w(TAG, "setting read failed for " + key + ": " + e.getMessage());
+            return null;
         } finally {
             if (c != null) c.close();
             if (db != null) db.close();
         }
-        return false;
     }
 }

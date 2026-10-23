@@ -43,12 +43,23 @@ function _stopTicking() {
 
 /** Load active fast + recent history. Called on Diary mount + after each
  *  start/end so the widget reflects current state without a manual refresh. */
+let _userGen = 0;
+/** The account changed or signed out (lib/user-state.js): drop its fasts. */
+export function resetFastingState() {
+  _userGen++;
+  activeFast.set(null);
+  fastHistory.set([]);
+  _stopTicking();
+}
+
 export async function loadFasting() {
+  const gen = _userGen;
   try {
     const [active, history] = await Promise.all([
       NtApi.get('/api/fasts/active').catch(() => null),
       NtApi.get('/api/fasts?limit=60').catch(() => []),
     ]);
+    if (gen !== _userGen) return; // read for the account before
     activeFast.set(active && active.id ? active : null);
     fastHistory.set(Array.isArray(history) ? history : []);
     if (get(activeFast)) _startTicking();
@@ -118,7 +129,10 @@ export async function checkScheduleAndStart() {
     const settings = await import('./settings.js');
     if (!get(settings.fastingEnabled) || !get(settings.fastingScheduleEnabled)) return;
     const today = new Date();
-    const todayStr = today.toISOString().slice(0, 10);
+    // This device's calendar day, as the server marks it too: the UTC date
+    // made an evening start west of UTC count as tomorrow's, and the next
+    // day's scheduled fast never started.
+    const todayStr = today.toLocaleDateString('sv-SE');
     if (get(settings.fastingScheduleLastFired) === todayStr) return;
     const days = get(settings.fastingScheduleDays) || [];
     if (!days.includes(today.getDay())) return;

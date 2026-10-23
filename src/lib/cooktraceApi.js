@@ -48,6 +48,18 @@ async function _proxyRaw(path, method = 'GET') {
   return { ok: res.ok, status: res.status, body };
 }
 
+// An item CookTrace couldn't scale (a pinch against values per 100 g)
+// carries the values for its pantry serving. Show it at that serving so
+// the row's values match its amount and Edit rescales from there, and
+// keep CookTrace's amount to say what couldn't be converted (#296).
+function _ctUnscaled(it, item) {
+  const b = it?.basis;
+  if (it?.scaled !== false || !b || !(Number(b.amount) > 0) || !b.unit) return item;
+  const amount = typeof it.amount_text === 'string' ? it.amount_text
+    : it.qty_text ? String(it.qty_text) : `${item.portion} ${item.unit}`.trim();
+  return { ...item, portion: Number(b.amount), unit: String(b.unit).slice(0, 16), quantity: 1, ct_amount: amount.slice(0, 60) };
+}
+
 const CookTrace = {
   isConfigured() {
     const { baseUrl, token } = _cfg();
@@ -211,7 +223,7 @@ const CookTrace = {
    */
   mapRecipe(recipe) {
     if (!recipe) return null;
-    const items = Array.isArray(recipe.items) ? recipe.items.map(it => ({
+    const items = Array.isArray(recipe.items) ? recipe.items.map(it => _ctUnscaled(it, {
       name: String(it?.name || '').slice(0, 200),
       brand: it?.brand ? String(it.brand).slice(0, 120) : '',
       // Preserve CT's exact unit (empty string when the ingredient has
@@ -226,6 +238,9 @@ const CookTrace = {
       // linked pantry row's photo as `img_url`. Without this mapping every
       // imported ingredient falls back to the grey placeholder icon.
       ...(it?.img_url ? { imgUrl: String(it.img_url) } : {}),
+      // CookTrace scales each item's values to its amount and says so
+      // (#296). Older CookTrace servers send neither field.
+      ...(typeof it?.scaled === 'boolean' ? { ct_scaled: it.scaled } : {}),
     })) : [];
 
     // CT stores recipe.nutrition as PER-SERVING values (that's what its

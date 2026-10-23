@@ -2,16 +2,25 @@ import { Router } from 'express';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import db from '../db.js';
+import { fetchChecked, serviceBase, readBody } from '../lib/ssrf-guard.js';
+import { apiPathFor, MEALIE_API } from '../lib/service-paths.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// Mealie usually lives on the home network, so that's allowed for every
+// account, but only for the parts of its API this app reads, with GET, and
+// no redirect to another server (the request carries the account's token).
+const _apiPath = path => apiPathFor(MEALIE_API, path);
 
 function _normalizeUrl(s) {
   if (!s) return '';
   // user_settings stores values as JSON-stringified — strip the quotes if present.
   let v = String(s);
   if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
-  return v.replace(/\/$/, '');
+  // Origin and path only: a query or fragment in the address would turn
+  // the API path appended to it into part of the query.
+  return serviceBase(v) || '';
 }
 
 /** Look up the user's saved Mealie base URL. Single-user mode reads any row. */
@@ -53,23 +62,26 @@ router.post('/proxy', wrap(async (req, res) => {
     }
   }
 
-  const url = requestedBase + path;
+  const apiPath = _apiPath(path);
+  if (!apiPath) return res.status(400).json({ error: 'Not a Mealie request this app makes' });
+  const url = requestedBase + apiPath;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchChecked(url, {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
-    });
+    }, { allowPrivate: true, sameOrigin: true, maxRedirects: 3 });
     clearTimeout(timer);
     if (!response.ok) {
       return res.status(response.status).json({ error: `Mealie returned ${response.status}` });
     }
-    res.json(await response.json());
+    res.json(JSON.parse((await readBody(response, 5 * 1024 * 1024)).toString('utf8')));
   } catch(e) {
     clearTimeout(timer);
-    res.status(503).json({ error: e.message });
+    const refused = /addresses are not allowed/.test(e?.message || '');
+    res.status(503).json({ error: refused ? e.message : 'Could not reach Mealie' });
   }
 }));
 

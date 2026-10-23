@@ -12,6 +12,9 @@
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { envLocks } from '../../stores/settings.js';
   import Dialog from '../ui/Dialog.svelte';
+  import RequestSheet from '../coaching/RequestSheet.svelte';
+  import { coachingSupported, refreshCoaching } from '../../stores/coaching.js';
+  import { localDay, coachingErrorText } from '../../lib/coaching-view.js';
 
   // ── User Management state ────────────────────────────────────────────────────
   let umUsers        = [];
@@ -62,6 +65,7 @@
   // Invite
   let inviteEmail  = '';
   let inviteRole   = 'user';
+  let inviteCoach  = '';   // a coach the invite names ('' = none)
   let inviteLoading = false;
   let inviteResult = null; // { inviteUrl, sent }
   let pendingInvites = []; // { token, email, role, expires_at }
@@ -89,8 +93,37 @@
       if ($currentUser?.role === 'admin') {
         await loadSessionConfig();
         await loadPendingInvites();
+        await loadPairings();
       }
     }
+  }
+
+  // ── Coaching: roles and pairings ─────────────────────────────────────────
+  const ROLE_LABEL = { user: 'settings.users.role_user', coach: 'settings.users.role_coach', admin: 'settings.users.role_admin' };
+  const ROLE_DISPLAY = { user: 'settings.users.role_user_display', coach: 'settings.users.role_coach_display', admin: 'settings.users.role_admin_display' };
+  // Coaches an invite can name: Coaches and admins (admins can coach too).
+  $: inviteCoaches = umUsers.filter(u => u.role === 'coach' || u.role === 'admin');
+  let pairings = [];
+  let coachSomeoneOpen = false;
+  async function loadPairings() {
+    if (!$coachingSupported) { pairings = []; return; }
+    try { pairings = await NtApi.get('/api/coaching/admin/pairings'); }
+    catch { pairings = []; }
+  }
+  async function endPairing(p) {
+    if (!await confirmDialog({
+      title: $_('settings.users.coaching_end_title'),
+      message: $_('settings.users.coaching_end_message', { values: { coach: p.coach.name, client: p.client.name } }),
+      confirmText: $_('settings.users.coaching_end'),
+      cancelText: $_('common.cancel'),
+      dangerous: true,
+    })) return;
+    try {
+      await NtApi.post(`/api/coaching/pairings/${p.id}/end`, {});
+      showSuccess($_('settings.users.coaching_ended'));
+    } catch (e) { showError(coachingErrorText(e, $_)); }
+    await loadPairings();
+    refreshCoaching();
   }
 
   async function loadSessionConfig() {
@@ -251,15 +284,21 @@
     umLoading = false;
   }
 
-  async function changeUserRole(u, newRole) {
+  async function changeUserRole(u, newRole, selectEl) {
     if (newRole === u.role) return;
     const name = u.full_name || u.username;
+    // promote: to Admin; coach: User to Coach; uncoach: Coach to User;
+    // demote: Admin to anything else.
+    const kind = newRole === 'admin' ? 'promote'
+      : u.role === 'admin' ? 'demote'
+      : newRole === 'coach' ? 'coach' : 'uncoach';
     if (!await confirmDialog({
-      title: $_(newRole === 'admin' ? 'settings.users.promote_title' : 'settings.users.demote_title', { values: { name } }),
-      message: $_(newRole === 'admin' ? 'settings.users.promote_message' : 'settings.users.demote_message'),
-      confirmText: $_(newRole === 'admin' ? 'settings.users.promote_confirm' : 'settings.users.demote_confirm'),
-      dangerous: newRole !== 'admin',
-    })) return;
+      title: $_(`settings.users.${kind}_title`, { values: { name } }),
+      message: $_(`settings.users.${kind}_message`),
+      confirmText: $_(`settings.users.${kind}_confirm`),
+      cancelText: $_('common.cancel'),
+      dangerous: kind === 'demote' || kind === 'uncoach',
+    })) { if (selectEl) selectEl.value = u.role; return; }
     try {
       const res = await fetch(apiUrl(`/api/auth/users/${u.id}/role`), {
         method: 'PUT',
@@ -268,9 +307,11 @@
         body: JSON.stringify({ role: newRole }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { showError(data?.error || $_('settings.users.err_could_not_change_role')); return; }
-      showSuccess($_('settings.users.toast_role_changed', { values: { name, role: newRole } }));
+      if (!res.ok) { showError(data?.error || $_('settings.users.err_could_not_change_role')); if (selectEl) selectEl.value = u.role; return; }
+      const role = $_(ROLE_DISPLAY[newRole] || ROLE_DISPLAY.user);
+      showSuccess($_(data?.coaching_ended ? 'settings.users.toast_coaching_ended' : 'settings.users.toast_role_changed', { values: { name, role } }));
       await loadUsers();
+      await loadPairings();
     } catch (e) { showError($_('settings.users.err_could_not_reach_server')); }
   }
 
@@ -396,7 +437,13 @@
     localStorage.removeItem('nt:csrf');
     // Keep nt:cachedUserMgmt — user-management is a server-wide flag, not
     // a per-session one, so don't flicker the post-reload boot into wizard.
-    if (isNative) setAuthToken(null);
+    if (isNative) {
+      setAuthToken(null);
+      try {
+        const { forgetServerCookies } = await import('../../lib/local-account.js');
+        await forgetServerCookies();
+      } catch {}
+    }
     setTimeout(() => window.location.reload(), 300);
   }
 
@@ -417,7 +464,7 @@
       const res  = await fetch(apiUrl('/api/auth/invite'), {
         method: 'POST', credentials: 'include',
         headers: _csrfHeaders(),
-        body: JSON.stringify({ email: _inviteEmailTrimmed || undefined, role: inviteRole }),
+        body: JSON.stringify({ email: _inviteEmailTrimmed || undefined, role: inviteRole, ...(inviteCoach !== '' ? { coach_id: Number(inviteCoach) } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { showError(data.error || $_('settings.users.err_failed_create_invite')); return; }
@@ -425,6 +472,7 @@
       // Server reports sent: true only after nodemailer's SMTP handoff resolves
       if (data.sent) showSuccess($_('settings.users.invite_sent_to', { values: { email: _inviteEmailTrimmed } }));
       inviteEmail  = '';
+      inviteCoach  = '';
       await loadPendingInvites();
     } catch {
       showError($_('settings.users.err_could_not_create_invite'));
@@ -462,12 +510,13 @@
                   <div class="um-user-sub">@{u.username}</div>
                   <div class="um-user-role">
                     {#if u.id === $currentUser?.id}
-                      <span class="um-role-self">{u.role} {$_('settings.users.role_self_suffix')}</span>
+                      <span class="um-role-self">{$_(ROLE_LABEL[u.role] || ROLE_LABEL.user)} {$_('settings.users.role_self_suffix')}</span>
                     {:else}
                       <select class="um-role-select" value={u.role}
-                        on:change={e => changeUserRole(u, e.target.value)}>
-                        <option value="user">user</option>
-                        <option value="admin">admin</option>
+                        on:change={e => changeUserRole(u, e.target.value, e.target)}>
+                        <option value="user">{$_('settings.users.role_user')}</option>
+                        {#if $coachingSupported}<option value="coach">{$_('settings.users.role_coach')}</option>{/if}
+                        <option value="admin">{$_('settings.users.role_admin')}</option>
                       </select>
                     {/if}
                   </div>
@@ -489,6 +538,39 @@
         <div class="setting-divider"></div>
         {/if}
 
+        <!-- Coaching: see and end pairings; an admin can coach too. -->
+        {#if $coachingSupported && umUsers.length > 1}
+          <div class="setting-row um-form-block um-coaching">
+            <div>
+              <span class="setting-label">{$_('settings.users.coaching_heading')}</span>
+              <div class="setting-desc" style="margin-top:2px">{$_('settings.users.coaching_desc')}</div>
+            </div>
+            {#if pairings.length === 0}
+              <p class="setting-desc um-coaching-none">{$_('settings.users.coaching_none')}</p>
+            {:else}
+              <div class="pending-invites">
+                {#each pairings as p (p.id)}
+                  <div class="pending-invite-row">
+                    <div class="pending-invite-info">
+                      <span class="pending-invite-email">{$_('settings.users.coaching_pair', { values: { coach: p.coach.name, client: p.client.name } })}</span>
+                      <span class="pending-invite-meta">
+                        {p.status === 'pending' ? $_('settings.users.coaching_pending') : $_('settings.users.coaching_active_since', { values: { date: new Date((localDay(p.responded_at) || '') + 'T12:00:00').toLocaleDateString() } })}
+                      </span>
+                    </div>
+                    <button class="btn btn-ghost um-coaching-end" on:click={() => endPairing(p)}
+                      aria-label={$_('settings.users.coaching_end_aria', { values: { coach: p.coach.name, client: p.client.name } })}>
+                      {$_('settings.users.coaching_end')}
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            <button class="btn btn-secondary" style="width:100%" on:click={() => coachSomeoneOpen = true}>{$_('settings.users.coach_someone')}</button>
+            <p class="setting-desc um-coach-hint">{$_('settings.users.coach_someone_desc')}</p>
+          </div>
+          <div class="setting-divider"></div>
+        {/if}
+
         <!-- Primary path: invite -->
         <div class="setting-row um-form-block">
           <div>
@@ -506,11 +588,27 @@
             <div class="um-role-select-wrap">
               <select id="invite-role-sel" class="um-role-styled-select" bind:value={inviteRole}>
                 <option value="user">{$_('settings.users.role_user')}</option>
+                {#if $coachingSupported}<option value="coach">{$_('settings.users.role_coach')}</option>{/if}
                 <option value="admin">{$_('settings.users.role_admin')}</option>
               </select>
               <span class="material-symbols-rounded um-role-chev">expand_more</span>
             </div>
           </div>
+          {#if $coachingSupported && inviteCoaches.length}
+            <div class="um-role-pair">
+              <label class="um-role-label" for="invite-coach-sel">{$_('settings.users.invite_coach')}</label>
+              <div class="um-role-select-wrap">
+                <select id="invite-coach-sel" class="um-role-styled-select" bind:value={inviteCoach}>
+                  <option value="">{$_('settings.users.invite_coach_none')}</option>
+                  {#each inviteCoaches as c (c.id)}
+                    <option value={String(c.id)}>{c.nickname || c.full_name || c.username}</option>
+                  {/each}
+                </select>
+                <span class="material-symbols-rounded um-role-chev">expand_more</span>
+              </div>
+            </div>
+            {#if inviteCoach !== ''}<p class="setting-desc um-coach-hint">{$_('settings.users.invite_coach_hint')}</p>{/if}
+          {/if}
           <button class="btn btn-primary" style="width:100%" on:click={createInvite} disabled={!_inviteCanSubmit}>
             {inviteLoading ? $_('settings.users.creating') : (_inviteEmailTrimmed ? $_('settings.users.send_invite') : $_('settings.users.generate_link'))}
           </button>
@@ -522,7 +620,8 @@
                   <div class="pending-invite-info">
                     <span class="pending-invite-email">{inv.email || $_('settings.users.link_only')}</span>
                     <span class="pending-invite-meta">
-                      {inv.role === 'admin' ? $_('settings.users.role_admin_display') : $_('settings.users.role_user_display')} ·
+                      {$_(ROLE_DISPLAY[inv.role] || ROLE_DISPLAY.user)} ·
+                      {#if inv.coach}{$_('settings.users.invite_coach_meta', { values: { name: inv.coach.name } })} ·{/if}
                       {$_('settings.users.expires_short', { values: { date: new Date(inv.expires_at).toLocaleDateString() } })}
                     </span>
                   </div>
@@ -581,6 +680,7 @@
               <div class="um-role-select-wrap">
                 <select id="add-role-sel" class="um-role-styled-select" bind:value={newRole}>
                   <option value="user">{$_('settings.users.role_user')}</option>
+                  {#if $coachingSupported}<option value="coach">{$_('settings.users.role_coach')}</option>{/if}
                   <option value="admin">{$_('settings.users.role_admin')}</option>
                 </select>
                 <span class="material-symbols-rounded um-role-chev">expand_more</span>
@@ -755,6 +855,8 @@
   {/if}
 </Dialog>
 
+<RequestSheet bind:open={coachSomeoneOpen} on:sent={() => { loadPairings(); refreshCoaching(); }} />
+
 <style>
   /* Type-username-to-confirm delete dialog */
   :global(.dialog-box:has(.del-confirm-input)) { max-width: 420px; }
@@ -839,6 +941,9 @@
   .um-user-name { font-size: 14px; font-weight: 500; color: var(--text-1); }
   .um-user-sub  { font-size: 12px; color: var(--text-3); }
   .um-user-role { margin-top: 4px; }
+  .um-coach-hint { margin: 0; }
+  .um-coaching-none { margin: 0; }
+  .um-coaching-end { color: var(--danger); flex-shrink: 0; font-size: 13px; }
   .um-role-self {
     font-size: 11px; font-weight: 600; color: var(--text-3);
     background: var(--surface-2); padding: 3px 8px; border-radius: var(--radius-sm);

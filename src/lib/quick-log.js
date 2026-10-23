@@ -18,6 +18,7 @@ import { offNutritionStatus, needsFullLookup } from './off-nutrition.js';
 import { callAI, callAIProxy } from './aiChat.js';
 import { envLocks } from '../stores/settings.js';
 import { foldText } from './search-text.js';
+import { dayBefore } from './prev-day.js';
 
 // ── Step 1: AI parses the input string into structured items ──────────────
 
@@ -245,18 +246,19 @@ export function resolveMealSlot(mealName, mealNames) {
  *   - For 'yesterday': best is a synthetic { name, items: [...yesterday's foods] }
  *     where the inner items are full food records ready to write to today's diary
  */
-export async function matchItem(parsedItem) {
+export async function matchItem(parsedItem, { date } = {}) {
   const kind = parsedItem.kind || 'food';
   if (kind === 'meal') return _matchMeal(parsedItem, false);
   if (kind === 'recipe') return _matchMeal(parsedItem, true);
-  if (kind === 'yesterday') return _matchYesterday(parsedItem);
+  if (kind === 'yesterday') return _matchYesterday(parsedItem, date);
   if (kind === 'water') return _matchWater(parsedItem);
   return _matchFood(parsedItem);
 }
 
-/** Match all parsed items in parallel. */
-export async function matchItems(parsedItems) {
-  return Promise.all(parsedItems.map(matchItem));
+/** Match all parsed items in parallel. `date`: the day they'll be logged
+ *  to ("same as yesterday" is the day before it; today when not given). */
+export async function matchItems(parsedItems, { date } = {}) {
+  return Promise.all(parsedItems.map(it => matchItem(it, { date })));
 }
 
 // ── _matchFood: existing food search (local + OFF) ────────────────────────
@@ -378,12 +380,12 @@ async function _matchMeal(parsedItem, isRecipe) {
 // The AI sets `name` to the meal slot name they want to repeat (e.g. "Lunch").
 // We resolve that to a slot index, fetch yesterday's diary, and return all
 // items in that slot as a synthetic "meal" so saveItems can expand them.
-async function _matchYesterday(parsedItem) {
+// Yesterday is the day before the one being logged to (#280), not before
+// today.
+async function _matchYesterday(parsedItem, date) {
   const out = { item: parsedItem, candidates: [], best: null, source: 'yesterday' };
   try {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yDateStr = yesterday.toLocaleDateString('sv-SE');
+    const yDateStr = dayBefore(date);
     const entry = await NtApi.getDiaryDate(yDateStr);
     if (!entry || !entry.items || entry.items.length === 0) return out;
 

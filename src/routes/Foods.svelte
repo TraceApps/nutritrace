@@ -11,6 +11,7 @@
   import Dialog      from '../components/ui/Dialog.svelte';
   import Sheet       from '../components/ui/Sheet.svelte';
   import FoodDetailSheet from '../components/ui/FoodDetailSheet.svelte';
+  import { deleteCatalogItem, catalogKindForTab, markCatalogItemUsed, countsUseHere } from '../lib/catalog-kind.js';
   import UnitPicker  from '../components/ui/UnitPicker.svelte';
   import { portal } from '../lib/portal.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
@@ -19,6 +20,7 @@
   import { showSuccess, showError, showToast } from '../stores/toast.js';
   import { staleIngredientNames } from '../lib/stale-ingredients.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
+  import { noteSharingStatus } from '../stores/sharing.js';
   import { DB, localDateStr } from '../lib/db.js';
   import { loadEntry } from '../stores/diary.js';
   import { API, USDA, NtApi } from '../lib/api.js';
@@ -27,9 +29,12 @@
   import { CookTrace } from '../lib/cooktraceApi.js';
   import { offlineState } from '../lib/offline-api.js';
   import { offNutritionStatus, needsFullLookup } from '../lib/off-nutrition.js';
-  import { resolveAssetUrl } from '../lib/platform.js';
+  import { resolveAssetUrl, isNative } from '../lib/platform.js';
+  import { catalogImgFor } from '../lib/item-source.js';
+  import { dayBefore, dayName } from '../lib/prev-day.js';
+  import { formatDay } from '../lib/coaching-view.js';
   import { offCountryTagToFlag, offCountryTagToName } from '../lib/off-country-flag.js';
-  import { foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, offSearchCountry, offSearchLanguage, foodsDefaultSource, diaryDefaultField, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
+  import { dateFormat, foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, offSearchCountry, offSearchLanguage, foodsDefaultSource, diaryDefaultField, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
   import { focusDefaultField } from '../lib/default-field.js';
   import { pageScrollTop, restorePageScroll } from '../lib/scroll-anchor.js';
@@ -85,7 +90,8 @@
     requestAnimationFrame(reset);
   }
   $: _tabIcon = activeTab === 0 ? 'restaurant' : activeTab === 1 ? 'dinner_dining' : 'menu_book';
-  $: { if (pickMode) loadYesterdayMeals(); }
+  // #280: the day before the one being added to, again when that changes.
+  $: { if (pickMode) loadYesterdayMeals(pickDate); }
   // Saved-meals collapse only kicks in when the SAVED MEALS header is actually rendered
   // (Meals tab + pick mode + yesterday section visible + not searching). Otherwise the
   // header isn't shown and the user has no way to toggle it back, so the list must render.
@@ -350,6 +356,7 @@
   $: _tabHasShared = activeTab === 0 ? sharedCounts.foods > 0 : activeTab === 1 ? sharedCounts.meals > 0 : sharedCounts.recipes > 0;
   function refreshSharingStatus() {
     NtApi.getSharingStatus().then(s => {
+      noteSharingStatus(s);
       sharingEnabled = s.sharing_enabled === true;
       sharedCounts = { foods: s.foods || 0, meals: s.meals || 0, recipes: s.recipes || 0 };
     }).catch(() => {});
@@ -501,6 +508,9 @@
     if (!_addingToDiary) confirmQtyPrompt();
   }
   let promptFood = null;
+  // What promptFood is ('food' | 'meal' | 'recipe'), when known, so its own
+  // row's usage is counted (#282). null: addDiaryItem's own rule.
+  let promptKind = null;
   let promptServings = 1;
   let promptPortion = 100;
   // Phase 2 of the NutritionFactsBox rollout: tap a food on the Foods tab
@@ -514,6 +524,9 @@
   // populates this pane instead of opening the modal FoodDetailSheet.
   // The pane is sticky-positioned in the third column of .foods-body.
   let _paneFood = null;
+  // What the pane shows, set with _paneFood so Delete reaches the right
+  // table (#282).
+  let _paneKind = 'food';
   let _foodsViewportPane = false;
   $: _foodsPaneMode = _foodsViewportPane && !$forceMobileLayout;
   // Phase D — keyboard shortcut plumbing. bind:this from the search
@@ -1062,10 +1075,19 @@
     // is on still works the same way — the picked meal rides into the
     // existing pickMeal slot so confirmQtyPrompt uses it.
     const chosenMeal = Number(e.detail.meal) || 0;
+    const kind = e.detail.kind || 'food';
     pickMeal = String(chosenMeal);
     pickDate = localDateStr();
+    // A saved meal logs its ingredients at their saved portions, with no
+    // quantity prompt, as it does when added from the Diary (pick mode).
+    // A recipe logs as one row, as it does there too (#282).
+    if (kind === 'meal' && food.items && food.items.length > 0) {
+      await _expandMealToDiary(food, { stay: true, shared: food._shared_by != null });
+      return;
+    }
     if ($diaryPromptQuantity) {
       promptFood = food;
+      promptKind = kind;
       promptServings = 1;
       promptPortion = food.portion || 100;
       promptUnit = food.unit || 'g';
@@ -1077,9 +1099,11 @@
     // visible confirmation.
     const { addDiaryItem } = await import('../stores/diary.js');
     let savedFood = food;
+    let savedKind = kind;
     if (!food.id || typeof food.id !== 'number') {
       const { id: _drop, ...rest } = food;
       savedFood = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      savedKind = 'food';
     }
     const item = {
       ...savedFood,
@@ -1088,7 +1112,7 @@
       quantity: 1,
       nutrition: savedFood.nutrition,
     };
-    await addDiaryItem(item, chosenMeal);
+    await addDiaryItem(item, chosenMeal, undefined, { kind: savedKind });
     editorState.lastMealAdded = chosenMeal;
     const names = mealNames.get() || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
     showSuccess($_('foods.detail.added_to', { values: { meal: names[chosenMeal] || 'meal' } }));
@@ -1098,7 +1122,8 @@
     _saveScrollState();
     editorState.mealPrefill  = item ? { ...item } : null;
     editorState.mealIsRecipe = isRecipe;
-    push(item ? '/meal-editor/' + item.id : '/meal-editor');
+    // A pick from CookTrace has no id yet: no "/meal-editor/undefined".
+    push(item && item.id != null ? '/meal-editor/' + item.id : '/meal-editor');
   }
 
   async function pickFood(food, sourceHint) {
@@ -1148,17 +1173,18 @@
       // on mobile, drop straight into the MealEditor since there's
       // no pane to preview into.
       if (activeTab === 1) {
-        if (_foodsPaneMode) { _paneFood = food; return; }
+        if (_foodsPaneMode) { _paneKind = 'meal'; _paneFood = food; return; }
         return openMealEditor(food, false);
       }
       if (activeTab === 2) {
-        if (_foodsPaneMode) { _paneFood = food; return; }
+        if (_foodsPaneMode) { _paneKind = 'recipe'; _paneFood = food; return; }
         return openMealEditor(food, true);
       }
       detailSheetFood = food;
       if (_foodsPaneMode) {
         // Desktop wide: populate the right-pane preview instead of
         // opening the modal sheet.
+        _paneKind = 'food';
         _paneFood = food;
       } else {
         detailSheetOpen = true;
@@ -1181,15 +1207,17 @@
       return;
     }
     // Foods & Recipes: prompt for quantity if setting enabled
+    const pickedKind = catalogKindForTab(currentStore);
     if ($diaryPromptQuantity) {
       promptFood = food;
+      promptKind = pickedKind;
       promptServings = 1;
       promptPortion = food.portion || 100;
       promptUnit = food.unit || 'g';
       showQtyPrompt = true;
       return;
     }
-    await _addFoodToDiary(food, 1);
+    await _addFoodToDiary(food, 1, pickedKind);
   }
 
   // Ingredients of a saved meal whose source food is no longer in the
@@ -1205,7 +1233,10 @@
     return staleIngredientNames(meal?.items, [localFoods, localMeals, localRecipes]);
   }
 
-  async function _expandMealToDiary(meal) {
+  // stay: added from the Foods page's own pane (#282), which stays put and
+  // names the meal it went to. shared: someone else's shared meal, whose
+  // ingredients are not in this user's foods.
+  async function _expandMealToDiary(meal, { stay = false, shared = false } = {}) {
     if (_addingToDiary) return;
     _addingToDiary = true;
     try {
@@ -1215,8 +1246,8 @@
       // so without this the saved meal's own counter would never move and
       // "Most Used" on the Meals tab would stay at zero. Fire-and-forget;
       // counter inaccuracy isn't worth blocking the user's add.
-      if (typeof meal.id === 'number') {
-        NtApi.markMealUsed(meal.id, pickDate || undefined).catch(() => {});
+      if (countsUseHere(meal, { native: isNative, shared })) {
+        markCatalogItemUsed(NtApi, 'meal', meal, pickDate || undefined).catch(() => {});
       }
       // One failed ingredient used to abort the loop and leave the rest of
       // the meal unlogged, with no toast and no navigation, so the user saw
@@ -1228,7 +1259,8 @@
           await addDiaryItem(
             { ...item, quantity: item.quantity || 1 },
             Number(pickMeal) || 0,
-            pickDate || undefined
+            pickDate || undefined,
+            { shared }
           );
         } catch (e) {
           console.error('[foods] ingredient failed to log:', item?.name, e);
@@ -1242,7 +1274,9 @@
       }
       // One toast, not two. The stale notice already says the meal was
       // added, and it gets a longer dwell because it asks for an action.
-      const stale = _staleIngredientNames(meal);
+      // A shared meal's ingredients are its owner's foods, never this
+      // user's, so they'd all read as missing.
+      const stale = shared ? [] : _staleIngredientNames(meal);
       if (failed.length) {
         showError($_('foods.toast.meal_partly_added', {
           values: { names: failed.filter(Boolean).join(', ') },
@@ -1251,22 +1285,30 @@
         showToast($_('foods.toast.meal_stale_ingredients', {
           values: { names: stale.join(', ') },
         }), 6000, 'info');
+      } else if (stay) {
+        const names = mealNames.get() || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
+        showSuccess($_('foods.detail.added_to', { values: { meal: names[Number(pickMeal) || 0] || 'meal' } }));
       } else {
         showSuccess($_('foods.toast.added_to_diary'));
       }
       editorState.lastMealAdded = Number(pickMeal) || 0;
-      history.back();
+      if (!stay) history.back();
     } finally {
       _addingToDiary = false;
     }
   }
 
-  async function _addFoodToDiaryNoNav(food, qty) {
+  // Set while the add sheet holds a coach's day plan item (see onMount).
+  let _planSource = null;
+  $: if (!showQtyPrompt) _planSource = null;
+
+  async function _addFoodToDiaryNoNav(food, qty, kind = null) {
     const { addDiaryItem } = await import('../stores/diary.js');
     let savedFood = food;
     if (!food.id || typeof food.id !== 'number') {
       const { id: _drop, ...rest } = food;
       savedFood = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      kind = 'food';
     }
     const item = {
       ...savedFood,
@@ -1275,14 +1317,15 @@
       quantity: qty,
       nutrition: savedFood.nutrition
     };
-    await addDiaryItem(item, Number(pickMeal) || 0, pickDate || undefined);
+    if (_planSource) item.source = _planSource;
+    await addDiaryItem(item, Number(pickMeal) || 0, pickDate || undefined, { kind });
   }
 
-  async function _addFoodToDiary(food, qty) {
+  async function _addFoodToDiary(food, qty, kind = null) {
     if (_addingToDiary) return;
     _addingToDiary = true;
     try {
-      await _addFoodToDiaryNoNav(food, qty);
+      await _addFoodToDiaryNoNav(food, qty, kind);
       import('../stores/toast.js').then(m => m.showSuccess($_('foods.toast.added_to_diary')));
       editorState.lastMealAdded = Number(pickMeal) || 0;
       history.back();
@@ -1383,12 +1426,16 @@
       unit: newUnit,
       nutrition: scaledNutrition
     };
-    await _addFoodToDiary(food, parseDecimal(promptServings) || 1);
+    await _addFoodToDiary(food, parseDecimal(promptServings) || 1, promptKind);
   }
 
   async function deleteItem(item) {
-    if (currentStore === 'foodList') await NtApi.deleteFood(item.id);
-    else await NtApi.deleteMeal(item.id);
+    try {
+      await deleteCatalogItem(NtApi, catalogKindForTab(currentStore), item.id);
+    } catch (e) {
+      showError(e?.message || $_('common.errors.delete_failed'));
+      return;
+    }
     await load();
     showSuccess($_('foods.toast.deleted'));
   }
@@ -1441,8 +1488,7 @@
     let ok = 0, fail = 0;
     for (const id of ids) {
       try {
-        if (store === 'foodList') await NtApi.deleteFood(id);
-        else await NtApi.deleteMeal(id);
+        await deleteCatalogItem(NtApi, catalogKindForTab(store), id);
         ok++;
       } catch (e) {
         console.error('[foods] bulk delete failed for', id, e);
@@ -1641,12 +1687,26 @@
     }
   }
 
-  async function loadYesterdayMeals() {
+  // The day the meals come from: the day before the one being added to
+  // (#280), not the day before today. Named "Yesterday's Meals" when that
+  // is yesterday, else after its day (lib/prev-day.js).
+  let yesterdayDay = null;
+  $: _yName = yesterdayDay ? dayName(yesterdayDay) : { kind: 'yesterday' };
+  $: _yDayLabel = _yName.kind === 'yesterday' ? $_('foods.prev_day.yesterday')
+    : _yName.kind === 'today' ? $_('foods.prev_day.today')
+    : _yName.kind === 'weekday' ? _yName.name
+    : formatDay(_yName.day, $dateFormat);
+  $: _ySectionLabel = _yName.kind === 'yesterday' ? $_('foods.prev_day.section_yesterday')
+    : $_('foods.prev_day.section_from', { values: { day: _yDayLabel } });
+  let _yLoad = 0;
+  async function loadYesterdayMeals(target = pickDate) {
+    const run = ++_yLoad;
     if (!pickMode || !$foodsShowYesterdayMeals) { yesterdayMeals = []; return; }
-    const yDate = new Date();
-    yDate.setDate(yDate.getDate() - 1);
-    const yStr = localDateStr(yDate);
+    const yStr = dayBefore(target);
     const entry = await NtApi.getDiaryDate(yStr);
+    // A later call (another day picked meanwhile) has the say.
+    if (run !== _yLoad) return;
+    yesterdayDay = yStr;
     if (!entry || !entry.items || !entry.items.length) { yesterdayMeals = []; return; }
     const names = $mealNames || ['Breakfast','Lunch','Dinner','Snacks'];
     const groups = {};
@@ -1670,47 +1730,24 @@
   // food.imgUrl if a match is found, else the item's own (possibly stale)
   // imgUrl as a fallback. No async, no preprocessing — the foods list is
   // already loaded by the time yesterday-meal cards are visible.
+  // This phone's install ids, so an item another phone logged before its
+  // food went up never takes a photo here by that phone's id.
+  let _myInstalls = null;
+  onMount(() => {
+    if (isNative) import('../lib/db-native.js').then(m => m.dbOwnInstallIds()).then(s => { _myInstalls = s; }).catch(() => {});
+  });
   function liveImgFor(item) {
-    // Search across foods + meals + recipes. Diary items can reference
-    // any of the three (recipes are added as single-line entries
-    // carrying the recipe's id, not expanded into ingredients).
-    const all = [...(localFoods || []), ...(localMeals || []), ...(localRecipes || [])];
-    // foodStableId — server_id when set (Android cache rows), else id
-    // (PWA rows use the server's id directly as `id`). itemStableId —
-    // food_server_id (set explicitly by addDiaryItem post-fix), or
-    // item.id for legacy items (PWA-written items already use the
-    // server's id; Android-pre-fix items have local ids that may have
-    // renumbered after a re-install — those fall through to name match).
-    const foodStableId = (f) => (typeof f.server_id === 'number') ? f.server_id : f.id;
-    const itemStableId = (typeof item.food_server_id === 'number')
-      ? item.food_server_id
-      : item.id;
-
-    if (typeof itemStableId === 'number') {
-      const m = all.find(f => foodStableId(f) === itemStableId);
-      if (m?.imgUrl) return m.imgUrl;
-    }
-    const itemName = (item.name || '').trim();
-    const itemBrand = (item.brand || '').toLowerCase().trim();
-    if (itemName) {
-      const exact = all.filter(f =>
-        f.name === itemName && (f.brand || '').toLowerCase().trim() === itemBrand);
-      const m = exact.find(f => f.imgUrl) || exact[0] || null;
-      if (m?.imgUrl) return m.imgUrl;
-    }
-    if (itemName && !itemBrand) {
-      const nameOnly = all.filter(f => f.name === itemName);
-      const m = nameOnly.find(f => f.imgUrl) || nameOnly[0] || null;
-      if (m?.imgUrl) return m.imgUrl;
-    }
-    return item.imgUrl;
+    // The diary's own lookup (lib/item-source.js catalogImgFor): a recipe
+    // among meals and recipes, anything else among foods, by its source's
+    // server id first, then by name, trimmed and case-insensitively (#277).
+    return catalogImgFor(item, { foods: localFoods || [], meals: [...(localMeals || []), ...(localRecipes || [])] }, { native: isNative, mine: _myInstalls });
   }
 
   async function addYesterdayMeal(group) {
     const targetMeal = Number(pickMeal) || 0;
     const { addDiaryItem } = await import('../stores/diary.js');
     // Same lookup as the popup rendering — pull each item's live imgUrl
-    // from the user's foods catalog before writing to today's diary, so
+    // from the user's foods catalog before writing to the day's diary, so
     // the new diary row uses the food's current image (just like the
     // food picker does) instead of whatever stale value yesterday's
     // diary item is carrying.
@@ -1843,6 +1880,21 @@
         }
       };
       document.addEventListener('keydown', _onKeyGlobal);
+    }
+    // A coach's day plan item, tapped on the Diary: the usual add sheet,
+    // filled in with the plan's amount; what it adds is marked with the plan.
+    if (editorState.planLog) {
+      const plan = editorState.planLog;
+      editorState.planLog = null;
+      if (pickMode) {
+        promptFood = plan.food;
+        promptKind = null;
+        promptServings = plan.quantity || 1;
+        promptPortion = plan.food.portion || 100;
+        promptUnit = plan.food.unit || 'g';
+        showQtyPrompt = true;
+        _planSource = plan.source;
+      }
     }
     // Restore tab before load so the right list is fetched
     if (editorState.foodsActiveTab != null) {
@@ -2098,7 +2150,7 @@
     <button class="meal-section-header" type="button"
       on:click={() => foodsYesterdayCollapsed.set(!$foodsYesterdayCollapsed)}
       aria-expanded={!$foodsYesterdayCollapsed}>
-      <span class="meal-section-label">Yesterday's Meals</span>
+      <span class="meal-section-label">{_ySectionLabel}</span>
       <span class="material-symbols-rounded meal-section-chevron"
         class:meal-section-chevron-collapsed={$foodsYesterdayCollapsed}>expand_more</span>
     </button>
@@ -2122,7 +2174,7 @@
             <span class="material-symbols-rounded">info</span>
           </button>
           <button class="btn-icon accent" on:click|stopPropagation={() => addYesterdayMeal(group)}
-            aria-label="Add {group.mealName} to today" title="Add to today">
+            aria-label={$_('foods.prev_day.add_aria', { values: { meal: group.mealName } })} title={$_('foods.prev_day.add_title')}>
             <span class="material-symbols-rounded">add_circle</span>
           </button>
         </div>
@@ -2654,6 +2706,7 @@
       <FoodDetailSheet
         embedded={true}
         food={_paneFood}
+        kind={_paneKind}
         offStatus={_paneOffStatus}
         onDismiss={() => _paneFood = null}
         on:edit={onDetailEdit}
@@ -2815,7 +2868,7 @@
 
 <!-- Yesterday's meal info sheet — list of items in that meal group -->
 <Sheet open={yesterdayInfoGroup != null}
-  title={yesterdayInfoGroup ? `Yesterday: ${yesterdayInfoGroup.mealName}` : ''}
+  title={yesterdayInfoGroup ? $_('foods.prev_day.sheet_title', { values: { day: _yDayLabel, meal: yesterdayInfoGroup.mealName } }) : ''}
   on:close={() => yesterdayInfoGroup = null}>
   {#if yesterdayInfoGroup}
     {@const _yTotEnergy = Nutrition.displayEnergy(yesterdayInfoGroup.totalKcal, $energyUnit)}

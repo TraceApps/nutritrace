@@ -18,6 +18,15 @@ export function userMgmtActive() {
   return db.prepare('SELECT 1 FROM users LIMIT 1').get() != null;
 }
 
+/**
+ * A fresh install: no account yet, and not single-user mode by choice. The
+ * setup gate, /api/health, /api/auth/status and /api/auth/login all ask this.
+ */
+export function setupRequired() {
+  if (userMgmtActive()) return false;
+  return db.prepare(`SELECT value FROM app_config WHERE key = 'single_user_mode'`).get()?.value !== '1';
+}
+
 // Default raised from 720h (30 days) to 8760h (1 year) on 2026-06-09 after
 // users with biometric sign-in hit the silent 30-day token expiry. With
 // biometric on, the JWT is essentially a refresh proxy — the actual auth
@@ -47,20 +56,33 @@ export function sessionMaxAge() {
   return hours * 60 * 60 * 1000;
 }
 
-/** Attach req.user if a valid JWT cookie is present (non-blocking) */
+// A bearer token is ours when its signature verifies with our secret,
+// expired or not: { user } (null once expired). Anything else (an API
+// token, a reverse proxy's or identity provider's token) isn't: null.
+// jsonwebtoken checks the signature before the times, so an expiry error
+// means the signature held.
+function _ourBearer(token) {
+  try { return { user: jwt.verify(token, JWT_SECRET) }; } catch (e) {
+    return e?.name === 'TokenExpiredError' || e?.name === 'NotBeforeError' ? { user: null } : null;
+  }
+}
+
+/** Attach req.user from our bearer token or the session cookie (non-blocking).
+ *  req.authVia says which one decided: 'bearer', 'cookie' or null. */
 export function authenticate(req, res, next) {
-  // Accept token from cookie OR Authorization: Bearer header (mobile apps use the header)
-  let token = req.cookies?.nt_token;
-  if (!token) {
-    const auth = req.headers.authorization;
-    if (auth?.startsWith('Bearer ')) token = auth.slice(7);
-  }
-  if (!token) { req.user = null; return next(); }
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
-  } catch {
-    req.user = null;
-  }
+  // Our token in the Authorization header decides: the Android app sends
+  // the signed-in account's token there, and its HTTP layer can also carry
+  // a cookie an earlier account's sign-in left behind. Expired, it is no
+  // session, never the cookie's. A bearer that isn't ours (a reverse proxy
+  // in front of the web app can add its own) is left alone, and the web
+  // signs in with its cookie as before.
+  const auth = req.headers.authorization;
+  const ours = auth?.startsWith('Bearer ') ? _ourBearer(auth.slice(7)) : null;
+  if (ours) { req.user = ours.user; req.authVia = 'bearer'; return next(); }
+  const cookie = req.cookies?.nt_token;
+  req.user = null;
+  if (cookie) { try { req.user = jwt.verify(cookie, JWT_SECRET); } catch { /* no session */ } }
+  req.authVia = req.user ? 'cookie' : null;
   next();
 }
 

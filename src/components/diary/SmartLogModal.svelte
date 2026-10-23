@@ -201,7 +201,7 @@
         phase = 'input';
         return;
       }
-      const matches = await matchItems(parsed.items);
+      const matches = await matchItems(parsed.items, { date });
       // Resolve the meal slot from the AI's interpretation, falling back to default
       const resolvedSlot = resolveMealSlot(parsedMeal, meals);
       const slot = resolvedSlot != null ? resolvedSlot : defaultMealSlot;

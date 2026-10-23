@@ -4,13 +4,15 @@
  * Runs periodic checks for:
  * 1. Scheduled wellness sync (Fitbit/Garmin/Withings) per user settings
  * 2. Push notifications for time-based reminders (water, meal, weigh-in)
- * 3. Weekly summary on Sundays
+ * 3. Weekly summary on the day and hour each person chose
  *
  * Checks every 15 minutes. Each user's schedule is read from user_settings.
  */
 
 import db from '../db.js';
+import { linkBase } from './public-url.js';
 import { logger } from '../logger.js';
+import { isBackupDue } from './backup-schedule.js';
 
 function _getUserSetting(userId, key) {
   const row = db.prepare('SELECT value FROM user_settings WHERE user_id = ? AND key = ?').get(userId, key);
@@ -50,12 +52,14 @@ function _getUserLocalTime(userId) {
   if (tz) {
     try {
       const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: tz, hour: 'numeric', minute: 'numeric', hour12: false,
+        // hourCycle h23, not hour12: false: with that, Node 20's ICU writes the
+        // hour after midnight as "24", and nothing set for 00:00 to 00:59 fired.
+        timeZone: tz, hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
         year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
       }).formatToParts(new Date());
       const get = (type) => parts.find(p => p.type === type)?.value;
       return {
-        hour: parseInt(get('hour')),
+        hour: parseInt(get('hour')) % 24,
         minute: parseInt(get('minute')),
         day: parseInt(get('day')),
         weekday: new Date().toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' }),
@@ -72,8 +76,22 @@ function _getUserLocalTime(userId) {
     hour: now.getHours(), minute: now.getMinutes(),
     day: now.getDate(), weekday: now.toLocaleDateString('en-US', { weekday: 'short' }),
     dayOfWeek: now.getDay(),
-    dateStr: now.toISOString().slice(0, 10),
+    dateStr: now.toLocaleDateString('sv-SE'),   // the server's own day, like hour and dayOfWeek
   };
+}
+
+/** YYYY-MM-DD moved by n calendar days (in UTC on the bare date: no time zone moves it). */
+export function shiftDay(date, n) {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Every calendar day from `from` to `to`, both included. */
+export function dayList(from, to) {
+  const out = [];
+  for (let d = from; d <= to && out.length < 4000; d = shiftDay(d, 1)) out.push(d);
+  return out;
 }
 
 function _isEnabled(userId, key) {
@@ -84,6 +102,17 @@ function _isEnabled(userId, key) {
 
 // ── Scheduled wellness sync (per-device) ────────────────────────────────────
 
+/** Minutes since the person's midnight, 0 to 1439. */
+function _localMinutes(local) {
+  return (local.hour % 24) * 60 + local.minute;
+}
+
+/** Whether `cur` is within `len` minutes from `target` (minutes since
+ *  midnight), across midnight too: a 23:55 reminder is due at 00:03. */
+export function inWindow(cur, target, len = 15) {
+  return ((cur - target) % 1440 + 1440) % 1440 < len;
+}
+
 /** Check if a device should sync now based on its per-device settings */
 function _shouldDeviceSync(userId, deviceKey, local) {
   const mode = _getUserSetting(userId, `${deviceKey}SyncMode`);
@@ -92,14 +121,13 @@ function _shouldDeviceSync(userId, deviceKey, local) {
   const winStart = _getUserSetting(userId, `${deviceKey}SyncWindowStart`);
   const winEnd   = _getUserSetting(userId, `${deviceKey}SyncWindowEnd`);
   const interval = _getUserSetting(userId, `${deviceKey}SyncInterval`) ?? 1440;
-  const curMin   = local.hour * 60 + local.minute;
+  const curMin   = _localMinutes(local);
 
   // Daily "Sync At" mode: windowStart set, windowEnd null → sync at a specific time
   if (interval >= 1440 && winStart && !winEnd) {
     const [sh, sm] = winStart.split(':').map(Number);
     const targetMin = sh * 60 + sm;
-    const diff = curMin - targetMin;
-    return diff >= 0 && diff < 15; // within 15-min window of target time
+    return inWindow(curMin, targetMin); // within 15-min window of target time
   }
 
   // Active window check — skip if outside the configured hours
@@ -141,8 +169,7 @@ async function _syncWellness(userId) {
   /** Compute the sync "from" date using the user's configured sync range for a device */
   function _fromDate(deviceKey) {
     const range = _getUserSetting(userId, `${deviceKey}SyncRange`) ?? _getUserSetting(userId, 'wellnessSyncRange') ?? 7;
-    const d = new Date(); d.setDate(d.getDate() - (range - 1));
-    return d.toISOString().slice(0, 10);
+    return shiftDay(today, -(range - 1));
   }
 
   // Fitbit — prefer the new Google Health pipe if the user has those tokens.
@@ -159,11 +186,11 @@ async function _syncWellness(userId) {
     try {
       const { syncDate, syncWorkouts } = await import(fitbitModulePath);
       logger.info(`[scheduler] Fitbit sync for user ${userId}: ${from} → ${today}`);
-      const start = new Date(from + 'T12:00:00');
-      const end   = new Date(today + 'T12:00:00');
+      // Calendar days: read as the server's local noon, at UTC+13/+14 each
+      // came out a day early and today was never fetched.
+      const days = dayList(from, today);
       let totalMetrics = 0, totalErrors = 0;
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().slice(0, 10);
+      for (const dateStr of days) {
         try {
           const { metrics, errors } = await syncDate(userId, dateStr);
           totalMetrics += Object.keys(metrics || {}).length;
@@ -172,7 +199,7 @@ async function _syncWellness(userId) {
           if (e.message?.includes('429')) { logger.warn(`[scheduler] Fitbit rate limited at ${dateStr}`); break; }
           totalErrors++;
         }
-        if (d < end) await new Promise(r => setTimeout(r, 250));
+        if (dateStr < today) await new Promise(r => setTimeout(r, 250));
       }
       logger.info(`[scheduler] Fitbit sync done: ${totalMetrics} metrics across ${from}→${today}, ${totalErrors} errors`);
       if (_getUserSetting(userId, 'workoutsEnabled')) {
@@ -277,17 +304,22 @@ function _checkFastingSchedule(userId) {
   try {
     if (_getUserSetting(userId, 'fastingEnabled') !== true) return;
     if (_getUserSetting(userId, 'fastingScheduleEnabled') !== true) return;
-    const todayStr = new Date().toISOString().slice(0, 10);
+    // The person's own day and clock (their timezone setting, else the
+    // server's), as the app reads them: the UTC date as the "fired today"
+    // mark disagreed with the app's, and the server's clock started an
+    // evening fast hours early on a server in another time zone.
+    const local = _getUserLocalTime(userId);
+    const todayStr = local.dateStr;
     if (_getUserSetting(userId, 'fastingScheduleLastFired') === todayStr) return;
     const days = _getUserSetting(userId, 'fastingScheduleDays') || [0,1,2,3,4,5,6];
-    const dow = new Date().getDay();
+    const dow = local.dayOfWeek;
     if (!Array.isArray(days) || !days.includes(dow)) return;
     const time = _getUserSetting(userId, 'fastingScheduleTime') || '20:00';
     const [hh, mm] = String(time).split(':').map(n => parseInt(n) || 0);
-    const scheduled = new Date(); scheduled.setHours(hh, mm, 0, 0);
-    if (Date.now() < scheduled.getTime()) return;
-    // 4-hour grace window — if user opens late we don't backdate a fast
-    if (Date.now() - scheduled.getTime() > 4 * 3600 * 1000) {
+    const lateMin = _localMinutes(local) - (hh * 60 + mm);
+    if (lateMin < 0) return;
+    // 4-hour grace window: if the person opens late we don't backdate a fast
+    if (lateMin > 4 * 60) {
       _setUserSetting(userId, 'fastingScheduleLastFired', todayStr);
       return;
     }
@@ -313,7 +345,7 @@ async function _pushReminders(userId) {
 
   const { pushNotify } = await import('./push-notify.js');
   const local = _getUserLocalTime(userId);
-  const currentMin = local.hour * 60 + local.minute;
+  const currentMin = _localMinutes(local);
 
   // Water reminders — skip if already hit water goal today
   if (_isEnabled(userId, 'notifWaterReminders')) {
@@ -375,7 +407,7 @@ async function _pushReminders(userId) {
     times.forEach((time, i) => {
       const [th, tm] = time.split(':').map(Number);
       const targetMin = th * 60 + tm;
-      if (currentMin >= targetMin && currentMin < targetMin + 15 && !_ranRecently(userId, `meal_${i}`)) {
+      if (inWindow(currentMin, targetMin) && !_ranRecently(userId, `meal_${i}`)) {
         // Skip if this meal slot already has items logged
         // Check both numeric meal index AND string (some clients may store as string)
         const mealHasItems = diaryItems.some(item => {
@@ -399,7 +431,7 @@ async function _pushReminders(userId) {
     const time = _getUserSetting(userId, 'notifWeighInTime') || '07:00';
     const [th, tm] = time.split(':').map(Number);
     const targetMin = th * 60 + tm;
-    if (currentMin >= targetMin && currentMin < targetMin + 15 && !_ranRecently(userId, 'weighin')) {
+    if (inWindow(currentMin, targetMin) && !_ranRecently(userId, 'weighin')) {
       // Check if weight already logged today (either manual diary entry or synced from scale)
       const today = local.dateStr;
       let alreadyWeighed = false;
@@ -459,9 +491,11 @@ async function _pushReminders(userId) {
     let msg = `Aim for ${goalHours}h tonight — time to wind down.`;
     if (smart) {
       try {
+        // One calendar day back, in UTC on the bare date: read as the
+        // server's local noon, at UTC+13/+14 it was the night before last.
         const yesterday = (() => {
-          const d = new Date(local.dateStr + 'T12:00:00');
-          d.setDate(d.getDate() - 1);
+          const d = new Date(local.dateStr + 'T00:00:00Z');
+          d.setUTCDate(d.getUTCDate() - 1);
           return d.toISOString().slice(0, 10);
         })();
         const row = db.prepare(
@@ -479,39 +513,55 @@ async function _pushReminders(userId) {
     }
 
     // Main bedtime reminder
-    if (currentMin >= bedtimeMin && currentMin < bedtimeMin + 15 && !_ranRecently(userId, 'bedtime')) {
+    if (inWindow(currentMin, bedtimeMin) && !_ranRecently(userId, 'bedtime')) {
       await pushNotify(userId, 'notifBedtime', '🌙 Bedtime Reminder', msg, 4);
     }
 
     // Wind-down pre-reminder
     if (windDownEnabled) {
-      const windDownTarget = bedtimeMin - windDownMin;
-      if (windDownTarget >= 0 && currentMin >= windDownTarget && currentMin < windDownTarget + 15
+      // The evening before, for a bedtime just after midnight.
+      const windDownTarget = (bedtimeMin - windDownMin + 1440) % 1440;
+      if (inWindow(currentMin, windDownTarget)
           && !_ranRecently(userId, 'bedtime_winddown')) {
         await pushNotify(userId, 'notifBedtime', '🌙 Wind Down',
           `Bedtime in ${windDownMin} min — start winding down. ${msg}`, 4);
       }
     }
   }
+}
 
-  // Weekly summary — user-configurable day + time
+// Weekly summary: on the day and hour the person chose, once a week, to each
+// channel they have: a push where a push service is set, an email where the
+// server sends mail and they have an address. Its own step, so an email-only
+// person gets it too (it used to sit behind the push service check). With
+// neither, nothing is sent and nothing is marked as sent.
+async function _weeklySummary(userId) {
+  if (!_isEnabled(userId, 'notifWeeklySummary')) return;
+  const pushService = _getUserSetting(userId, 'notifPushService');
+  const canPush = !!pushService && pushService !== 'none';
+  let canEmail = false;
+  try {
+    const { isEmailConfigured } = await import('../email.js');
+    canEmail = isEmailConfigured() && !!db.prepare('SELECT email FROM users WHERE id = ?').get(userId)?.email;
+  } catch { /* no email */ }
+  if (!canPush && !canEmail) return;
+  const local = _getUserLocalTime(userId);
+  const summaryDay  = _getUserSetting(userId, 'weeklySummaryDay')  ?? 0;    // 0=Sun default
+  const summaryTime = _getUserSetting(userId, 'weeklySummaryTime') ?? '09:00';
+  const [targetHour] = summaryTime.split(':').map(Number);
+  logger.debug(`[scheduler] weekly check: user=${userId} dow=${local.dayOfWeek} target=${summaryDay} hour=${local.hour} targetHour=${targetHour}`);
   // Dedup check is AFTER the day/hour gate so the timestamp only burns when we actually send
-  if (_isEnabled(userId, 'notifWeeklySummary')) {
-    const summaryDay  = _getUserSetting(userId, 'weeklySummaryDay')  ?? 0;    // 0=Sun default
-    const summaryTime = _getUserSetting(userId, 'weeklySummaryTime') ?? '09:00';
-    const [targetHour] = summaryTime.split(':').map(Number);
-    logger.debug(`[scheduler] weekly check: user=${userId} dow=${local.dayOfWeek} target=${summaryDay} hour=${local.hour} targetHour=${targetHour}`);
-    if (local.dayOfWeek === summaryDay && local.hour >= targetHour && local.hour < targetHour + 1
-        && !_ranRecently(userId, 'weekly', 6 * 24 * 60 * 60 * 1000)) {
-      logger.info(`[scheduler] SENDING weekly summary for user ${userId}`);
-      // Push notification
+  if (local.dayOfWeek === summaryDay && local.hour >= targetHour && local.hour < targetHour + 1
+      && !_ranRecently(userId, 'weekly', 6 * 24 * 60 * 60 * 1000)) {
+    logger.info(`[scheduler] SENDING weekly summary for user ${userId} (push=${canPush} email=${canEmail})`);
+    if (canPush) {
       const { sendWeeklySummary } = await import('./push-notify.js');
-      await sendWeeklySummary(userId);
-      // Email digest (if SMTP configured + user has an email on file)
+      await sendWeeklySummary(userId).catch((e) => logger.debug(`[scheduler] weekly push failed for user ${userId}: ${e.message}`));
+    }
+    if (canEmail) {
       try {
         const { sendWeeklySummaryEmail } = await import('../email.js');
-        const origin = db.prepare(`SELECT value FROM app_config WHERE key='app_url'`).get()?.value
-          || 'http://localhost:3001';
+        const origin = linkBase(null) || 'http://localhost:3001';
         await sendWeeklySummaryEmail(userId, origin);
       } catch (e) {
         logger.debug(`[scheduler] weekly email skipped for user ${userId}: ${e.message}`);
@@ -531,6 +581,7 @@ async function _tick() {
     for (const userId of userIds) {
       try {
         await _pushReminders(userId);
+        await _weeklySummary(userId);
         await _syncWellness(userId);
         _checkFastingSchedule(userId);
       } catch (e) {
@@ -570,30 +621,14 @@ async function _tick() {
 // interval-since-last-run gating handles re-tick safety so a 15-min tick
 // can't accidentally fire two backups in the same window.
 
-const _BACKUP_INTERVAL_MS = {
-  daily:   22 * 60 * 60 * 1000,           // 22h (DST + tick buffer)
-  weekly:  6.5 * 24 * 60 * 60 * 1000,     // 6.5 days
-  monthly: 28 * 24 * 60 * 60 * 1000,      // 28 days
-};
-
 async function _checkBackupSchedule() {
   const { getScheduleConfig, runScheduledBackup } = await import('../routes/full-backup.js');
   const cfg = getScheduleConfig();
   if (cfg.schedule === 'off') return;
-  const intervalMs = _BACKUP_INTERVAL_MS[cfg.schedule];
-  if (!intervalMs) return;
+  // The time is on the clock of whoever set it, in the zone saved with it (TraceApps/notetrace#44).
+  if (!isBackupDue(cfg)) return;
 
-  const [hh, mm] = cfg.time.split(':').map(n => parseInt(n, 10));
-  const now = new Date();
-  const scheduledMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0).getTime();
-  if (now.getTime() < scheduledMs) return; // not yet scheduled time today
-
-  if (cfg.lastAutoRun) {
-    const lastMs = new Date(cfg.lastAutoRun).getTime();
-    if (Number.isFinite(lastMs) && now.getTime() - lastMs < intervalMs) return;
-  }
-
-  logger.info(`[backup] auto-backup due (schedule=${cfg.schedule}, time=${cfg.time}, retention=${cfg.retention}, last=${cfg.lastAutoRun || 'never'})`);
+  logger.info(`[backup] auto-backup due (schedule=${cfg.schedule}, time=${cfg.time} ${cfg.runsIn}, retention=${cfg.retention}, last=${cfg.lastAutoRun || 'never'})`);
   try { await runScheduledBackup(); }
   catch (e) { /* runScheduledBackup logs + stores the error itself */ }
 }
@@ -601,7 +636,7 @@ async function _checkBackupSchedule() {
 /** Force sync all connected services for a user — bypasses schedule check */
 export async function forceSync(userId) {
   logger.info(`[scheduler] forced sync for user ${userId}`);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = _getUserLocalTime(userId).dateStr;   // their day, not the UTC date
 
   // Same dispatch logic as the periodic tick above: prefer the new Google
   // Health pipe when the user has those tokens, fall back to legacy fitbit.

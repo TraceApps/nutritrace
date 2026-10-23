@@ -44,8 +44,8 @@ function _getPlugin() {
 }
 
 /**
- * Every read permission NutriTrace actually consumes in readTodayData /
- * readDateRange / readExerciseSessions. The requestPermissions() flow
+ * Every read permission NutriTrace actually consumes in readDays /
+ * readExerciseSessions. The requestPermissions() flow
  * reconciles this list against what's already granted so newly-added
  * types (or types the user previously denied) get re-prompted instead
  * of being silently skipped when *any* other read is already granted.
@@ -126,8 +126,17 @@ export async function checkAvailability() {
  * Returns the authoritative grants blob as of after the dialog, not the
  * plugin's return value from requestPermissions() (which can be stale
  * relative to what the user just tapped through). #204.
+ *
+ * Then, with any read granted, asks for background reads too
+ * (requestBackgroundRead), so the hourly sync can read with the app closed.
  */
 export async function requestPermissions() {
+  const granted = await _requestRecordPermissions();
+  if (granted.read?.length) await requestBackgroundRead();
+  return granted;
+}
+
+async function _requestRecordPermissions() {
   const hc = _getPlugin();
   if (!hc) return { read: [], write: [] };
   try {
@@ -176,6 +185,91 @@ export async function requestPermissions() {
   }
 }
 
+// ── Reading in the background (#294) ──────────────────────────────────
+//
+// Health Connect answers reads only while the app is in front unless the
+// user allows reading in the background (developer.android.com, Health
+// Connect, "Read data"). The hourly background sync needs it to read with
+// the app closed; without it the sync reads while the app is open, as
+// before. HealthBackgroundPlugin.kt asks for it, since the Capacitor
+// Health Connect plugin can only ask for record types.
+
+// A Capacitor plugin proxy answers every property, `then` included, so an
+// async function must never return one: awaiting it calls then() on the
+// native side and fails. It travels in an object.
+let _bgPlugin = null;
+async function _background() {
+  if (!isNative) return null;
+  if (!_bgPlugin) {
+    const { registerPlugin } = await import('@capacitor/core');
+    _bgPlugin = registerPlugin('HealthBackground');
+  }
+  return { plugin: _bgPlugin };
+}
+
+/**
+ * { available, granted }: whether this phone's Health Connect can read in
+ * the background, and whether the user allowed it. Both false off Android,
+ * or on an app build without the native side.
+ */
+export async function getBackgroundReadStatus() {
+  try {
+    const bg = await _background();
+    if (!bg) return { available: false, granted: false };
+    const s = await bg.plugin.status();
+    return { available: !!s?.available, granted: !!s?.granted };
+  } catch {
+    return { available: false, granted: false };
+  }
+}
+
+/**
+ * Ask for background reads with Health Connect's own screen, when the phone
+ * supports it and it isn't allowed yet. Returns the status afterwards.
+ */
+export async function requestBackgroundRead() {
+  try {
+    const bg = await _background();
+    if (!bg) return { available: false, granted: false };
+    const s = await bg.plugin.request();
+    return { available: !!s?.available, granted: !!s?.granted };
+  } catch (e) {
+    console.warn('[health-connect] background read request failed:', e?.message);
+    return getBackgroundReadStatus();
+  }
+}
+
+// ── Running the native reader now ──────────────────────────────────────
+//
+// The background worker (HealthConnectSyncWorker.kt) reads with the SDK and
+// gets what the Capacitor plugin can't: workouts, floors and water. Without
+// background access it can only read while the app is in front, so the app
+// runs it once when it comes to the front and on Health Connect Sync, next
+// to its own read of today. The native side runs one at a time and skips a
+// run when the worker is running or read less than minAgeMs ago. When it
+// finishes, 'nt:hc-worker-done' { changed } goes out on window.
+
+let _doneListening = false;
+
+/** Run the worker once now. Resolves { started, reason? }. */
+export async function runWorkerNow({ minAgeMs = 60000 } = {}) {
+  try {
+    const bg = await _background();
+    if (!bg) return { started: false, reason: 'unsupported' };
+    if (!_doneListening) {
+      _doneListening = true;
+      await bg.plugin.addListener('workerDone', detail => {
+        try { window.dispatchEvent(new CustomEvent('nt:hc-worker-done', { detail })); } catch {}
+      });
+    }
+    const r = await bg.plugin.runNow({ minAgeMs });
+    return { started: !!r?.started, reason: r?.reason };
+  } catch (e) {
+    _dlog(`[health-connect] worker run failed: ${e?.message}`);
+    return { started: false, reason: 'error' };
+  }
+}
+
 /**
  * Check which permissions are currently granted.
  */
@@ -189,354 +283,316 @@ export async function getGrantedPermissions() {
   }
 }
 
-/**
- * Read today's health data from Health Connect.
- * Returns an object of wellness_data-compatible metrics.
- */
-export async function readTodayData(dateStr) {
-  const hc = _getPlugin();
-  if (!hc) return {};
+// ── Which days a sync reads (#294) ──────────────────────────────────────
+//
+// Health Connect keeps history, and other apps write into it late: a watch
+// that syncs the next morning, a night of sleep edited a day after, a
+// phone that was off. A sync that only read today never saw any of it.
+//
+// Android's guide (developer.android.com, Health Connect, "Synchronize
+// data") recommends a changes token per record type. The Capacitor plugin
+// this path uses (@devmaxime/capacitor-health-connect 1.1.0) has no
+// getChangesToken/getChanges, and a deleted record comes back from that
+// API as an id with no date, so the day it belonged to can't be found
+// without keeping every record id. The same guide's fallback for an
+// expired token is to read the last 30 days again and keep what's new;
+// that is what a catch-up does, over a smaller window:
+//
+//  - The 30-second sync reads one day: the one asked for (today).
+//  - A full sync (app start, resume, Sync) also reads the last 7 days, at
+//    most once an hour, and the background worker does the same.
+//  - The first catch-up reads 30 days, all Health Connect lets an app read
+//    from before it was given access ("Read data": "up to 30 days prior to
+//    when any permission was first granted"). After the app was away for
+//    longer than a week, a catch-up reads back to the last day it covered,
+//    up to 30 days.
+//
+// Only a value that changed is marked to send (dbUpsertWellness), so
+// reading a day again costs the server nothing.
 
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  // For cumulative aggregates (Steps, Distance, calories, floors, hydration),
-  // use next-midnight as the end so Health Connect fully contains any
-  // day-spanning source record (Samsung Health writes one 00:00-23:59 Steps
-  // record per day and updates it in place). HC's aggregate math prorates
-  // a partial-overlap window by `overlap/duration`, so ending at `now` gives
-  // `9878 × elapsed_fraction` at 11:47 instead of the full 9878. Extending
-  // to next-midnight makes the record fully contained → 100% counted. For
-  // granular writers (Google Fit, Fitbit-to-HC, phone sensors, etc.) the
-  // sum is identical because no records exist with future timestamps.
-  // #93 reported by traebertthomas-cpu 2026-07-11.
-  const startOfNextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
-  // Records-only endpoint (readRecords calls). Used for sleep, exercise
-  // sessions, resting HR, weight, body comp, blood pressure, etc. —
-  // readRecords doesn't proration-adjust, so `now` is fine here.
-  const todayEnd = now.toISOString();
+/** Days of history Health Connect lets an app read without the history permission. */
+export const HC_HISTORY_DAYS = 30;
+/** A catch-up always reads at least this many days, today included. */
+export const HC_CATCH_UP_DAYS = 7;
+/** A catch-up runs at most this often. */
+export const HC_CATCH_UP_EVERY_MS = 60 * 60 * 1000;
 
-  const metrics = {};
+const _DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-  // Steps (aggregate for full day)
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start: todayStart, end: startOfNextDay,
-      type: 'Steps', groupBy: 'day',
-    });
-    _dlog(`[health-connect] Steps aggregates:`, JSON.stringify(aggregates).slice(0, 200));
-    if (aggregates.length > 0) metrics.steps = aggregates[0].value;
-  } catch (e) { console.warn('[health-connect] Steps error:', e.message); }
+/** YYYY-MM-DD plus n calendar days. */
+export function addDays(dateStr, n) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
 
-  // Distance
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start: todayStart, end: startOfNextDay,
-      type: 'Distance', groupBy: 'day',
-    });
-    if (aggregates.length > 0) metrics.distance_km = +(aggregates[0].value / 1000).toFixed(2);
-  } catch {}
-
-  // Total calories burned
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start: todayStart, end: startOfNextDay,
-      type: 'TotalCaloriesBurned', groupBy: 'day',
-    });
-    if (aggregates.length > 0) metrics.calories_out = Math.round(aggregates[0].value);
-  } catch {}
-
-  // Active calories
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start: todayStart, end: startOfNextDay,
-      type: 'ActiveCaloriesBurned', groupBy: 'day',
-    });
-    if (aggregates.length > 0) metrics.active_calories = Math.round(aggregates[0].value);
-  } catch {}
-
-  // Heart rate (aggregate)
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start: todayStart, end: todayEnd,
-      type: 'HeartRate', groupBy: 'day',
-    });
-    if (aggregates.length > 0) metrics.avg_heart_rate = Math.round(aggregates[0].value);
-  } catch {}
-
-  // Resting heart rate
-  try {
-    const { records } = await hc.readRecords({
-      start: todayStart, end: todayEnd,
-      type: 'RestingHeartRate',
-    });
-    if (records.length > 0) {
-      // Take the most recent reading
-      const latest = records[records.length - 1];
-      metrics.resting_hr = latest.beatsPerMinute || latest.value;
-    }
-  } catch {}
-
-  // Weight
-  try {
-    const { records } = await hc.readRecords({
-      start: todayStart, end: todayEnd,
-      type: 'Weight',
-    });
-    _dlog(`[health-connect] Weight: ${records.length} records`);
-    if (records.length > 0) {
-      const latest = records[records.length - 1];
-      _dlog(`[health-connect] Weight record type: ${typeof latest}`);
-      _dlog(`[health-connect] Weight record FULL:`, JSON.stringify(latest).slice(0, 500));
-      _dlog(`[health-connect] Weight record keys:`, typeof latest === 'object' ? Object.keys(latest) : 'N/A');
-      let wkg = 0;
-      if (typeof latest === 'string') {
-        // Plugin may return Kotlin toString() — parse mass value from it
-        const match = latest.match(/value=([\d.]+)/);
-        if (match) wkg = parseFloat(match[1]);
-        _dlog(`[health-connect] Weight parsed from string: ${wkg}`);
-      } else {
-        // Try every possible property path the plugin might use
-        wkg = latest.weight?.inKilograms ?? latest.mass?.inKilograms ?? latest.value ?? 0;
-        if (typeof wkg === 'object') wkg = wkg.inKilograms ?? wkg.value ?? 0;
-        _dlog(`[health-connect] Weight from object: ${wkg} (weight=${JSON.stringify(latest.weight)}, mass=${JSON.stringify(latest.mass)}, value=${latest.value})`);
-      }
-      if (wkg > 0) metrics.weight_kg = +wkg.toFixed(1);
-      _dlog(`[health-connect] Final weight_kg: ${metrics.weight_kg}`);
-    }
-  } catch (e) { console.warn('[health-connect] Weight error:', e.message); }
-
-  // Sleep: every session of the night, not just the last one (#236). A
-  // night can be several records (Samsung Health splits it wherever you
-  // woke), and more than one app can write the same night.
-  // deriveHealthConnectSleep decides which records are last night, removes
-  // overlap, and writes the canonical Wellness ids. The background worker
-  // runs a Kotlin port of the same code, so both paths store the same
-  // numbers. The window opens at yesterday's midnight so a night that
-  // began yesterday evening is read whole, whenever today the sync runs.
-  try {
-    const sleepFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toISOString();
-    const { records } = await hc.readRecords({
-      start: sleepFrom, end: todayEnd,
-      type: 'SleepSession',
-    });
-    const night = deriveHealthConnectSleep(records, dateStr || localDate(now.getTime()));
-    _dlog(`[health-connect] Sleep: ${records.length} records -> ${JSON.stringify(night)}`);
-    Object.assign(metrics, night);
-  } catch (e) { console.warn('[health-connect] Sleep error:', e?.message); }
-
-  // Exercise sessions — sum duration for the active_minutes metric.
-  // The permission dialog already requests ExerciseSession (line 64 above).
-  // Previously this block read 'ActivitySession' which isn't a real HC type,
-  // so it silently no-op'd on every device — Samsung Health writes
-  // ExerciseSession records, and workouts never reached the wellness metric
-  // OR the workouts table. Reported by traebertthomas-cpu (#91) with
-  // confirmation that duplaja (#89) independently hit the same gap.
-  try {
-    const { records } = await hc.readRecords({
-      start: todayStart, end: todayEnd,
-      type: 'ExerciseSession',
-    });
-    if (records.length > 0) {
-      let totalMin = 0;
-      for (const r of records) {
-        if (r.startTime && r.endTime) {
-          totalMin += Math.round((new Date(r.endTime) - new Date(r.startTime)) / 60000);
-        }
-      }
-      if (totalMin > 0) metrics.active_minutes = totalMin;
-    }
-  } catch {}
-
-  // Blood pressure
-  try {
-    const { records } = await hc.readRecords({
-      start: todayStart, end: todayEnd,
-      type: 'BloodPressure',
-    });
-    if (records.length > 0) {
-      const latest = records[records.length - 1];
-      if (typeof latest === 'string') {
-        const sys = latest.match(/systolic=([\d.]+)/);
-        const dia = latest.match(/diastolic=([\d.]+)/);
-        if (sys) metrics.blood_pressure_systolic = Math.round(parseFloat(sys[1]));
-        if (dia) metrics.blood_pressure_diastolic = Math.round(parseFloat(dia[1]));
-      } else {
-        if (latest.systolic?.inMillimetersOfMercury) metrics.blood_pressure_systolic = Math.round(latest.systolic.inMillimetersOfMercury);
-        if (latest.diastolic?.inMillimetersOfMercury) metrics.blood_pressure_diastolic = Math.round(latest.diastolic.inMillimetersOfMercury);
-      }
-    }
-  } catch (e) { _dlog(`[health-connect] BloodPressure read failed: ${e?.message}`); }
-
-  // Oxygen saturation (SpO2). #206: use the shared percent parser so the
-  // Kotlin toString() path can't drop us to zero when the plugin doesn't
-  // custom-convert the record type.
-  try {
-    const { records } = await hc.readRecords({
-      start: todayStart, end: todayEnd,
-      type: 'OxygenSaturation',
-    });
-    if (records.length > 0) {
-      const pct = parsePercent(records[records.length - 1]);
-      if (pct != null) metrics.spo2_avg = +pct.toFixed(1);
-    }
-  } catch (e) { _dlog(`[health-connect] OxygenSaturation read failed: ${e?.message}`); }
-
-  // Body fat percentage. #206: previously logged 0 when object-path lookup
-  // missed on a Kotlin toString() record.
-  try {
-    const { records } = await hc.readRecords({
-      start: todayStart, end: todayEnd,
-      type: 'BodyFat',
-    });
-    if (records.length > 0) {
-      const pct = parsePercent(records[records.length - 1]);
-      if (pct != null) metrics.body_fat_pct = +pct.toFixed(1);
-    }
-  } catch (e) { console.warn('[health-connect] BodyFat error:', e.message); }
-
-  // Respiratory rate. #206: omit key on parse failure instead of storing 0.
-  try {
-    const { records } = await hc.readRecords({
-      start: todayStart, end: todayEnd,
-      type: 'RespiratoryRate',
-    });
-    if (records.length > 0) {
-      const rate = parseRespiratoryRate(records[records.length - 1]);
-      if (rate != null) metrics.respiratory_rate = +rate.toFixed(1);
-    }
-  } catch (e) { _dlog(`[health-connect] RespiratoryRate read failed: ${e?.message}`); }
-
-  // Floors climbed
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start: todayStart, end: startOfNextDay,
-      type: 'FloorsClimbed', groupBy: 'day',
-    });
-    if (aggregates.length > 0) metrics.floors = Math.round(aggregates[0].value);
-  } catch (e) { _dlog(`[health-connect] FloorsClimbed read failed: ${e?.message}`); }
-
-  // Hydration
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start: todayStart, end: startOfNextDay,
-      type: 'Hydration', groupBy: 'day',
-    });
-    if (aggregates.length > 0) metrics.water_ml = Math.round(aggregates[0].value * 1000); // liters to ml
-  } catch (e) { _dlog(`[health-connect] Hydration read failed: ${e?.message}`); }
-
-  // Bone mass. #206: parseMassKg handles both object and Kotlin toString()
-  // shapes and returns null on failure so we OMIT the key rather than
-  // writing 0 for a real measurement.
-  try {
-    const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'BoneMass' });
-    if (records.length > 0) {
-      const kg = parseMassKg(records[records.length - 1]);
-      if (kg != null) metrics.bone_mass_kg = +kg.toFixed(2);
-    }
-  } catch (e) { _dlog(`[health-connect] BoneMass read failed: ${e?.message}`); }
-
-  // Lean body mass. #206. Note: do NOT map to muscle_mass_kg; Health Connect
-  // does not expose muscle mass through the standard record types.
-  try {
-    const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'LeanBodyMass' });
-    if (records.length > 0) {
-      const kg = parseMassKg(records[records.length - 1]);
-      if (kg != null) metrics.lean_mass_kg = +kg.toFixed(1);
-    }
-  } catch (e) { _dlog(`[health-connect] LeanBodyMass read failed: ${e?.message}`); }
-
-  // Body temperature. #206.
-  try {
-    const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'BodyTemperature' });
-    if (records.length > 0) {
-      const c = parseTemperatureC(records[records.length - 1]);
-      if (c != null) metrics.body_temperature = +c.toFixed(1);
-    }
-  } catch (e) { _dlog(`[health-connect] BodyTemperature read failed: ${e?.message}`); }
-
-  // Basal metabolic rate. #206: parseBmrKcalPerDay handles the Watts form
-  // returned by the plugin's default converter (1 W ~= 20.65 kcal/day) so
-  // wattage is not silently written as kcal/day.
-  try {
-    const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'BasalMetabolicRate' });
-    if (records.length > 0) {
-      const kcalDay = parseBmrKcalPerDay(records[records.length - 1]);
-      if (kcalDay != null) metrics.basal_metabolic_rate = Math.round(kcalDay);
-    }
-  } catch (e) { _dlog(`[health-connect] BasalMetabolicRate read failed: ${e?.message}`); }
-
-  // VO2 Max. #206.
-  try {
-    const { records } = await hc.readRecords({ start: todayStart, end: todayEnd, type: 'Vo2Max' });
-    if (records.length > 0) {
-      const v = parseVo2Max(records[records.length - 1]);
-      if (v != null) metrics.vo2_max = +v.toFixed(1);
-    }
-  } catch (e) { _dlog(`[health-connect] Vo2Max read failed: ${e?.message}`); }
-
-  return metrics;
+/** Every day from `from` to `to`, both included, oldest first. */
+export function dayList(from, to) {
+  const out = [];
+  for (let d = from; d <= to && out.length <= 366; d = addDays(d, 1)) out.push(d);
+  return out;
 }
 
 /**
- * Read a date range of health data. Returns { [date]: { metrics } }.
+ * The first day a catch-up reads. The last 7 days; back to `lastDay` (the
+ * day of the last finished catch-up) when that is older; never more than
+ * 30 days. No catch-up yet: 30 days.
  */
-export async function readDateRange(startDate, endDate) {
-  const hc = _getPlugin();
-  if (!hc) return {};
+export function catchUpFrom(today, lastDay) {
+  const oldest = addDays(today, -(HC_HISTORY_DAYS - 1));
+  const recent = addDays(today, -(HC_CATCH_UP_DAYS - 1));
+  if (!_DAY_RE.test(lastDay || '')) return oldest;
+  const from = lastDay < recent ? lastDay : recent;
+  return from < oldest ? oldest : from;
+}
 
-  const start = new Date(startDate + 'T00:00:00').toISOString();
-  const end = new Date(endDate + 'T23:59:59').toISOString();
-  const result = {};
+/** Whether a catch-up is due, `lastAt` being when the last one ran. */
+export function catchUpDue(lastAt, nowMs) {
+  const t = Date.parse(lastAt || '');
+  return !Number.isFinite(t) || t > nowMs || nowMs - t >= HC_CATCH_UP_EVERY_MS;
+}
 
-  // Steps by day
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start, end, type: 'Steps', groupBy: 'day',
-    });
-    for (const a of aggregates) {
-      const date = a.startTime.slice(0, 10);
-      result[date] = result[date] || {};
-      result[date].steps = a.value;
+/**
+ * One local day as instants: midnight to the next midnight. Aggregates use
+ * the whole day, not "now": Health Connect prorates a record that only
+ * partly overlaps the window, so Samsung Health's one 00:00-23:59 Steps
+ * record per day, updated in place, counted 9878 x elapsed fraction at
+ * 11:47 instead of 9878 (#93, traebertthomas-cpu). Writers with smaller
+ * records give the same sum, since nothing is recorded in the future.
+ */
+export function dayBounds(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return {
+    start: new Date(y, m - 1, d).toISOString(),
+    end: new Date(y, m - 1, d + 1).toISOString(),
+  };
+}
+
+/**
+ * When a point record (weight, resting heart rate, SpO2...) was taken, in
+ * ms. The plugin sends Weight and RestingHeartRate as objects with `time`;
+ * the other types arrive as the Kotlin toString(), "BodyFatRecord(time=
+ * 2026-10-20T07:00:00Z, zoneOffset=..., percentage=...)". Null if unknown.
+ */
+export function recordTimeMs(rec) {
+  let t = null;
+  if (rec && typeof rec === 'object') t = rec.time ?? rec.startTime ?? null;
+  else if (typeof rec === 'string') t = rec.match(/\btime=([0-9T:.\-]+Z)/)?.[1] ?? null;
+  const ms = Date.parse(t || '');
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Runs of consecutive days, from a sorted list. */
+function _runs(sorted) {
+  const runs = [];
+  for (const d of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && addDays(last[last.length - 1], 1) === d) last.push(d);
+    else runs.push([d]);
+  }
+  return runs;
+}
+
+// Daily totals. `sum`: a day that isn't 24 hours (clock change) comes back
+// from the plugin as two buckets, and both belong to the day. `perm` is the
+// name the plugin reports the permission under (getGrantedPermissions uses
+// AndroidX's record type names, where heart rate is HeartRateSeries).
+// These five are all the plugin aggregates; it answers FloorsClimbed and
+// Hydration with no buckets, so the foreground sync never had them (the
+// background worker reads them with the SDK).
+const AGGREGATES = [
+  { type: 'Steps',                perm: 'Steps',                key: 'steps',           sum: true, conv: v => v },
+  { type: 'Distance',             perm: 'Distance',             key: 'distance_km',     sum: true, conv: v => +(v / 1000).toFixed(2) },
+  { type: 'TotalCaloriesBurned',  perm: 'TotalCaloriesBurned',  key: 'calories_out',    sum: true, conv: v => Math.round(v) },
+  { type: 'ActiveCaloriesBurned', perm: 'ActiveCaloriesBurned', key: 'active_calories', sum: true, conv: v => Math.round(v) },
+  { type: 'HeartRate',            perm: 'HeartRateSeries',      key: 'avg_heart_rate',  sum: false, conv: v => Math.round(v) },
+];
+
+// The plugin can't read a type its name map doesn't have ("Unexpected
+// RecordType": ExerciseSession is ActivitySession there). That read never
+// worked here, so it isn't counted as a failed read.
+const _unreadable = e => /Unexpected RecordType/i.test(String(e?.message || e));
+
+function _parseWeight(latest) {
+  let wkg = 0;
+  if (typeof latest === 'string') {
+    // Plugin may return Kotlin toString(); parse the mass value from it
+    const match = latest.match(/value=([\d.]+)/);
+    if (match) wkg = parseFloat(match[1]);
+  } else {
+    // Try every property path the plugin might use
+    wkg = latest.weight?.inKilograms ?? latest.mass?.inKilograms ?? latest.value ?? 0;
+    if (typeof wkg === 'object') wkg = wkg.inKilograms ?? wkg.value ?? 0;
+  }
+  return wkg > 0 ? { weight_kg: +wkg.toFixed(1) } : {};
+}
+
+function _parseBloodPressure(latest) {
+  const out = {};
+  if (typeof latest === 'string') {
+    const sys = latest.match(/systolic=([\d.]+)/);
+    const dia = latest.match(/diastolic=([\d.]+)/);
+    if (sys) out.blood_pressure_systolic = Math.round(parseFloat(sys[1]));
+    if (dia) out.blood_pressure_diastolic = Math.round(parseFloat(dia[1]));
+  } else {
+    if (latest.systolic?.inMillimetersOfMercury) out.blood_pressure_systolic = Math.round(latest.systolic.inMillimetersOfMercury);
+    if (latest.diastolic?.inMillimetersOfMercury) out.blood_pressure_diastolic = Math.round(latest.diastolic.inMillimetersOfMercury);
+  }
+  return out;
+}
+
+const _one = (key, parse, digits) => rec => {
+  const v = parse(rec);
+  if (v == null) return {};
+  return { [key]: digits == null ? Math.round(v) : +v.toFixed(digits) };
+};
+
+// The latest record of each day. #206: the shared parsers return null on a
+// shape they can't read, and the key is left out rather than stored as 0.
+const POINT_READS = [
+  { type: 'RestingHeartRate',   parse: rec => ({ resting_hr: rec?.beatsPerMinute || rec?.value }) },
+  { type: 'Weight',             parse: _parseWeight },
+  { type: 'BloodPressure',      parse: _parseBloodPressure },
+  { type: 'OxygenSaturation',   parse: _one('spo2_avg', parsePercent, 1) },
+  { type: 'BodyFat',            parse: _one('body_fat_pct', parsePercent, 1) },
+  { type: 'RespiratoryRate',    parse: _one('respiratory_rate', parseRespiratoryRate, 1) },
+  { type: 'BoneMass',           parse: _one('bone_mass_kg', parseMassKg, 2) },
+  // Not muscle_mass_kg: Health Connect has no muscle mass record type.
+  { type: 'LeanBodyMass',       parse: _one('lean_mass_kg', parseMassKg, 1) },
+  { type: 'BodyTemperature',    parse: _one('body_temperature', parseTemperatureC, 1) },
+  // Watts in the string form; parseBmrKcalPerDay converts (#206).
+  { type: 'BasalMetabolicRate', parse: _one('basal_metabolic_rate', parseBmrKcalPerDay, null) },
+  { type: 'Vo2Max',             parse: _one('vo2_max', parseVo2Max, 1) },
+];
+
+/**
+ * Read Health Connect for `days` (YYYY-MM-DD, device time zone). Returns
+ * { byDay: { [day]: metrics }, failed } where `failed` counts reads that
+ * threw. Each day's values belong to that day: totals over its own
+ * midnight-to-midnight, the latest reading taken that day, and the night
+ * you woke up from that day.
+ *
+ * `granted` (a Set of the plugin's permission names) skips types without
+ * permission, so a type the user left off isn't a failure. The plugin
+ * answers a failed total with no buckets rather than an error, so a granted
+ * total that comes back without all of its buckets counts as failed. A total of 0 is kept for today,
+ * as it always was; on a past day the plugin's 0 means nothing was recorded
+ * (it sends 0 for "no data"), and it is left out, as the worker does.
+ */
+export async function readDays(hc, days, { now = new Date(), granted = null } = {}) {
+  const sorted = [...new Set(days)].filter(d => _DAY_RE.test(d)).sort();
+  const byDay = {};
+  let failed = 0;
+  if (!hc || !sorted.length) return { byDay, failed };
+  for (const d of sorted) byDay[d] = {};
+  const can = type => !granted || granted.has(type);
+  const nowMs = now.getTime();
+  const today = localDate(nowMs);
+
+  // Totals, one window per day.
+  for (const d of sorted) {
+    const { start, end } = dayBounds(d);
+    if (Date.parse(start) > nowMs) continue;
+    // One bucket per 24 hours from midnight: two on a 25-hour day.
+    const buckets = Math.ceil((Date.parse(end) - Date.parse(start)) / 86400000);
+    for (const a of AGGREGATES) {
+      if (!can(a.perm)) continue;
+      try {
+        const { aggregates } = await hc.aggregateRecords({ start, end, type: a.type, groupBy: 'day' });
+        if (!aggregates || aggregates.length < buckets) {
+          failed++;
+          _dlog(`[health-connect] ${a.type} total for ${d} came back incomplete`);
+          continue;
+        }
+        const raw = a.sum
+          ? aggregates.reduce((t, x) => t + (Number(x.value) || 0), 0)
+          : Number(aggregates[0].value);
+        if (!Number.isFinite(raw)) continue;
+        const v = a.conv(raw);
+        if (v === 0 && d !== today) continue;
+        byDay[d][a.key] = v;
+        if (a.type === 'Steps') _dlog(`[health-connect] ${d} Steps aggregates:`, JSON.stringify(aggregates).slice(0, 200));
+      } catch (e) {
+        failed++;
+        _dlog(`[health-connect] ${a.type} aggregate failed for ${d}: ${e?.message}`);
+      }
     }
-  } catch {}
+  }
 
-  // Distance by day
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start, end, type: 'Distance', groupBy: 'day',
-    });
-    for (const a of aggregates) {
-      const date = a.startTime.slice(0, 10);
-      result[date] = result[date] || {};
-      result[date].distance_km = +(a.value / 1000).toFixed(2);
+  // Records: one read per type for each run of consecutive days.
+  for (const run of _runs(sorted)) {
+    const start = dayBounds(run[0]).start;
+    const runEnd = dayBounds(run[run.length - 1]).end;
+    if (Date.parse(start) > nowMs) continue;
+    const end = Date.parse(runEnd) < nowMs ? runEnd : now.toISOString();
+    const inRun = new Set(run);
+
+    for (const p of POINT_READS) {
+      if (!can(p.type)) continue;
+      try {
+        const { records } = await hc.readRecords({ start, end, type: p.type });
+        const latest = {};
+        (records || []).forEach(rec => {
+          const ms = recordTimeMs(rec);
+          // A record with no readable time can only be placed when one day
+          // was read; the last one returned wins, as it always did.
+          const day = ms != null ? localDate(ms) : (run.length === 1 ? run[0] : null);
+          if (!day || !inRun.has(day)) return;
+          const prev = latest[day];
+          if (!prev || (ms ?? -Infinity) >= (prev.ms ?? -Infinity)) latest[day] = { rec, ms };
+        });
+        for (const [day, { rec }] of Object.entries(latest)) {
+          for (const [k, v] of Object.entries(p.parse(rec) || {})) {
+            if (v != null && v !== '' && Number.isFinite(Number(v))) byDay[day][k] = Number(v);
+          }
+        }
+      } catch (e) {
+        if (!_unreadable(e)) failed++;
+        _dlog(`[health-connect] ${p.type} read failed: ${e?.message}`);
+      }
     }
-  } catch {}
 
-  // Calories by day
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start, end, type: 'TotalCaloriesBurned', groupBy: 'day',
-    });
-    for (const a of aggregates) {
-      const date = a.startTime.slice(0, 10);
-      result[date] = result[date] || {};
-      result[date].calories_out = Math.round(a.value);
+    // Sleep: every session of each night, not just the last one (#236). A
+    // night can be several records (Samsung Health splits it wherever you
+    // woke), and more than one app can write the same night.
+    // deriveHealthConnectSleep picks the night that ended on the day, removes
+    // overlap, and writes the canonical Wellness ids. The background worker
+    // runs a Kotlin port of the same code, so both paths store the same
+    // numbers. The read opens at midnight the day before the first day, so
+    // a night that began that evening is read whole.
+    if (can('SleepSession')) {
+      try {
+        const sleepFrom = dayBounds(addDays(run[0], -1)).start;
+        const { records } = await hc.readRecords({ start: sleepFrom, end, type: 'SleepSession' });
+        for (const day of run) Object.assign(byDay[day], deriveHealthConnectSleep(records || [], day));
+        _dlog(`[health-connect] Sleep: ${records?.length || 0} records for ${run[0]}..${run[run.length - 1]}`);
+      } catch (e) {
+        failed++;
+        console.warn('[health-connect] Sleep error:', e?.message);
+      }
     }
-  } catch {}
 
-  // Heart rate by day
-  try {
-    const { aggregates } = await hc.aggregateRecords({
-      start, end, type: 'HeartRate', groupBy: 'day',
-    });
-    for (const a of aggregates) {
-      const date = a.startTime.slice(0, 10);
-      result[date] = result[date] || {};
-      result[date].avg_heart_rate = Math.round(a.value);
+    // Exercise sessions: their minutes, by the day each one started, go to
+    // active_minutes. The same sessions become workouts in syncHealthConnect.
+    if (can('ExerciseSession')) {
+      try {
+        const { records } = await hc.readRecords({ start, end, type: 'ExerciseSession' });
+        const mins = {};
+        for (const r of records || []) {
+          const s = Date.parse(r?.startTime || ''), e = Date.parse(r?.endTime || '');
+          if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+          const day = localDate(s);
+          if (!inRun.has(day)) continue;
+          mins[day] = (mins[day] || 0) + Math.round((e - s) / 60000);
+        }
+        for (const [day, m] of Object.entries(mins)) if (m > 0) byDay[day].active_minutes = m;
+      } catch (e) {
+        if (!_unreadable(e)) failed++;
+        _dlog(`[health-connect] ExerciseSession read failed: ${e?.message}`);
+      }
     }
-  } catch {}
+  }
 
-  return result;
+  return { byDay, failed };
 }
 
 /**
@@ -553,8 +609,7 @@ export async function readDateRange(startDate, endDate) {
  * a composite key if metadata.id is empty (defensive; the plugin sets it in
  * practice).
  */
-export async function readExerciseSessions(fromIso, toIso) {
-  const hc = _getPlugin();
+export async function readExerciseSessions(fromIso, toIso, hc = _getPlugin()) {
   if (!hc) return [];
 
   let sessions = [];
@@ -649,53 +704,113 @@ export async function readExerciseSessions(fromIso, toIso) {
 }
 
 /**
- * Sync Health Connect data to local wellness_data DB.
- * Called during sync cycle when Health Connect is enabled.
+ * Read Health Connect into the local wellness_data table, each day's values
+ * under that day (#294). Reads `dateStr` (the day the caller shows, today
+ * by default) and, with `catchUp` and when one is due, the catch-up window
+ * (see catchUpFrom). Only values that changed are marked to send.
+ * Returns the metrics read for `dateStr`.
+ *
+ * `deps` is for tests: { hc, db, now, snapshot }.
+ *
+ * One at a time: opening the app runs a sync while Wellness may start its
+ * own, and the second then finds the catch-up done instead of reading the
+ * same days again.
  */
-export async function syncHealthConnect(dateStr) {
-  const metrics = await readTodayData(dateStr);
-  const { dbUpsertWellness, dbUpsertWorkoutLocal } = await import('./db-native.js');
+let _hcQueue = Promise.resolve();
+export function syncHealthConnect(dateStr, opts = {}, deps = null) {
+  const run = _hcQueue.then(() => _syncHealthConnect(dateStr, opts, deps));
+  _hcQueue = run.catch(() => {});
+  return run;
+}
 
-  for (const [type, value] of Object.entries(metrics)) {
-    if (value != null) {
-      await dbUpsertWellness(dateStr, 'health_connect', type, value);
+async function _syncHealthConnect(dateStr, { catchUp = false } = {}, deps = null) {
+  const hc = deps ? deps.hc : _getPlugin();
+  if (!hc) return {};
+  const db = deps?.db ?? await import('./db-native.js');
+  const now = deps?.now ?? new Date();
+  const today = localDate(now.getTime());
+  const day = _DAY_RE.test(dateStr || '') ? dateStr : today;
+
+  const days = new Set([day]);
+  let caughtUp = false;
+  if (catchUp) {
+    let lastAt = null, lastDay = null;
+    try {
+      lastAt = await db.dbGetSyncMeta('hc_catchup_at');
+      lastDay = await db.dbGetSyncMeta('hc_catchup_day');
+    } catch {}
+    if (catchUpDue(lastAt, now.getTime())) {
+      for (const d of dayList(catchUpFrom(today, lastDay), today)) days.add(d);
+      caughtUp = true;
     }
   }
 
-  // ExerciseSession → local workouts. Reads the same date window
-  // readTodayData used so a manual sync captures today's exercise. The push
-  // path (sync.js) will send these upstream on the next cycle; a locally-
-  // authored workout has server_id=NULL until the push confirms.
-  let workoutCount = 0;
+  // Only types the user granted: one left off isn't a failed read. An empty
+  // answer (the plugin failed to say) reads everything, as before.
+  let granted = null;
   try {
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-    const todayEnd = now.toISOString();
-    const sessions = await readExerciseSessions(todayStart, todayEnd);
-    for (const w of sessions) {
-      try {
-        await dbUpsertWorkoutLocal(w);
-        workoutCount++;
-      } catch (e) {
-        _dlog(`[health-connect] workout upsert failed for ${w.source_id}: ${e?.message}`);
+    const g = await hc.getGrantedPermissions();
+    if (Array.isArray(g?.read) && g.read.length) granted = new Set(g.read);
+  } catch {}
+
+  const { byDay, failed } = await readDays(hc, [...days], { now, granted });
+  const daysWithValues = [];
+  for (const [d, metrics] of Object.entries(byDay)) {
+    let n = 0;
+    for (const [type, value] of Object.entries(metrics)) {
+      if (value != null) { await db.dbUpsertWellness(d, 'health_connect', type, value); n++; }
+    }
+    if (n) daysWithValues.push(d);
+  }
+
+  // ExerciseSession -> local workouts, over the same days. Keyed by the
+  // Health Connect record id (dbUpsertWorkoutLocal), so a session read again
+  // updates its row instead of adding one. The push path (sync.js) sends a
+  // workout up until the server confirms it (server_id).
+  let workoutCount = 0;
+  if (!granted || granted.has('ExerciseSession')) {
+    for (const run of _runs([...days].sort())) {
+      const start = dayBounds(run[0]).start;
+      const runEnd = dayBounds(run[run.length - 1]).end;
+      if (Date.parse(start) > now.getTime()) continue;
+      const end = Date.parse(runEnd) < now.getTime() ? runEnd : now.toISOString();
+      const inRun = new Set(run);
+      const sessions = await readExerciseSessions(start, end, hc);
+      for (const w of sessions) {
+        if (!inRun.has(w.date)) continue;
+        try {
+          await db.dbUpsertWorkoutLocal(w);
+          workoutCount++;
+        } catch (e) {
+          _dlog(`[health-connect] workout upsert failed for ${w.source_id}: ${e?.message}`);
+        }
       }
     }
-  } catch (e) {
-    _dlog(`[health-connect] ExerciseSession sync failed: ${e?.message}`);
   }
 
   // Snapshot derived scores (Readiness + Resilience pillars) into the same
-  // local wellness_data table — mirrors what server/lib/wellness-scores.js
-  // does after a Fitbit/Garmin/Google Health sync. Without this, the Wellness
-  // page Resilience card stays blank in Android local-only mode.
+  // local wellness_data table, as server/lib/wellness-scores.js does after a
+  // Fitbit/Garmin/Google Health sync. Without this, the Wellness page
+  // Resilience card stays blank in Android local-only mode. For the day
+  // asked for only, as before: its baseline is the 30 days before today, so
+  // it would be wrong for a day caught up in the past.
   try {
-    const { snapshotScoresLocal } = await import('./wellness-scores-local.js');
-    await snapshotScoresLocal(dateStr);
+    const snapshot = deps?.snapshot ?? (await import('./wellness-scores-local.js')).snapshotScoresLocal;
+    await snapshot(day);
   } catch (e) {
     _dlog(`[health-connect] snapshot failed: ${e?.message}`);
   }
 
-  _dlog(`[health-connect] Synced ${Object.keys(metrics).length} metrics + ${workoutCount} workouts for ${dateStr}`);
-  return metrics;
-}
+  // The window is stamped when it was read, so the next one is an hour
+  // away; its last day only when every read worked, so a failed read is
+  // tried again from the same day.
+  if (caughtUp) {
+    try {
+      await db.dbSetSyncMeta('hc_catchup_at', now.toISOString());
+      if (!failed) await db.dbSetSyncMeta('hc_catchup_day', today);
+    } catch {}
+  }
 
+  _dlog(`[health-connect] Synced ${days.size} day(s) for ${day}: ${daysWithValues.length} with values, ${workoutCount} workouts, ${failed} failed reads`);
+  return byDay[day] || {};
+}

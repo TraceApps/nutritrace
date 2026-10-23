@@ -1,6 +1,8 @@
 <script context="module">
   // Survives the remount between /settings and /settings/<slug> (#227).
-  const _scrollMemo = { scroller: null, indexTop: 0 };
+  // railTop: the desktop rail is rebuilt by that remount too, so opening a
+  // section from the index would otherwise snap the rail back to Profile.
+  const _scrollMemo = { scroller: null, indexTop: 0, railTop: 0 };
 </script>
 
 <script>
@@ -53,6 +55,7 @@
   import Email             from './settings/Email.svelte';
   import ApiTokens         from './settings/ApiTokens.svelte';
   import Webhooks          from './settings/Webhooks.svelte';
+  import Support           from './settings/Support.svelte';
   import About             from './settings/About.svelte';
   import Profile           from './Profile.svelte';
   import { foldText } from '../lib/search-text.js';
@@ -102,8 +105,13 @@
     const s = _pageScroller();
     // Same scroller as last time: we came here from elsewhere in Settings.
     // A different one: Settings was opened fresh and already starts at 0.
-    if (s && s === _scrollMemo.scroller) _placeScroll(currentSection);
-    else _scrollMemo.indexTop = 0;
+    if (s && s === _scrollMemo.scroller) {
+      _placeScroll(currentSection);
+      if (_railEl) _railEl.scrollTop = _scrollMemo.railTop;
+    } else {
+      _scrollMemo.indexTop = 0;
+      _scrollMemo.railTop = 0;
+    }
     _scrollMemo.scroller = s;
     _scrollerEl = s;
     s?.addEventListener('scroll', _recordIndexScroll, { passive: true });
@@ -246,6 +254,7 @@
     email:             { titleKey: 'settings.email.section',             icon: 'mail' },
     apiTokens:         { titleKey: 'settings.api_tokens.section',        icon: 'key' },
     webhooks:          { titleKey: 'settings.webhooks.section',          icon: 'webhook' },
+    support:           { titleKey: 'settings.support.section',           icon: 'volunteer_activism' },
     about:             { titleKey: 'settings.about.section',             icon: 'info' },
     profile:           { titleKey: 'profile.title',                      icon: 'person' },
   };
@@ -279,6 +288,7 @@
     email:             Email,
     apiTokens:         ApiTokens,
     webhooks:          Webhooks,
+    support:           Support,
     about:             About,
     profile:           Profile,
   };
@@ -288,10 +298,10 @@
   // reachable even when the section body isn't mounted — the search
   // runs on the index, before drill-in.
   const SECTION_KEYWORDS = {
-    serverConnection:  ['server','connection','sync','cloud','local','remote','connect','disconnect','url'],
+    serverConnection:  ['server','connection','sync','cloud','local','remote','connect','disconnect','url','http','https','plain http','not encrypted','unencrypted','encryption'],
     authentication:    ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group'],
     appearance:        ['appearance','theme','dark','light','accent','color','navigation','sidebar','persistent','start page','animations','celebrations','reduce motion','banner','page banner','force mobile','mobile layout','mobile view','phone layout','narrow layout'],
-    regional:          ['regional','language','translation','date format','time format','locale','date','time','12h','24h','units','energy unit','weight unit','height','circumference','distance','temperature','imperial','metric'],
+    regional:          ['regional','language','translation','date format','time format','locale','first day of week','first day','week start','start of week','week starts','monday','sunday','saturday','calendar','date','time','12h','24h','units','energy unit','weight unit','height','circumference','distance','temperature','imperial','metric'],
     diary:             ['diary','brands','timestamps','thumbnails','nutrients','nutrition units','macros','macro summary','prompt quantity','portion size','nutrition bar','goals progress','meal names','meals','activity','activity section','exercise','activity template','workout template','template','compendium','met','fasting','fast','intermittent fasting','if','16:8','omad','time restricted','unit metadata','unit conversion','unit conversions','nutrition basis','basis','serving units','serving sizes','density','g/ml','slice','bottle','cookie','milliliter','milliliters','mass','volume','oil','honey','warn','daily notes','notes','quick calories','quick cal','bolt','adjust calorie','calorie adjustment','earn back','wearable activity','activity policy','widget','widgets','rail','right rail','right column','desktop rail','desktop widgets','day summary widget','water widget','weight widget','measurements widget','activity impact','day notes','mark complete','completion','meal completion','close day','close today','adherence','default field','cursor','focus','number of servings','serving size'],
     foods:             ['foods','thumbnails','category','notes','yesterday meals','sort order','sort','barcode','scan','beep','flashlight','crop photos','search all','all sources','merged search','default source','default search','my foods','off','usda','mealie'],
     water:             ['water','display unit','daily goal','containers','bottle','cup','glass'],
@@ -302,20 +312,21 @@
     bodyStats:         ['body stats','body','weight','measurements','stats','body fat','body water','hydration','muscle','bone'],
     statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
     connectedServices: ['food sources','connected services','usda','open food facts','mealie','cooktrace','recipe','recipes','pull','import','import all','bulk import','bulk','pantry','import pantry','read:recipes','read:pantry','search language','country','api key','credentials','username','password','bearer','token'],
-    ai:                ['ai','trace','assistant','provider','model','custom model','model id','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights','claude','openai','gemini','sonnet','opus','haiku','gpt','gemini 3','ollama','lm studio','deepseek','groq','openai compatible','oai-compat','base url'],
-    notifications:     ['notifications','reminders','water reminder','meal reminder','weigh-in','weigh in','gotify','apprise','ntfy','push','alerts','wellness alerts','goal celebration','weekly summary','email summary'],
+    ai:                ['ai','trace','assistant','test connection','connection','failed to fetch','cors','v1','without','provider','model','custom model','model id','api key','artificial intelligence','chat','smart log','voice','quick log','goal insights','claude','openai','gemini','sonnet','opus','haiku','fable','gpt','gpt-6','luna','sol','terra','gemini 3','flash','flash lite','pro preview','ollama','lm studio','deepseek','groq','openai compatible','oai-compat','base url'],
+    notifications:     ['notifications','reminders','water reminder','meal reminder','weigh-in','weigh in','gotify','apprise','ntfy','push','alerts','wellness alerts','goal celebration','weekly summary','email summary','coach','coaching','client','message','messages','recommendation','client answer','email me','day plan','meal plan'],
     wellness:          ['wellness','activity tracking','fitbit','withings','garmin','health connect','steps','sleep','heart rate','hrv','spo2','sync mode','sync range','connect','disconnect','connected devices','fitness tracker','body battery','stress','lifttrace','workout','calories burned','wearable','mirror wellness weight','scale weight','body stats weight','weight mirror'],
     sharing:           ['sharing','share','group','catalogue','catalog','visibility','private','everyone','members','food sharing','auto share','autoshare','automatic sharing','default visibility','default sharing','new items','new foods','new meals','new recipes','bulk share'],
     backup:            ['backup','full backup','restore','zip','images','clear data','reset','defaults','clear settings','danger zone'],
     importExport:      ['import','export','import & export','json','csv','bulk import','foods bulk','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','migrate','migration','from another app','diary csv','full nutrition csv','micronutrients export','vitamins export','custom nutrients export'],
     email:             ['email','smtp','mail','password reset','invites','notifications'],
     profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','avatar','log out','logout','sign out','password','change password','biometric','fingerprint','face unlock','face id'],
-    users:             ['users','user management','accounts','login','admin','register','invite','revoke','pending invite','session','session duration','password policy','strong password','strong passwords','require strong','zxcvbn'],
+    users:             ['users','user management','accounts','login','admin','register','invite','revoke','pending invite','session','session duration','password policy','strong password','strong passwords','require strong','zxcvbn','coach','coaching','coach role','client','clients','pairing','end coaching','dietitian','trainer'],
     apiTokens:         ['api','api tokens','token','federation','cooktrace','lifttrace','bearer','integration','integrations','external','third-party','third party'],
     webhooks:          ['webhooks','webhook','automation','n8n','home assistant','ifttt','push','event','integration','integrations','http post','callback url','signature','hmac','secret'],
     helpImprove:       ['diagnostics','logs','verbose','calibration','export','bug','report','troubleshoot'],
     updates:           ['updates','update','upgrade','version','new version','changelog','release','releases','apk','install','download','check for updates','auto-check','check frequency','check interval','how often','hourly','daily','manual','manual only','cadence','banner','notification','channel','stable','dev','dev-latest','beta','github','server update','docker','compose','docker-compose'],
-    about:             ['about','version','nutritrace'],
+    support:           ['support','donate','donation','sponsor','github sponsors','ko-fi','kofi','tip','star','report a bug','bug','translate','weblate','help'],
+    about:             ['about','version','nutritrace','license'],
   };
 
   // Visibility predicate for section-toggle rows. Only filters when
@@ -666,6 +677,12 @@
     {/if}
   {/if}
 
+  <p class="settings-group-label">NutriTrace</p>
+  <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'support')} class:active={currentSection === 'support'} aria-current={currentSection === 'support' ? 'page' : undefined} on:click={() => toggleSection('support')}>
+    <span class="material-symbols-rounded si">volunteer_activism</span>
+    <span>{$_('settings.support.section')}</span>
+    <span class="material-symbols-rounded chevron">expand_more</span>
+  </button>
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'about')} class:active={currentSection === 'about'} aria-current={currentSection === 'about' ? 'page' : undefined} on:click={() => toggleSection('about')}>
     <span class="material-symbols-rounded si">info</span>
     <span>{$_('settings.about.section')}</span>
@@ -742,7 +759,8 @@
       <!-- Left rail (desktop only, ≥1024px). Always shows the full
            section list so users can jump between sections without
            going back to the index. Hidden on mobile via CSS. -->
-      <aside class="settings-nav-rail" bind:this={_railEl}>
+      <aside class="settings-nav-rail" bind:this={_railEl}
+             on:scroll={() => { _scrollMemo.railTop = _railEl.scrollTop; }}>
         <!-- Sliding highlight pill (desktop rail). Absolutely
              positioned; its translateY + height animate to the
              active rail button on every section change. Behind
@@ -1431,22 +1449,6 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   :global(.spin) { animation: spin 1s linear infinite; display: inline-block; }
 
-  /* Legacy: labs badge is no longer used anywhere in the settings tree
-     but the class name may still appear in translation strings; kept as
-     a defensive style. */
-  :global(.labs-badge) {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    background: linear-gradient(135deg, #f59e0b, #ef4444);
-    color: #fff;
-    padding: 2px 6px;
-    border-radius: 99px;
-    margin-left: 6px;
-    vertical-align: middle;
-  }
-
   /* ───────────────────────────────────────────────────────────────
      Phase A: Two-pane desktop shell (≥1024px).
 
@@ -1474,6 +1476,10 @@
       gap: 24px;
       align-items: start;
     }
+    /* The pane's first card starts level with the rail's top edge.
+       .section-body's 12px top padding (right for the phone's stacked
+       view) pushed every section 12px below the rail here. */
+    :global(html.wide-content) .settings-pane :global(.section-body) { padding-top: 0; }
 
 
     /* Left rail — sticky below the header + search bar, own scroll

@@ -76,7 +76,10 @@ export function registerRecentFoods(server, { userId }) {
           // hydration prefers the server id when present. Use a positive-
           // number check (not `??`) so a legacy row with food_server_id=0
           // doesn't collide with foods.id=0 or waste a dedup slot.
+          // food_server_id null: logged on a phone before the food reached
+          // the server, so its id is the phone's own and names nothing here.
           const srv = it.food_server_id;
+          if (srv === null) continue;
           const id  = (typeof srv === 'number' && srv > 0) ? srv : it.id;
           if (typeof id !== 'number' || id <= 0) continue;
           if (!lastSeen.has(id)) lastSeen.set(id, r.date);

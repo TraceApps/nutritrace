@@ -40,7 +40,7 @@
     </div>
     <div class="setting-divider"></div>
     <div class="setting-row">
-      <div><span class="setting-label">Show Yesterday's Meals</span><div class="setting-desc">Pin yesterday's meals as quick-add cards in the Meals tab. Tap the info icon to see what's in each one.</div></div>
+      <div><span class="setting-label">Show Yesterday's Meals</span><div class="setting-desc">Pin the meals of the day before the one you're adding to as quick-add cards in the Meals tab. Tap the info icon to see what's in each one.</div></div>
       <Toggle checked={$foodsShowYesterdayMeals} on:change={e => foodsShowYesterdayMeals.set(e.detail)} />
     </div>
   </div>

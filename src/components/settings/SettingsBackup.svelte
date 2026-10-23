@@ -4,6 +4,8 @@
   import { _ } from 'svelte-i18n';
   import Dialog from '../ui/Dialog.svelte';
   import TimePicker from '../ui/TimePicker.svelte';
+  import { localFileStamp } from '../../lib/file-stamp.js';
+  import { nextBackupAt } from '../../../server/lib/backup-schedule.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { DB } from '../../lib/db.js';
   import { NtApi } from '../../lib/api.js';
@@ -15,7 +17,7 @@
   // consumes these.
   import {
     localBackupSchedule, localBackupTime, localBackupRetention,
-    localBackupLastRun, localBackupLastError,
+    localBackupLastRun, localBackupLastError, localBackupSetAt,
   } from '../../stores/settings.js';
 
   const isNativeLocal = isNative && !getServerUrl();
@@ -93,7 +95,7 @@
       const blob = await exportLocalBackup({
         onProgress: (pct, label) => { localZipStatus = `${Math.round(pct)}% — ${label}`; },
       });
-      const filename = `nutritrace-backup-${new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)}.zip`;
+      const filename = `nutritrace-backup-${localFileStamp()}.zip`;
       const arrayBuffer = await blob.arrayBuffer();
       const bytes = new Uint8Array(arrayBuffer);
       let binary = '';
@@ -250,8 +252,46 @@
     } catch {}
   }
 
+  // The browser's own zone: a time picked here is on this clock (TraceApps/notetrace#44).
+  const browserZone = (() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; }
+  })();
+  // Running in another zone than this browser's (an install from before #44,
+  // or set from elsewhere): say so in both times, with a way to switch.
+  $: zoneDiffers = !!(scheduleCfg && !scheduleCfg.envLocked && scheduleCfg.runsIn && browserZone
+    && scheduleCfg.schedule !== 'off' && !_sameZone(scheduleCfg.runsIn, browserZone));
+  // Browsers and Node name some zones differently (Asia/Calcutta and
+  // Asia/Kolkata, UTC and Etc/UTC): the same zone when this browser resolves
+  // both to one name, or their clocks agree all through the coming year.
+  function _sameZone(a, b) {
+    if (a === b) return true;
+    const name = (z) => { try { return new Intl.DateTimeFormat('en-US', { timeZone: z }).resolvedOptions().timeZone; } catch { return null; } };
+    const na = name(a), nb = name(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    const clock = (z, t) => new Intl.DateTimeFormat('en-US', { timeZone: z, hourCycle: 'h23', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).format(t);
+    const now = Date.now();
+    for (let i = 0; i < 366; i++) {
+      const t = now + i * 86_400_000;
+      if (clock(a, t) !== clock(b, t)) return false;
+    }
+    return true;
+  }
+  function _clock(time) {
+    // "2:00 AM" for "02:00", as the schedule says it (in its own zone).
+    const [hh, mm] = String(time || '').split(':').map(n => parseInt(n, 10));
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return time || '';
+    return new Date(Date.UTC(2000, 0, 1, hh, mm)).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+  }
+  function _hereFor(cfg) {
+    if (!cfg?.nextRunAt) return '';
+    return new Date(cfg.nextRunAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
   async function saveSchedule(patch) {
     if (!scheduleCfg || scheduleCfg.envLocked) return;
+    // A time or schedule picked here is in this browser's zone, so it goes with it.
+    if (browserZone && (patch.time != null || patch.schedule != null)) patch = { ...patch, timeZone: browserZone };
     scheduleBusy = true;
     try {
       // _fetchOpts() returns { credentials, headers: { csrf | bearer } }
@@ -288,12 +328,15 @@
     time:          $localBackupTime      || '03:00',
     retention:     parseInt($localBackupRetention, 10) || 7,
     lastAutoRun:   $localBackupLastRun   || null,
+    setAt:         $localBackupSetAt     || null,
     lastAutoError: $localBackupLastError || null,
     envLocked:     false,
   } : null;
 
   function saveLocalSchedule(patch) {
     if (!isNativeLocal) return;
+    // Its first run comes at the time set, after now (TraceApps/notetrace#44).
+    if (patch.schedule != null || patch.time != null) localBackupSetAt.set(new Date().toISOString());
     if (patch.schedule != null) {
       if (!['off','daily','weekly','monthly'].includes(patch.schedule)) return;
       localBackupSchedule.set(patch.schedule);
@@ -323,21 +366,11 @@
   }
   function _nextDueLabel(cfg) {
     if (!cfg || cfg.schedule === 'off') return null;
-    const [hh, mm] = cfg.time.split(':').map(n => parseInt(n, 10));
-    const intervalDays = { daily: 1, weekly: 7, monthly: 28 }[cfg.schedule] || 1;
-    const now = new Date();
-    let next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0);
-    // If today's scheduled time hasn't passed AND we haven't run inside the
-    // interval boundary, next due is today. Otherwise step forward.
-    if (cfg.lastAutoRun) {
-      const last = new Date(cfg.lastAutoRun).getTime();
-      while (next.getTime() <= now.getTime() || (next.getTime() - last) / 86_400_000 < intervalDays - 0.5) {
-        next = new Date(next.getFullYear(), next.getMonth(), next.getDate() + 1, hh, mm, 0);
-      }
-    } else if (next.getTime() <= now.getTime()) {
-      next = new Date(next.getFullYear(), next.getMonth(), next.getDate() + 1, hh, mm, 0);
-    }
-    return next.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    // The server says exactly when; the phone's own schedule (and an older
+    // server) uses the same rule here, on this device's clock (TraceApps/notetrace#44).
+    const at = new Date(cfg.nextRunAt || nextBackupAt({ ...cfg, timeZone: null }) || NaN);
+    if (!Number.isFinite(at.getTime())) return null;
+    return at.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   }
 
   async function _scrollToProgress() {
@@ -504,8 +537,8 @@
   async function clearAllSettings() {
     try {
       await fetch(apiUrl('/api/settings'), { method: 'DELETE', ..._fetchOpts() });
-      const userId = localStorage.getItem('wl:userId');
-      const prefix = userId ? `wl_u${userId}_` : 'wl_';
+      const { settingPrefix } = await import('../../lib/setting-key.js');
+      const prefix = settingPrefix();
       const keys = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
@@ -560,6 +593,9 @@
                 <TimePicker value={scheduleCfg.time}
                   disabled={scheduleCfg.envLocked || scheduleBusy}
                   on:change={(e) => saveSchedule({ time: e.detail })} />
+                {#if scheduleCfg.runsIn}
+                  <span class="auto-bk-zone">{scheduleCfg.runsIn}</span>
+                {/if}
               </label>
               <label class="auto-bk-field">
                 <span class="auto-bk-label">{$_('settings_backup.full_backup.keep_last')}</span>
@@ -588,6 +624,14 @@
                 <div class="auto-bk-status-row">
                   <span class="material-symbols-rounded" style="font-size:16px">schedule</span>
                   <span>{$_('settings_backup.full_backup.next', { values: { when: _nextDueLabel(scheduleCfg) } })}</span>
+                </div>
+              {/if}
+              {#if zoneDiffers}
+                <div class="auto-bk-status-row zone-differs">
+                  <span class="material-symbols-rounded" style="font-size:16px">public</span>
+                  <span>{$_('settings_backup.full_backup.zone_differs', { values: { time: _clock(scheduleCfg.time), zone: scheduleCfg.runsIn, local: _hereFor(scheduleCfg) } })}</span>
+                  <button class="btn btn-secondary btn-sm" disabled={scheduleBusy}
+                    on:click={() => saveSchedule({ timeZone: browserZone })}>{$_('settings_backup.full_backup.use_my_zone')}</button>
                 </div>
               {/if}
               {#if scheduleCfg.retention}
@@ -935,6 +979,9 @@
   .auto-bk-status-row {
     display: flex; align-items: center; gap: 6px;
   }
+  .auto-bk-zone { font-size: 11px; color: var(--text-3); overflow-wrap: anywhere; }
+  .auto-bk-status-row.zone-differs { flex-wrap: wrap; }
+  .auto-bk-status-row.zone-differs > span:nth-child(2) { flex: 1 1 200px; min-width: 0; }
   .auto-bk-status-row.subtle { color: var(--text-3); font-size: 11.5px; }
   .auto-bk-status-row.error { color: var(--danger); }
 

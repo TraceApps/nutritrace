@@ -10,6 +10,8 @@ import { logger } from '../logger.js';
 import { seedSmtpFromEnv } from '../email.js';
 import { seedAiFromEnv } from '../ai.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { isValidTimeZone, processTimeZone } from '../lib/zoned-time.js';
+import { effectiveTimeZone, nextBackupAt, backupFileStamp, newestFirst } from '../lib/backup-schedule.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -25,7 +27,8 @@ fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 //
 // Values:
 //   backup_schedule       — 'off' | 'daily' | 'weekly' | 'monthly'
-//   backup_time           — 'HH:MM' (24h, local server time)
+//   backup_time           : 'HH:MM' (24h, in backup_time_zone)
+//   backup_time_zone      : IANA zone of the browser that set the time; '' = the server's (TZ, else UTC)
 //   backup_retention      — integer >= 1 (number of archives to keep)
 //   backup_last_auto_run  — ISO timestamp of last successful auto-backup
 //   backup_last_auto_error— string, last error message (cleared on success)
@@ -63,44 +66,71 @@ export function getScheduleConfig() {
                  : (_cfg('backup_time') && /^\d{1,2}:\d{2}$/.test(_cfg('backup_time'))) ? _cfg('backup_time')
                  : DEFAULT_TIME;
   const retention = Math.max(1, Math.min(99, parseInt(envRetention || _cfg('backup_retention') || DEFAULT_RETENTION, 10) || DEFAULT_RETENTION));
+  // The zone the time is in: saved with it from the browser that set it
+  // (TraceApps/notetrace#44); none (older installs, a schedule set by
+  // environment) runs in the server's own zone, TZ or UTC. Environment-set
+  // schedules follow TZ.
+  const saved = isBackupEnvLocked() ? null : (_cfg('backup_time_zone') || null);
+  const timeZone = isValidTimeZone(saved) ? saved : null;
+  const lastAutoRun = _cfg('backup_last_auto_run') || null;
+  const setAt = _cfg('backup_schedule_set_at') || null;
   return {
     schedule, time, retention,
-    lastAutoRun:   _cfg('backup_last_auto_run')   || null,
+    timeZone,
+    runsIn:        effectiveTimeZone(timeZone),
+    serverTimeZone: processTimeZone(),
+    setAt,
+    nextRunAt:     nextBackupAt({ schedule, time, timeZone, lastAutoRun, setAt }),
+    lastAutoRun,
     lastAutoError: _cfg('backup_last_auto_error') || null,
     envLocked:     isBackupEnvLocked(),
   };
 }
 
-export function setScheduleConfig({ schedule, time, retention }) {
+export function setScheduleConfig({ schedule, time, retention, timeZone }) {
   if (isBackupEnvLocked()) {
     const err = new Error('Backup schedule is locked by environment variable');
     err.code = 'ENV_LOCKED';
     throw err;
   }
+  // Every field checked before any is saved: a bad one changes nothing.
+  const writes = [];
   if (schedule != null) {
     if (!SCHEDULES.has(schedule)) throw new Error('schedule must be one of: off, daily, weekly, monthly');
-    _setCfg('backup_schedule', schedule);
+    writes.push(['backup_schedule', schedule]);
   }
   if (time != null) {
     if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('time must be HH:MM');
     const [h, m] = time.split(':').map(n => parseInt(n, 10));
     if (h < 0 || h > 23 || m < 0 || m > 59) throw new Error('time out of range');
-    _setCfg('backup_time', `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+    writes.push(['backup_time', `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`]);
   }
   if (retention != null) {
     const r = parseInt(retention, 10);
     if (!Number.isFinite(r) || r < 1 || r > 99) throw new Error('retention must be 1-99');
-    _setCfg('backup_retention', String(r));
+    writes.push(['backup_retention', String(r)]);
   }
+  // An IANA zone such as "America/New_York"; '' goes back to the server's zone.
+  if (timeZone !== undefined) {
+    if (timeZone === null || timeZone === '') writes.push(['backup_time_zone', '']);
+    else if (!isValidTimeZone(timeZone)) throw new Error('timeZone must be an IANA time zone, such as America/New_York');
+    else writes.push(['backup_time_zone', timeZone]);
+  }
+  // When it was set, for a first run that comes at its time (backup-schedule.js).
+  if (schedule != null || time != null || timeZone !== undefined) writes.push(['backup_schedule_set_at', new Date().toISOString()]);
+  db.transaction(() => { for (const [k, v] of writes) _setCfg(k, v); })();
   return getScheduleConfig();
 }
 
 /** Create a full ZIP backup on disk and return {filename, size, createdAt}.
  *  Shared by the POST /api/full-backup handler AND the scheduler's
  *  auto-backup path so both produce identical archives. */
-export function createBackup() {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const filename  = `nutritrace-backup-${timestamp}.zip`;
+export function createBackup({ now = Date.now() } = {}) {
+  // Named in the schedule's zone with its offset (TraceApps/notetrace#44).
+  // Never overwrite: two backups in the same second get a number.
+  const timestamp = backupFileStamp(getScheduleConfig().timeZone, now);
+  let filename = `nutritrace-backup-${timestamp}.zip`;
+  for (let n = 2; fs.existsSync(path.join(BACKUPS_DIR, filename)); n++) filename = `nutritrace-backup-${timestamp}-${n}.zip`;
   const destPath  = path.join(BACKUPS_DIR, filename);
   const zip = new AdmZip();
   zip.addFile('database.json', Buffer.from(JSON.stringify(dumpDatabase(), null, 2), 'utf8'));
@@ -121,19 +151,21 @@ export function createBackup() {
   }
   zip.writeZip(destPath);
   const stat = fs.statSync(destPath);
-  return { filename, size: stat.size, createdAt: new Date().toISOString() };
+  return { filename, size: stat.size, createdAt: new Date(now).toISOString() };
 }
 
 /** Delete archives beyond the retention limit, keeping the N newest.
- *  Sorts by filename timestamp (which is in the name itself) rather than
- *  mtime so a `cp -p` or similar copy doesn't reshuffle the keep order.
+ *  Newest first by when each was made, read from the name (local time
+ *  with its offset since TraceApps/notetrace#44, UTC before), so a copy
+ *  that lost its file dates (a plain `cp` without -p) still keeps the right
+ *  ones; the file's date only for other names.
  *  Returns the list of deleted filenames. */
 export function pruneOldBackups(retention) {
   const keep = Math.max(1, Math.min(99, parseInt(retention, 10) || DEFAULT_RETENTION));
-  const all = fs.readdirSync(BACKUPS_DIR)
+  const all = newestFirst(fs.readdirSync(BACKUPS_DIR)
     .filter(f => f.startsWith('nutritrace-backup-') && f.endsWith('.zip'))
-    .sort()
-    .reverse(); // newest first (timestamp filenames sort lex-correctly)
+    .map(name => ({ name, mtime: (() => { try { return fs.statSync(path.join(BACKUPS_DIR, name)).mtimeMs; } catch { return 0; } })() })))
+    .map(x => x.name);
   const toDelete = all.slice(keep);
   for (const f of toDelete) {
     try { fs.unlinkSync(path.join(BACKUPS_DIR, f)); }
@@ -349,10 +381,47 @@ function restoreFromZip(zip) {
     // Outstanding invite tokens so pending invites don't 404 after restore.
     db.prepare('DELETE FROM invite_tokens').run();
     const insInvite = db.prepare(`
-      INSERT OR IGNORE INTO invite_tokens (token, email, role, created_by, expires_at, used)
-      VALUES (@token, @email, @role, @created_by, @expires_at, @used)
+      INSERT OR IGNORE INTO invite_tokens (token, email, role, created_by, expires_at, used, coach_id)
+      VALUES (@token, @email, @role, @created_by, @expires_at, @used, @coach_id)
     `);
-    for (const i of data.invite_tokens || []) insInvite.run({ email: null, role: 'user', created_by: null, used: 0, ...i });
+    for (const i of data.invite_tokens || []) insInvite.run({ email: null, role: 'user', created_by: null, used: 0, coach_id: null, ...i });
+
+    // Coaching pairings (1.5). A backup from before coaching has none. The
+    // users above cascade these away first, so this only adds back what the
+    // archive holds.
+    db.prepare('DELETE FROM coach_clients').run();
+    const insPairing = db.prepare(`
+      INSERT OR IGNORE INTO coach_clients (id, coach_id, client_id, status, note, requested_at, responded_at, ended_at, ended_by, updated_at)
+      VALUES (@id, @coach_id, @client_id, @status, @note, COALESCE(@requested_at, datetime('now')), @responded_at, @ended_at, @ended_by, COALESCE(@updated_at, datetime('now')))
+    `);
+    for (const c of data.coach_clients || []) insPairing.run({
+      note: null, requested_at: null, responded_at: null, ended_at: null, ended_by: null, updated_at: null, ...c,
+    });
+
+    // Coaching recommendations (and their answers).
+    db.prepare('DELETE FROM coach_recommendations').run();
+    const recPairings = new Set(db.prepare('SELECT id FROM coach_clients').all().map(r => r.id));
+    const insRec = db.prepare(`
+      INSERT OR IGNORE INTO coach_recommendations (id, pairing_id, coach_id, client_id, kind, date, payload, note, status, response_note, created_at, responded_at, updated_at, deleted_at)
+      VALUES (@id, @pairing_id, @coach_id, @client_id, @kind, @date, @payload, @note, @status, @response_note, COALESCE(@created_at, datetime('now')), @responded_at, COALESCE(@updated_at, datetime('now')), @deleted_at)
+    `);
+    for (const r of (data.coach_recommendations || []).filter(x => recPairings.has(x.pairing_id))) insRec.run({
+      date: null, note: null, response_note: null, created_at: null, responded_at: null, updated_at: null, deleted_at: null, ...r,
+    });
+
+    // Coaching conversations; their photos come back with the other images
+    // (images/coaching/ in the archive).
+    db.prepare('DELETE FROM coach_messages').run();
+    const insMessage = db.prepare(`
+      INSERT OR IGNORE INTO coach_messages (id, uuid, pairing_id, sender_id, body, image_url, recommendation_id, read_at, created_at, updated_at, deleted_at)
+      VALUES (@id, @uuid, @pairing_id, @sender_id, @body, @image_url, @recommendation_id, @read_at, COALESCE(@created_at, datetime('now')), COALESCE(@updated_at, datetime('now')), @deleted_at)
+    `);
+    // Only for pairings the archive has (a hand-edited archive could hold
+    // messages without their pairing; they are skipped, not fatal).
+    const pairingIds = new Set(db.prepare('SELECT id FROM coach_clients').all().map(r => r.id));
+    for (const m of (data.coach_messages || []).filter(x => pairingIds.has(x.pairing_id))) insMessage.run({
+      body: null, image_url: null, recommendation_id: null, read_at: null, created_at: null, updated_at: null, deleted_at: null, ...m,
+    });
   })();
 
   // Restore images — guard against zip-slip and zip-bomb attacks
@@ -438,6 +507,10 @@ function dumpDatabase() {
     api_tokens:       db.prepare('SELECT * FROM api_tokens').all(),
     // Outstanding invite tokens so pending invites survive a restore.
     invite_tokens:    db.prepare('SELECT * FROM invite_tokens').all(),
+    // Coaching pairings: who coaches whom, and requests waiting for an answer.
+    coach_clients:    db.prepare('SELECT * FROM coach_clients').all(),
+    coach_messages:   db.prepare('SELECT * FROM coach_messages').all(),
+    coach_recommendations: db.prepare('SELECT * FROM coach_recommendations').all(),
   };
 }
 

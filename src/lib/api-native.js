@@ -258,6 +258,9 @@ export const NtApiNative = {
   },
 
   // ── Pass-through stubs for server-only routes ────────────────────────
+  // Coaching needs a server; nothing is kept in local mode.
+  async forgetCoachingReads() { return 0; },
+
   async get(path) {
     if (path.startsWith('/api/fasts')) return _fastsLocalGet(path);
     if (path === '/api/goals/adaptive-tdee') {

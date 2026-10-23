@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { foldText } from './lib/search-text.js';
+import { fillProfileFromSetup } from './lib/profile-fields.js';
 
 const dbPath = process.env.DB_PATH || './nutritrace.db';
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -683,6 +684,111 @@ try {
   console.warn(`[db] #37 diary consolidation failed:`, e.message || e);
 }
 
+// ── When the server last wrote a row (the Android pull's cursor) ──────────
+// updated_at on foods, meals, activities and fasts is when the edit was
+// made: a phone's push keeps its edit time (on the server's clock), so
+// last-write-wins compares edits, not arrivals. The pull can't use it as
+// its cursor, since an edit made offline is older than other devices' last
+// pull. changed_at is the server's time of every write, set by triggers so
+// no writer can miss it.
+for (const t of ['foods', 'meals', 'activity_log', 'fasts']) {
+  if (!columnExists(t, 'changed_at')) {
+    db.exec(`ALTER TABLE ${t} ADD COLUMN changed_at TEXT`);
+    db.exec(`UPDATE ${t} SET changed_at = COALESCE(updated_at, datetime('now'))`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_${t}_changed ON ${t}(changed_at);
+    CREATE TRIGGER IF NOT EXISTS trg_${t}_changed_ins AFTER INSERT ON ${t}
+    BEGIN UPDATE ${t} SET changed_at = datetime('now') WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_${t}_changed_upd AFTER UPDATE ON ${t}
+    FOR EACH ROW WHEN NEW.changed_at IS OLD.changed_at
+    BEGIN UPDATE ${t} SET changed_at = datetime('now') WHERE id = NEW.id; END;
+  `);
+}
+
+// ── Create keys (lib/create-keys.js) ──────────────────────────────────────
+// A row the Android app makes carries a stable key, so sending it twice
+// (a retry, a lost answer) makes it once.
+for (const t of ['foods', 'meals', 'activity_log', 'fasts']) {
+  if (!columnExists(t, 'client_key')) db.exec(`ALTER TABLE ${t} ADD COLUMN client_key TEXT DEFAULT NULL`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_client_key ON ${t}(user_id, client_key)`);
+}
+
+// ── When a day's note was last edited ─────────────────────────────────────
+// The sync push lets the newer note win (routes/sync.js). It sets this
+// itself; every other writer (the diary routes, imports, MCP, the API) is
+// stamped here when it changes the note, so none can be missed. Existing
+// notes get their day's last change, the latest they can be from.
+if (!columnExists('diary', 'notes_updated_at')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN notes_updated_at TEXT DEFAULT NULL`);
+  db.exec(`UPDATE diary SET notes_updated_at = updated_at WHERE notes IS NOT NULL`);
+}
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS trg_diary_notes_at_ins AFTER INSERT ON diary
+  FOR EACH ROW WHEN NEW.notes IS NOT NULL AND NEW.notes_updated_at IS NULL
+  BEGIN UPDATE diary SET notes_updated_at = datetime('now') WHERE id = NEW.id; END;
+  CREATE TRIGGER IF NOT EXISTS trg_diary_notes_at_upd AFTER UPDATE OF notes ON diary
+  FOR EACH ROW WHEN NEW.notes IS NOT OLD.notes AND NEW.notes_updated_at IS OLD.notes_updated_at
+  BEGIN UPDATE diary SET notes_updated_at = datetime('now') WHERE id = NEW.id; END;
+`);
+
+// When the day's completion mark, and each meal's, was last set or
+// cleared (routes/diary.js): a phone's mark made offline goes up later,
+// and an older one must not undo a newer one. Meals: JSON { slot: time }.
+if (!columnExists('diary', 'completion_marked_at')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN completion_marked_at TEXT DEFAULT NULL`);
+}
+if (!columnExists('diary', 'meal_marks_at')) {
+  db.exec(`ALTER TABLE diary ADD COLUMN meal_marks_at TEXT DEFAULT NULL`);
+}
+
+// ── Deletions for devices ───────────────────────────────────────────────────
+// wellness_data and workouts have no deleted_at: rows go outright (Clear
+// all data, a wearable re-sync of a day, the Fitbit duplicate clean-up).
+// Each delete is noted here so /api/sync/pull can tell phones to drop
+// their copies; a row that exists again is left out there. One row per
+// deleted key, so a wearable that rewrites the same day every sync keeps
+// one note, not one per sync. user_id 0 (the pollers' single-user owner)
+// is kept as NULL, the single-user owner everywhere else.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sync_deletions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    table_name TEXT NOT NULL,
+    row_id     INTEGER,
+    row_key    TEXT NOT NULL,
+    deleted_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_deletions_key ON sync_deletions(table_name, row_key);
+  CREATE INDEX IF NOT EXISTS idx_sync_deletions_user ON sync_deletions(user_id, deleted_at);
+`);
+// Only while the account is there: rows of an account being deleted have
+// no device left to tell, and the note would fail the user_id reference.
+const _syncDelOwner = `CASE WHEN OLD.user_id = 0 THEN NULL ELSE OLD.user_id END`;
+const _syncDelWhen = `WHEN OLD.user_id IS NULL OR OLD.user_id = 0 OR EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id)`;
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS trg_workouts_sync_del AFTER DELETE ON workouts
+  FOR EACH ROW ${_syncDelWhen}
+  BEGIN
+    INSERT OR REPLACE INTO sync_deletions (user_id, table_name, row_id, row_key, deleted_at)
+    VALUES (${_syncDelOwner}, 'workouts', OLD.id, CAST(OLD.id AS TEXT), datetime('now'));
+  END;
+  CREATE TRIGGER IF NOT EXISTS trg_wellness_data_sync_del AFTER DELETE ON wellness_data
+  FOR EACH ROW ${_syncDelWhen}
+  BEGIN
+    INSERT OR REPLACE INTO sync_deletions (user_id, table_name, row_id, row_key, deleted_at)
+    VALUES (${_syncDelOwner}, 'wellness_data', OLD.id,
+      json_object('user_id', ${_syncDelOwner}, 'date', OLD.date, 'source', OLD.source, 'metric_type', OLD.metric_type),
+      datetime('now'));
+  END;
+`);
+// A year is far longer than any phone stays offline between syncs.
+try {
+  db.exec(`DELETE FROM sync_deletions WHERE deleted_at < datetime('now', '-365 days')`);
+} catch (e) {
+  console.warn('[db] sync_deletions prune skipped:', e?.message || e);
+}
+
 // ── Favorites + usage tracking (foods + meals) ─────────────────────────────
 // `favorite` pins items to the top of the picker; `usage_count` and
 // `last_used_at` drive the Most Used / Recently Used sort modes.
@@ -1086,6 +1192,108 @@ try {
   }
 } catch (e) {
   console.warn('[db] foods nutriment key canonicalization failed:', e?.message || e);
+}
+
+// #269: the first-run setup kept birthday and gender only as settings, so
+// accounts set up that way show an empty Profile. Once, copy them onto any
+// account that has none; from here on the settings routes do it as they
+// arrive (lib/profile-fields.js). Never overwrites what Profile set.
+try {
+  const done = db.prepare(`SELECT value FROM app_config WHERE key = 'profile_from_setup_v1'`).get();
+  if (!done) {
+    let changed = 0;
+    db.transaction(() => {
+      changed = fillProfileFromSetup(db);
+      db.prepare(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('profile_from_setup_v1', ?)`)
+        .run(new Date().toISOString());
+    })();
+    if (changed > 0) console.log(`[db] birthday and gender from setup: ${changed} account(s) filled in`);
+  }
+} catch (e) {
+  console.warn('[db] birthday and gender from setup failed:', e?.message || e);
+}
+
+// ── Coaching (1.5) ─────────────────────────────────────────────────────────
+// A coach and a client. The coach asks, the client accepts or declines, and
+// either side (or an admin) can end it. A client can hold several requests
+// (one per coach), so asking never reveals who already has a coach, but only
+// one active coach: a second request can be accepted only after leaving the
+// first. Both people cascade: deleting either account removes the pairing.
+// Only adds: no existing table is rebuilt and no column changed.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coach_clients (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    coach_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'declined', 'ended')),
+    note         TEXT,
+    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    responded_at TEXT,
+    ended_at     TEXT,
+    ended_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_clients_coach ON coach_clients(coach_id, status);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_active
+    ON coach_clients(client_id) WHERE status = 'active';
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_one_request
+    ON coach_clients(coach_id, client_id) WHERE status = 'pending';
+`);
+// One conversation per pairing: text and at most one photo per message.
+// `uuid` comes from the sending device, so a message sent again after a
+// dropped connection is stored once. Deleting a message keeps the row
+// ("Message deleted") and drops its text and photo. Messages go with the
+// pairing, and the pairing with either account.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coach_messages (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid              TEXT NOT NULL UNIQUE,
+    pairing_id        INTEGER NOT NULL REFERENCES coach_clients(id) ON DELETE CASCADE,
+    sender_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body              TEXT,
+    image_url         TEXT,
+    recommendation_id INTEGER,
+    read_at           TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at        TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_pairing ON coach_messages(pairing_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_updated ON coach_messages(updated_at);
+`);
+// What a coach recommends: targets now; day plans, meals and recipes later.
+// The payload holds copies of everything it recommends. Only Accepted
+// changes anything (on the client's device, which then syncs). A newer
+// target recommendation replaces a pending one; ending the pairing
+// withdraws what is pending. Expired (a day plan's date passed) is
+// computed, never stored.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS coach_recommendations (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    pairing_id    INTEGER NOT NULL REFERENCES coach_clients(id) ON DELETE CASCADE,
+    coach_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind          TEXT NOT NULL CHECK (kind IN ('targets', 'day_plan', 'meal', 'recipe')),
+    date          TEXT,
+    payload       TEXT NOT NULL,
+    note          TEXT,
+    status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'withdrawn', 'replaced')),
+    response_note TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    responded_at  TEXT,
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at    TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_recs_pairing ON coach_recommendations(pairing_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_coach_recs_updated ON coach_recommendations(updated_at);
+`);
+// Before 1.5 shipped, dev builds allowed one pending or active row per client;
+// several pending requests are allowed now (the two indexes above).
+db.exec(`DROP INDEX IF EXISTS idx_coach_clients_open`);
+// An admin's invite can name a coach: the request is made when the new
+// account is created and waits for the person to answer it.
+if (!columnExists('invite_tokens', 'coach_id')) {
+  db.exec(`ALTER TABLE invite_tokens ADD COLUMN coach_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
 }
 
 export default db;

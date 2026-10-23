@@ -12,12 +12,14 @@ export const editorState = {
   diaryScrollY:   null,  // scroll position to restore when returning to Diary after adding food
   foodsScrollY:   null,  // scroll position to restore when returning to Foods
   foodsActiveTab: null,  // tab index to restore when returning to Foods
+  planLog:        null,  // a coach's day plan item tapped on the Diary: { food, quantity, source }
 };
 
 export function clearFoodEditorState() {
   editorState.foodPrefill   = null;
   editorState.foodStore     = 'foodList';
   editorState.foodDiaryCtx  = null;
+  editorState.planLog       = null;
 }
 
 export function clearMealEditorState() {

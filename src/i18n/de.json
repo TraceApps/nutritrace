@@ -31,7 +31,6 @@
     "sign_out": "Abmelden",
     "log_out": "Abmelden",
     "signing_out": "Wird abgemeldet…",
-    "experimental": "Experimentell",
     "hide": "Verbergen",
     "save": "Speichern",
     "saving": "Speichern…",
@@ -87,7 +86,21 @@
     "synced": "Synchronisiert",
     "sync_offline": "Offline",
     "sync_failing": "Server kann nicht erreicht werden",
-    "not_synced": "Noch nicht synchronisiert"
+    "not_synced": "Noch nicht synchronisiert",
+    "refused": "Dein Server hat die ausstehenden Änderungen nicht akzeptiert: {reason}. Sie werden hier behalten und es wird erneut versucht.",
+    "sign_out_waiting_title": "Änderungen stehen noch aus",
+    "sign_out_waiting": "{count, plural, one {# Änderung wurde noch nicht an deinen Server übertragen. Wenn du dich jetzt abmeldest, wird sie verworfen. Stelle eine Verbindung her und versuche es erneut, um sie zu behalten.} other {# Änderungen wurden noch nicht an deinen Server übertragen. Wenn du dich jetzt abmeldest, werden sie verworfen. Stelle eine Verbindung her und versuche es erneut, um sie zu behalten.}}",
+    "sign_out_anyway": "Trotzdem abmelden",
+    "switch_account_waiting_title": "Änderungen eines anderen Kontos stehen noch aus",
+    "switch_account_waiting": "{count, plural, one {# Änderung, die auf diesem Gerät mit dem zuvor angemeldeten Konto vorgenommen wurde, wurde noch nicht an den Server übertragen. Wenn du dich jetzt anmeldest, wird sie verworfen. Um sie zu behalten, melde dich zuerst mit diesem Konto an.} other {# Änderungen, die auf diesem Gerät mit dem zuvor angemeldeten Konto vorgenommen wurden, wurden noch nicht an den Server übertragen. Wenn du dich jetzt anmeldest, werden sie verworfen. Um sie zu behalten, melde dich zuerst mit diesem Konto an.}}",
+    "switch_account_anyway": "Trotzdem anmelden",
+    "same_server_title": "Ist das derselbe Server?",
+    "same_server": "Dieser Server befindet sich unter einer anderen Adresse als der zuvor auf diesem Gerät verwendete, und es kann nicht festgestellt werden, ob es derselbe Server ist. Wenn ja, bleiben deine Daten hier erhalten und werden synchronisiert. Wenn nicht, werden sie wie die eines anderen Kontos behandelt.",
+    "same_server_yes": "Derselbe Server",
+    "same_server_no": "Anderer Server",
+    "account_check_failed_title": "Deine Daten konnten nicht geöffnet werden",
+    "account_check_failed": "Dieses Gerät konnte nicht prüfen, wessen Daten hier gespeichert sind, daher wird noch nichts angezeigt. Versuche es erneut oder melde dich ab.",
+    "pending_web_changes": "{count, plural, =0 {Offline. Dein Tagebuch funktioniert weiterhin und speichert hier.} one {Offline. # Änderung wartet auf die Synchronisierung.} other {Offline. # Änderungen warten auf die Synchronisierung.}}"
   },
   "settings": {
     "appearance": {
@@ -108,7 +121,13 @@
       "distance": "Distanz",
       "temperature": "Temperatur",
       "time_12h": "12-Stunden (AM/PM)",
-      "time_24h": "24-Stunden"
+      "time_24h": "24-Stunden",
+      "first_day": "Erster Tag der Woche",
+      "first_day_desc": "„Automatisch“ richtet sich nach der Region deines Geräts, die die Woche am {day} beginnt.",
+      "first_day_auto": "Automatisch",
+      "first_day_monday": "Montag",
+      "first_day_sunday": "Sonntag",
+      "first_day_saturday": "Samstag"
     },
     "diary": {
       "section": "Tagebuch",
@@ -290,7 +309,33 @@
       "save_failed_status": "Speichern fehlgeschlagen ({status})",
       "network_error": "Netzwerkfehler",
       "hide": "Ausblenden",
-      "show": "Anzeigen"
+      "show": "Anzeigen",
+      "role_coach": "Coach",
+      "role_coach_display": "Coach",
+      "coach_title": "{name} zur Coach-Rolle ernennen?",
+      "coach_message": "Diese Person kann andere anfragen, ihre Klienten zu werden. Ein Klient muss die Anfrage zuerst annehmen, bevor der Coach Tagebuch, Ziele, Gewicht und Lebensmittel einsehen kann. Überall sonst bleibt ein Coach ein normaler Benutzer.",
+      "coach_confirm": "Zum Coach machen",
+      "uncoach_title": "Coach-Rolle von {name} entfernen?",
+      "uncoach_message": "Die Klientenbeziehungen und alle gesendeten Anfragen werden sofort beendet. Eigene Daten bleiben erhalten.",
+      "uncoach_confirm": "Coach-Rolle entfernen",
+      "toast_coaching_ended": "{name} ist jetzt {role}. Die Coaching-Beziehungen wurden beendet.",
+      "invite_coach": "Coach",
+      "invite_coach_none": "Kein Coach",
+      "invite_coach_hint": "Das neue Konto erhält eine Anfrage dieses Coaches, die angenommen oder abgelehnt werden kann.",
+      "invite_coach_meta": "Coach: {name}",
+      "coaching_heading": "Coaching",
+      "coaching_desc": "Wer wen coacht. Admins können hier jede Verknüpfung beenden, sehen Klientendaten jedoch nur, wenn sie selbst dieser Coach sind.",
+      "coaching_none": "Niemand coacht oder wird gecoacht.",
+      "coaching_pair": "{coach} coacht {client}",
+      "coaching_pending": "Anfrage ausstehend",
+      "coaching_active_since": "Seit {date}",
+      "coaching_end": "Beenden",
+      "coaching_end_aria": "Coaching zwischen {coach} und {client} beenden",
+      "coaching_end_title": "Dieses Coaching beenden?",
+      "coaching_end_message": "{coach} kann Tagebuch, Ziele, Gewicht, Lebensmittel, Mahlzeiten und Rezepte von {client} nicht mehr einsehen.",
+      "coaching_ended": "Coaching beendet",
+      "coach_someone": "Jemanden coachen",
+      "coach_someone_desc": "Sende eine Anfrage in deinem Namen. Dein Klienten-Reiter erscheint unter „Ziele“, sobald du jemanden coachst."
     },
     "email": {
       "section": "E-Mail (SMTP)"
@@ -318,6 +363,9 @@
     },
     "about": {
       "section": "Über NutriTrace"
+    },
+    "support": {
+      "section": "Unterstützung"
     }
   },
   "updates": {
@@ -379,8 +427,16 @@
       "copied": "In die Zwischenablage kopiert.",
       "copy_failed": "Kopieren fehlgeschlagen. Bitte kopiere den Befehl manuell.",
       "view_notes": "Versionshinweise ansehen",
-      "channel_note": "Um den Server-Kanal zu wechseln, passe das Image-Tag in deiner docker-compose.yml an (:latest, :1.0, :1, :dev) und führe docker-compose pull && docker-compose up -d aus."
-    }
+      "channel_note": "Um den Server-Kanal zu wechseln, passe das Image-Tag in deiner docker-compose.yml an (:latest, :dev) und führe docker-compose pull && docker-compose up -d aus."
+    },
+    "off_resting": "Deaktiviert. Dein Server verbindet sich nicht mit GitHub. Aktiviere dies, um über neue Funktionen, Fehlerbehebungen und Sicherheitsupdates informiert zu werden.",
+    "off_notice_title": "Update-Prüfungen sind deaktiviert",
+    "off_notice": "Du wirst nicht über neue Funktionen, Fehlerbehebungen oder Sicherheitsupdates benachrichtigt. Bei Aktivierung fragt dein Server alle paar Stunden bei GitHub nach der neuesten Version; dabei werden keinerlei persönliche Daten übertragen.",
+    "turn_on": "Aktivieren",
+    "not_now": "Nicht jetzt",
+    "install_downloaded": "Installieren",
+    "ready_headline": "Update bereit",
+    "ready_cta": "Neu laden, um die neueste Version zu nutzen."
   },
   "login": {
     "subtitle": "Melde dich bei deinem Konto an",
@@ -415,6 +471,13 @@
       "failed": "Wiederherstellung fehlgeschlagen",
       "success": "Benutzerverwaltung deaktiviert – du bist jetzt im Einzelbenutzer-Modus",
       "done": "Die Benutzerverwaltung wurde deaktiviert.<br>Weiterleitung…"
+    },
+    "cookie_warning": {
+      "http_title": "Anmeldung über diese Adresse nicht möglich",
+      "http_body": "Diese Seite verwendet unverschlüsseltes HTTP. Der Server sendet sein Anmelde-Cookie jedoch nur über HTTPS, weshalb dein Browser es verwirft und dich nach der Anmeldung wieder zur Anmeldeseite zurückleitet. Öffne NutriTrace über HTTPS oder setze im vertrauenswürdigen Heimnetzwerk INSECURE_COOKIES=1 auf dem Server und starte ihn neu.",
+      "dropped_title": "Dein Browser hat die Anmeldung nicht beibehalten",
+      "dropped_body": "Dein Passwort war korrekt, aber der Browser hat das Anmelde-Cookie nicht gespeichert. Prüfe, ob Cookies für diese Website erlaubt sind, und falls NutriTrace hinter einem Reverse-Proxy läuft, dass der Proxy Cookies weiterleitet.",
+      "fix_link": "So behebst du das Problem"
     }
   },
   "forgot_password": {
@@ -470,7 +533,9 @@
       "credentials_required": "Gib deine Zugangsdaten ein",
       "browser_open_failed": "Browser zur Anmeldung konnte nicht geöffnet werden",
       "connected": "Mit Server verbunden",
-      "login_failed": "Anmeldung fehlgeschlagen"
+      "login_failed": "Anmeldung fehlgeschlagen",
+      "server_needs_setup": "Dieser Server ist noch nicht eingerichtet. Öffne ihn im Browser, um das erste Konto zu erstellen, und verbinde dich anschließend hier.",
+      "unreachable": "Server konnte nicht erreicht werden"
     }
   },
   "profile": {
@@ -508,7 +573,9 @@
       "save_failed": "Profil konnte nicht gespeichert werden",
       "upload_failed": "Hochladen fehlgeschlagen",
       "password_change_failed": "Passwort konnte nicht geändert werden",
-      "delete_account_failed": "Konto konnte nicht gelöscht werden"
+      "delete_account_failed": "Konto konnte nicht gelöscht werden",
+      "not_kept": "Dieser Browser konnte dein Profil nicht zwischenspeichern. Prüfe, ob genügend freier Speicher vorhanden ist und die Website Daten speichern darf, und versuche es erneut.",
+      "needs_connection": "Das Speichern deines Profils erfordert eine Verbindung. Versuche es erneut, sobald du wieder online bist."
     }
   },
   "wizard": {
@@ -601,6 +668,13 @@
       "desc": "Du kannst deine Ziele, Einheiten und Integrationen jederzeit in den <strong>Einstellungen</strong> einrichten. Bis dahin werden deine Kalorienziele nicht automatisch berechnet.",
       "continue": "Einrichtung fortsetzen",
       "skip_now": "Vorerst überspringen"
+    },
+    "updates": {
+      "title": "Nach Updates suchen",
+      "desc": "Dein Server kann dich benachrichtigen, wenn eine neue Version von NutriTrace verfügbar ist.",
+      "toggle": "Automatisch nach Updates suchen",
+      "toggle_sub": "So erfährst du von neuen Funktionen, Fehlerbehebungen und Sicherheitsupdates",
+      "note": "Dein Server fragt alle paar Stunden bei GitHub an, ob eine neuere Version von NutriTrace verfügbar ist. Dabei werden keinerlei Daten über dich übertragen. Du kannst dies jederzeit unter Einstellungen → Updates ändern."
     }
   },
   "diary": {
@@ -795,7 +869,10 @@
       "delete_aria": "Lebensmittel löschen",
       "delete_confirm_title": "Dieses Lebensmittel löschen?",
       "delete_confirm_body": "„{name}“ wird aus deinen Lebensmitteln entfernt. Bestehende Tagebucheinträge, die dieses Lebensmittel verwenden, bleiben erhalten.",
-      "deleted": "Lebensmittel gelöscht"
+      "deleted": "Lebensmittel gelöscht",
+      "off_prepared_only": "Open Food Facts listet für dieses Produkt nur „zubereitete“ Werte auf. Tippe auf Bearbeiten, um sie anzuzeigen und zu entscheiden, ob du sie verwenden möchtest.",
+      "off_implausible": "Open Food Facts listet für dieses Produkt nur „zubereitete“ Werte auf, und diese scheinen nicht zu stimmen. Tippe auf Bearbeiten, um die Werte von der Verpackung einzutragen.",
+      "off_none": "Open Food Facts hat keine Nährwertangaben für dieses Produkt. Tippe auf Bearbeiten, um die Werte von der Verpackung einzutragen."
     },
     "sources": {
       "local": "Lokal",
@@ -818,7 +895,19 @@
     },
     "toast": {
       "deleted": "Gelöscht",
-      "cloned": "Dupliziert"
+      "cloned": "Dupliziert",
+      "added_to_diary": "Zum Tagebuch hinzugefügt",
+      "meal_partly_added": "Einige Zutaten konnten nicht hinzugefügt werden: {names}",
+      "meal_none_added": "Diese Mahlzeit konnte nicht hinzugefügt werden. Bitte überprüfe deine Verbindung und versuche es erneut.",
+      "meal_stale_ingredients": "Zum Tagebuch hinzugefügt. Diese Zutaten sind nicht mehr in deinen Lebensmitteln vorhanden: {names}. Bearbeite die Mahlzeit, um sie zu korrigieren."
+    },
+    "off_no_values_listed": "Keine Werte aufgeführt",
+    "off_skipped": "Ausgelassen, da Open Food Facts keine Werte im Verkaufszustand dafür enthält: {names}. Füge sie unter „Lebensmittel“ mit den Werten von der Verpackung hinzu.",
+    "offline": {
+      "source": "erfordert eine Verbindung",
+      "search_hint": "Du bist offline, daher wurden nur deine eigenen Lebensmittel durchsucht. Open Food Facts, USDA und andere Quellen erfordern eine Verbindung.",
+      "barcode": "Du bist offline, daher wurden nur deine eigenen Lebensmittel nach diesem Barcode durchsucht.",
+      "import": "Dieser Import erfordert eine Verbindung. Er funktioniert wieder, sobald du online bist."
     }
   },
   "trace": {
@@ -841,7 +930,17 @@
       "api_key_desc": "Hinterlege den API-Schlüssel deines Anbieters unter <strong>Einstellungen → KI-Assistent</strong>, um den Chat zu starten.",
       "supported_providers": "Unterstützt Anthropic Claude, OpenAI und Google Gemini.",
       "open_settings": "Einstellungen öffnen"
-    }
+    },
+    "food_card": {
+      "log_to": "Eintragen in",
+      "dont_log": "Nicht eintragen"
+    },
+    "tools_unsupported": "Dieses Modell unterstützt keine Funktionsaufrufe (Tools): Es kann antworten, aber keine Lebensmittel eintragen oder Daten abfragen. Wähle in den Einstellungen ein Modell mit Tool-Unterstützung.",
+    "tools_unsupported_server": "Dieses Modell unterstützt keine Funktionsaufrufe (Tools): Es kann antworten, aber keine Lebensmittel eintragen oder Daten abfragen. Ein Administrator kann ein Modell mit Tool-Unterstützung festlegen.",
+    "tools_unsupported_routed": "Das antwortende Modell unterstützt keine Funktionsaufrufe (Tools), daher wurde nichts protokolliert oder nachgeschlagen.",
+    "unreachable": "Keine Antwort von {host} erhalten. Überprüfe die Basis-URL in Einstellungen → KI-Assistent. Falls sie stimmt, muss dieser Server Anfragen von {origin} bei jeder Antwort erlauben, auch bei Fehlern (in Nginx: add_header … always), oder Trace kann stattdessen direkt auf dem NutriTrace-Server eingerichtet werden.",
+    "unreachable_insecure": "Diese Seite nutzt HTTPS, daher verweigert der Browser den Aufruf von {host} über unverschlüsseltes HTTP. Gib deinem Anbieter eine https://-Adresse oder richte Trace stattdessen auf dem NutriTrace-Server ein.",
+    "unreachable_official": "{host} hat nicht geantwortet. Überprüfe die Internetverbindung dieses Geräts."
   },
   "goals_page": {
     "adaptive": {
@@ -973,7 +1072,7 @@
     "ask_quantity": "Beim Hinzufügen nach Menge fragen",
     "ask_quantity_desc": "Vor dem Hinzufügen nach der Portionsgröße fragen (andernfalls wird der Standardwert des Lebensmittels verwendet)",
     "unit_metadata": "Einheiten-Metadaten anzeigen",
-    "unit_metadata_desc": "Fügt drei Felder im Lebensmittel-Editor hinzu: Nährwertbasis (pro 100 g vs. pro 100 ml), Portions-Einheiten (1 Scheibe = 35 g, 1 Flasche = 500 ml etc.) und Dichte (g/ml) für exakte Flüssigkeitsberechnungen bei Mengenangaben in Gramm. Zeigt außerdem Portions-Schnellauswahl-Chips im Tagebuch sowie den Zusatz „pro 100 g/ml“ in Lebensmittelzeilen an. Standardmäßig deaktiviert.",
+    "unit_metadata_desc": "Fügt drei Felder im Lebensmittel-Editor hinzu: Nährwertbasis (pro 100 g vs. pro 100 ml), Portions-Einheiten (1 Scheibe = 35 g, 1 Flasche = 500 ml etc.) und Dichte (g/ml) für exakte Flüssigkeitsberechnungen bei Mengenangaben in Gramm. Zeigt außerdem Portions-Schnellauswahl-Chips im Tagebuch sowie den Zusatz „pro 100 g/ml“ in Lebensmittelzeilen an. Standardmäßig deaktiviert; aktiviere diese Option, wenn du Flüssigkeiten aus Open Food Facts in Gramm einträgst oder eigene Portionseinheiten wie Scheibe, Keks oder Flasche nutzen möchtest.",
     "warn_conversions": "Vor Einheiten-Umrechnungen warnen",
     "warn_conversions_desc": "Warnung anzeigen, wenn Gramm bei Lebensmitteln mit ml-Angabe gewählt wird (oder umgekehrt), ohne dass eine Dichte hinterlegt ist. Standardmäßig wird 1 ml ≈ 1 g angenommen, was bei Ölen, Honig etc. ungenau ist.",
     "show_portion": "Portionsgröße anzeigen",
@@ -1083,7 +1182,7 @@
   "settings_diagnostics": {
     "diag_mode": "Diagnosemodus",
     "view_logs": "Diagnose-Protokolle ansehen",
-    "logs_desc_web": "Aktuelle Protokollzeilen aus der App-Konsole. Nützlich für Fehlerberichte, zum Kopieren und Teilen in",
+    "logs_desc_web": "Aktuelle Protokollzeilen aus der App-Konsole. Nützlich für Fehlerberichte; kopiere oder teile sie in einem <a href=\"https://github.com/traceapps/nutritrace/issues\" target=\"_blank\" rel=\"noopener\" class=\"about-link\">GitHub-Issue</a>.",
     "logs_desc_android": " Auf Android mit aktiviertem Diagnosemodus kannst du auch die gespeicherte Protokolldatei oder erfasste Absturzberichte teilen.",
     "logs_note": "Es wird nichts automatisch übertragen.",
     "calibration_export": "Kalibrierungs-Export",
@@ -1098,8 +1197,8 @@
     "server_open_source": "Open Source",
     "server_license": "(AGPL-3.0)",
     "translations_from": "Übersetzungen ermöglicht durch",
-    "support_dev": "Entwicklung unterstützen",
-    "support_note": "NutriTrace kann immer kostenlos selbst gehostet werden. Das aktuelle Ziel ist ein Mac und ein iPhone, damit die Trace-Apps einwandfrei auf iOS laufen können."
+    "family_line_prefix": "Teil der ",
+    "family_line_suffix": " -Familie"
   },
   "settings_merge": {
     "title": "Synchronisations-Optionen",
@@ -1169,7 +1268,8 @@
     "badge_recipe": "Rezept",
     "badge_yesterday": "Gestern",
     "badge_water": "Wasser",
-    "badge_not_found": "Nicht gefunden"
+    "badge_not_found": "Nicht gefunden",
+    "off_no_values": "Open Food Facts hat keine Werte im Verkaufszustand für dieses Produkt, daher wird es nicht eingetragen. Ersetze oder entferne es."
   },
   "foods_deep": {
     "cant_reach_retry_msg": "Server konnte nicht erreicht werden, ",
@@ -1333,10 +1433,24 @@
       "saved_copy": "Eine Kopie in deinen Katalog gespeichert",
       "save_copy_failed": "Kopie konnte nicht gespeichert werden: {error}",
       "save_failed": "Speichern fehlgeschlagen: {error}",
-      "unknown_error": "Unbekannter Fehler"
+      "unknown_error": "Unbekannter Fehler",
+      "off_updated": "{count, plural, one {# Wert von Open Food Facts aktualisiert} other {# Werte von Open Food Facts aktualisiert}}. Speichere, um sie zu behalten.",
+      "off_up_to_date": "Stimmt bereits mit Open Food Facts überein",
+      "off_prepared_only": "Open Food Facts enthält nur „zubereitete“ Werte für dieses Produkt, daher wurde nichts geändert",
+      "off_units_differ": "Dieses Lebensmittel wird in {unit} gemessen; die Werte von Open Food Facts können nicht umgerechnet werden, daher wurde nichts geändert",
+      "off_no_nutrition": "Open Food Facts hat für dieses Produkt noch keine Nährwertangaben",
+      "off_offline": "Das Aktualisieren von Open Food Facts erfordert eine Verbindung. Es funktioniert wieder, sobald du online bist.",
+      "off_prepared_used": "{count, plural, one {# „zubereiteten“ Wert übernommen} other {# „zubereitete“ Werte übernommen}}. Speichere, um sie zu behalten."
     },
     "errors": {
       "name_required": "Bitte gib einen Namen ein"
+    },
+    "off_prepared": {
+      "only_prepared": "Open Food Facts listet dieses Produkt nur „zubereitet“ auf: {kcal} kcal pro 100 {unit}. Das entspricht dem servierfertigen Zustand (zubereitet, abgetropft oder gekocht), was eventuell nicht der Art entspricht, wie du es abwiegst.",
+      "use": "Diese Werte verwenden",
+      "implausible": "Open Food Facts listet dieses Produkt nur „zubereitet“ auf, und diese Werte scheinen nicht zu stimmen ({kcal} kcal pro 100 {unit}). Trage die Werte von der Verpackung ein.",
+      "none": "Open Food Facts hat keine Nährwertangaben für dieses Produkt. Trage die Werte von der Verpackung ein.",
+      "note": "Nährwertangaben gelten für die zubereitete Form (aus Open Food Facts)."
     }
   },
   "meal_editor": {
@@ -1381,7 +1495,8 @@
       "per_serving_label": "Pro Portion:"
     },
     "errors": {
-      "no_ingredients": "Bitte füge mindestens eine Zutat hinzu"
+      "no_ingredients": "Bitte füge mindestens eine Zutat hinzu",
+      "off_no_values": "Open Food Facts hat keine Werte im Verkaufszustand für {name}. Füge das Produkt unter „Lebensmittel“ mit den Werten von der Verpackung hinzu und wähle es dann hier aus."
     }
   },
   "settings_wellness": {
@@ -1429,7 +1544,6 @@
       "visible_metrics": "Sichtbare Metriken",
       "copied": "Kopiert",
       "copy_failed": "Kopieren fehlgeschlagen. Bitte markiere den Text manuell.",
-      "experimental": "Experimentell",
       "save_failed_prefix": "Speichern fehlgeschlagen: ",
       "sync_failed": "Synchronisation fehlgeschlagen: {error}",
       "reset_visible_metrics": "Alle sichtbaren Metriken zurücksetzen",
@@ -1538,7 +1652,7 @@
       "not_supported": "Health Connect wird auf diesem Gerät nicht unterstützt.",
       "not_supported_short": "Auf diesem Gerät nicht unterstützt",
       "perms_not_granted": "Berechtigungen nicht erteilt. Bitte öffne die Health Connect-App → App-Berechtigungen → NutriTrace und aktiviere sie manuell.",
-      "perm_denied": "Berechtigungen verweigert. Bitte in der Health Connect-App manuell aktivieren.",
+      "perm_denied": "Berechtigungen verweigert. Bitte in der Health Connect-App → App-Berechtigungen → NutriTrace manuell aktivieren.",
       "enabled_success": "Health Connect aktiviert ({count} Datentypen)",
       "enabled_toast": "Health Connect aktiviert ({n} Datentypen)",
       "enable_label": "Health Connect aktivieren",
@@ -1656,7 +1770,7 @@
     "existing_hint": "Tage, die bereits einen Tagebucheintrag enthalten",
     "range": "Zeitraum: {from} → {to}",
     "unmapped_title": "Nicht zugeordnete Mahlzeiten",
-    "unmapped_desc": "Diese Bezeichnungen stimmen mit keinem deiner Mahlzeiten-Namen überein ({meals}). Sie werden in deinen letzten Mahlzeiten-Slot ({lastMeal}) importiert. Füge in den Einstellungen eigene Mahlzeiten hinzu, wenn du sie getrennt gruppieren möchtest.",
+    "unmapped_desc": "Diese Bezeichnungen stimmen mit keinem deiner Mahlzeiten-Namen überein ({meals}). Sie werden in deine letzte Mahlzeit ({lastMeal}) importiert. Füge in den Einstellungen eigene Mahlzeiten hinzu, wenn du sie getrennt gruppieren möchtest.",
     "and_more": "… und {n} weitere",
     "first_items": "Erste {n} Einträge:",
     "dupes_days": "{n} Tag(e) enthalten bereits Einträge",
@@ -1791,7 +1905,7 @@
     }
   },
   "settings_webhooks": {
-    "intro": "Ausgehende Webhooks benachrichtigen andere Dienste sofort, wenn in NutriTrace etwas passiert (z. B. Essen geloggt, Wasser erfasst, Tagesziel erreicht). Jeder Webhook sendet einen signierten HTTP-POST-Request an eine von dir angegebene URL.",
+    "intro": "Ausgehende Webhooks benachrichtigen andere Dienste sofort, wenn in NutriTrace etwas passiert (z. B. Lebensmittel eingetragen, Wasser erfasst, Tagesziel erreicht). Jeder Webhook sendet einen signierten HTTP-POST-Request an eine von dir angegebene URL.",
     "disabled_notice": "Webhooks sind auf diesem Server nicht aktiviert. Ein Webhook kann zwar angelegt werden, wird aber erst ausgeführt, wenn WEBHOOKS_ENABLED=1 gesetzt ist.",
     "just_created": {
       "title": "Webhook erstellt:",
@@ -1883,7 +1997,9 @@
     "toast": {
       "connected": "Trace KI verbunden, Assistent ist bereit",
       "test_failed": "Test fehlgeschlagen",
-      "empty_response": "Keine Antwort von der KI erhalten"
+      "empty_response": "Keine Antwort von der KI erhalten",
+      "fill_fields": "Trage zuerst den API-Schlüssel ein",
+      "fill_fields_custom": "Trage zuerst die Basis-URL und das Modell ein"
     },
     "provider_env_locked": "Über Umgebungsvariablen gesperrt",
     "env_lock_banner": "Über Umgebungsvariablen konfiguriert, Änderungen sind deaktiviert.",
@@ -1893,7 +2009,6 @@
       "provider": "Anbieter",
       "base_url": "Basis-URL",
       "base_url_ph": "http://localhost:11434 oder https://api.deepseek.com",
-      "base_url_desc": "Jeder OpenAI-kompatible Endpunkt (Ollama, LM Studio, DeepSeek, Groq etc.). Nur die Basis-Adresse ohne Pfad eingeben.",
       "model": "Modell",
       "custom_model_id": "Benutzerdefinierte Modell-ID",
       "custom_model_hint": "Trage die genaue Modell-ID des Anbieters ein. Nutze dies, falls das gewünschte Modell nicht im Dropdown-Menü aufgeführt ist.",
@@ -1925,7 +2040,13 @@
       "activity_estimate": "Aktivitäts-Kalorien schätzen",
       "activity_estimate_desc": "Wenn du ein Training über Trace ohne Kalorienanzahl erfasst („Ich bin 10 km gewandert“), schätzt Trace den Verbrauch anhand deines Körperprofils. Für die Schätzung müssen Gewicht, Größe, Alter und Geschlecht hinterlegt sein; fehlen Angaben, fragt Trace stattdessen nach der Kalorienanzahl.",
       "goal_insights": "Ziel-Erkenntnisse",
-      "goal_insights_desc": "Der Assistent analysiert deine Ernährungstrends und schlägt proaktiv Zielanpassungen vor, wenn sich feste Muster zeigen"
+      "goal_insights_desc": "Der Assistent analysiert deine Ernährungstrends und schlägt proaktiv Zielanpassungen vor, wenn sich feste Muster zeigen",
+      "base_url_desc": "Beliebiger OpenAI-kompatibler /v1/chat/completions-Endpunkt: Ollama, LM Studio, LocalAI, vLLM, llama.cpp-Server, DeepSeek, Groq, Together AI, Mistral La Plateforme usw. Mit oder ohne /v1.",
+      "test_connection": "Verbindung testen",
+      "test_connection_desc": "Prüft, ob Trace deinen KI-Anbieter erreichen kann.",
+      "test_connection_desc_locked": "Prüft, ob Trace den KI-Anbieter des Servers erreichen kann.",
+      "test": "Testen",
+      "testing": "Wird getestet…"
     },
     "voice_langs": {
       "auto": "Automatisch (Gerätesprache verwenden)",
@@ -2143,7 +2264,22 @@
       "day_wed": "Mittwoch",
       "day_thu": "Donnerstag",
       "day_fri": "Freitag",
-      "day_sat": "Samstag"
+      "day_sat": "Samstag",
+      "weekly_desc_push": "Wöchentliche Zusammenfassung mit durchschnittlichen Kalorien, Protein, Schritten, Schlaf, Zielerreichung und Gewichtsveränderung, per Push-Benachrichtigung zugestellt",
+      "weekly_desc_email": "Wöchentliche Zusammenfassung mit durchschnittlichen Kalorien, Protein, Schritten, Schlaf, Zielerreichung und Gewichtsveränderung, per E-Mail zugestellt",
+      "weekly_desc_none": "Wöchentliche Zusammenfassung mit durchschnittlichen Kalorien, Protein, Schritten, Schlaf, Zielerreichung und Gewichtsveränderung. Zustellung erfolgt per Push oder E-Mail: Wähle unten einen Push-Dienst aus"
+    },
+    "coaching": {
+      "heading": "Coaching",
+      "sub": "Wird über deinen unten ausgewählten Push-Dienst gesendet.",
+      "message": "Neue Nachricht",
+      "message_desc": "Wenn dein Coach oder ein Klient dir eine Nachricht sendet. Zeigt an, wer geschrieben hat, nicht den Inhalt.",
+      "email": "Zusätzlich per E-Mail benachrichtigen",
+      "email_desc": "Maximal eine E-Mail pro Unterhaltung alle 30 Minuten mit dem Absender. Erfordert eine hinterlegte E-Mail-Adresse und einen eingerichteten E-Mail-Server.",
+      "recommendation": "Neue Empfehlung",
+      "recommendation_desc": "Wenn ein Coach dich als Klienten anfragt oder dein Coach Ziele, einen Tagesplan, eine Mahlzeit oder ein Rezept empfiehlt.",
+      "answer": "Antwort des Klienten",
+      "answer_desc": "Wenn jemand deine Anfrage annimmt, ablehnt oder das Coaching verlässt."
     }
   },
   "wellness_page": {
@@ -2166,7 +2302,8 @@
       "no_integrations_desc": "Aktiviere Fitbit oder Withings unter <strong>Einstellungen → Gesundheit</strong>, um Gesundheitsdaten zu synchronisieren.",
       "no_device": "Kein Gerät verbunden",
       "no_device_native_desc": "Verbinde dich in den <strong>Einstellungen → Serververbindung</strong> mit deinem NutriTrace-Server und verknüpfe ein Gesundheitsgerät, um deine Daten hier zu sehen.",
-      "no_device_desc": "Verbinde ein Gesundheitsgerät unter <strong>Einstellungen → Gesundheit</strong>, um mit der Aufzeichnung deiner Gesundheitsdaten zu beginnen."
+      "no_device_desc": "Verbinde ein Gesundheitsgerät unter <strong>Einstellungen → Gesundheit</strong>, um mit der Aufzeichnung deiner Gesundheitsdaten zu beginnen.",
+      "offline": "Gesundheitsdaten werden über den Server von deinem Anbieter bezogen und erfordern daher eine Verbindung. Sie werden angezeigt, sobald du wieder online bist."
     },
     "chip": {
       "activity": "Aktivität",
@@ -2245,5 +2382,51 @@
       "username_required": "Benutzername ist erforderlich",
       "failed": "Konto konnte nicht erstellt werden"
     }
+  },
+  "settings_support": {
+    "lead": "NutriTrace ist kostenlos und wird es immer bleiben. Unterstützung ist freiwillig und schaltet keine Funktionen frei.",
+    "other_ways": "Weitere Möglichkeiten zu helfen",
+    "star": "Stern auf GitHub vergeben",
+    "star_desc": "Sterne helfen dabei, dass selbst gehostete Projekte gefunden werden.",
+    "report_bug": "Fehler melden",
+    "report_bug_desc": "Ein genauer Fehlerbericht hilft allen, die auf dasselbe Problem stoßen.",
+    "translate": "Beim Übersetzen helfen",
+    "translate_desc": "Hilf mit, NutriTrace auf Weblate in deiner Sprache verfügbar zu machen."
+  },
+  "attach_image": {
+    "button": "Foto hinzufügen",
+    "camera": "Kamera",
+    "gallery": "Galerie"
+  },
+  "plain_http": {
+    "warning_title": "Ohne Verschlüsselung verbinden?",
+    "warning_body": "Dieser Server verwendet unverschlüsseltes HTTP, daher ist die Verbindung nicht verschlüsselt. Jede Person im selben Netzwerk kann die übertragenen Daten mitlesen und manipulieren, einschließlich deines Passworts.",
+    "warning_advice": "Verwende dies nur in deinem Heimnetzwerk oder über ein VPN.",
+    "warning_stored": "Bis du dich verbindest, wird nichts mit diesem Server synchronisiert und die App nutzt weiterhin die Daten auf diesem Telefon. Beim nächsten Öffnen wird erneut gefragt.",
+    "connect_anyway": "Trotzdem verbinden",
+    "refused_title": "HTTPS erforderlich",
+    "refused_body": "Dieser Server verwendet unverschlüsseltes HTTP und befindet sich nicht in deinem eigenen Netzwerk, daher verbindet sich die App nicht mit ihm. Unverschlüsseltes HTTP funktioniert nur mit einem Server unter einer privaten Adresse wie 192.168.1.20 oder einem lokalen Namen wie nutritrace.local. Verwende andernfalls HTTPS.",
+    "refused_stored": "Es wird nichts mit diesem Server synchronisiert und die App nutzt weiterhin die Daten auf diesem Telefon. Um zu einer HTTPS-Adresse zu wechseln, trenne die Verbindung in Einstellungen > Serververbindung und verbinde dich erneut.",
+    "refused_short": "Unverschlüsseltes HTTP funktioniert nur mit einem Server im eigenen Netzwerk. Verwende eine https://-Adresse für diesen Server.",
+    "https_guide": "Anleitung zur HTTPS-Einrichtung",
+    "unreachable": "{url} konnte nicht erreicht werden. Prüfe die Adresse und stelle sicher, dass sich dieses Telefon im selben Netzwerk oder VPN wie der Server befindet.",
+    "not_encrypted": "Nicht verschlüsselt",
+    "invalid_address": "Gib eine Adresse ein, die mit http:// oder https:// beginnt, wie z. B. https://nutritrace.beispiel.de.",
+    "blocked": "Unverschlüsseltes HTTP zu {origin} ist nicht zulässig. Verwende eine https://-Adresse oder einen Server in deinem eigenen Netzwerk."
+  },
+  "share_item": {
+    "button": "Teilen",
+    "title": "Teilen",
+    "intro": "Wer diesen Eintrag sehen kann. Unter „Massenfreigabe“ in den Einstellungen kannst du dies für eine ganze Kategorie festlegen.",
+    "who": "Sichtbar für",
+    "save": "Speichern",
+    "saved": "Freigabe aktualisiert",
+    "failed": "Freigabe konnte nicht aktualisiert werden. Bitte versuche es erneut.",
+    "loading": "Wird geladen…",
+    "needs_connection": "Das Teilen erfordert eine Verbindung zum Server. Versuche es erneut, sobald du wieder online bist.",
+    "not_synced": "Dieser Eintrag wurde noch nicht an deinen Server übertragen oder enthält ungespeicherte Änderungen. Versuche es nach der Synchronisierung erneut.",
+    "off": "Das Teilen ist auf diesem Server deaktiviert.",
+    "people": "Mitglieder mit Zugriff",
+    "no_people": "Noch keine weiteren Mitglieder auf diesem Server vorhanden."
   }
 }

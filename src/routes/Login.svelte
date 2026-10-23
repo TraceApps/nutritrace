@@ -1,12 +1,16 @@
 <script>
   import { onMount } from 'svelte';
-  import { currentUser, userMgmtActive, loadAuthState } from '../stores/auth.js';
+  import { get } from 'svelte/store';
+  import { currentUser, userMgmtActive, loadAuthState, signInProblem, authUnreachable, setupRequired } from '../stores/auth.js';
   import { loadServerSettings } from '../stores/settings.js';
   import { showError, showSuccess } from '../stores/toast.js';
   import { push } from 'svelte-spa-router';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import { apiUrl, isNative, getServerUrl, setAuthToken, resolveAssetUrl, iconUrl } from '../lib/platform.js';
+  import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
+  import { responseJson, discoverSignIn, statusError, serverProblem } from '../lib/server-signin.js';
+  import CookieWarning from '../components/ui/CookieWarning.svelte';
 
   let username = '';
   let password = '';
@@ -24,22 +28,74 @@
   // since there's no server to talk to.
   let oidcProviders = [];
   let passwordLoginEnabled = true;
+  // Why signing in won't stick, if it won't: 'http' when this page is plain
+  // HTTP and the server's cookie is HTTPS-only, 'dropped' when a sign-in
+  // succeeded but the browser still didn't keep the cookie. See cookie-check.js.
+  let authStatus = null;
   // Biometric sign-in (Android server-mode only). Ready when hardware supports
   // it AND the user has previously logged in with biometric enabled (so a
   // saved JWT exists in Preferences ready to be unlocked).
   let _biometricReady = false;
-  onMount(async () => {
-    if (isNative && !getServerUrl()) return; // standalone — skip
+  // The server's sign-in options (lib/server-signin.js). When they couldn't
+  // be loaded, the page says so with a Retry instead of quietly showing a
+  // password form without single sign-on (#36).
+  let optionsError = '';  // why the options couldn't be read (serverProblem), shown with Retry
+  let optionsLoading = false;
+  async function loadSignInOptions() {
+    optionsLoading = true;
     try {
-      const r = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' });
-      if (r.ok) {
-        const data = await r.json();
-        if (data?.oidc) {
-          oidcProviders = Array.isArray(data.oidc.providers) ? data.oidc.providers : [];
-          passwordLoginEnabled = data.oidc.enable_email_password_login !== false;
-        }
+      // The app asks natively (no CORS, so a sign-in proxy's page is said as
+      // such, not "Failed to fetch"); the web page asks its own origin.
+      let data;
+      if (isNative) data = (await discoverSignIn(getServerUrl())).status;
+      else {
+        const r = await fetch(apiUrl('/api/auth/status'), { credentials: 'include' });
+        data = await responseJson(r);
+        if (!r.ok) throw statusError(r.status, data);
       }
-    } catch {}
+      authStatus = data;
+      if (cookieBlockedByHttp(data, { native: isNative })) signInProblem.set('http');
+      oidcProviders = Array.isArray(data?.oidc?.providers) ? data.oidc.providers : [];
+      passwordLoginEnabled = data?.oidc?.enable_email_password_login !== false;
+      optionsError = '';
+    } catch (e) {
+      console.warn('[login] sign-in options:', e?.status || e?.message);
+      optionsError = serverProblem(e);
+    } finally {
+      optionsLoading = false;
+    }
+  }
+
+  // The one reason the page shows (lib/server-signin.js serverProblem). A
+  // proxy's page on the web means its own sign-in ran out; in the app, that
+  // the app can't get past it.
+  $: problem = $authUnreachable || optionsError || null;
+  function problemText(why, t) {
+    if (why === 'proxy') return isNative ? t('server_signin.web_page') : t('server_signin.proxy_web');
+    if (why === 'server_error') return t('server_signin.server_error');
+    if (why === 'unreachable') return t('server_signin.unreachable');
+    return t('server_signin.options_failed');
+  }
+
+  // The server couldn't say who is signed in when the app opened (stores/
+  // auth.js): Retry asks again, and a session that's still good opens the
+  // app; otherwise the sign-in options load as usual.
+  let retrying = false;
+  async function retryServer() {
+    retrying = true;
+    try {
+      await loadAuthState();
+      // A fresh install now answering: its setup, as on a first visit.
+      if (get(setupRequired)) { push('/wizard'); return; }
+      if (!get(authUnreachable)) await loadSignInOptions();
+    } finally {
+      retrying = false;
+    }
+  }
+
+  onMount(async () => {
+    if (isNative && !getServerUrl()) return; // standalone: skip
+    await loadSignInOptions();
     // Probe biometric availability + saved-token presence concurrently
     if (isNative && getServerUrl()) {
       try {
@@ -83,20 +139,34 @@
     }
   }
 
+  // One sign-in at a time: a second tap would open another browser and
+  // replace the code's secret, so the first one's hand-off would fail.
+  let ssoOpening = false;
   async function startOidc(providerId) {
+    if (ssoOpening) return;
     const ret = encodeURIComponent(window.location.hash || '#/');
     if (isNative) {
-      // Capacitor: open in @capacitor/browser. The mobile=1 flag tells
-      // the server to redirect via the nutritrace://oidc-callback deep
-      // link instead of setting an HttpOnly cookie + SPA hash redirect.
-      const { Browser } = await import('@capacitor/browser');
-      await Browser.open({
-        url: apiUrl(`/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}`),
-        presentationStyle: 'popover',
-      });
+      ssoOpening = true;
+      try { await _openNativeSso(providerId, ret); }
+      catch { showError($_('native_setup.errors.browser_open_failed')); }
+      finally { ssoOpening = false; }
       return;
     }
+    // The web page leaves for the sign-in page; the button stays off.
+    ssoOpening = true;
     window.location.href = apiUrl(`/api/auth/oidc/login/${providerId}?return=${ret}`);
+  }
+
+  async function _openNativeSso(providerId, ret) {
+    // Capacitor: open in @capacitor/browser. The mobile=1 flag tells
+    // the server to redirect via the nutritrace://oidc-callback deep
+    // link instead of setting an HttpOnly cookie + SPA hash redirect.
+    const { Browser } = await import('@capacitor/browser');
+    const { appChallengeParam } = await import('../lib/oidc-app-handoff.js');
+    await Browser.open({
+      url: apiUrl(`/api/auth/oidc/login/${providerId}?mobile=1&return=${ret}${await appChallengeParam()}`),
+      presentationStyle: 'popover',
+    });
   }
 
   async function login() {
@@ -109,8 +179,10 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password }),
       });
-      const data = await res.json();
-      if (!res.ok) { showError(data.error || $_('login.errors.failed')); return; }
+      // A sign-in proxy's page in place of the answer says so (#36).
+      let data;
+      try { data = await responseJson(res); } catch (e) { showError(e.message); return; }
+      if (!res.ok || !data.user) { showError(data.error || $_('login.errors.failed')); return; }
       // Store auth token for native server mode
       if (isNative && data.token) setAuthToken(data.token);
       // If biometric login is enabled, stash the JWT so the next launch
@@ -127,12 +199,25 @@
       localStorage.setItem('wl:userId', String(data.user.id));
       localStorage.setItem('nt:cachedUser', JSON.stringify(data.user));
       localStorage.setItem('nt:cachedUserMgmt', '1');
-      currentUser.set(data.user);
+      // Web: don't set the user here. loadAuthState() below reads it back
+      // from the server, so the app only appears once the session cookie has
+      // actually stuck; setting it early flashed the app for a moment before
+      // a dropped cookie sent the user back. Native signs in with a token.
+      if (isNative) currentUser.set(data.user);
       // Refresh CSRF token from /api/auth/me before any state-changing request
       // can fire (otherwise reactive settings saves would use a stale csrf from
       // a previous session and 403). loadAuthState() handles the fetch and
       // populates localStorage.nt:csrf as a side effect.
       await loadAuthState();
+      // The password was right but the session didn't stick: the browser
+      // dropped the cookie. Say why here instead of looping back to sign-in.
+      // get(), not $currentUser: setting the user above can tear this page
+      // down, and a torn-down page's $store stops updating.
+      if (!isNative && !get(currentUser)) {
+        signInProblem.set(droppedCookieReason(authStatus, { native: isNative }));
+        return;
+      }
+      signInProblem.set(null);
       await loadServerSettings();
       push('/');
     } catch(e) {
@@ -175,11 +260,24 @@
       <p class="text-3 text-sm">{$_('login.subtitle')}</p>
     </div>
 
+    {#if $signInProblem}
+      <CookieWarning reason={$signInProblem} />
+    {/if}
+
     {#if !recoveryDone}
+      <!-- One notice, one reason: the server couldn't say who is signed in
+           when the app opened, or its sign-in options couldn't be read. -->
+      {#if problem}
+        <div class="options-failed" role="alert">
+          <span class="material-symbols-rounded">{problem === 'options' ? 'warning' : 'cloud_off'}</span>
+          <div>{problemText(problem, $_)}</div>
+          <button class="btn btn-secondary options-retry" type="button" on:click={$authUnreachable ? retryServer : loadSignInOptions} disabled={retrying || optionsLoading}>{$_('server_signin.retry')}</button>
+        </div>
+      {/if}
       {#if oidcProviders.length}
         <div class="sso-row">
           {#each oidcProviders as p (p.id)}
-            <button class="btn btn-secondary sso-btn" on:click={() => startOidc(p.id)} type="button">
+            <button class="btn btn-secondary sso-btn" on:click={() => startOidc(p.id)} disabled={ssoOpening} type="button">
               {#if p.logo_url}
                 <img src={resolveAssetUrl(p.logo_url)} alt="" class="sso-logo" />
               {:else}
@@ -315,6 +413,15 @@
     line-height: 1.5;
   }
   .sso-row { display: flex; flex-direction: column; gap: 8px; }
+  .options-failed {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 12px 14px; background: color-mix(in srgb, #f59e0b 8%, transparent);
+    border-left: 3px solid #f59e0b; border-radius: 4px;
+    font-size: 13px; line-height: 1.5; color: var(--text-2);
+  }
+  .options-failed > div { flex: 1; min-width: 160px; }
+  .options-failed .material-symbols-rounded { font-size: 20px; color: #f59e0b; flex-shrink: 0; }
+  .options-retry { height: 32px; font-size: 12px; padding: 0 12px; }
   .sso-btn { display: flex; align-items: center; gap: 10px; justify-content: center; width: 100%; }
   .sso-logo { width: 18px; height: 18px; object-fit: contain; }
   .sso-icon { font-size: 18px; }

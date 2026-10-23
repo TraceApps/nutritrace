@@ -9,15 +9,17 @@
  *
  * The strip existed for a real reason: a mini model that saw a propose_* call
  * in chat history re-called it on the next text question and the card looked
- * like it kept coming back. That case is now the only one it covers.
+ * like it kept coming back. That case is now caught in the propose handlers
+ * (trace-review-cards.test.js), and the tool stays in the schema.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { TOOLS } from '../src/lib/aiChat.js';
+import { traceToolsForTurn } from '../src/lib/trace-cards.js';
 
 const trace = readFileSync(new URL('../src/components/ai/Trace.svelte', import.meta.url), 'utf8');
-const toolFilter = trace.slice(trace.indexOf('const _cardAwaitingUser'), trace.indexOf('const reply = aiEnvLocked'));
+const toolFilter = trace.slice(trace.indexOf('const toolsForRound'), trace.indexOf('const reply = aiEnvLocked'));
 const desc = (name) => TOOLS.find(t => t.name === name).description;
 
 test('propose_food is still the only tool that creates a food', () => {
@@ -28,19 +30,16 @@ test('propose_food is still the only tool that creates a food', () => {
   assert.equal(TOOLS.filter(t => t.name === 'propose_food').length, 1);
 });
 
-test('a text-only turn keeps propose_food in the schema', () => {
-  assert.match(toolFilter, /t\.name !== 'propose_quick_calories'/, 'the photo estimate path still goes');
-  assert.doesNotMatch(toolFilter, /t\.name !== 'propose_food'/,
-    'propose_food must not be stripped unconditionally on a text turn');
-});
-
-test('propose_food is stripped only while a card is waiting on the user', () => {
-  assert.match(toolFilter, /const _cardAwaitingUser = !!_pendingProposal \|\| !!_pendingFoodProposal;/);
-  assert.match(toolFilter, /!\(t\.name === 'propose_food' && _cardAwaitingUser\)/);
+test('a text-only turn keeps propose_food in the schema, card on screen or not', () => {
+  // The turn setup lives in trace-cards.js now; trace-review-cards.test.js
+  // runs Trace.svelte's own statement. This keeps the create-food case pinned.
+  assert.match(toolFilter, /traceToolsForTurn\(TOOLS, \{ image: !!image \}\)/);
+  assert.ok(traceToolsForTurn(TOOLS).some(t => t.name === 'propose_food'));
+  assert.doesNotMatch(toolFilter, /_cardAwaitingUser/, 'a card waiting on the user no longer takes the tool away');
 });
 
 test('a photo turn still loses the silent-write tool', () => {
-  assert.match(toolFilter, /image\s*\?\s*TOOLS\.filter\(t => t\.name !== 'log_quick_calories'\)/);
+  assert.ok(!traceToolsForTurn(TOOLS, { image: true }).some(t => t.name === 'log_quick_calories'));
 });
 
 test('log_food tells the model to stay out of save-only asks', () => {
@@ -58,7 +57,7 @@ test('propose_food says it is the food-creating tool, photo or not', () => {
 test('the system prompt routes a no-photo "create a food" ask to propose_food', () => {
   assert.match(trace, /CREATING A FOOD WITHOUT LOGGING IT \(no photo\)/);
   const section = trace.slice(trace.indexOf('CREATING A FOOD WITHOUT LOGGING IT'));
-  const body = section.slice(0, section.indexOf('PHOTO MEAL HANDLING'));
+  const body = section.slice(0, section.indexOf('REVIEW CARDS (text or photo)'));
   assert.match(body, /call propose_food/);
   assert.match(body, /Do NOT call log_food afterwards/,
     'the refusal case is the one that went wrong, so it is spelled out');
@@ -68,7 +67,7 @@ test('the catalogue-only commit path does not touch the diary', () => {
   const fn = trace.slice(trace.indexOf('async function _commitFoodCatalogOnly'));
   const body = fn.slice(0, fn.indexOf('\n  }\n'));
   assert.doesNotMatch(body, /addDiaryItem/, 'Save to Foods writes the food row and nothing else');
-  assert.match(body, /_saveProposedFood\(\)/);
+  assert.match(body, /_saveProposedFood\(p\)/);
 });
 
 test('the food card starts on Don\'t Log, with no meal picked for you', () => {

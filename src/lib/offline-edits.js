@@ -60,18 +60,25 @@ export function dayWithOps(days, ops, date) {
 export function collapseOps(ops) {
   const byDate = new Map();
   const tombs = new Map();
+  // When the day's note was last changed in the queue (see noteChangedAt);
+  // null when queued ops say it wasn't; absent for ops queued before ops
+  // recorded it.
+  const noteAt = new Map();
   for (const op of ops || []) {
     if (!op || op.type !== 'diary' || !op.date) continue;
     const t = tombs.get(op.date) || { items: new Set(), water: new Set() };
     for (const uuid of op.day?.deleted_uuids?.items || []) t.items.add(uuid);
     for (const uuid of op.day?.deleted_uuids?.water || []) t.water.add(uuid);
     tombs.set(op.date, t);
+    if ('note_at' in op) noteAt.set(op.date, op.note_at || noteAt.get(op.date) || null);
     byDate.set(op.date, op);
   }
   return [...byDate.values()]
     .map(op => {
       const t = tombs.get(op.date);
-      return { ...op, day: { ...op.day, deleted_uuids: { items: [...t.items], water: [...t.water] } } };
+      const out = { ...op, day: { ...op.day, deleted_uuids: { items: [...t.items], water: [...t.water] } } };
+      if (noteAt.has(op.date)) out.note_at = noteAt.get(op.date);
+      return out;
     })
     .sort((a, b) => (a.seq || 0) - (b.seq || 0));
 }
@@ -82,6 +89,16 @@ export function collapseOps(ops) {
  * server_id comes from the mirror when the day exists there; the server also
  * resolves by (user, date), so a day first written offline still lands.
  */
+const _noteOf = day => (typeof day?.notes === 'string' && day.notes.trim()) ? day.notes : null;
+
+/** When an offline save changed the day's note: its time if the note
+ *  differs from the day as the person saw it (`before`: the mirror plus
+ *  what was already queued), else null. Kept on the queued op, so the
+ *  flush knows what was edited here even if the mirror moved on since. */
+export function noteChangedAt(before, day, at) {
+  return _noteOf(day) !== _noteOf(before) ? at : null;
+}
+
 export function buildDiaryPush(ops, days) {
   const mirror = new Map((days || []).filter(d => d && d.date).map(d => [d.date, d]));
   const diary = collapseOps(ops).map(op => {
@@ -93,6 +110,13 @@ export function buildDiaryPush(ops, days) {
       items: op.day?.items || [],
       body_stats: op.day?.body_stats || {},
       water: op.day?.water || [],
+      // The day's note, only when it was changed offline, with the time of
+      // that change: the newer note wins on the server. Otherwise the
+      // server keeps its own. Ops queued before they recorded it fall back
+      // to comparing with the server's copy this browser holds.
+      ...(('note_at' in op ? op.note_at != null : _noteOf(op.day) !== _noteOf(known))
+        ? { notes: _noteOf(op.day) || '', notes_updated_at: new Date(op.note_at || op.at || Date.now()).toISOString() }
+        : {}),
       deleted_uuids: op.day?.deleted_uuids || { items: [], water: [] },
       updated_at: new Date(op.at || Date.now()).toISOString(),
       deleted_at: null,

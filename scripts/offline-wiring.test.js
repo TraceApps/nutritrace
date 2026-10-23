@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 
 const read = p => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -52,14 +53,24 @@ test('the header badge reports the queue on the web', () => {
   assert.match(app, /import \{ offlineState \} from '\.\/lib\/offline-api\.js'/);
   assert.match(app, /_webOffline = !isNative &&/);
   assert.match(app, /_webFailing = !isNative && !!\$offlineState\.error/);
-  assert.ok(en.sync.pending_web, 'sync.pending_web copy exists');
+  // The badge counts queued changes (two items on one day are two), so it
+  // says changes, with the plural forms right.
+  assert.match(app, /\$_\('sync\.pending_web_changes', \{ values: \{ count: \$offlineState\.pending \} \}\)/);
+  const { IntlMessageFormat } = createRequire(import.meta.url)('intl-messageformat');
+  const say = n => new IntlMessageFormat(en.sync.pending_web_changes, 'en').format({ count: n });
+  assert.equal(say(0), 'Offline. Your diary still works and saves here.');
+  assert.equal(say(1), 'Offline. 1 change is waiting to go up.');
+  assert.equal(say(2), 'Offline. 2 changes are waiting to go up.');
+  assert.ok(!('pending_web' in en.sync), 'the old key that said days is gone');
 });
 
 test('signing out in a dead zone asks before discarding what is waiting', () => {
   // Clearing the queue on a sign-out that could not send it would destroy work
   // the user never saw fail.
   assert.match(auth, /const sent = await flushOutbox\(\)\.catch\(\(\) => false\)/);
-  assert.match(auth, /if \(!sent && \(await pendingCount\(\)\) > 0\)/);
+  assert.match(auth, /if \(\(!sent && \(await pendingCount\(\)\) > 0\) \|\| coachWaiting > 0\)/);
+  // Coaching messages written offline count too (lib/coach-messages.js).
+  assert.match(auth, /await cm\.flushCoachMessages\(\)\.catch\(\(\) => \{\}\);/);
   assert.match(auth, /if \(!ok\) return;/);
   assert.ok(en.sync.sign_out_waiting && en.sync.sign_out_anyway, 'the copy exists');
 });
@@ -125,8 +136,12 @@ test('a row created offline is changed by its real id after the queue goes up', 
 
 test('new mirror stores reach testers who already have the database', () => {
   // Bumped whenever a store is added, or onupgradeneeded never runs for them.
-  assert.match(offline, /indexedDB\.open\(name, 4\)/);
+  assert.match(offline, /idb\.open\(name, 5\)/);
   assert.match(offline, /objectStoreNames\.contains\('fasts'\)/);
+  // Version 5: coaching's two stores, added (a 1.4 database keeps its queue).
+  assert.match(offline, /if \(!db\.objectStoreNames\.contains\('coach_messages'\)\) db\.createObjectStore\('coach_messages', \{ keyPath: 'uuid' \}\);/);
+  assert.match(offline, /if \(!db\.objectStoreNames\.contains\('coach_recommendations'\)\) db\.createObjectStore\('coach_recommendations', \{ keyPath: 'id' \}\);/);
+  assert.match(offline, /_tx\('coach_messages', 'readwrite', s => s\.clear\(\)\)/);
   assert.match(offline, /objectStoreNames\.contains\('reads'\)/);
   assert.match(offline, /objectStoreNames\.contains\('meta'\)/);
   // and sign-out clears it with the rest
@@ -196,7 +211,7 @@ test('your profile and its picture work the same way here as in the sibling apps
   // auth check answers cannot write a profile to local settings instead.
   assert.match(profile, /\$: _isLocal = /);
   const auth = readFileSync(new URL('../server/routes/auth.js', import.meta.url), 'utf8');
-  assert.match(auth, /await localizeImage\(req\.body\?\.avatar_url\)/);
+  assert.match(auth, /await localizeImage\(body\.avatar_url(, \{[^}]*\})?\)/);
 });
 
 test('what a row created offline became is remembered on disk, not just in memory', () => {

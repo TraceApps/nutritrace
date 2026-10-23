@@ -3,8 +3,19 @@
 import { setAppVersion } from './lib/log-capture.js';
 import { APP_VERSION } from './lib/version.js';
 import { installRequestIdFetch } from './lib/request-id-fetch.js';
+import { Capacitor } from '@capacitor/core';
+import { imagePolicy } from './lib/plain-http.js';
 setAppVersion(APP_VERSION);
-installRequestIdFetch();
+const _native = Capacitor.isNativePlatform();
+installRequestIdFetch({ native: _native });
+// Android app: images over plain http:// only from a confirmed server on your
+// own network, as fetch and CapacitorHttp (lib/plain-http.js, #194).
+if (_native) {
+  const csp = document.createElement('meta');
+  csp.httpEquiv = 'Content-Security-Policy';
+  csp.content = imagePolicy();
+  document.head.prepend(csp);
+}
 import { startViewportProbe } from './lib/viewport-probe.js';
 startViewportProbe();
 // Exposed for iconUrl() in platform.js: appended to every icon <img>
@@ -22,7 +33,7 @@ import './styles/forms.css';
 import './styles/fold.css';
 import App from './App.svelte';
 import { DB } from './lib/db.js';
-import { waitLocale } from 'svelte-i18n';
+import { waitLocale, locale } from 'svelte-i18n';
 import { initI18n } from './i18n/index.js';
 
 // Pick browser-detected locale for first paint; the App-level subscription to
@@ -52,7 +63,14 @@ DB.init()
     // The locale file loads asynchronously. Mounting before it resolves
     // makes the first $_() throw and the boot catch reports a fake
     // database error.
-    await waitLocale();
+    // A language file that can't load (an old cached copy after an update,
+    // say) falls back to English rather than stopping the app from opening.
+    try {
+      await waitLocale();
+    } catch (err) {
+      console.warn('Language file failed to load, using English:', err);
+      try { locale.set('en'); await waitLocale('en'); } catch { /* mount anyway */ }
+    }
     new App({ target: document.getElementById('app') });
   })
   .catch(err => {

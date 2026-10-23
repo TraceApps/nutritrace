@@ -25,6 +25,7 @@
  */
 
 import { fetch as undiciFetch, setGlobalDispatcher, EnvHttpProxyAgent } from 'undici';
+import { redactUrl } from './redact-url.js';
 
 const _upper = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.NO_PROXY;
 const _lower = process.env.http_proxy || process.env.https_proxy || process.env.no_proxy;
@@ -41,8 +42,9 @@ if (_upper || _lower) {
     // point at undici.fetch. Then the dispatcher we set applies.
     globalThis.fetch = undiciFetch;
     const active = {
-      HTTP_PROXY:  process.env.HTTP_PROXY  || process.env.http_proxy  || '(unset)',
-      HTTPS_PROXY: process.env.HTTPS_PROXY || process.env.https_proxy || '(unset)',
+      // A proxy address often carries user:password@: never logged.
+      HTTP_PROXY:  redactUrl(process.env.HTTP_PROXY  || process.env.http_proxy  || '(unset)'),
+      HTTPS_PROXY: redactUrl(process.env.HTTPS_PROXY || process.env.https_proxy || '(unset)'),
       NO_PROXY:    process.env.NO_PROXY    || process.env.no_proxy    || '(unset)',
     };
     console.log('[server] forward-proxy env vars detected, undici EnvHttpProxyAgent installed:', active);
@@ -60,7 +62,7 @@ if (_upper || _lower) {
         'See https://traceapps.github.io/docs/self-hosting/env-vars/#value-format'
       );
     } else {
-      console.warn('[server] proxy-agent install failed:', msg);
+      console.warn('[server] proxy-agent install failed:', redactUrl(msg));
     }
   }
 }

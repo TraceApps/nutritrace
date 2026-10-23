@@ -36,9 +36,9 @@ function realApi() {
   assert.ok(a > 0 && t > 0 && r > 0, 'api.js still has the mapper, the table and the registry');
   const table = src.slice(t, src.indexOf('];', t) + 2);
   const registry = src.slice(r, src.indexOf('const API = {', r));
-  const make = new Function('offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition',
+  const make = new Function('offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', 'settingPrefix',
     `${table}\n${registry}\nreturn { map(p, full) { ${src.slice(a + sig.length, b)} }, info: (code) => _offInfo.get(String(code)) || null };`);
-  return make(offProductName, () => 'en', { getItem: () => null }, Nutrition);
+  return make(offProductName, () => 'en', { getItem: () => null }, Nutrition, () => 'wl_');
 }
 
 test('real products: each "as prepared" case is found and kept apart from the saved food', () => {

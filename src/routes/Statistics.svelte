@@ -21,7 +21,8 @@
            fitbitEnabled, garminEnabled, withingsEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, wellnessMetrics,
            calorieGoalMode,
            fastingEnabled,
-           diaryShowCompletion } from '../stores/settings.js';
+           diaryShowCompletion, weekStartDay } from '../stores/settings.js';
+  import { leadingBlanks, inWeekOrder } from '../lib/week.js';
   import FastingInsights from '../components/diary/FastingInsights.svelte';
   import { isNative } from '../lib/platform.js';
   import { foldText } from '../lib/search-text.js';
@@ -893,7 +894,7 @@
   let showYearPicker  = false;
   let showMonthPicker = false;
 
-  $: calFirstDay    = new Date(calYear, calMonth, 1).getDay();
+  $: calFirstDay    = leadingBlanks(calYear, calMonth, $weekStartDay);
   $: calDaysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
   $: calMonthName   = new Date(calYear, calMonth, 1).toLocaleDateString(undefined, { month: 'long' });
   const _yearRange  = Array.from({ length: 22 }, (_, i) => new Date().getFullYear() - 10 + i);
@@ -1323,7 +1324,7 @@
         </div>
       {:else}
         <div class="dp-grid">
-          {#each ['Su','Mo','Tu','We','Th','Fr','Sa'] as dh}
+          {#each inWeekOrder(['Su','Mo','Tu','We','Th','Fr','Sa'], $weekStartDay) as dh}
             <div class="dp-dh">{dh}</div>
           {/each}
           {#each {length: calFirstDay} as _}<div></div>{/each}

@@ -6,10 +6,11 @@ house conventions that aren't obvious from reading the source.
 
 ## Stack
 
-- **Frontend:** Svelte 4, svelte-spa-router v4 (hash routing), Vite
+- **Frontend:** Svelte 5 in compatibility mode (`runes: false`, so components
+  keep Svelte 4 syntax), svelte-spa-router v4 (hash routing), Vite 6
 - **Server:** Node + Express, better-sqlite3
 - **Mobile:** PWA + Capacitor 8 (Android)
-- **Deploy:** `docker compose up -d`, serves on port 3000
+- **Deploy:** `docker compose up -d`, serves on port 3001
 
 ## Layout
 
@@ -78,11 +79,45 @@ workout maps.
 The assistant (default name "Trace") uses function calling across all
 providers (Claude, OpenAI, Gemini). Seven tools: `get_wellness_data`,
 `get_body_composition`, `get_diary` (items + day notes + per-item
-notes + brand), `get_workouts`, `get_goals`, `get_diary_averages`,
-`get_meals` (saved Meals/Recipes library, cap 50). Execution loop
-runs up to 5 rounds. System prompt instructs the AI to always use
+notes + brand; one day, or up to 31 a call), `get_workouts`, `get_goals`,
+`get_diary_averages`, `get_meals` (saved Meals/Recipes library, 50 a
+page). Execution loop runs up to 12 rounds, then one last request with
+the tools off answers from what was found. System prompt instructs the AI to always use
 tools to fetch real data rather than relying on context. See
 `src/lib/aiChat.js`.
+
+### Coaching
+
+A coach and a client are a row in `coach_clients` (pending, active,
+declined, ended; one active row per client). Every route under
+`/api/coaching/clients/:clientId` goes through one guard
+(`requireCoachOf`, `server/lib/coaching.js`): an active pairing between
+this coach and this client, and the Coach role (or admin). The privacy
+test reads those routes from the source, so a new one can't be missed.
+
+Recommendations (`coach_recommendations`: targets, day plans, meals,
+recipes) carry a copy of what they recommend in `payload`; only the
+client's answer changes anything. Targets are applied on the client's
+device (their goals are their settings), saving the old ones as a
+template first for Undo. A day plan is logged through `addDiaryItem`, so
+logged items are ordinary diary items marked `source:
+coach:plan:<id>:<meal>.<n>`; a meal or recipe sent with Send to Client is
+copied into the client's catalog by the server at Accept. The shared
+rules live in `src/lib/coach-targets.js` and `src/lib/coach-plans.js`,
+which the server's Docker image copies.
+
+Messages (`coach_messages`) carry a uuid made on the device, so a
+message sent offline goes once. Photos live under `uploads/coaching`,
+served only to the two people. Coaching state rides on `/api/auth/me`
+and a fingerprint header on the settings refresh, so people not in
+coaching make no extra request and run no timer. Android keeps messages
+and recommendations in its own tables and syncs them with
+`/api/sync/pull?coaching=1` and `/api/sync/push`.
+
+Trace's coaching tools (`src/lib/coach-trace.js`) are offered only to
+people in coaching: a coach's Trace reads a client's summary and catalog
+and prepares drafts the coach opens and sends; a client's Trace reads
+their recommendations. None reads the conversation.
 
 ### Notifications: two delivery channels
 
@@ -122,6 +157,81 @@ vs. adaptive daily goal.
 8+ characters with uppercase, lowercase, number, and special
 character. Validated server-side in `server/routes/auth.js` and
 client-side in Wizard, Profile, and the invite-accept flow.
+
+### Browser offline mode
+
+`src/lib/offline-api.js` sits in front of every API call in the
+browser. Online it calls the server and keeps what comes back in an
+IndexedDB mirror; unreachable, it answers the diary, your foods,
+meals, recipes, activity, settings, goals, fasts and profile from the
+mirror and queues writes in an outbox. Back online, queued days and
+food, meal, activity and fast edits go up through `/api/sync/push`, so
+the server merges browser edits exactly as it merges the phone's. It deliberately avoids the Background Sync API
+(Safari lacks it, and iPhone is why this exists); the page flushes on
+a backoff and on the `online` event, and a Web Lock keeps two tabs
+from sending at once. The merge rules are pure functions in
+`src/lib/offline-edits.js` so they test without a browser.
+
+### Android account protection
+
+One phone can sign in to more than one account or server, and the
+local SQLite copy is tagged with the account it belongs to
+(`src/lib/local-account.js`). Signing in as someone else clears the
+copy, and unsynced changes from the previous account are never pushed
+under the new one (the app asks first). Every change of account bumps
+an account generation, and a sync started before it writes nothing
+after it. Each switch and sign-out also forgets NutriTrace's own
+cookies (`nt_token`, `nt_oidc_logout`) so the server can't answer as
+the previous account, while a sign-in gate's cookies in front of the
+server stay. `src/lib/user-state.js` resets the in-memory stores
+(day on show, activities, fasts, settings, editor state) before
+anything is shown.
+
+### Fold framework
+
+`src/lib/fold-core.js` is pure and tested: size classes and fold
+reports turned into `{ posture, start, end }`. `src/lib/fold.js` reads
+the fold from the Android `FoldPlugin` (Jetpack WindowManager) or the
+browser's Viewport Segments API and sets `fold-book`, `fold-tabletop`
+or `fold-flat` plus `--fold-start` / `--fold-end` on `<html>`.
+`src/styles/fold.css` moves only surfaces that can't be scrolled out
+of the way (dialogs, sheets, menus, Trace) off the crease; a diary,
+chart or photo may cross it. Wide layouts gate on `html.wide-content`
+(720px of content beside the sidebar), not on the viewport width.
+
+### Only the app's own addresses get CORS
+
+`server/lib/cors.js` (identical in all four Trace apps) decides which pages
+on another address may call the API with the person's sign-in. Allowed: the
+Android app's WebView (`https://app.nutritrace.local`, and
+`https://localhost` from versions before it) and the address in
+`PUBLIC_URL`, each compared whole: scheme, host and port. Anything else gets
+no CORS headers. The web app calls its own address, which needs none;
+the API, MCP and calls from other servers send no Origin.
+
+### Changes from another site are refused
+
+`server/lib/cross-site.js` (identical in all four Trace apps) runs before
+every route: a request that changes something (any method but GET, HEAD and
+OPTIONS) passes only when the browser's `Sec-Fetch-Site` is `same-origin` or
+`none`, or its `Origin` is one CORS allows (above) or exactly the request's
+own address (from `X-Forwarded-Proto` and `X-Forwarded-Host`, or Host), or
+it carries neither header (MCP, the API, scripts, the other Trace apps'
+servers). Browsers always send `Origin` on these methods (`null` from a
+sandboxed frame or a page that sends no referrer), and a page can't change
+it, so a page on any other address, on the same site or not, can't send a
+form, a no-cors fetch or an upload that changes anything, with or without
+the sign-in cookie. Anything else gets a 403 (`code: "cross_site"`) and one
+warning in the log per address. Behind a proxy that passes neither the
+public `Host` nor `X-Forwarded-Host`, writes need `PUBLIC_URL` over plain
+http (no browser sends `Sec-Fetch-Site` there) and, over https, from older
+browsers without it (such as Safari before 16.4). It can't tell apart apps
+that share one origin (two apps under subpaths of the same host), and a DNS
+rebinding page counts as the app's own address.
+
+The CSRF token (`server/middleware/csrf.js`) still guards signed-in
+sessions; this also covers a server without accounts, which has no sign-in
+for a token to protect.
 
 ## Android Local Mode
 
@@ -163,10 +273,18 @@ picks the mode; Settings, then Mode, changes it later.
   `@capacitor/browser` instead of an in-app WebView. Callback via the
   `nutritrace://` deep link scheme
 - **Mobile OIDC SSO** (server mode only): same
-  `@capacitor/browser` pattern. `Login.svelte#startOidc()` opens the
-  server callback which redirects to `nutritrace://oidc-callback/?token=<jwt>`
-  (note the trailing slash, Chrome Custom Tabs needs it to dispatch
-  the OS intent reliably)
+  `@capacitor/browser` pattern. Any installed app can register for
+  `nutritrace://`, so the deep link never carries the session token.
+  Before opening the sign-in page the app makes a random secret and
+  sends only its SHA-256 as `app_challenge`
+  (`src/lib/oidc-app-handoff.js`). The server callback
+  (`server/routes/oidc.js`) redirects to
+  `nutritrace://oidc-callback/?code=<code>` with a single-use code, and
+  the app swaps code plus secret for the token at
+  `POST /api/auth/oidc/handoff`. An app that caught the link has the
+  code but not the secret. Builds too old to send `app_challenge` still
+  get the token in the link. Keep the trailing slash: Chrome Custom
+  Tabs needs it to dispatch the OS intent reliably
 
 ## Svelte Reactivity Rules
 
@@ -190,12 +308,18 @@ See `.env.example` for the full list. Key ones:
 - Request diagnostics count bytes before parsing and capture selected, bounded request bodies after access checks; `X-Request-ID` correlates client and server logs
 - `SMTP_*`, optional, locks Settings UI fields when set
 - `AI_*`, optional, locks AI Assistant settings when set
+- `PUBLIC_URL`, the address emailed links (reset, invite, sharing)
+  use; unset, an address an admin has used, never request headers
+- `ALLOW_PRIVATE_IMAGE_URLS`, lets every account, not only an admin,
+  download photo links from the server's own network
+- `UPDATE_CHECK=off`, turns the server's GitHub release checks off
+  whatever the in-app setting says
 
 ## Conventions
 
 - **Cookie / storage prefix:** `wl_u<id>_<key>` (legacy from
   waistline; intentional)
-- **Auth cookie:** `nutritrace_token`
+- **Auth cookie:** `nt_token`
 - **Deep-link scheme:** `nutritrace://`
 - **Android app id:** `com.nutritrace.app`
 - **Comments:** state the non-obvious constraint or say nothing.

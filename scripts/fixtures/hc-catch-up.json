@@ -1,0 +1,20 @@
+{
+  "_about": "Which days a Health Connect catch-up reads (#294). Shared by src/lib/health-connect.js (catchUpFrom, catchUpDue; scripts/health-connect-days.test.js) and android/.../HealthConnectDays.kt (HealthConnectDaysTest.kt), so the foreground sync and the background worker read the same days. Expected values are worked by hand: the last 7 days, back to the last finished catch-up when older, never more than 30 days; at most one catch-up an hour.",
+  "from": [
+    { "name": "first catch-up reads 30 days", "today": "2026-10-22", "lastDay": null, "expect": "2026-09-23" },
+    { "name": "unreadable last day reads 30 days", "today": "2026-10-22", "lastDay": "yesterday", "expect": "2026-09-23" },
+    { "name": "caught up today: the last 7 days", "today": "2026-10-22", "lastDay": "2026-10-22", "expect": "2026-10-16" },
+    { "name": "caught up yesterday: the last 7 days", "today": "2026-10-22", "lastDay": "2026-10-21", "expect": "2026-10-16" },
+    { "name": "away for 12 days: back to the last day covered", "today": "2026-10-22", "lastDay": "2026-10-10", "expect": "2026-10-10" },
+    { "name": "away for 2 months: 30 days at most", "today": "2026-10-22", "lastDay": "2026-08-01", "expect": "2026-09-23" },
+    { "name": "across a month and a leap day", "today": "2028-03-05", "lastDay": null, "expect": "2028-02-05" },
+    { "name": "across a year", "today": "2027-01-03", "lastDay": "2027-01-02", "expect": "2026-12-28" }
+  ],
+  "due": [
+    { "name": "never ran", "lastAt": null, "now": "2026-10-22T12:00:00Z", "expect": true },
+    { "name": "unreadable time", "lastAt": "soon", "now": "2026-10-22T12:00:00Z", "expect": true },
+    { "name": "59 minutes ago", "lastAt": "2026-10-22T11:01:00Z", "now": "2026-10-22T12:00:00Z", "expect": false },
+    { "name": "an hour ago", "lastAt": "2026-10-22T11:00:00Z", "now": "2026-10-22T12:00:00Z", "expect": true },
+    { "name": "in the future (clock moved back)", "lastAt": "2026-10-22T13:00:00Z", "now": "2026-10-22T12:00:00Z", "expect": true }
+  ]
+}

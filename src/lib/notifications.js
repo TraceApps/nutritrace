@@ -5,6 +5,7 @@
  * Uses @capacitor/local-notifications on native, Notification API on PWA.
  */
 
+import { settingPrefix } from './setting-key.js';
 import { isNative, resolveAssetUrl } from './platform.js';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
@@ -223,8 +224,7 @@ export async function cancelMealReminders() {
 
 function _getSetting(key, def) {
   // Read from localStorage directly (same as DB.getSetting but without circular import)
-  const userId = localStorage.getItem('wl:userId');
-  const storageKey = userId ? `wl_u${userId}_${key}` : `wl_${key}`;
+  const storageKey = settingPrefix() + key;
   const raw = localStorage.getItem(storageKey);
   if (raw === null) return def;
   try { return JSON.parse(raw); } catch { return raw; }
@@ -441,8 +441,11 @@ export async function sendNtfy(url, topic, token, title, message, priority = 5) 
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   if (isNative) {
-    const { CapacitorHttp } = await import('@capacitor/core');
-    const resp = await CapacitorHttp.post({ url: endpoint, headers, data: message });
+    // Android's CapacitorHttp sends no body at all without a Content-Type,
+    // and ntfy then shows "triggered" in place of the message.
+    headers['Content-Type'] = 'text/plain; charset=utf-8';
+    const { NativeHttp } = await import('./native-http.js');
+    const resp = await NativeHttp.post({ url: endpoint, headers, data: message });
     if (resp.status < 200 || resp.status >= 300) throw new Error(`ntfy ${resp.status}`);
   } else {
     const { apiUrl } = await import('./platform.js');
@@ -464,8 +467,8 @@ export async function sendApprise(url, tag, title, message, priority = 5) {
   const endpoint = `${url.replace(/\/+$/, '')}/notify`;
 
   if (isNative) {
-    const { CapacitorHttp } = await import('@capacitor/core');
-    const resp = await CapacitorHttp.post({ url: endpoint, headers: { 'Content-Type': 'application/json' }, data: body });
+    const { NativeHttp } = await import('./native-http.js');
+    const resp = await NativeHttp.post({ url: endpoint, headers: { 'Content-Type': 'application/json' }, data: body });
     if (resp.status < 200 || resp.status >= 300) throw new Error(`Apprise ${resp.status}`);
   } else {
     const { apiUrl } = await import('./platform.js');
@@ -485,8 +488,8 @@ export async function sendGotify(url, token, title, message, priority = 5) {
 
   if (isNative) {
     // Native: CapacitorHttp bypasses CORS — call Gotify directly
-    const { CapacitorHttp } = await import('@capacitor/core');
-    const resp = await CapacitorHttp.post({
+    const { NativeHttp } = await import('./native-http.js');
+    const resp = await NativeHttp.post({
       url: endpoint,
       headers: { 'Content-Type': 'application/json' },
       data: { title, message, priority },

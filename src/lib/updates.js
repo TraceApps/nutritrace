@@ -37,6 +37,7 @@ import { DB } from './db.js';
 const GH_OWNER = 'TraceApps';
 const GH_REPO  = 'nutritrace';
 const APP_NAME = 'NutriTrace';
+const CSRF_KEY = 'nt:csrf';   // this app's CSRF token in localStorage
 const CACHE_KEY_LAST_CHECK   = 'wl_updates_last_check';   // ISO string
 const CACHE_KEY_LATEST       = 'wl_updates_latest';       // JSON blob
 const CACHE_KEY_SKIP_VERSION = 'wl_updates_skip_version'; // version string user chose to skip
@@ -328,7 +329,7 @@ export async function checkForUpdate({ force = false } = {}) {
     } catch {}
     // Keep the shared store in sync so the banner + Settings-nav dot
     // update automatically whenever a check runs (mount, visibility
-    // change, "Check now" button, or the throttled 4h auto-check).
+    // change, "Check now" button, or the throttled auto-check).
     refreshUpdateAvailableStore();
     return result;
   } catch (e) {
@@ -491,6 +492,12 @@ export async function isApkStaged(latest) {
 export async function downloadAndInstallApk(latest, onProgress) {
   if (!isNative) throw new Error('APK install only available in the Android app');
   if (!latest?.apkAsset) throw new Error('No APK asset in this release');
+  // Android allows plain HTTP app-wide since #194 (the app checks each
+  // request itself), and this download runs outside those checks: an APK
+  // only ever comes over HTTPS.
+  let assetUrl = null;
+  try { assetUrl = new URL(latest.apkAsset.url); } catch { /* checked below */ }
+  if (assetUrl?.protocol !== 'https:') throw new Error('Download failed');
   const { Filesystem, Directory } = await import('@capacitor/filesystem');
 
   const path = `updates/${latest.apkAsset.name}`;
@@ -611,7 +618,7 @@ export function formatAgo(dateOrIso) {
 export async function setServerUpdateCheck(enabled) {
   try {
     const { apiUrl } = await import('./platform.js');
-    const csrf = !isNative ? localStorage.getItem('nt:csrf') : null;
+    const csrf = !isNative ? localStorage.getItem(CSRF_KEY) : null;
     const res = await fetch(apiUrl('/api/updates/config'), {
       method: 'PUT',
       credentials: 'include',

@@ -21,6 +21,19 @@ import { dailyTotalsCore } from './daily-totals.js';
  * Core write, shared by the MCP tool below and the public REST API at
  * POST /api/v1/diary/:date/meal. Throws a plain Error on bad input.
  */
+// #277: which food (or recipe) an ingredient is, by the server's id, so a
+// logged item names it the way log_food's do. A meal saved in the browser
+// keeps the server's id in `id`; one saved in the Android app keeps the
+// phone's own there and the server's in `server_id` (null: not on the
+// server yet, so the phone's id is all it has). Same rule as
+// src/lib/coach-plans.js ingredientFoodId.
+function ingredientServerId(it) {
+  if (!it || typeof it !== 'object') return null;
+  if (typeof it.food_server_id === 'number') return it.food_server_id;
+  if ('server_id' in it) return typeof it.server_id === 'number' ? it.server_id : null;
+  return typeof it.id === 'number' ? it.id : null;
+}
+
 export function logMealCore(userId, { meal_id, date, meal } = {}) {
   const day = date || todayLocal();
   if (!isCalendarDate(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
@@ -47,6 +60,7 @@ export function logMealCore(userId, { meal_id, date, meal } = {}) {
   const override = Number.isInteger(meal) ? meal : null;
   const cloned = sourceItems.map((it, i) => ({
     ...it,
+    food_server_id: ingredientServerId(it),
     meal: override ?? (Number.isInteger(it.meal) ? it.meal : 0),
     addedAt: new Date(Date.parse(now) + i).toISOString(),
     source: it.source || 'mcp:meal',

@@ -42,6 +42,7 @@ import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { logger } from '../logger.js';
+import { redactUrl } from './redact-url.js';
 import { stripAccents } from './search-text.js';
 
 // OFF removed their pre-built DuckDB snapshot from challenges.openfoodfacts.org
@@ -470,7 +471,7 @@ async function _runRefresh(source) {
   _refreshBytesTotal = 0;
   _refreshStartedAt = Date.now();
   _refreshLastError = '';
-  logger.info(`[off-local] refresh started (${source}) — downloading ${url} → ${newPath}`);
+  logger.info(`[off-local] refresh started (${source}) — downloading ${redactUrl(url)} → ${newPath}`);
 
   try {
     // Ensure the parent directory exists so a first-time pull on a fresh
@@ -573,7 +574,7 @@ export function primeFromStartup() {
   if (!process.env.OFF_LOCAL_DB) return;
   const p = process.env.OFF_LOCAL_DB;
   if (!fs.existsSync(p)) {
-    logger.info(`[off-local] initial download — ${p} not present, fetching ${getDownloadUrl()}`);
+    logger.info(`[off-local] initial download — ${p} not present, fetching ${redactUrl(getDownloadUrl())}`);
     refreshNow({ source: 'initial' }).catch(e => {
       logger.warn(`[off-local] initial download failed: ${e.message}`);
     });

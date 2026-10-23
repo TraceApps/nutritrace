@@ -70,7 +70,7 @@ public class ReminderAlarmScheduler {
         SQLiteDatabase db = null;
         try {
             db = SQLiteDatabase.openDatabase(
-                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
+                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READWRITE);
 
             // Meal reminders
             if (getBoolSetting(db, "notifMealReminders")) {
@@ -124,7 +124,7 @@ public class ReminderAlarmScheduler {
                 cancelAlarm(context, REQ_WATER, TYPE_WATER);
             }
         } catch (Exception e) {
-            Log.w(TAG, "scheduleAll failed: " + e.getMessage());
+            Log.w(TAG, "scheduleAll stopped, the alarms after this are left as they are: " + e.getMessage());
         } finally {
             if (db != null) db.close();
         }
@@ -137,7 +137,7 @@ public class ReminderAlarmScheduler {
         SQLiteDatabase db = null;
         try {
             db = SQLiteDatabase.openDatabase(
-                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
+                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READWRITE);
 
             switch (type) {
                 case TYPE_MEAL: {
@@ -315,8 +315,11 @@ public class ReminderAlarmScheduler {
             c = db.rawQuery("SELECT value FROM user_settings WHERE key = ? LIMIT 1",
                 new String[]{key});
             if (c.moveToFirst()) return c.getString(0);
-        } catch (Exception e) {
-            // table may not exist yet
+        } catch (RuntimeException e) {
+            // A settings table not there yet (first launch) is "unset". Any
+            // other failure is an error, never "off": it goes up, and what
+            // is scheduled stays as it is (LocalDb).
+            if (!LocalDb.isMissingTable(e)) throw e;
         } finally {
             if (c != null) c.close();
         }

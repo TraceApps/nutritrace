@@ -11,18 +11,23 @@
   import { NUTRIMENTS } from '../lib/nutrition.js';
   import { showSuccess, showError, showInfo } from '../stores/toast.js';
   import { offlineState } from '../lib/offline-api.js';
+  import { usdaFdcId } from '../lib/usda-map.js';
   import { offNutritionStatus, needsFullLookup, applyOffPrepared } from '../lib/off-nutrition.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import Toggle from '../components/settings/Toggle.svelte';
   import UnitPicker from '../components/ui/UnitPicker.svelte';
   import ImageCropper from '../components/ui/ImageCropper.svelte';
   import { takePhoto } from '../lib/camera.js';
-  import { isNative } from '../lib/platform.js';
+  import { isNative, getServerUrl } from '../lib/platform.js';
+  import ShareSheet from '../components/ui/ShareSheet.svelte';
+  import { sharingOn } from '../stores/sharing.js';
+  import { userMgmtActive } from '../stores/auth.js';
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
-  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, energyUnit, showUnitMetadata, warnUnitMismatch, catName as _catName, catDisplay as _catDisplay, disableAnimations } from '../stores/settings.js';
+  import OffAccountInline from '../components/foods/OffAccountInline.svelte';
+  import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, usdaApiKey, usdaEnabled, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, energyUnit, showUnitMetadata, warnUnitMismatch, catName as _catName, catDisplay as _catDisplay, disableAnimations } from '../stores/settings.js';
   import { callAI, callAIProxy } from '../lib/aiChat.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
-  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist } from '../lib/editor-draft.js';
+  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
   import { acquireScreenWakeLock } from '../lib/wake-lock.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
 
@@ -141,6 +146,9 @@
   let showAllNutrients = false;
   let contributing = false;
   let offSuccess = false;
+  // No Open Food Facts login, or a wrong one: ask for it here (#284).
+  let offNeedsAccount = false;
+  let offPhotoFailed = false;
   // Off by default — proportional scaling can surprise users editing a single
   // value (e.g. correcting a typo'd protein gram). User opts in via the link
   // toggle next to the unit selector.
@@ -174,10 +182,12 @@
   // lives on editorState.foodPrefill.id. Without this, every session
   // shares one 'new' draft key and typing while editing food A leaks
   // into a subsequent "add new food" (Wildenhaus, #157).
-  $: _draftKey = _mkDraftKey('food', params?.id ?? editorState.foodPrefill?.id ?? null);
+  // Worked out once, as the editor opens: a key that followed editorState
+  // would switch mid-edit when the editor resets it ("Open existing") and
+  // write this form into another item's draft.
+  const _draftKey = _mkDraftKey('food', params?.id ?? editorState.foodPrefill?.id ?? null, editorState.foodPrefill);
   let _draftReady = false;      // gate: don't persist before onMount overlays the draft
-  let _persistDraft = null;
-  $: if (_draftKey) _persistDraft = makeDebouncedPersist(_draftKey, 400);
+  const _persistDraft = makeDebouncedPersist(_draftKey, 400);
   // Fire on every food change once we're past mount. Debounced inside
   // makeDebouncedPersist so rapid typing collapses into a single write.
   $: if (_draftReady && _persistDraft) _persistDraft(food);
@@ -187,6 +197,8 @@
   let _draftRestored = false;
   let _serverBaseline = null;
   $: hasBarcode = !!(food.barcode && food.barcode.trim());
+  // A food added from USDA keeps its FoodData Central id as the barcode.
+  $: usdaId = usdaFdcId(food.barcode);
 
   function _normBarcode(b) {
     return String(b || '').trim().replace(/^0+/, '');
@@ -269,6 +281,8 @@
       await _openOffPage();
       return;
     }
+    offNeedsAccount = false; offPhotoFailed = false;
+    if (!String($offUsername || '').trim() || !$offPassword) { offNeedsAccount = true; return; }
     contributing = true; offSuccess = false; offVerified = null;
     try {
       const { API } = await import('../lib/api.js');
@@ -284,9 +298,19 @@
       await _doUploadToOFF(API);
       offProductExists = true; // we just contributed it, mark as present
     } catch(e) {
-      showError($_('food_editor.toast.off_upload_failed', { values: { error: e.message } }));
+      // A wrong login is fixed in place too.
+      if (e?.kind === 'no_account' || e?.kind === 'login') offNeedsAccount = true;
+      if (e?.kind !== 'no_account') showError(_offShareError(e));
       contributing = false;
     }
+  }
+
+  // Open Food Facts' answer in plain words, never a parse error (#284).
+  function _offShareError(e) {
+    if (e?.kind === 'login') return $_('food_editor.off_share.login');
+    if (e?.kind === 'refused') return e.detail ? $_('food_editor.off_share.refused', { values: { detail: e.detail } }) : $_('food_editor.off_share.refused_plain');
+    if (e?.kind === 'unreachable') return $_('food_editor.off_share.unreachable');
+    return $_('food_editor.toast.off_upload_failed', { values: { error: e?.message || '' } });
   }
 
   async function _doUploadToOFF(API) {
@@ -297,12 +321,13 @@
       if (v !== undefined && v !== '' && v !== null && !isNaN(parseFloat(v)))
         nutrition[n.id] = parseFloat(v);
     }
-    await API.contributeToOFF(
+    const sent = await API.contributeToOFF(
       { name: food.name, barcode: food.barcode, brand: food.brand,
-        portion: food.portion, unit: food.unit, nutrition },
+        portion: food.portion, unit: food.unit, nutrition, imgUrl: food.imgUrl },
       { offUsername: $offUsername, offPassword: $offPassword,
         offUploadCountry: $offUploadCountry }
     );
+    offPhotoFailed = sent?.photo === 'failed';
     offSuccess = true;
     contributing = false;
     // Give OFF a few seconds to index, then verify the product is live
@@ -436,6 +461,37 @@
         // prepared_only or no_nutrition: the notice under the buttons says
         // which, and offers the "as prepared" values when there are any.
         _showOffNotice(food.barcode, API.offNutritionInfo(food.barcode));
+      }
+    } catch(e) {
+      showError($_('food_editor.toast.refresh_failed', { values: { error: e.message } }));
+    } finally { downloading = false; }
+  }
+
+  // Refresh from USDA (#290): Refresh from OFF for a food added from USDA,
+  // with the same rules (off-refresh.js). Foods saved before #290 were scaled
+  // by 100 / serving size, and this is how one gets USDA's real values back.
+  async function downloadFromUSDA() {
+    if (!usdaId) return;
+    if (!$usdaEnabled || !$usdaApiKey) { showInfo($_('food_editor.toast.usda_needs_key')); return; }
+    if ($offlineState.online === false) { showInfo($_('food_editor.toast.usda_offline')); return; }
+    downloading = true; downloadSuccess = false;
+    try {
+      const { USDA } = await import('../lib/api.js');
+      const result = await USDA.lookupFdcId(usdaId, $usdaApiKey);
+      if (!result) { showError($_('food_editor.toast.usda_not_found')); return; }
+      const { applyOffRefresh } = await import('../lib/off-refresh.js');
+      const { food: next, changed, reason } = applyOffRefresh(food, result, NUTRIMENTS.map(n => n.id));
+      food = next;
+      if (reason === 'updated') {
+        downloadSuccess = true;
+        setTimeout(() => downloadSuccess = false, 2500);
+        showSuccess($_('food_editor.toast.usda_updated', { values: { count: changed } }));
+      } else if (reason === 'up_to_date') {
+        showSuccess($_('food_editor.toast.usda_up_to_date'));
+      } else if (reason === 'units_differ') {
+        showInfo($_('food_editor.toast.usda_units_differ', { values: { unit: food.unit } }));
+      } else {
+        showInfo($_('food_editor.toast.usda_no_nutrition'));
       }
     } catch(e) {
       showError($_('food_editor.toast.refresh_failed', { values: { error: e.message } }));
@@ -583,6 +639,7 @@
 
 
   onMount(async () => {
+    sweepDrafts();
     store = editorState.foodStore || 'foodList';
     // Cache the user's library for duplicate-barcode detection. Best-effort —
     // if the call fails the duplicate warning just stays inactive.
@@ -628,7 +685,12 @@
     _serverBaseline = { ...food };
     try {
       const _draft = loadDraft(_draftKey);
-      if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0) {
+      // A scan of an unknown barcode shares the blank-item draft (#157: a
+      // label photo can get the app killed), so only bring it back onto a
+      // scan of that same barcode.
+      const _otherScan = editorState.foodPrefill?.barcode && _draft?.barcode
+        && String(_draft.barcode) !== String(editorState.foodPrefill.barcode);
+      if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0 && !_otherScan) {
         food = { ...food, ..._draft };
         _draftRestored = true;
       }
@@ -666,6 +728,9 @@
   // PUT regardless, but locking the UI prevents the user from typing into a
   // form that won't save and gives them a single clear action: Save a Copy.
   $: _readOnly = !!food._shared_by;
+  // Share (one item, as Bulk Share does a category): when an admin has sharing on.
+  let _shareOpen = false;
+  $: _canShare = $sharingOn && $userMgmtActive && !(isNative && !getServerUrl());
 
   // Issues #69 + #70: gate the basis / serving units / density editor on
   // an opt-in toggle so the fields stay hidden for users who never need
@@ -731,8 +796,11 @@
         if (Object.keys(flags).length) _nutrition._derived = flags;
       }
       const item = { ...food, nutrition: _nutrition };
+      // Sharing is set by Share (or Bulk Share), never by saving: an older
+      // copy here (a draft, an older load) must not undo it.
+      const { visibility: _v, _specific_users: _s, ...changes } = item;
       const saved = food.id
-        ? await NtApi.updateFood(food.id, item)
+        ? await NtApi.updateFood(food.id, changes)
         : await NtApi.createFood(item);
       item.id = saved.id;
       // If called from diary pick mode, also add to diary
@@ -843,6 +911,11 @@
         aria-label={food.favorite ? 'Unfavorite' : 'Favorite'}
         title={food.favorite ? 'Unfavorite' : 'Add to favorites'}>
         <span class="material-symbols-rounded">{food.favorite ? 'favorite' : 'favorite_border'}</span>
+      </button>
+    {/if}
+    {#if food.id && !_readOnly && _canShare}
+      <button class="btn-icon" on:click={() => _shareOpen = true} aria-label={$_('share_item.button')} title={$_('share_item.button')}>
+        <span class="material-symbols-rounded">share</span>
       </button>
     {/if}
     {#if _readOnly}
@@ -1098,12 +1171,29 @@
               </span>
               {contributing ? 'Uploading…' : offSuccess ? 'Submitted!' : offProductExists ? 'View on OFF' : 'Share to OFF'}
             </button>
-            <button class="btn btn-secondary" style="flex:1"
-              on:click={downloadFromOFF} disabled={downloading}>
-              <span class="material-symbols-rounded" style="font-size:15px;vertical-align:middle;margin-right:4px">download</span>
-              {downloading ? 'Loading…' : downloadSuccess ? 'Updated!' : 'Refresh from OFF'}
-            </button>
+            {#if usdaId}
+              <button class="btn btn-secondary" style="flex:1"
+                on:click={downloadFromUSDA} disabled={downloading}>
+                <span class="material-symbols-rounded" style="font-size:15px;vertical-align:middle;margin-right:4px">download</span>
+                {downloading ? 'Loading…' : downloadSuccess ? 'Updated!' : $_('food_editor.refresh_usda')}
+              </button>
+            {:else}
+              <button class="btn btn-secondary" style="flex:1"
+                on:click={downloadFromOFF} disabled={downloading}>
+                <span class="material-symbols-rounded" style="font-size:15px;vertical-align:middle;margin-right:4px">download</span>
+                {downloading ? 'Loading…' : downloadSuccess ? 'Updated!' : 'Refresh from OFF'}
+              </button>
+            {/if}
           </div>
+          {#if offNeedsAccount}
+            <OffAccountInline on:saved={() => { offNeedsAccount = false; shareOrViewOnOFF(); }} />
+          {/if}
+          {#if offPhotoFailed}
+            <div class="off-prepared-notice" role="status">
+              <span class="material-symbols-rounded" aria-hidden="true">info</span>
+              <div class="off-prepared-body"><p>{$_('food_editor.off_share.photo_failed')}</p></div>
+            </div>
+          {/if}
           {#if _offNotice}
             <div class="off-prepared-notice" role="status">
               <span class="material-symbols-rounded" aria-hidden="true">info</span>
@@ -1246,6 +1336,9 @@
 
 <!-- Inline barcode scanner — fired by the scan button next to the Barcode field -->
 <BarcodeScanner bind:open={editorScannerOpen} on:scan={onEditorScan} on:close={() => editorScannerOpen = false} />
+
+<!-- Share this food: the same choice as Bulk Share (only when an admin has sharing on). -->
+<ShareSheet bind:open={_shareOpen} kind="foods" item={food} on:shared={(e) => { food.visibility = e.detail.visibility; food = food; }} />
 
 <style>
   /* Indented sub-nutrient rows — Saturated Fat under Total Fat, Sugars

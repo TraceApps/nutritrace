@@ -530,17 +530,17 @@
     // reflect a real sync — confusing for users who hit Wellness on web with
     // HC enabled in settings. Bail out before the toast for #68.
     if (!isNative) return;
-    // #161 (A3): syncHealthConnect(dateStr) writes today's HC reads into
-    // dateStr because readTodayData is hard-coded to today. Viewing a past
-    // day and tapping sync would overwrite that day's history with today's
-    // numbers. Refuse the sync on any non-today view — the button itself
-    // is also hidden below, but this is a defense-in-depth guard for the
-    // auto-on-nav callers at line 1136/1167 and the sync-all button.
-    if (!isToday) return;
+    // Reads the day on screen, past days too: Health Connect is read for
+    // that day's own window and the values are stored under it (#294; the
+    // today-only read is why #161 had to refuse past days). Also catches up
+    // on the last days when that's due.
     hcSyncing = true;
     try {
-      const { syncHealthConnect } = await import('../lib/health-connect.js');
-      await syncHealthConnect(dateStr);
+      const { syncHealthConnect, runWorkerNow } = await import('../lib/health-connect.js');
+      // The native reader brings workouts, floors and water (#294); this
+      // page reloads when it's done ('nt:hc-worker-done').
+      runWorkerNow({ minAgeMs: 30000 });
+      await syncHealthConnect(dateStr, { catchUp: true });
       if (isNative) await loadLocalWellnessData();
       console.log('[wellness] HC sync done, data keys:', Object.keys(data), '_hasLocalData:', _hasLocalData, 'displayData keys:', Object.keys(displayData));
       showSuccess('Health Connect synced');
@@ -1376,14 +1376,24 @@
 
     // On native: reload wellness data when background sync completes
     if (isNative) {
-      _syncCompleteHandler = () => {
+      _syncCompleteHandler = (e) => {
+        if (e?.detail?.changed === false) return; // nothing new
         loadLocalWellnessData();
       };
       window.addEventListener('nt:sync-complete', _syncCompleteHandler);
+      // The native Health Connect reader finished (runWorkerNow, #294):
+      // reload when it brought something.
+      _hcWorkerDoneHandler = (e) => {
+        if (!(e?.detail?.changed > 0)) return;
+        loadLocalWellnessData();
+        loadWorkouts();
+      };
+      window.addEventListener('nt:hc-worker-done', _hcWorkerDoneHandler);
     }
   });
 
   let _syncCompleteHandler = null;
+  let _hcWorkerDoneHandler = null;
   let _lastSyncTickTimer = null;
   onMount(() => {
     // 30s tick to keep the 'Xm ago' label in the left rail fresh
@@ -1393,6 +1403,7 @@
   });
   onDestroy(() => {
     if (_syncCompleteHandler) window.removeEventListener('nt:sync-complete', _syncCompleteHandler);
+    if (_hcWorkerDoneHandler) window.removeEventListener('nt:hc-worker-done', _hcWorkerDoneHandler);
     if (_lastSyncTickTimer) clearInterval(_lastSyncTickTimer);
   });
 
@@ -1469,7 +1480,7 @@
 
   <!-- Fixed sync buttons — portalled to body so position:fixed is viewport-relative -->
   <div class="wl-topbar-actions" use:portal>
-    {#if $healthConnectEnabled && isNative && isToday}
+    {#if $healthConnectEnabled && isNative}
       <button class="wl-sync-icon-btn" class:wl-syncing={hcSyncing}
         on:click={syncHealthConnectManual} disabled={hcSyncing}
         title={$_('wellness_page.sync.health_connect')}>

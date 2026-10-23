@@ -123,3 +123,28 @@ export function macroGoalGrams(g, calGoal, density) {
   if (raw == null || !g.isPercent || !density) return raw;
   return percentGoalToGrams(raw, calGoal, density) ?? raw;
 }
+
+/**
+ * The day's calorie and macro targets as numbers (grams for macros), the
+ * way the Diary resolves them: per weekday when a goal varies by day, and a
+ * percent macro turned into grams at that day's calorie target. Goals saved
+ * as plain numbers (an older format) are read as they are. Used by the
+ * goal.achieved webhook and by a coach's view of a client.
+ *
+ * @returns {{ calories: number|null, proteins: number|null, carbohydrates: number|null, fat: number|null }}
+ */
+export function dayTargets(goals, dateStr, { calories: caloriesNow } = {}) {
+  const g = goals || {};
+  const plain = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  // `calories` overrides the stored goal: the day's effective goal with
+  // Dynamic or Adaptive (percent macros follow it, as in the Diary).
+  const calories = caloriesNow ?? plain(g.calories) ?? resolveGoalFor(g.calories, dateStr) ?? null;
+  const out = { calories };
+  for (const [key, density] of [['proteins', 4], ['carbohydrates', 4], ['fat', 9]]) {
+    const e = g[key];
+    if (plain(e) !== null) { out[key] = e; continue; }
+    const raw = e ? resolveGoalFor(e, dateStr) : null;
+    out[key] = raw == null ? null : (e.isPercent ? (calories != null ? percentGoalToGrams(raw, calories, density) : null) : raw);
+  }
+  return out;
+}

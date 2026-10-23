@@ -7,6 +7,7 @@
  * tested directly without a compiled better-sqlite3 native binding.
  */
 import path from 'path';
+import { frameAncestorsDirective } from './frame-ancestors.js';
 
 const uploadsPath = process.env.UPLOADS_PATH || './uploads';
 
@@ -22,7 +23,9 @@ const uploadsPath = process.env.UPLOADS_PATH || './uploads';
  * admin-only. The archive holds the whole database dump, so this was
  * strictly more than the admin API itself would hand over.
  */
-const PRIVATE_SUBDIRS = ['backups'];
+// backups: database dumps. coaching: photos in a coach's conversation with a
+// client, served only to those two (routes/coaching.js).
+const PRIVATE_SUBDIRS = ['backups', 'coaching'];
 
 /**
  * True when a request path under the /uploads mount would land inside a
@@ -101,5 +104,6 @@ export function safeUploadExtension(mimetype, originalname) {
  */
 export const UPLOAD_RESPONSE_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
-  'Content-Security-Policy': "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+  // This policy replaces the app's, so it carries the framing rule too.
+  'Content-Security-Policy': `default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox; ${frameAncestorsDirective(process.env.FRAME_ANCESTORS)}`,
 };

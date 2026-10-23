@@ -18,7 +18,15 @@
     healthConnectEnabled,
     fastingEnabled, fastingDefaultHours, fastingNotifyOnGoal,
     fastingScheduleEnabled, fastingScheduleTime, fastingScheduleDays, fastingScheduleGoal,
+    weekStartDay,
   } from '../../stores/settings.js';
+  import { weekdayOrder } from '../../lib/week.js';
+
+  // Fasting days are stored by weekday (0 Sunday); shown from the week's
+  // first day (#232).
+  const _DAY_LETTERS = ['S','M','T','W','T','F','S'];
+  const _DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  $: _dayOrder = weekdayOrder($weekStartDay);
   import { isNative, getServerUrl } from '../../lib/platform.js';
 
   // Same rule the parent shell derives.
@@ -266,7 +274,8 @@
         <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
           <span class="setting-label">{$_('settings_diary.repeat_on')}</span>
           <div class="seg-control multi" style="width:100%;--seg-count:7">
-            {#each ['S','M','T','W','T','F','S'] as label, idx}
+            {#each _dayOrder as idx}
+              {@const label = _DAY_LETTERS[idx]}
               <button class="seg-opt" type="button"
                 class:seg-active={$fastingScheduleDays?.includes(idx)}
                 on:click={() => {
@@ -277,7 +286,7 @@
             {/each}
           </div>
           <div class="setting-desc" style="margin:0">
-            Tap a day to toggle. Sunday → Saturday.
+            Tap a day to toggle. {_DAY_NAMES[_dayOrder[0]]} → {_DAY_NAMES[_dayOrder[6]]}.
           </div>
         </div>
         <div class="setting-divider"></div>

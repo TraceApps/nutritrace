@@ -2,7 +2,9 @@ import { writable, derived } from 'svelte/store';
 import { NtApi } from '../lib/api.js';
 import { Nutrition } from '../lib/nutrition.js';
 import { localDateStr, DB } from '../lib/db.js';
-import { resolveAssetUrl } from '../lib/platform.js';
+import { resolveAssetUrl, isNative } from '../lib/platform.js';
+import { itemSourceRef } from '../lib/item-source.js';
+import { markCatalogItemUsed, countsUseHere } from '../lib/catalog-kind.js';
 
 function todayStr() {
   return localDateStr();
@@ -91,6 +93,8 @@ const _KEEP_FIELDS = [
   'uuid',                                           // Option C stable per-item identity for merge
   'meal', 'addedAt', 'updatedAt', 'type',           // routing + display + branch
   'id', 'food_server_id', 'is_recipe',              // hydration keys
+  'food_device',                                    // which phone's own id `id` is, until it syncs
+  'food_name',                                      // its food's name when linked again, where it differs (#277)
   'name', 'brand', 'portion', 'unit', 'quantity',   // history-protected snapshot
   'nutrition', 'notes',                             // history-protected snapshot
   'imgUrl',                                         // scrubbed by _stripCachedPaths, hydrated on read
@@ -162,7 +166,20 @@ export function buildDiaryWritePayload({ items, body_stats, bodyStats, water, no
   };
 }
 
+let _userGen = 0;
+/** The account changed or signed out (lib/user-state.js): drop the day on
+ *  show, so the next account never sees or edits it. A load still running
+ *  for the account before is dropped too. */
+export function resetDiaryState() {
+  _userGen++;
+  currentEntry.set(null);
+  currentDate.set(todayStr());
+  diaryLoadError.set(false);
+  diaryLoadErrorMsg.set('');
+}
+
 export async function loadEntry(dateStr) {
+  const gen = _userGen;
   currentDate.set(dateStr);
   let entry = null;
   let failed = false;
@@ -176,6 +193,7 @@ export async function loadEntry(dateStr) {
   }
   let curDate = null;
   currentDate.subscribe(v => curDate = v)();
+  if (gen !== _userGen) return null;
   if (curDate === dateStr) {
     diaryLoadError.set(failed);
     // On failure, set currentEntry to null (not a synthetic placeholder) so
@@ -256,7 +274,10 @@ async function _save(entry) {
   return result;
 }
 
-export async function addDiaryItem(foodItem, meal, date) {
+// kind: 'food' | 'meal' | 'recipe' when the caller knows what it logs (the
+// Foods page does), so the right row's usage is counted (#282). shared: an
+// ingredient of someone else's shared meal (its own item doesn't say so).
+export async function addDiaryItem(foodItem, meal, date, { kind = null, shared = false } = {}) {
   let viewDate = null;
   currentDate.subscribe(v => viewDate = v)();
   const targetDate = date || viewDate || todayStr();
@@ -269,9 +290,16 @@ export async function addDiaryItem(foodItem, meal, date) {
   // Stored on the diary item so liveImgFor and friends can look up the
   // correct food regardless of any local-autoincrement renumbering that
   // happens after an Android re-install.
-  const food_server_id = ('server_id' in foodItem)
-    ? foodItem.server_id
-    : (typeof foodItem.id === 'number' ? foodItem.id : null);
+  // #277: a diary item logged again (Yesterday's Meals) already says which
+  // food it came from; on Android its `id` is the phone's own, not the
+  // server's, so it keeps its food_server_id (and food_device) as is.
+  const keepsSource = !('server_id' in foodItem) && 'food_server_id' in foodItem
+    && (typeof foodItem.food_server_id === 'number' || foodItem.food_server_id === null);
+  const food_server_id = keepsSource
+    ? foodItem.food_server_id
+    : ('server_id' in foodItem)
+      ? foodItem.server_id
+      : (typeof foodItem.id === 'number' ? foodItem.id : null);
   const item = {
     ...foodItem,
     uuid: _newUuid(),
@@ -279,6 +307,14 @@ export async function addDiaryItem(foodItem, meal, date) {
     addedAt: new Date().toISOString(),
     food_server_id,
   };
+  // Logged on the phone before its food reached the server: `id` is this
+  // phone's own. Say which phone, so once the food syncs this phone (and
+  // no other) fills in food_server_id, even if the food was renamed.
+  // A saved meal's ingredient may already say which phone's id it is
+  // (#277): that one stays.
+  if (isNative && !keepsSource && food_server_id === null && typeof foodItem.id === 'number' && !foodItem.food_device) {
+    try { item.food_device = await (await import('../lib/db-native.js')).dbInstallId(); } catch {}
+  }
 
   // Issue #81: refetch from server before write so the append doesn't
   // wipe body_stats / water / notes that another device pushed in the
@@ -292,11 +328,8 @@ export async function addDiaryItem(foodItem, meal, date) {
   // meals, and recipes can rise in their "Most Used" / "Recently Used"
   // sort modes. Fire-and-forget; a failed bump shouldn't block the diary
   // save the user already saw succeed.
-  if (typeof item.id === 'number') {
-    const usageUpdate = item.is_recipe
-      ? NtApi.markMealUsed(item.id, targetDate)
-      : NtApi.markFoodUsed(item.id, targetDate);
-    usageUpdate.catch(() => {});
+  if (countsUseHere(item, { native: isNative, shared })) {
+    markCatalogItemUsed(NtApi, kind, item, targetDate).catch(() => {});
   }
 }
 
@@ -484,7 +517,15 @@ export async function splitRecipeItem(index) {
 
   let recipe = item;
   if (!Array.isArray(item.items) || item.items.length === 0) {
-    const recipeId = item.food_server_id ?? item.id;
+    // getMeal takes this device's ids: the server's on the web, the
+    // phone's own in the Android app (lib/item-source.js).
+    const ref = itemSourceRef(item, { native: isNative });
+    let recipeId = ref?.localId ?? null;
+    if (ref?.serverId != null) {
+      recipeId = isNative
+        ? await import('../lib/db-native.js').then(m => m.dbFindLocalId('meals', ref.serverId)).catch(() => null)
+        : ref.serverId;
+    }
     if (typeof recipeId !== 'number') return false;
     try { recipe = await NtApi.getMeal(recipeId); }
     catch { return false; }
@@ -523,10 +564,23 @@ export async function splitRecipeItem(index) {
   // is rebalanced from the rounded portion so per-gram density stays
   // accurate.
   const _round1 = v => Math.round(v * 10) / 10;
+  // Each ingredient's food by its server id (#277): food_server_id on one
+  // saved from the diary, server_id on one saved in the Android app (null:
+  // not on the server yet), else its id (saved in the browser), the same
+  // rule as log_meal (server/lib/mcp/tools/log-meal.js).
+  const install = isNative ? await import('../lib/db-native.js').then(m => m.dbInstallId()).catch(() => null) : null;
   const splitItems = recipe.items.map(ing => {
-    const food_server_id = ('server_id' in ing)
-      ? ing.server_id
-      : (typeof ing.id === 'number' ? ing.id : null);
+    const food_server_id = (typeof ing.food_server_id === 'number' || ing.food_server_id === null)
+      ? ing.food_server_id
+      : ('server_id' in ing)
+        ? (ing.server_id ?? null)
+        : (typeof ing.id === 'number' ? ing.id : null);
+    // Not on the server yet: which phone's id `id` is. One it says already
+    // stays; one in the phone's own shape (server_id null) is this phone's,
+    // as addDiaryItem has it; one saved from the diary stays untagged.
+    const food_device = food_server_id === null && typeof ing.id === 'number'
+      ? (ing.food_device || ('server_id' in ing && !('food_server_id' in ing) ? install : null) || undefined)
+      : undefined;
     const origPortion  = parseFloat(ing.portion)  || 100;
     const origQuantity = parseFloat(ing.quantity) || 1;
     const exactScaledMass = origPortion * origQuantity * scale;
@@ -541,19 +595,23 @@ export async function splitRecipeItem(index) {
         Object.entries(ing.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * nutritionFactor])
       );
     }
+    const { food_device: _fd, ...ingRest } = ing;
     return {
-      ...ing,
+      ...ingRest,
       portion: newPortion,
       quantity: 1,
       nutrition: scaledNutrition,
       addedAt: now,
       food_server_id,
+      ...(food_device ? { food_device } : {}),
     };
   });
 
+  // An edit of the item: its own time, so the server's merge keeps it
+  // over an older copy (server/lib/diary-merge.js).
   const updated = {
     ...entry,
-    items: entry.items.map((it, i) => i === index ? { ...item, _splitItems: splitItems } : it),
+    items: entry.items.map((it, i) => i === index ? { ...item, _splitItems: splitItems, updatedAt: now } : it),
   };
   currentEntry.set(await _save(updated));
   return true;
@@ -580,7 +638,7 @@ export async function removeSplitChild(parentIndex, childIndex) {
     newItems = entry.items.filter((_, i) => i !== parentIndex);
   } else {
     newItems = entry.items.map((it, i) =>
-      i === parentIndex ? { ...parent, _splitItems: remaining } : it
+      i === parentIndex ? { ...parent, _splitItems: remaining, updatedAt: new Date().toISOString() } : it
     );
   }
   currentEntry.set(await _save({ ...entry, items: newItems }));
@@ -603,7 +661,7 @@ export async function updateSplitChild(parentIndex, childIndex, changes) {
     i === childIndex ? { ...c, ...changes } : c
   );
   const newItems = entry.items.map((it, i) =>
-    i === parentIndex ? { ...parent, _splitItems: newChildren } : it
+    i === parentIndex ? { ...parent, _splitItems: newChildren, updatedAt: new Date().toISOString() } : it
   );
   currentEntry.set(await _save({ ...entry, items: newItems }));
 }
@@ -637,7 +695,7 @@ export async function moveMealItems(fromMealIdx, toMealIdx) {
     const items = (entry.items || []).map(it => {
       if (Number(it.meal ?? 0) === Number(fromMealIdx)) {
         count++;
-        return { ...it, meal: Number(toMealIdx) };
+        return { ...it, meal: Number(toMealIdx), updatedAt: new Date().toISOString() };
       }
       return it;
     });

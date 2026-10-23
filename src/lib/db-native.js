@@ -10,6 +10,7 @@
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { hydrateWithoutFoods } from './diary-hydration.js';
 import { parseAltUnits } from './units.js';
+import { itemSourceRef, relinkItems, relinkIngredients, itemFoodMatches, relinkedAt } from './item-source.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -90,6 +91,8 @@ const SCHEMA = `
     body_stats  TEXT DEFAULT '{}',
     water       TEXT DEFAULT '[]',
     notes           TEXT DEFAULT NULL,
+    notes_updated_at TEXT DEFAULT NULL,
+    notes_dirty     INTEGER DEFAULT 0,
     completed_at    TEXT DEFAULT NULL,
     completed_meals TEXT DEFAULT NULL,
     updated_at      TEXT DEFAULT (datetime('now')),
@@ -113,6 +116,21 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_diary_tombstones_user_date
     ON diary_tombstones(user_id, date);
+
+  -- Day and meal completion marks set or cleared here that the server
+  -- hasn't heard yet. The diary push never carries the marks (the server
+  -- keeps its own when a push leaves them out, so a stale phone can't undo
+  -- another device's mark), so these replay through the same calls the
+  -- app makes online. slot NULL is the whole day.
+  CREATE TABLE IF NOT EXISTS diary_completion_ops (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER DEFAULT 1,
+    date       TEXT NOT NULL,
+    slot       INTEGER,
+    completed  INTEGER NOT NULL,
+    at         TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 
   CREATE TABLE IF NOT EXISTS wellness_data (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,6 +237,49 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_fasts_sync       ON fasts(sync_status);
   CREATE INDEX IF NOT EXISTS idx_fasts_server     ON fasts(server_id);
 
+  -- Coaching (server mode): the conversations this account can read, kept
+  -- for a dead zone. A message written here waits with sync_status
+  -- 'pending' and its own uuid (the server stores a uuid once); a delete
+  -- waits as 'pending_delete'. image_local holds a photo not sent yet.
+  CREATE TABLE IF NOT EXISTS coach_messages (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id         INTEGER,
+    uuid              TEXT NOT NULL UNIQUE,
+    pairing_id        INTEGER NOT NULL,
+    sender_id         INTEGER,
+    body              TEXT,
+    image             TEXT,
+    image_local       TEXT,
+    post_path         TEXT,
+    recommendation_id INTEGER,
+    read_at           TEXT,
+    created_at        TEXT,
+    updated_at        TEXT,
+    deleted_at        TEXT,
+    error             TEXT,
+    sync_status       TEXT DEFAULT 'synced'
+  );
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_pairing ON coach_messages(pairing_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_coach_messages_sync    ON coach_messages(sync_status);
+
+  -- Coach recommendations (from 1.5's targets and day plans), same shape.
+  CREATE TABLE IF NOT EXISTS coach_recommendations (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id     INTEGER,
+    pairing_id    INTEGER,
+    kind          TEXT,
+    date          TEXT,
+    payload       TEXT,
+    note          TEXT,
+    status        TEXT,
+    response_note TEXT,
+    created_at    TEXT,
+    responded_at  TEXT,
+    updated_at    TEXT,
+    deleted_at    TEXT,
+    sync_status   TEXT DEFAULT 'synced'
+  );
+
   CREATE INDEX IF NOT EXISTS idx_foods_user ON foods(user_id);
   CREATE INDEX IF NOT EXISTS idx_foods_server ON foods(server_id);
   CREATE INDEX IF NOT EXISTS idx_meals_user ON meals(user_id);
@@ -257,6 +318,28 @@ async function _applySchema(db) {
     // #207 (per-meal companion): JSON array of slot indexes.
     if (!cols.includes('completed_meals')) {
       await db.execute(`ALTER TABLE diary ADD COLUMN completed_meals TEXT DEFAULT NULL`);
+    }
+    // When the day's note was last edited (the newer note wins), and
+    // whether it was edited here since the server last had it. Only an
+    // edit made here goes up with its time: a time pulled from the server
+    // is already on the server's clock.
+    if (!cols.includes('notes_updated_at')) {
+      await db.execute(`ALTER TABLE diary ADD COLUMN notes_updated_at TEXT DEFAULT NULL`);
+    }
+    if (!cols.includes('notes_dirty')) {
+      await db.execute(`ALTER TABLE diary ADD COLUMN notes_dirty INTEGER DEFAULT 0`);
+      // Updating from an app that didn't track this: a day still waiting
+      // to go up may hold a note edited here; it goes up with the day's
+      // edit time (newer wins on the server) instead of being lost.
+      await db.run(
+        `UPDATE diary SET notes_dirty = 1, notes_updated_at = COALESCE(notes_updated_at, updated_at)
+          WHERE sync_status = 'pending' AND notes IS NOT NULL AND notes != ''`,
+        []
+      );
+    }
+    const ops = await db.query(`PRAGMA table_info(diary_completion_ops)`);
+    if (!(ops?.values || []).some(r => r.name === 'at')) {
+      await db.execute(`ALTER TABLE diary_completion_ops ADD COLUMN at TEXT`);
     }
   } catch (e) {
     console.debug('[db-native] diary.notes/completed_at migration skipped:', e?.message);
@@ -391,26 +474,11 @@ async function _applySchema(db) {
     console.debug('[db-native] wellness_data zero-value prune skipped:', e?.message);
   }
 
-  // One-shot heal: clear `sync_status='pending'` on any row that was
-  // already server-synced (has a server_id). An earlier version of
-  // `dbBumpFoodUsage` / `dbBumpMealUsage` (pre-ee1e7b8) marked rows
-  // pending on every diary add, which then blocked
-  // `dbUpsertFromServer` from applying server-side image / nutrition
-  // corrections (because the upsert refuses to overwrite locally-pending
-  // rows). Now that bumps no longer mark rows pending, we need to free
-  // the rows that got falsely stuck. Local-only rows (no server_id) keep
-  // their pending state so they still push on the next sync.
-  try {
-    const fBefore = await db.query(`SELECT COUNT(*) AS n FROM foods WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
-    const mBefore = await db.query(`SELECT COUNT(*) AS n FROM meals WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
-    await db.run(`UPDATE foods SET sync_status = 'synced' WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
-    await db.run(`UPDATE meals SET sync_status = 'synced' WHERE sync_status = 'pending' AND server_id IS NOT NULL`);
-    const fc = (fBefore?.values || [])[0]?.n ?? 0;
-    const mc = (mBefore?.values || [])[0]?.n ?? 0;
-    console.log(`[db-native] sync_status heal: cleared ${fc} foods + ${mc} meals from falsely-pending state`);
-  } catch (e) {
-    console.warn('[db-native] sync_status heal failed:', e?.message);
-  }
+  // A heal used to run here on every launch: it set every food and meal
+  // with a server_id back to 'synced', for rows a pre-ee1e7b8 (rc.35) usage
+  // bump had left pending. It also caught real offline edits, so an edit
+  // made offline was gone after an app restart. Every install has run
+  // it since, and bumps no longer mark rows pending, so it's gone.
 
   // Cleanup for the removed food_server_id diary heal: if the heal flag
   // is set ('done'), an earlier build of this app marked diary rows
@@ -471,6 +539,22 @@ async function _applySchema(db) {
   } catch (e) {
     console.debug('[db-native] diary items shrink skipped:', e?.message);
   }
+
+  // One row per recommendation on this phone: a refresh and a sync running
+  // together could otherwise write the same one twice. Duplicates from
+  // before go first (the newest local row stays).
+  try {
+    await db.run(`DELETE FROM coach_recommendations WHERE server_id IS NOT NULL AND id NOT IN (SELECT MAX(id) FROM coach_recommendations WHERE server_id IS NOT NULL GROUP BY server_id)`, []);
+    await db.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_recs_server ON coach_recommendations(server_id)`);
+  } catch (e) {
+    console.debug('[db-native] coach_recommendations index skipped:', e?.message);
+  }
+
+  // The server's clock offset learned before (see _editNow).
+  try {
+    const v = (await db.query(`SELECT value FROM sync_meta WHERE key = 'clock_offset_ms'`))?.values?.[0]?.value;
+    if (v != null && Number.isFinite(Number(v))) _clockOffsetMs = Number(v);
+  } catch { /* none yet */ }
 }
 
 // Mirror of server/db.js diary items shrink migration. See stores/diary.js
@@ -616,6 +700,26 @@ function _now() {
   return new Date().toISOString();
 }
 
+// ── Edit times on the server's clock ──────────────────────────────────────
+// The server's clock against this phone's, in ms, learned from each sync
+// reply (dbSetClockOffset). Edits are stamped with this phone's clock set
+// right by it, ending in "+00:00" instead of "Z" so the server knows the
+// time is already on its clock (server/lib/sync-clock.js) and doesn't add
+// the push-time offset again. A clock put right between an edit and its
+// push no longer matters. Before any reply, edits are stamped as before.
+let _clockOffsetMs = null;
+function _editNow() {
+  if (_clockOffsetMs == null) return _now();
+  return new Date(Date.now() + _clockOffsetMs).toISOString().replace(/Z$/, '+00:00');
+}
+export async function dbSetClockOffset(ms) {
+  if (!Number.isFinite(ms)) return;
+  _clockOffsetMs = Math.round(ms);
+  const db = await getDb();
+  await db.run(`INSERT INTO sync_meta (key, value) VALUES ('clock_offset_ms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(_clockOffsetMs)]);
+}
+export function dbClockOffset() { return _clockOffsetMs; }
+
 // ── Foods ─────────────────────────────────────────────────────────────────
 
 export async function dbGetFoods() {
@@ -654,8 +758,8 @@ function _serializeAltUnits(v) {
 export async function dbCreateFood(data) {
   const db = await getDb();
   const r = await db.run(
-    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, nutrition_basis, alt_units, density_g_ml, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     [
       LOCAL_USER_ID,
       data.name,
@@ -672,7 +776,11 @@ export async function dbCreateFood(data) {
       data.density_g_ml != null && Number.isFinite(Number(data.density_g_ml))
         ? Number(data.density_g_ml)
         : null,
-      _now(),
+      // Where it came from (a coach's food copied from a day plan).
+      data.source_app || null,
+      data.source_external_id || null,
+      data.source_url || null,
+      _editNow(),
     ]
   );
   return dbGetFood(r.changes?.lastId);
@@ -698,7 +806,7 @@ export async function dbUpdateFood(id, data) {
       data.density_g_ml != null && Number.isFinite(Number(data.density_g_ml))
         ? Number(data.density_g_ml)
         : null,
-      _now(),
+      _editNow(),
       id,
       LOCAL_USER_ID,
     ]
@@ -708,7 +816,7 @@ export async function dbUpdateFood(id, data) {
 
 export async function dbDeleteFood(id) {
   const db = await getDb();
-  await db.run(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now'), sync_status = 'pending' WHERE id = ? AND user_id = ?`, [id, LOCAL_USER_ID]);
+  await db.run(`UPDATE foods SET deleted_at = datetime('now'), updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ?`, [_editNow(), id, LOCAL_USER_ID]);
 }
 
 // Bump usage counter on a food and lift last_used_at to the supplied date
@@ -785,7 +893,7 @@ export async function dbCreateMeal(data) {
       data.portion ?? 100,
       data.unit || 'g',
       data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
-      _now(),
+      _editNow(),
     ]
   );
   return dbGetMeal(r.changes?.lastId);
@@ -806,7 +914,7 @@ export async function dbUpdateMeal(id, data) {
       data.portion ?? 100,
       data.unit || 'g',
       data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
-      _now(),
+      _editNow(),
       id,
       LOCAL_USER_ID,
     ]
@@ -816,7 +924,7 @@ export async function dbUpdateMeal(id, data) {
 
 export async function dbDeleteMeal(id) {
   const db = await getDb();
-  await db.run(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now'), sync_status = 'pending' WHERE id = ? AND user_id = ?`, [id, LOCAL_USER_ID]);
+  await db.run(`UPDATE meals SET deleted_at = datetime('now'), updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ?`, [_editNow(), id, LOCAL_USER_ID]);
 }
 
 // Mirror of dbBumpFoodUsage but on the meals table. Same rule:
@@ -860,29 +968,67 @@ function _parseMealRow(row) {
 // Recipe items (is_recipe truthy) skip hydration — splitRecipeItem fetches
 // the meal on demand for ingredient data.
 const _HYDRATE_FIELDS = ['nutrition_basis', 'alt_units', 'density_g_ml', 'category', 'barcode'];
+// Which local food a diary item came from (lib/item-source.js).
+// food_server_id is the server's id, so it's matched against server_id,
+// never this phone's own ids (it used to be, and an item showed another
+// food's units and barcode). null there means the item was logged before
+// its food reached the server: its id is a phone's own, and only a food
+// still waiting to go up on that same phone can be it. Items from before
+// food_server_id existed keep the old match.
+function _foodRef(it) {
+  const ref = itemSourceRef(it, { native: true });
+  if (!ref) return null;
+  if (ref.serverId != null) return { server: ref.serverId };
+  return ref.unsent ? { unsent: ref.localId } : { local: ref.localId };
+}
 async function _hydrateItems(items) {
   if (!Array.isArray(items) || !items.length) return items;
   try {
-    const foodIds = new Set();
+    const serverIds = new Set(), localIds = new Set();
     for (const it of items) {
       if (it && !it.is_recipe) {
-        const id = it.food_server_id ?? it.id;
-        if (typeof id === 'number') foodIds.add(id);
+        const ref = _foodRef(it);
+        if (ref?.server != null) serverIds.add(ref.server);
+        else if (ref) localIds.add(ref.unsent ?? ref.local);
       }
     }
-    if (!foodIds.size) return hydrateWithoutFoods(items, _hydrateSplitChildren);
+    if (!serverIds.size && !localIds.size) return hydrateWithoutFoods(items, _hydrateSplitChildren);
     const db = await getDb();
-    const placeholders = Array.from(foodIds).map(() => '?').join(',');
+    const conds = [], params = [];
+    if (serverIds.size) { conds.push(`server_id IN (${Array.from(serverIds).map(() => '?').join(',')})`); params.push(...serverIds); }
+    if (localIds.size) { conds.push(`id IN (${Array.from(localIds).map(() => '?').join(',')})`); params.push(...localIds); }
     const r = await db.query(
-      `SELECT id, nutrition_basis, alt_units, density_g_ml, category, barcode
-       FROM foods WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-      Array.from(foodIds)
+      `SELECT id, server_id, name, created_at, nutrition_basis, alt_units, density_g_ml, category, barcode
+       FROM foods WHERE (${conds.join(' OR ')}) AND deleted_at IS NULL`,
+      params
     );
-    const byId = new Map(_rows(r).map(row => [row.id, row]));
+    const mine = localIds.size ? await dbOwnInstallIds() : null;
+    const byServer = new Map(), byLocal = new Map();
+    for (const row of _rows(r)) {
+      if (row.server_id != null) byServer.set(row.server_id, row);
+      byLocal.set(row.id, row);
+    }
+    const sourceOf = it => {
+      const ref = _foodRef(it);
+      if (!ref) return null;
+      // By an id that may be out of date: only a food that is the item's
+      // (itemFoodMatches; the server does the same).
+      const match = row => (row && itemFoodMatches(row, it) ? row : null);
+      if (ref.server != null) return match(byServer.get(ref.server));
+      // An unsent item's phone id only counts for a food still waiting to
+      // go up: on this phone (food_device), or for untagged items, with the
+      // same name, since ids renumber when the app is reinstalled.
+      if (ref.unsent != null) {
+        if (it.food_device && !mine.has(it.food_device)) return null;
+        const row = byLocal.get(ref.unsent);
+        if (!row || row.server_id != null) return null;
+        return it.food_device || _norm(row.name) === _norm(it.name) ? row : null;
+      }
+      return match(byLocal.get(ref.local));
+    };
     return Promise.all(items.map(async it => {
       if (!it || it.is_recipe) return await _hydrateSplitChildren(it);
-      const id = it.food_server_id ?? it.id;
-      const src = typeof id === 'number' ? byId.get(id) : null;
+      const src = sourceOf(it);
       if (!src) return await _hydrateSplitChildren(it);
       const out = { ...it };
       for (const k of _HYDRATE_FIELDS) {
@@ -914,109 +1060,142 @@ async function _hydrateSplitChildren(item) {
 // everything else resolves against foods only. Within each pool, lookup
 // order is id+name → name+brand (foods only) → name only → ''.
 //
+// Which row an item came from, the same way _hydrateItems finds it
+// (_foodRef): food_server_id is the server's id and is matched against
+// server_id, an id the phone gave is matched against its own id, and the
+// two are kept apart, so neither can pick another row whose other id
+// happens to be the same number (#277). An item whose name no longer
+// matches its row falls to the name tiers, as on the server.
+//
 // Performance (2026-08-12): the fetch is scoped to only the foods and
-// meals that MATCH the day's items — by id, by (name+brand) for foods,
-// or by name alone. Prior implementation full-scanned the images-having
+// meals that MATCH the day's items, by server id, by the phone's own id,
+// or by name. Prior implementation full-scanned the images-having
 // foods + meals tables on every diary read, which through the Capacitor
 // SQLite bridge added multi-hundred-ms latency to every day-swipe. The
-// three-tier lookup semantic is preserved because we fetch every row
-// that ANY tier could match against.
+// lookup tiers are preserved because we fetch every row that ANY tier
+// could match against.
 const _norm = s => String(s || '').trim().toLowerCase();
+// What String.prototype.trim removes, for SQLite's TRIM(name, chars): the
+// name tiers compare trimmed names (_norm), on the server too, so a food
+// saved as "Slim Milk " has to come back for an item named "Slim Milk".
+const _TRIM_CHARS = ' \t\n\v\f\r\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff';
 async function _freshenItemImages(items) {
   if (!Array.isArray(items) || !items.length) return items;
   try {
-    // Split items by pool + collect the id/name/brand key sets we
-    // actually need to look up. Names/brands are matched case-insensitive
-    // downstream, but SQLite LIKE / lower() would defeat any index, so we
-    // send both cases the caller might store and normalise in JS.
-    const foodIds = new Set();
-    const foodNames = new Set();
-    const mealIds = new Set();
-    const mealNames = new Set();
+    // Split items by pool + collect the keys we actually need to look up.
+    // Names are matched trimmed and case-insensitively, in SQL (TRIM +
+    // COLLATE NOCASE) and again in JS (_norm), so only the matching rows
+    // cross the bridge.
+    const pool = () => ({ serverIds: new Set(), localIds: new Set(), names: new Set() });
+    const pools = { foods: pool(), meals: pool() };
+    let unsentTagged = false;
     for (const it of items) {
       if (!it) continue;
-      // Include BOTH id shapes: `it.id` (local autoincrement) AND
-      // `it.food_server_id` (server-assigned). Post-Android-reinstall or
-      // freshly-synced items may have one that matches the local
-      // foods.id and one that doesn't; querying both means the merge
-      // never misses a hit that the prior full-scan would have found.
-      // Set dedupes when they happen to be equal.
-      const nameKey = String(it.name || '').trim();
-      if (it.is_recipe) {
-        if (typeof it.id === 'number') mealIds.add(it.id);
-        if (typeof it.food_server_id === 'number') mealIds.add(it.food_server_id);
-        if (nameKey) mealNames.add(nameKey);
-      } else {
-        if (typeof it.id === 'number') foodIds.add(it.id);
-        if (typeof it.food_server_id === 'number') foodIds.add(it.food_server_id);
-        if (nameKey) foodNames.add(nameKey);
+      const p = it.is_recipe ? pools.meals : pools.foods;
+      const ref = _foodRef(it);
+      if (ref?.server != null) p.serverIds.add(ref.server);
+      else if (ref) {
+        p.localIds.add(ref.unsent ?? ref.local);
+        if (ref.unsent != null && it.food_device) unsentTagged = true;
       }
+      const nameKey = String(it.name || '').trim();
+      if (nameKey) p.names.add(nameKey);
     }
 
+    const empty = p => !p.serverIds.size && !p.localIds.size && !p.names.size;
     // Fast path: nothing to look up. Return items with empty imgUrl so
     // the downstream image-cache falls back to placeholder rendering.
-    if (!foodIds.size && !foodNames.size && !mealIds.size && !mealNames.size) {
+    if (empty(pools.foods) && empty(pools.meals)) {
       return items.map(it => ({ ...it, imgUrl: '' }));
     }
 
     const db = await getDb();
 
-    async function _lookupPool(table, ids, names, extraCols) {
-      if (!ids.size && !names.size) return [];
+    async function _lookupPool(table, p, extraCols) {
+      if (empty(p)) return [];
       const conds = [];
       const params = [];
-      if (ids.size) {
-        conds.push(`id IN (${Array.from(ids).map(() => '?').join(',')})`);
-        params.push(...ids);
+      const list = n => Array.from({ length: n }, () => '?').join(',');
+      if (p.serverIds.size) {
+        conds.push(`server_id IN (${list(p.serverIds.size)})`);
+        params.push(...p.serverIds);
       }
-      if (names.size) {
-        // Case-insensitive name match: SQLite's default LIKE/=  is
-        // case-sensitive for non-ASCII text and case-insensitive for
-        // ASCII only. Use COLLATE NOCASE = to get the same normalisation
-        // the JS-side _norm() applies (lowercased trim).
-        conds.push(`name COLLATE NOCASE IN (${Array.from(names).map(() => '?').join(',')})`);
-        params.push(...names);
+      if (p.localIds.size) {
+        conds.push(`id IN (${list(p.localIds.size)})`);
+        params.push(...p.localIds);
       }
-      const cols = ['id', 'name', ...extraCols, 'img_url'].join(', ');
+      if (p.names.size) {
+        // COLLATE NOCASE folds ASCII case only; _norm below decides.
+        conds.push(`TRIM(name, ?) COLLATE NOCASE IN (${list(p.names.size)})`);
+        params.push(_TRIM_CHARS, ...p.names);
+      }
+      const cols = ['id', 'server_id', 'name', ...extraCols, 'img_url'].join(', ');
       const r = await db.query(
         `SELECT ${cols} FROM ${table}
          WHERE deleted_at IS NULL
            AND img_url IS NOT NULL
            AND img_url != ''
            AND (${conds.join(' OR ')})
-         ORDER BY id ASC`,
+         ORDER BY server_id IS NULL DESC, server_id DESC, id DESC`,
         params
       );
       return _rows(r);
     }
 
-    const [foods, meals] = await Promise.all([
-      _lookupPool('foods', foodIds, foodNames, ['brand']),
-      _lookupPool('meals', mealIds, mealNames, []),
+    const [foods, meals, mine] = await Promise.all([
+      _lookupPool('foods', pools.foods, ['brand']),
+      _lookupPool('meals', pools.meals, []),
+      unsentTagged ? dbOwnInstallIds() : null,
     ]);
-    const foodByIdName = new Map();
+    // Id tier, per pool: server ids and the phone's own ids in separate
+    // maps, each keyed by id + name.
+    const idMaps = rows => {
+      const byServer = new Map(), byLocal = new Map();
+      for (const r of rows) {
+        if (r.server_id != null) byServer.set(`${r.server_id}|${_norm(r.name)}`, r.img_url);
+        byLocal.set(`${r.id}|${_norm(r.name)}`, r);
+      }
+      return { byServer, byLocal };
+    };
+    const foodIds = idMaps(foods), mealIds = idMaps(meals);
+    const byId = (it, name, { byServer, byLocal }) => {
+      const ref = _foodRef(it);
+      if (!ref) return '';
+      if (ref.server != null) return byServer.get(`${ref.server}|${name}`) || '';
+      const row = byLocal.get(`${ref.unsent ?? ref.local}|${name}`);
+      if (!row) return '';
+      // An item logged before its row reached the server: only a row
+      // still waiting to go up, made on this phone (or untagged), is it.
+      if (ref.unsent != null) {
+        if (row.server_id != null) return '';
+        if (it.food_device && !mine?.has(it.food_device)) return '';
+      }
+      return row.img_url;
+    };
     const foodByNameBrand = new Map();
     const foodByName = new Map();
+    // Of several rows of one name, the newest wins, as on the server
+    // (#277): the rows come newest first, by server id, and one not on the
+    // server yet is newer still. The phone's own ids don't say: a reinstall
+    // or a pull numbers them in another order.
     for (const r of foods) {
-      foodByIdName.set(`${r.id}|${_norm(r.name)}`, r.img_url);
-      foodByNameBrand.set(`${_norm(r.name)}|${_norm(r.brand)}`, r.img_url);
+      const nb = `${_norm(r.name)}|${_norm(r.brand)}`;
+      if (!foodByNameBrand.has(nb)) foodByNameBrand.set(nb, r.img_url);
       if (!foodByName.has(_norm(r.name))) foodByName.set(_norm(r.name), r.img_url);
     }
-    const mealByIdName = new Map();
     const mealByName = new Map();
     for (const r of meals) {
-      mealByIdName.set(`${r.id}|${_norm(r.name)}`, r.img_url);
       if (!mealByName.has(_norm(r.name))) mealByName.set(_norm(r.name), r.img_url);
     }
     return items.map(it => {
+      if (!it) return it;
       const name = _norm(it.name);
       const brand = _norm(it.brand);
-      const idKey = `${it.id}|${name}`;
       let live;
       if (it.is_recipe) {
-        live = mealByIdName.get(idKey) || mealByName.get(name) || '';
+        live = byId(it, name, mealIds) || mealByName.get(name) || '';
       } else {
-        live = foodByIdName.get(idKey)
+        live = byId(it, name, foodIds)
           || foodByNameBrand.get(`${name}|${brand}`)
           || foodByName.get(name)
           || '';
@@ -1059,9 +1238,15 @@ export async function dbSaveDiaryDate(date, data) {
   // shouldn't clear it. Per-meal set union-merges when the caller
   // sends an explicit array so the two devices' marks don't collide.
   const existing = _row(await db.query(
-    `SELECT completed_at, completed_meals FROM diary WHERE date = ? AND user_id = ?`,
+    `SELECT completed_at, completed_meals, notes, notes_updated_at, notes_dirty FROM diary WHERE date = ? AND user_id = ?`,
     [date, LOCAL_USER_ID]
   ));
+  // The note's own edit time, for the newer-note-wins rule on the server.
+  // Only an actual change to the note moves it; a new day without one has
+  // none, so it can't clear a note written elsewhere.
+  const notesChanged = (existing?.notes ?? null) !== notes;
+  const notesAt = notesChanged ? _editNow() : (existing?.notes_updated_at || null);
+  const notesDirty = notesChanged ? 1 : (existing?.notes_dirty ? 1 : 0);
   const incomingCompleted = (typeof data.completed_at === 'string' && data.completed_at) ? data.completed_at : null;
   const completedAt = incomingCompleted || (existing?.completed_at || null);
   const existingMeals = _parseSlotArrayLocal(existing?.completed_meals);
@@ -1071,13 +1256,14 @@ export async function dbSaveDiaryDate(date, data) {
   const mergedMeals = Array.from(new Set([...existingMeals, ...incomingMeals])).sort((a, b) => a - b);
   const completedMealsJson = mergedMeals.length ? JSON.stringify(mergedMeals) : null;
   await db.run(
-    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    `INSERT INTO diary (user_id, date, items, body_stats, water, notes, notes_updated_at, notes_dirty, completed_at, completed_meals, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
      ON CONFLICT(date, user_id) DO UPDATE SET
        items=excluded.items, body_stats=excluded.body_stats, water=excluded.water,
-       notes=excluded.notes, completed_at=excluded.completed_at, completed_meals=excluded.completed_meals,
+       notes=excluded.notes, notes_updated_at=excluded.notes_updated_at, notes_dirty=excluded.notes_dirty,
+       completed_at=excluded.completed_at, completed_meals=excluded.completed_meals,
        updated_at=excluded.updated_at, sync_status='pending'`,
-    [LOCAL_USER_ID, date, items, body_stats, water, notes, completedAt, completedMealsJson, _now()]
+    [LOCAL_USER_ID, date, items, body_stats, water, notes, notesAt, notesDirty, completedAt, completedMealsJson, _now()]
   );
   // Option C: persist per-uuid deletions locally as pending tombstones so
   // an offline delete survives an app restart and gets pushed on the next
@@ -1210,12 +1396,16 @@ export async function dbGetPendingDiaryTombstones() {
  * Called after a successful sync-push so the same tombstones aren't
  * resent on the next push cycle. Wraps in a single tx for atomicity.
  */
-export async function dbMarkTombstonesSynced(triples) {
+// `live()` (here and in the other batch writers below): false once the
+// account changed while a sync was writing; the batch stops before its
+// next write (sync.js).
+export async function dbMarkTombstonesSynced(triples, live = () => true) {
   if (!Array.isArray(triples) || !triples.length) return;
   const db = await getDb();
   const stmt = `UPDATE diary_tombstones SET sync_status = 'synced'
                 WHERE user_id = ? AND date = ? AND kind = ? AND uuid = ?`;
   for (const t of triples) {
+    if (!live()) return;
     await db.run(stmt, [LOCAL_USER_ID, t.date, t.kind, t.uuid]);
   }
 }
@@ -1227,7 +1417,7 @@ export async function dbMarkTombstonesSynced(triples) {
  * items/water JSON, so a delete performed on another device shows up
  * immediately in the local UI without waiting for a subsequent write.
  */
-export async function dbApplyServerTombstones(tombstones) {
+export async function dbApplyServerTombstones(tombstones, live = () => true) {
   if (!Array.isArray(tombstones) || !tombstones.length) return;
   const db = await getDb();
   const upsert = `INSERT INTO diary_tombstones
@@ -1237,6 +1427,7 @@ export async function dbApplyServerTombstones(tombstones) {
                     deleted_at = excluded.deleted_at, sync_status = 'synced'`;
   const byDate = new Map();
   for (const t of tombstones) {
+    if (!live()) return;
     if (!t || typeof t !== 'object') continue;
     await db.run(upsert, [LOCAL_USER_ID, t.date, t.kind, t.uuid, t.deleted_at || _now()]);
     const g = byDate.get(t.date) || { items: new Set(), water: new Set() };
@@ -1247,6 +1438,7 @@ export async function dbApplyServerTombstones(tombstones) {
   // Filter matching entries out of the local diary rows so the UI reflects
   // the deletion right away.
   for (const [date, sets] of byDate) {
+    if (!live()) return;
     const row = _row(await db.query(
       `SELECT items, water FROM diary WHERE user_id = ? AND date = ?`,
       [LOCAL_USER_ID, date]
@@ -1298,12 +1490,17 @@ export async function dbUpsertWellness(date, source, metric_type, value, metadat
   // Connect (e.g. steps went 500 -> 1382 later in the day) would update the
   // local value but leave sync_status='synced' from the prior push, so
   // dbGetPendingChanges would skip the row and the server stays stale.
+  // Only a value that changed: Health Connect is read every sync, and
+  // marking the same steps pending each time made every 30s sync a push,
+  // a pull of the same rows back, and the pictures pass.
   await db.run(
     `INSERT INTO wellness_data (user_id, date, source, metric_type, value, metadata)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, date, source, metric_type) DO UPDATE SET
        value=excluded.value, metadata=excluded.metadata,
-       synced_at=datetime('now'), sync_status='pending'`,
+       synced_at=datetime('now'), sync_status='pending'
+     WHERE wellness_data.value IS NOT excluded.value
+        OR wellness_data.metadata IS NOT excluded.metadata`,
     [LOCAL_USER_ID, date, source, metric_type, value, JSON.stringify(metadata)]
   );
 }
@@ -1365,12 +1562,15 @@ export async function dbGetPendingChanges() {
  * `rows` is an array of `{id, updated_at}` taken from the push snapshot
  * (i.e. dbGetPendingChanges return value).
  */
-export async function dbMarkSynced(table, rows) {
+export async function dbMarkSynced(table, rows, live = () => true) {
   if (!rows || !rows.length) return;
   const db = await getDb();
+  // A diary day's note went up with it.
+  const also = table === 'diary' ? ', notes_dirty = 0' : '';
   for (const r of rows) {
+    if (!live()) return;
     await db.run(
-      `UPDATE ${table} SET sync_status = 'synced' WHERE id = ? AND updated_at = ?`,
+      `UPDATE ${table} SET sync_status = 'synced'${also} WHERE id = ? AND updated_at = ?`,
       [r.id, r.updated_at]
     );
   }
@@ -1392,8 +1592,8 @@ export async function dbMarkSynced(table, rows) {
  * duplaja on 2026-07-07: browser → phone sync broken because push
  * was throwing on every cycle that had pending Health Connect rows.
  */
-export async function dbMarkWellnessSynced(ids) {
-  if (!ids || !ids.length) return;
+export async function dbMarkWellnessSynced(ids, live = () => true) {
+  if (!ids || !ids.length || !live()) return;
   const db = await getDb();
   const placeholders = ids.map(() => '?').join(',');
   await db.run(
@@ -1423,6 +1623,373 @@ export async function dbSetSyncMeta(key, value) {
 export async function dbSetServerId(table, localId, serverId) {
   const db = await getDb();
   await db.run(`UPDATE ${table} SET server_id = ? WHERE id = ?`, [serverId, localId]);
+}
+
+// This install's own id. Create keys (sync.js, migrate.js) start with it,
+// and diary items logged from a food that hasn't synced yet carry it
+// (food_device), so their phone ids are only ever read by the phone that
+// made them.
+//
+// It's kept in the database, and Android's Auto Backup and device transfer
+// copy the database (and its id counters) to another phone, where the same
+// id would make the same keys for different rows, and the server would
+// take them for one. So the same id is also kept in a small file the
+// backup skips (res/xml/backup_rules.xml, data_extraction_rules.xml): a
+// database whose id the file doesn't hold is a copy, or from before the
+// file, and gets a new id. A new id is always safe, keys only need to be
+// unique; the one cost is that a create sent just before, whose answer
+// never came back, can be made twice. The ids it had before stay this
+// database's own (dbOwnInstallIds) for the items they tagged.
+const _ID_FILE = 'install-id';
+let _installId = null;
+export function dbInstallId() {
+  return (_installId ||= _loadInstallId().catch(e => { _installId = null; throw e; }));
+}
+async function _idFile(write) {
+  try {
+    const { Filesystem, Directory } = await import('@capacitor/filesystem');
+    if (write) { await Filesystem.writeFile({ path: _ID_FILE, directory: Directory.Data, data: write, encoding: 'utf8' }); return write; }
+    return String((await Filesystem.readFile({ path: _ID_FILE, directory: Directory.Data, encoding: 'utf8' })).data || '').trim() || null;
+  } catch (e) {
+    if (write) console.warn('[db-native] could not keep the install id file:', e?.message || e);
+    return null;
+  }
+}
+async function _loadInstallId() {
+  const db = await getDb();
+  const kept = _row(await db.query(`SELECT value FROM sync_meta WHERE key = 'install_id'`, []))?.value || null;
+  if (kept && (await _idFile()) === kept) return kept;
+  const id = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  if (kept) {
+    const former = await _formerInstallIds(db);
+    if (!former.includes(kept)) former.push(kept);
+    await db.run(`INSERT INTO sync_meta (key, value) VALUES ('install_ids_before', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [JSON.stringify(former)]);
+  }
+  await db.run(`INSERT INTO sync_meta (key, value) VALUES ('install_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [id]);
+  await _idFile(id);
+  return id;
+}
+async function _formerInstallIds(db) {
+  try { const v = JSON.parse(_row(await db.query(`SELECT value FROM sync_meta WHERE key = 'install_ids_before'`, []))?.value || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+/** The key a row the server hasn't seen yet goes up with (sync.js,
+ *  migrate.js), the same every time: this install, the table, the row's id
+ *  here and, where the row has it, when it was made here. That time is a
+ *  second guard, should two phones ever share an install id and id
+ *  counters. The server matches keys as they are, the older form too. */
+export function createKeyOf(install, table, row) {
+  if (!install || !row || row.id == null) return undefined;
+  return row.created_at ? `${install}:${table}:${row.id}:${row.created_at}` : `${install}:${table}:${row.id}`;
+}
+
+/** This database's install ids: the current one and the ones it had before. */
+export async function dbOwnInstallIds() {
+  const me = await dbInstallId();
+  return new Set([me, ...(await _formerInstallIds(await getDb()))]);
+}
+
+// Diary items logged here before their food or meal reached the server
+// sit as food_server_id null with this phone's own id. Once that row has a
+// server id, fill it in, so the server and other devices see the right
+// food. Runs after every push, so an item missed once is linked the next
+// time. Items tagged with this install (food_device) link by id alone, a
+// rename doesn't matter; items of another phone are never touched. Items
+// from before the tag existed link only to a row created in this push
+// (`created`, from the push answer) with the same name.
+// Changed days go up on the next push. Returns how many days changed.
+export async function dbLinkDiaryItems(created = [], live = () => true) {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT id, items FROM diary WHERE user_id = ? AND deleted_at IS NULL AND items LIKE '%"food_server_id":null%'`,
+    [LOCAL_USER_ID]
+  );
+  const rows = _rows(r);
+  // Saved meals' and recipes' ingredients the same way (#277): an
+  // ingredient keeps the phone's id with server_id null until its food
+  // goes up.
+  const meals = _rows(await db.query(
+    `SELECT id, items FROM meals WHERE user_id = ? AND deleted_at IS NULL AND (items LIKE '%"server_id":null%' OR items LIKE '%"food_server_id":null%')`,
+    [LOCAL_USER_ID]
+  ));
+  if (!rows.length && !meals.length) return 0;
+  const mine = await dbOwnInstallIds();
+  const serverIdOf = { foods: new Map(), meals: new Map() }, nameOf = { foods: new Map(), meals: new Map() };
+  for (const t of ['foods', 'meals']) {
+    for (const x of _rows(await db.query(`SELECT id, server_id, name FROM ${t} WHERE server_id IS NOT NULL AND user_id = ?`, [LOCAL_USER_ID]))) {
+      serverIdOf[t].set(x.id, x.server_id);
+      nameOf[t].set(x.id, x.name);
+    }
+  }
+  const legacy = new Map();
+  for (const c of created || []) {
+    if (!c || !c.localId || !c.serverId) continue;
+    const t = c.table === 'meals' ? 'meals' : 'foods';
+    const src = _row(await db.query(`SELECT name FROM ${t} WHERE id = ?`, [c.localId]));
+    if (src) legacy.set(`${t}:${c.localId}`, { serverId: c.serverId, name: _norm(src.name) });
+  }
+  const fix = (items, top = true) => {
+    let hit = false;
+    const out = items.map(it => {
+      if (!it || typeof it !== 'object') return it;
+      let next = it;
+      if (it.food_server_id === null && typeof it.id === 'number') {
+        const t = it.is_recipe ? 'meals' : 'foods';
+        const sid = linkedId(t, it);
+        if (sid != null) {
+          const { food_device: _d, ...rest } = it;
+          next = { ...rest, food_server_id: sid };
+          // Renamed before it went up: the food's name (itemFoodMatches).
+          const fname = nameOf[t].get(it.id);
+          if (fname && _norm(fname) !== _norm(it.name)) next.food_name = fname;
+          hit = true;
+        }
+      }
+      if (Array.isArray(next._splitItems)) {
+        const kids = fix(next._splitItems, false);
+        if (kids.hit) { next = { ...next, _splitItems: kids.out }; hit = true; }
+      }
+      // A change the server's merge keeps over an older copy (relinkedAt).
+      if (top && next !== it) next = { ...next, updatedAt: relinkedAt(it) };
+      return next;
+    });
+    return { out, hit };
+  };
+  // The server id for the phone's own id of an ingredient's or item's row,
+  // by the same rules: this phone's tag, or an untagged one of the same
+  // name created in this push.
+  const linkedId = (t, it) => {
+    if (mine.has(it.food_device)) return serverIdOf[t].get(it.id) ?? null;
+    if (it.food_device) return null;
+    const l = legacy.get(`${t}:${it.id}`);
+    return l && _norm(it.name) === l.name ? l.serverId : null;
+  };
+  const fixIngredients = items => {
+    let hit = false;
+    const out = items.map(ing => {
+      if (!ing || typeof ing !== 'object' || typeof ing.id !== 'number') return ing;
+      const unsent = ('server_id' in ing && ing.server_id == null) || ing.food_server_id === null;
+      if (!unsent) return ing;
+      const sid = linkedId(ing.is_recipe ? 'meals' : 'foods', ing);
+      if (sid == null) return ing;
+      const { food_device: _d, ...rest } = ing;
+      hit = true;
+      return { ...rest, server_id: sid, ...('food_server_id' in ing ? { food_server_id: sid } : {}) };
+    });
+    return { out, hit };
+  };
+  let changed = 0;
+  for (const row of rows) {
+    const items = _parseJson(row.items, []);
+    if (!Array.isArray(items)) continue;
+    const { out, hit } = fix(items);
+    if (!hit) continue;
+    if (!live()) return changed;
+    await db.run(`UPDATE diary SET items = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
+      [JSON.stringify(out), _now(), row.id]);
+    changed++;
+  }
+  for (const meal of meals) {
+    const items = _parseJson(meal.items, []);
+    if (!Array.isArray(items)) continue;
+    const { out, hit } = fixIngredients(items);
+    if (!hit) continue;
+    if (!live()) return changed;
+    await db.run(`UPDATE meals SET items = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
+      [JSON.stringify(out), _now(), meal.id]);
+  }
+  return changed;
+}
+
+// #277: the phone's foods, meals and recipes are about to go up to a
+// server as new rows (Connect > Upload or Merge, Push all from this
+// device), and the server ids they have now stop naming them. Every diary
+// item that names one of them by that server id, or by this phone's own,
+// follows it (item-source.js relinkItems): to its new server id where
+// `newIds` has it ({ foods, meals }: [[id here, server id]]), else to its
+// id here until it has gone up (dbLinkDiaryItems). Run before the server
+// ids are cleared. Changed days go up with the next push. Returns how
+// many days changed.
+export async function dbRelinkDiaryForNewServer(newIds = {}) {
+  const db = await getDb();
+  const rows = {};
+  for (const t of ['foods', 'meals']) {
+    rows[t] = _rows(await db.query(`SELECT id, server_id, name FROM ${t} WHERE user_id = ? AND deleted_at IS NULL`, [LOCAL_USER_ID]));
+  }
+  const days = _rows(await db.query(`SELECT id, items FROM diary WHERE user_id = ? AND deleted_at IS NULL`, [LOCAL_USER_ID]));
+  const opts = { rows, newIds, install: await dbInstallId(), mine: await dbOwnInstallIds() };
+  let changed = 0;
+  // Saved meals' and recipes' ingredients follow too (relinkIngredients):
+  // logging the meal or splitting the recipe later names its foods by them.
+  for (const meal of _rows(await db.query(`SELECT id, items FROM meals WHERE user_id = ? AND deleted_at IS NULL`, [LOCAL_USER_ID]))) {
+    const r = relinkIngredients(_parseJson(meal.items, []), opts);
+    if (!r.changed) continue;
+    await db.run(`UPDATE meals SET items = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
+      [JSON.stringify(r.items), _now(), meal.id]);
+  }
+  for (const day of days) {
+    const items = _parseJson(day.items, []);
+    const r = relinkItems(items, opts);
+    if (!r.changed) continue;
+    await db.run(`UPDATE diary SET items = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
+      [JSON.stringify(r.items), _now(), day.id]);
+    changed++;
+  }
+  return changed;
+}
+
+// Rows the server removed outright (see sync_deletions on the server):
+// workouts by server id, wellness by day, source and metric. A Health
+// Connect value still waiting to go up stays; it's newer than the delete.
+// Grouped, a few hundred keys per statement: Clear all data on a long
+// history is tens of thousands of keys, and each statement is a trip
+// across the native bridge.
+const _DEL_CHUNK = 400;
+export async function dbApplyServerDeletions(deletions, live = () => true) {
+  if (!deletions || typeof deletions !== 'object') return;
+  const db = await getDb();
+  const ids = (Array.isArray(deletions.workouts) ? deletions.workouts : []).map(Number).filter(Number.isFinite);
+  for (let i = 0; i < ids.length; i += _DEL_CHUNK) {
+    const part = ids.slice(i, i + _DEL_CHUNK);
+    if (!live()) return;
+    await db.run(`DELETE FROM workouts WHERE user_id = ? AND server_id IN (${part.map(() => '?').join(',')})`, [LOCAL_USER_ID, ...part]);
+  }
+  const byMetric = new Map();
+  for (const w of Array.isArray(deletions.wellness) ? deletions.wellness : []) {
+    if (!w || !w.date || !w.source || !w.metric_type) continue;
+    const k = `${w.source}\u0000${w.metric_type}`;
+    if (!byMetric.has(k)) byMetric.set(k, { source: w.source, metric: w.metric_type, dates: [] });
+    byMetric.get(k).dates.push(w.date);
+  }
+  for (const { source, metric, dates } of byMetric.values()) {
+    for (let i = 0; i < dates.length; i += _DEL_CHUNK) {
+      const part = dates.slice(i, i + _DEL_CHUNK);
+      if (!live()) return;
+      await db.run(
+        `DELETE FROM wellness_data WHERE user_id = ? AND source = ? AND metric_type = ?
+           AND COALESCE(sync_status, 'synced') != 'pending' AND date IN (${part.map(() => '?').join(',')})`,
+        [LOCAL_USER_ID, source, metric, ...part]
+      );
+    }
+  }
+}
+
+// The server's copy of a row whose pushed edit lost (an older edit than
+// the server's): this phone takes it, unless the row was edited again here
+// while the push was out (that edit goes up next).
+export async function dbApplyServerWinner(table, row) {
+  if (!row || row.id == null) return;
+  const db = await getDb();
+  const local = _row(await db.query(`SELECT sync_status FROM ${table} WHERE server_id = ? AND user_id = ?`, [row.id, LOCAL_USER_ID]));
+  if (local?.sync_status === 'pending') return;
+  if (table === 'foods' || table === 'meals') return dbUpsertFromServer(table, row);
+  if (table === 'activity_log') return dbUpsertActivityFromServer(row);
+  if (table === 'fasts') return dbUpsertFastFromServer(row);
+}
+
+// This phone's id for a row it knows by its server id, or null.
+export async function dbFindLocalId(table, serverId) {
+  if (typeof serverId !== 'number') return null;
+  const db = await getDb();
+  const t = table === 'meals' ? 'meals' : 'foods';
+  return _row(await db.query(`SELECT id FROM ${t} WHERE server_id = ? AND user_id = ? AND deleted_at IS NULL`, [serverId, LOCAL_USER_ID]))?.id ?? null;
+}
+
+// ── Completion marks waiting for the server (see diary_completion_ops) ────
+export async function dbQueueCompletionOp(date, slot, completed) {
+  const db = await getDb();
+  const r = await db.run(
+    `INSERT INTO diary_completion_ops (user_id, date, slot, completed, at) VALUES (?, ?, ?, ?, ?)`,
+    [LOCAL_USER_ID, date, slot == null ? null : Number(slot), completed ? 1 : 0, _editNow()]
+  );
+  return r?.changes?.lastId ?? null;
+}
+export async function dbGetCompletionOps() {
+  const db = await getDb();
+  return _rows(await db.query(`SELECT id, date, slot, completed, at FROM diary_completion_ops WHERE user_id = ? ORDER BY id`, [LOCAL_USER_ID]));
+}
+export async function dbDeleteCompletionOp(id) {
+  if (id == null) return;
+  const db = await getDb();
+  await db.run(`DELETE FROM diary_completion_ops WHERE id = ?`, [id]);
+}
+
+// ── Whose data this is (server mode) ──────────────────────────────────────
+// What the account that used this phone last made here and never sent:
+// foods, meals, recipes, diary days and deletions, activities, fasts,
+// completion marks, settings. The account signing in writes its own
+// settings here only once this check is done (stores/settings.js), so
+// they never count as the last account's. Not counted: Health Connect
+// values and workouts (read from Health Connect for whoever is signed in;
+// the background reader sends them with the current session).
+export async function dbCountUnsynced() {
+  const db = await getDb();
+  const n = async sql => Number(_row(await db.query(sql, []))?.n || 0);
+  return (await n(`SELECT COUNT(*) AS n FROM foods WHERE sync_status = 'pending'`))
+    + (await n(`SELECT COUNT(*) AS n FROM meals WHERE sync_status = 'pending'`))
+    + (await n(`SELECT COUNT(*) AS n FROM diary WHERE sync_status = 'pending'`))
+    + (await n(`SELECT COUNT(*) AS n FROM activity_log WHERE sync_status = 'pending'`))
+    + (await n(`SELECT COUNT(*) AS n FROM fasts WHERE sync_status = 'pending'`))
+    + (await n(`SELECT COUNT(*) AS n FROM diary_tombstones WHERE sync_status = 'pending'`))
+    + (await n(`SELECT COUNT(*) AS n FROM diary_completion_ops`))
+    + (await n(`SELECT COUNT(*) AS n FROM coach_messages WHERE sync_status IN ('pending', 'pending_delete')`))
+    + (await n(`SELECT COUNT(*) AS n FROM coach_recommendations WHERE sync_status = 'pending'`))
+    + (await n(`SELECT COUNT(*) AS n FROM user_settings WHERE sync_status = 'pending' AND user_id = ${LOCAL_USER_ID}`));
+}
+
+// Drop every account row the phone mirrors, and the pull cursor, so the
+// next sync fills it from the account now signed in. One-time markers in
+// sync_meta (migrations) stay.
+// One statement per call: the plugin's execute() splits a script on ";\n"
+// only, and Android runs just the first statement of each piece, so
+// several statements on one line silently did one (_runEach).
+const _CLEAR_TABLES = ['foods', 'meals', 'diary', 'diary_tombstones', 'diary_completion_ops',
+  'wellness_data', 'workouts', 'user_settings', 'activity_log', 'fasts', 'sync_log',
+  'coach_messages', 'coach_recommendations'];
+async function _runEach(db, statements) {
+  for (const sql of statements) await db.run(sql, []);
+}
+export async function dbClearUserData() {
+  const db = await getDb();
+  await _runEach(db, [
+    ..._CLEAR_TABLES.map(t => `DELETE FROM ${t}`),
+    `DELETE FROM sync_meta WHERE key = 'last_sync_at'`,
+  ]);
+  // Nothing of the account before may be left (checked, not assumed).
+  for (const t of _CLEAR_TABLES) {
+    const left = Number(_row(await db.query(`SELECT COUNT(*) AS n FROM ${t}`, []))?.n || 0);
+    if (left) throw new Error(`clearing ${t} left ${left} rows`);
+  }
+}
+
+// Connecting to a server after an upload from Settings (lib/migrate.js):
+// rows that went up whole are dropped here (the next pull brings them back
+// with the server's ids); everything else is kept and goes up with the
+// next sync, as new rows: any server id it has is another server's, or
+// one this account doesn't have. Nothing that didn't go up is dropped.
+// The pull starts over. Diary items kept here follow their food, meal or
+// recipe first (dbRelinkDiaryForNewServer), to the server id the upload
+// gave it (uploaded.serverIds, from lib/migrate.js) or, for one still
+// to go up, to its id here, before those server ids go.
+const _UPLOAD_TABLES = ['foods', 'meals', 'diary', 'activity_log', 'fasts', 'wellness_data', 'workouts'];
+export async function dbKeepForNewServer(uploaded = {}) {
+  const db = await getDb();
+  // A day left unlinked is no reason to keep the rows as another server's.
+  try { await dbRelinkDiaryForNewServer(uploaded.serverIds || {}); }
+  catch (e) { console.warn('[db-native] diary items not relinked for the new server:', e?.message || e); }
+  for (const t of _UPLOAD_TABLES) {
+    const ids = (Array.isArray(uploaded[t]) ? uploaded[t] : []).map(Number).filter(Number.isFinite);
+    for (let i = 0; i < ids.length; i += _DEL_CHUNK) {
+      const part = ids.slice(i, i + _DEL_CHUNK);
+      await db.run(`DELETE FROM ${t} WHERE user_id = ? AND id IN (${part.map(() => '?').join(',')})`, [LOCAL_USER_ID, ...part]);
+    }
+  }
+  await _runEach(db, [
+    ...['foods', 'meals', 'diary', 'activity_log', 'fasts'].map(t => `UPDATE ${t} SET server_id = NULL, sync_status = 'pending' WHERE deleted_at IS NULL`),
+    ...['foods', 'meals', 'diary', 'activity_log', 'fasts'].map(t => `DELETE FROM ${t} WHERE deleted_at IS NOT NULL`),
+    `UPDATE wellness_data SET sync_status = 'pending'`,
+    `UPDATE workouts SET server_id = NULL`,
+    `DELETE FROM sync_meta WHERE key = 'last_sync_at'`,
+  ]);
 }
 
 // Hard-delete soft-deleted records that have been confirmed pushed to server
@@ -1493,8 +2060,12 @@ export async function dbUpsertFromServer(table, serverRecord) {
     // New from server, insert locally.
     if (table === 'foods') {
       await db.run(
-        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        // created_at: when the server made it, not when it came down, so
+        // an item logged before then still takes its units after a rename
+        // (item-source.js itemFoodMatches). Only on insert: a row's own
+        // created_at stays as it was (create keys use it).
+        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, created_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
@@ -1504,7 +2075,7 @@ export async function dbUpsertFromServer(table, serverRecord) {
            ? Number(data.density_g_ml)
            : null,
          data.source_app || null, data.source_external_id || null, data.source_url || null,
-         data.updated_at]
+         data.updated_at, data.created_at || null]
       );
     } else if (table === 'meals') {
       const importWarnings = data.import_warnings;
@@ -1531,7 +2102,7 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
   const db = await getDb();
   const {
     id: serverId, deleted_at, date, items, body_stats, water, notes, updated_at,
-    completed_at, completed_meals,
+    completed_at, completed_meals, notes_updated_at,
   } = serverRecord;
 
   if (deleted_at) {
@@ -1557,11 +2128,11 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
     : (typeof completed_meals === 'string' && completed_meals ? completed_meals : null);
 
   await db.run(
-    `INSERT INTO diary (server_id, user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+    `INSERT INTO diary (server_id, user_id, date, items, body_stats, water, notes, notes_updated_at, completed_at, completed_meals, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
      ON CONFLICT(date, user_id) DO UPDATE SET
        server_id=excluded.server_id, items=excluded.items, body_stats=excluded.body_stats,
-       water=excluded.water, notes=excluded.notes,
+       water=excluded.water, notes=excluded.notes, notes_updated_at=excluded.notes_updated_at, notes_dirty=0,
        completed_at=excluded.completed_at, completed_meals=excluded.completed_meals,
        updated_at=excluded.updated_at, sync_status='synced'`,
     [serverId, LOCAL_USER_ID, date,
@@ -1569,6 +2140,7 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
      typeof body_stats === 'string' ? body_stats : JSON.stringify(body_stats || {}),
      typeof water === 'string' ? water : JSON.stringify(water || []),
      (typeof notes === 'string' && notes.trim()) ? notes : null,
+     notes_updated_at || null,
      completed_at || null,
      completedMealsJson,
      updated_at]
@@ -1761,10 +2333,11 @@ export async function dbGetSettingUpdatedAt(key) {
  *
  * `rows` is an array of `{key, updated_at}` from the push snapshot.
  */
-export async function dbMarkSettingsSynced(rows) {
+export async function dbMarkSettingsSynced(rows, live = () => true) {
   if (!rows || !rows.length) return;
   const db = await getDb();
   for (const r of rows) {
+    if (!live()) return;
     await db.run(
       `UPDATE user_settings SET sync_status = 'synced' WHERE key = ? AND user_id = ? AND updated_at = ?`,
       [r.key, LOCAL_USER_ID, r.updated_at]
@@ -1789,6 +2362,22 @@ export async function dbUpsertSetting(key, value) {
     [LOCAL_USER_ID, key, JSON.stringify(value), updatedAt]
   );
   return updatedAt;
+}
+
+// The server's value of a setting, written into the phone's copy as sent
+// (stores/settings.js, settings coming down). A setting changed here and
+// not sent yet is the newer one: it stays, and goes up with the next push.
+// One statement, so a change made meanwhile is never written over.
+export async function dbMirrorSetting(key, value) {
+  const db = await getDb();
+  await db.run(
+    `INSERT INTO user_settings (user_id, key, value, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, 'synced')
+     ON CONFLICT(user_id, key) DO UPDATE SET
+       value=excluded.value, updated_at=excluded.updated_at, sync_status='synced'
+     WHERE user_settings.sync_status != 'pending'`,
+    [LOCAL_USER_ID, key, JSON.stringify(value), _now()]
+  );
 }
 
 export async function dbUpsertSettingFromServer(record) {
@@ -1928,7 +2517,7 @@ export async function dbUpdateActivity(id, data) {
   const row = _row(existing);
   if (!row) return null;
   const merged = { ...row, ...data };
-  const now = new Date().toISOString();
+  const now = _editNow();
   await db.run(
     `UPDATE activity_log
         SET name = ?, kcal = ?, duration_min = ?, distance = ?, source = ?, met = ?, is_template = ?, updated_at = ?, sync_status = 'pending'
@@ -1951,7 +2540,7 @@ export async function dbUpdateActivity(id, data) {
 
 export async function dbDeleteActivity(id) {
   const db = await getDb();
-  const now = new Date().toISOString();
+  const now = _editNow();
   await db.run(
     `UPDATE activity_log SET deleted_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ?`,
     [now, now, id, LOCAL_USER_ID]
@@ -2035,7 +2624,7 @@ export async function dbEndFast(id) {
   const now = new Date().toISOString();
   await db.run(
     `UPDATE fasts SET end_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ? AND end_at IS NULL`,
-    [now, now, id, LOCAL_USER_ID]
+    [now, _editNow(), id, LOCAL_USER_ID]
   );
   const r = await db.query(`SELECT * FROM fasts WHERE id = ?`, [id]);
   return _fastRow((r?.values || [])[0]);
@@ -2053,7 +2642,7 @@ export async function dbUpdateFast(id, changes = {}) {
     const r = await db.query(`SELECT * FROM fasts WHERE id = ?`, [id]);
     return _fastRow((r?.values || [])[0]);
   }
-  fields.push(`updated_at = ?`); values.push(now);
+  fields.push(`updated_at = ?`); values.push(_editNow());
   fields.push(`sync_status = 'pending'`);
   values.push(id, LOCAL_USER_ID);
   await db.run(`UPDATE fasts SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`, values);
@@ -2066,7 +2655,7 @@ export async function dbDeleteFast(id) {
   const now = new Date().toISOString();
   await db.run(
     `UPDATE fasts SET deleted_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ?`,
-    [now, now, id, LOCAL_USER_ID]
+    [now, _editNow(), id, LOCAL_USER_ID]
   );
 }
 
@@ -2079,3 +2668,151 @@ function _parseJson(val, fallback) {
 }
 
 export { LOCAL_USER_ID };
+
+// ── Coaching messages (server mode) ───────────────────────────────────────
+// The phone's copy of the conversations this account can read. Rows from
+// the server are keyed by uuid, the same id a message written here went up
+// with, so a message sent from here and pulled back is one row.
+
+const _MSG_COLS = ['server_id', 'uuid', 'pairing_id', 'sender_id', 'body', 'image', 'image_local', 'post_path',
+  'recommendation_id', 'read_at', 'created_at', 'updated_at', 'deleted_at', 'error', 'sync_status'];
+
+/** One conversation, oldest first. */
+export async function dbCoachMessages(pairingId) {
+  const db = await getDb();
+  return _rows(await db.query(`SELECT * FROM coach_messages WHERE pairing_id = ? ORDER BY created_at, id`, [Number(pairingId)]));
+}
+
+/** Messages from the server: the server's copy wins, unless this phone has a
+ *  delete of its own still waiting. */
+export async function dbUpsertCoachMessages(rows = []) {
+  const db = await getDb();
+  for (const m of rows) {
+    if (!m?.uuid) continue;
+    const local = _row(await db.query(`SELECT sync_status FROM coach_messages WHERE uuid = ?`, [m.uuid]));
+    if (local?.sync_status === 'pending_delete' && !m.deleted_at) continue;
+    await db.run(`DELETE FROM coach_messages WHERE uuid = ?`, [m.uuid]);
+    await db.run(
+      `INSERT INTO coach_messages (server_id, uuid, pairing_id, sender_id, body, image, recommendation_id, read_at, created_at, updated_at, deleted_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+      [m.id ?? null, m.uuid, m.pairing_id, m.sender_id ?? null, m.body ?? null, m.image ?? null, m.recommendation_id ?? null,
+        m.read_at ?? null, m.created_at ?? null, m.updated_at ?? null, m.deleted_at ?? null]
+    );
+  }
+}
+
+/** A message written here: waits as 'pending' until it reaches the server. */
+export async function dbQueueCoachMessage(row) {
+  const db = await getDb();
+  const cols = _MSG_COLS.filter(c => row[c] !== undefined);
+  await db.run(`INSERT OR REPLACE INTO coach_messages (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, cols.map(c => row[c]));
+}
+
+export async function dbPendingCoachMessages() {
+  const db = await getDb();
+  return _rows(await db.query(`SELECT * FROM coach_messages WHERE sync_status IN ('pending', 'pending_delete') ORDER BY created_at, id`, []));
+}
+
+/** Gone from this phone (a delete the server never needed: it never had it). */
+export async function dbForgetCoachMessage(uuid) {
+  const db = await getDb();
+  await db.run(`DELETE FROM coach_messages WHERE uuid = ?`, [uuid]);
+}
+
+/** A message that could not go (the conversation closed): kept, marked. */
+export async function dbFailCoachMessage(uuid, error) {
+  const db = await getDb();
+  await db.run(`UPDATE coach_messages SET sync_status = 'failed', error = ? WHERE uuid = ?`, [String(error || ''), uuid]);
+}
+
+/** Your own message deleted here: gone at once if it never could go (failed),
+ *  else shown as deleted and the delete waits for the server. A message still
+ *  being sent is deleted there too, once it arrives. */
+export async function dbDeleteCoachMessage(uuid) {
+  const db = await getDb();
+  const r = _row(await db.query(`SELECT sync_status FROM coach_messages WHERE uuid = ?`, [uuid]));
+  if (!r) return;
+  if (r.sync_status === 'failed') {
+    await db.run(`DELETE FROM coach_messages WHERE uuid = ?`, [uuid]);
+    return;
+  }
+  await db.run(`UPDATE coach_messages SET body = NULL, image = NULL, image_local = NULL, deleted_at = ?, sync_status = 'pending_delete' WHERE uuid = ?`, [_now(), uuid]);
+}
+
+/** Conversations this account may no longer read (a coach whose client left)
+ *  are dropped. Returns the photos they held, so their copies go too. */
+export async function dbKeepCoachConversations(pairingIds = []) {
+  const db = await getDb();
+  const keep = (pairingIds || []).map(Number).filter(Number.isFinite);
+  const where = keep.length ? `pairing_id NOT IN (${keep.map(() => '?').join(',')})` : '1 = 1';
+  const photos = _rows(await db.query(`SELECT image FROM coach_messages WHERE ${where} AND image IS NOT NULL`, keep)).map(r => r.image);
+  await db.run(`DELETE FROM coach_messages WHERE ${where}`, keep);
+  return photos;
+}
+
+// ── Coaching recommendations (server mode) ────────────────────────────────
+// The phone's copy of what was recommended to this account, keyed by the
+// server's id. An answer made here (Accept works offline: the goals change
+// on the phone) waits as sync_status 'pending' with the answer in status
+// and response_note, and goes up with the next push.
+
+function _parseRec(r) {
+  if (!r) return null;
+  return { ...r, id: r.server_id, local_id: r.id, payload: _parseJson(r.payload, {}) };
+}
+
+export async function dbCoachRecommendations() {
+  const db = await getDb();
+  return _rows(await db.query(`SELECT * FROM coach_recommendations WHERE deleted_at IS NULL ORDER BY created_at DESC, server_id DESC`, [])).map(_parseRec);
+}
+
+/** Rows from the server. An answer still waiting here stays, unless the
+ *  server's row is no longer pending (replaced, withdrawn, answered). */
+export async function dbUpsertCoachRecommendations(rows = []) {
+  const db = await getDb();
+  for (const r of rows) {
+    if (r?.id == null) continue;
+    const local = _row(await db.query(`SELECT sync_status FROM coach_recommendations WHERE server_id = ?`, [r.id]));
+    if (local?.sync_status === 'pending' && r.status === 'pending') continue;
+    await db.run(`DELETE FROM coach_recommendations WHERE server_id = ?`, [r.id]);
+    await db.run(
+      `INSERT OR REPLACE INTO coach_recommendations (server_id, pairing_id, kind, date, payload, note, status, response_note, created_at, responded_at, updated_at, deleted_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+      [r.id, r.pairing_id, r.kind, r.date ?? null, JSON.stringify(r.payload ?? {}), r.note ?? null, r.status, r.response_note ?? null,
+        r.created_at ?? null, r.responded_at ?? null, r.updated_at ?? null, r.deleted_at ?? null]
+    );
+  }
+}
+
+/** The server's row, taken as it is (an answer it refused, or one gone). */
+export async function dbSettleCoachRecommendation(r) {
+  if (r?.id == null) return;
+  const db = await getDb();
+  await db.run(`DELETE FROM coach_recommendations WHERE server_id = ?`, [r.id]);
+  await db.run(
+    `INSERT OR REPLACE INTO coach_recommendations (server_id, pairing_id, kind, date, payload, note, status, response_note, created_at, responded_at, updated_at, deleted_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+    [r.id, r.pairing_id, r.kind, r.date ?? null, JSON.stringify(r.payload ?? {}), r.note ?? null, r.status, r.response_note ?? null,
+      r.created_at ?? null, r.responded_at ?? null, r.updated_at ?? null, r.deleted_at ?? null]
+  );
+}
+
+/** Keep only these (the server's full list for this account). */
+export async function dbKeepCoachRecommendations(ids = []) {
+  const db = await getDb();
+  const keep = (ids || []).map(Number).filter(Number.isFinite);
+  const where = keep.length ? `server_id NOT IN (${keep.map(() => '?').join(',')})` : '1 = 1';
+  await db.run(`DELETE FROM coach_recommendations WHERE ${where} AND sync_status != 'pending'`, keep);
+}
+
+/** The answer, made here: waits for the server. */
+export async function dbAnswerCoachRecommendation(serverId, status, responseNote) {
+  const db = await getDb();
+  await db.run(`UPDATE coach_recommendations SET status = ?, response_note = ?, responded_at = ?, sync_status = 'pending' WHERE server_id = ?`,
+    [status, responseNote ?? null, _now(), serverId]);
+}
+
+export async function dbPendingCoachAnswers() {
+  const db = await getDb();
+  return _rows(await db.query(`SELECT server_id AS id, status, response_note FROM coach_recommendations WHERE sync_status = 'pending'`, []));
+}

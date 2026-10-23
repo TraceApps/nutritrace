@@ -1,6 +1,7 @@
 /**
  * db.js - IndexedDB abstraction layer for NutriTrace
  */
+import { settingPrefix } from './setting-key.js';
 import { foldText } from './search-text.js';
 
 const DB = (() => {
@@ -134,8 +135,8 @@ const DB = (() => {
       return _p(_getStore(store).count());
     },
     _settingKey(key) {
-      const userId = localStorage.getItem('wl:userId');
-      return userId ? `wl_u${userId}_${key}` : `wl_${key}`;
+      // Per account, and per server in the Android app (lib/setting-key.js).
+      return settingPrefix() + key;
     },
     getSetting(key, def) {
       const raw = localStorage.getItem(this._settingKey(key));
@@ -158,7 +159,7 @@ const DB = (() => {
       window.dispatchEvent(new CustomEvent('wl:setting', { detail: { key } }));
     },
     getAllSettings() {
-      const prefix = this._settingKey('').replace(/[^_]*$/, ''); // e.g. 'wl_u3_' or 'wl_'
+      const prefix = settingPrefix(); // e.g. 'wl_u3_', 'wl_u3@host_' or 'wl_'
       const s = {};
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
@@ -180,8 +181,8 @@ const DB = (() => {
      *  anonymous prefix (`wl_<key>`). Existing target keys are NOT
      *  overwritten — the new owner's choices win on collision. */
     migrateSettingsPrefix(fromUserId, toUserId) {
-      const fromPrefix = fromUserId == null ? 'wl_' : `wl_u${fromUserId}_`;
-      const toPrefix   = toUserId   == null ? 'wl_' : `wl_u${toUserId}_`;
+      const fromPrefix = settingPrefix(fromUserId == null ? null : String(fromUserId));
+      const toPrefix   = settingPrefix(toUserId   == null ? null : String(toUserId));
       if (fromPrefix === toPrefix) return 0;
       let moved = 0;
       const orphans = [];
@@ -189,7 +190,7 @@ const DB = (() => {
         const k = localStorage.key(i);
         if (!k || !k.startsWith(fromPrefix)) continue;
         // Exclude longer-prefixed keys like `wl_u12_*` from the bare `wl_` scan.
-        if (fromPrefix === 'wl_' && /^wl_u\d+_/.test(k)) continue;
+        if (fromPrefix === 'wl_' && /^wl_u\d+(@[^_]*)?_/.test(k)) continue;
         orphans.push(k);
       }
       for (const fromKey of orphans) {

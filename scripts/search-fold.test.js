@@ -114,7 +114,7 @@ test('no search box compares raw lowercase text any more', () => {
     '../src/lib/quick-log.js',
     '../src/components/diary/AddActivitySheet.svelte',
     '../src/components/ui/UnitPicker.svelte',
-    '../src/components/ai/Trace.svelte',
+    '../src/lib/trace-pages.js', // Trace's get_meals name filter
     '../src/routes/MealEditor.svelte',
     '../src/routes/Statistics.svelte',
     '../src/routes/Goals.svelte',
@@ -125,6 +125,7 @@ test('no search box compares raw lowercase text any more', () => {
     assert.doesNotMatch(src, /\.toLowerCase\(\)\.includes\(/, `${p} still compares unfolded text`);
     assert.match(src, /foldText\(/, `${p} should use the shared fold`);
   }
+  assert.doesNotMatch(read('../src/components/ai/Trace.svelte'), /\.toLowerCase\(\)\.includes\(/);
 });
 
 test('the local OFF mirror retries a search with accents stripped', async (t) => {

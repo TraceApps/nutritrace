@@ -56,7 +56,7 @@ function _sumDailyIntake(itemsJson) {
 }
 
 /** Read manual weight (kg) from a diary row's body_stats JSON. */
-function _bodyStatsWeightKg(bodyStatsJson) {
+export function _bodyStatsWeightKg(bodyStatsJson) {
   if (!bodyStatsJson) return null;
   let bs;
   try { bs = JSON.parse(bodyStatsJson); } catch { return null; }

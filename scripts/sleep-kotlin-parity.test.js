@@ -30,9 +30,10 @@ test('every fixture case reaches the Kotlin test', () => {
 });
 
 test('the worker hands every session to SleepDerivation', () => {
-  const block = worker.slice(worker.indexOf('// Sleep: every session of the night'), worker.indexOf('// Body fat (latest)'));
-  assert.match(block, /val sleepFrom = day\.minusDays\(1\)\.atStartOfDay\(zone\)\.toInstant\(\)/);
-  assert.match(block, /out\.putAll\(SleepDerivation\.derive\(sessions, day\.toString\(\), zone\)\)/);
+  // Each day read gets the night that ended on it (#294).
+  const block = worker.slice(worker.indexOf('// Sleep: every session of each night'), worker.indexOf('return out', worker.indexOf('// Sleep: every session of each night')));
+  assert.match(block, /val sleepFrom = dayStart\(days\.first\(\)\.minusDays\(1\)\)/);
+  assert.match(block, /for \(d in days\) out\.getValue\(d\.toString\(\)\)\.putAll\(SleepDerivation\.derive\(sessions, d\.toString\(\), zone\)\)/);
   assert.match(block, /origin = r\.metadata\.dataOrigin\.packageName/);
   assert.doesNotMatch(block, /lastOrNull\(\)/, 'no more "keep the last record"');
   assert.doesNotMatch(worker, /sleep_awake_min/, 'the non-canonical awake id is gone');
