@@ -6,10 +6,39 @@
  * Tool use flow:
  * 1. Send messages + tool definitions to AI
  * 2. If AI responds with tool_use, execute the tool and send result back
- * 3. Repeat until AI responds with text (max 5 tool rounds)
+ * 3. Repeat until AI responds with text, up to TOOL_ROUNDS; when they run
+ *    out, one last request with the tools off asks for an answer from what
+ *    was found
  */
 import { NUTRIMENTS } from './nutrition.js';
-import { getOpenAIChatParams } from './openai-chat-params.js';
+import { get } from 'svelte/store';
+import { _ } from 'svelte-i18n';
+import { getOpenAIChatParams, openAIBase } from './openai-chat-params.js';
+import { createToolSupportMemory, sendWithToolFallback } from './tool-support.js';
+import { geminiToolResponse } from './gemini-tool-response.js';
+import { REPLY_MAX_TOKENS, sendWithLengthFallback, stoppedShort, stoppedShortError } from './trace-reply.js';
+
+// A reply that stopped short, said in the app's language (trace-reply.js).
+function _inLanguage(e) {
+  if (!/^trace_stopped_/.test(e?.code || '')) return e;
+  try {
+    const t = get(_);
+    const said = typeof t === 'function' ? t(`trace_reply.${e.code.slice('trace_'.length)}`) : null;
+    if (said && !said.startsWith('trace_reply.')) e.message = said;
+  } catch { /* i18n not ready: the English line */ }
+  return e;
+}
+const _stoppedShort = (why) => _inLanguage(stoppedShortError(why));
+
+// The last round's answer, or, when a model gave none at all, why there's none.
+function _finalAnswer(text) {
+  if (String(text || '').trim()) return text;
+  try {
+    const said = get(_)('trace_reply.out_of_rounds');
+    if (said && !said.startsWith('trace_reply.')) return said;
+  } catch { /* i18n not ready: the English line */ }
+  return 'That took more steps than one answer allows, and nothing came back. Ask for less at once, such as a shorter date range.';
+}
 
 // Nutrition schema for the propose_* tools — generated from the canonical
 // NUTRIMENTS list so adding a new nutrient anywhere in the app automatically
@@ -75,22 +104,24 @@ export const TOOLS = [
   },
   {
     name: 'get_diary',
-    description: 'Get the food diary for ONE specific date only. Returns meals + food items (portions, quantities, brand, per-item notes), nutrition breakdown (calories, protein, carbs, fat), body stats (with explicit `weight_unit` / `length_unit` so you don\'t guess), water intake (ml), any free-text "day notes" the user wrote (sleep, energy, cravings, context), and any manually-logged activities for that day (name, kcal burned, duration, distance, source). DO NOT use this tool for streak questions, "how many days have I been logging", "when did I start tracking", consecutive-day counts, or any multi-day aggregate — for those use get_logging_streak (streak) or get_diary_averages (averages over a window). This tool is for a single calendar date only.',
+    description: 'Get the food diary for one date, or for every day from `date` to `to` (up to 31 days a call; days with nothing logged are only counted, and next_from says where the rest starts). Use a range to go through days, such as "what did I eat last week" or "which days did I have pizza". Returns meals + food items (portions, quantities, brand, per-item notes), nutrition breakdown (calories, protein, carbs, fat), body stats (with explicit `weight_unit` / `length_unit` so you don\'t guess), water intake (ml), any free-text "day notes" the user wrote (sleep, energy, cravings, context), and any manually-logged activities for that day (name, kcal burned, duration, distance, source). DO NOT use this tool for streak questions, "how many days have I been logging", "when did I start tracking", consecutive-day counts, or any multi-day aggregate: for those use get_logging_streak (streak) or get_diary_averages (averages over a window). This tool is for reading what was logged on the days themselves.',
     parameters: {
       type: 'object',
       properties: {
-        date: { type: 'string', description: 'Date (YYYY-MM-DD)' },
+        date: { type: 'string', description: 'Date (YYYY-MM-DD), or the first day of a range.' },
+        to:   { type: 'string', description: 'Optional last day of a range (YYYY-MM-DD), inclusive.' },
       },
       required: ['date'],
     },
   },
   {
     name: 'get_meals',
-    description: 'Get the user\'s saved Meals and Recipes from their library. Returns each one with its items (portions, quantities, per-item notes), totals (calories, macros), and any meal-level notes. Useful when the user refers to a saved meal by name ("my usual breakfast") or wants ideas based on meals they\'ve logged before.',
+    description: 'Get the user\'s saved Meals and Recipes from their library. Returns each one with its items (portions, quantities, per-item notes), totals (calories, macros), and any meal-level notes. Useful when the user refers to a saved meal by name ("my usual breakfast") or wants ideas based on meals they\'ve logged before. Returns count (every match) and a page of up to 50; next_offset is where the next page starts (null on the last).',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Optional case-insensitive name filter. Omit to return all (capped at 50).' },
+        query:  { type: 'string', description: 'Optional case-insensitive name filter. Omit for the whole library.' },
+        offset: { type: 'integer', description: 'Where the page starts: 0 first, then the next_offset of the page before.' },
       },
     },
   },
@@ -162,7 +193,7 @@ export const TOOLS = [
   },
   {
     name: 'log_food',
-    description: 'Log a REAL FOOD entry to the user\'s diary with full nutrition (protein, carbs, fat, fiber, sodium, vitamins, etc. — NOT just calories). USE THIS — not log_quick_calories — whenever the user NAMES a food they want to log. Typical phrasings: "add an apple to lunch", "log a banana to today\'s snacks", "add 200g of chicken to dinner", "I had Greek yogurt for breakfast", "two slices of bread for lunch".\n\nSEARCH ORDER: (1) the user\'s local food catalog first (their saved/scanned foods); (2) Open Food Facts if nothing local matches. If the user has the local OFF mirror enabled, OFF goes through that. USDA is NOT searched here (use a separate barcode/manual flow for USDA).\n\nRETURN SHAPES — branch on these:\n- {ok: true, meal_name, food_name, kcal, source, ...} — logged. Use meal_name (the actual name, not just an index) when you confirm to the user; do NOT assume the meal name from the index you passed.\n- {candidates: [...]} — multiple plausible matches. Show the names back to the user and ask which one. Then call again with the chosen name as the food field.\n- {no_match: true, suggestion} — nothing found. Tell the user to add the food via the Foods tab (barcode scan or manual entry) and then try again.\n- {no_nutrition: true, food_name, as_prepared_only, message}: Open Food Facts has the product but no \"as sold\" values, so nothing was logged. Relay the message; do not log it another way (such as quick calories) to force it in.\n- {error: "..."} — something else went wrong. Relay verbatim.\n\nDO NOT CALL THIS TOOL when the user wants a food SAVED rather than LOGGED ("create a food called X", "add it to my foods", "save it but don\'t log it", "don\'t add it to my diary"). This tool always writes a diary entry. Use propose_food instead: its card has a Save to Foods button that creates the food and touches nothing else.',
+    description: 'Log a REAL FOOD entry to the user\'s diary with full nutrition (protein, carbs, fat, fiber, sodium, vitamins, etc. — NOT just calories). USE THIS — not log_quick_calories — whenever the user NAMES a food they want to log. Typical phrasings: "add an apple to lunch", "log a banana to today\'s snacks", "add 200g of chicken to dinner", "I had Greek yogurt for breakfast", "two slices of bread for lunch".\n\nSEARCH ORDER: (1) the user\'s local food catalog first (their saved/scanned foods); (2) Open Food Facts if nothing local matches. If the user has the local OFF mirror enabled, OFF goes through that. USDA is NOT searched here (use a separate barcode/manual flow for USDA).\n\nRETURN SHAPES — branch on these:\n- {ok: true, meal_name, food_name, kcal, source, ...} — logged. Use meal_name (the actual name, not just an index) when you confirm to the user; do NOT assume the meal name from the index you passed.\n- {candidates: [...]} — multiple plausible matches. Show the names back to the user and ask which one. Then call again with the chosen name as the food field.\n- {no_match: true, suggestion}: nothing found. Say so, and offer to estimate it on a review card (propose_food) or to add it via the Foods tab (barcode scan or manual entry).\n- {no_nutrition: true, food_name, as_prepared_only, message}: Open Food Facts has the product but no \"as sold\" values, so nothing was logged. Relay the message; do not log it another way (such as quick calories) to force it in.\n- {error: "..."} — something else went wrong. Relay verbatim.\n\nDO NOT CALL THIS TOOL when the user wants a food SAVED rather than LOGGED ("create a food called X", "add it to my foods", "save it but don\'t log it", "don\'t add it to my diary"). This tool always writes a diary entry. Use propose_food instead: its card has a Save to Foods button that creates the food and touches nothing else.',
     parameters: {
       type: 'object',
       properties: {
@@ -178,7 +209,7 @@ export const TOOLS = [
   },
   {
     name: 'log_quick_calories',
-    description: 'Log a Fitbit/MFP-style "Quick Calories" entry to the user\'s diary — a row with ONLY a calorie number (and optionally protein/carbs/fat), no food, no portion. Use this STRICTLY when the user gives a kcal number WITHOUT naming a food: "log 200 calories for lunch", "add 1200 kJ to dinner", "punch in 350 quick calories", "log 240 kcal with 20g protein for snack". If the user names a food ("add an apple", "log Greek yogurt", "two slices of bread") use log_food INSTEAD — that path stores full nutrition and creates a reusable food row. If the user gives kJ, convert to kcal yourself (1 kcal = 4.184 kJ). Returns { error } if the user has disabled Quick Calories in Settings → Diary.',
+    description: 'Log a Fitbit/MFP-style "Quick Calories" entry to the user\'s diary — a row with ONLY a calorie number (and optionally protein/carbs/fat), no food, no portion. Use this STRICTLY when the user gives a kcal number WITHOUT naming a food: "log 200 calories for lunch", "add 1200 kJ to dinner", "punch in 350 quick calories", "log 240 kcal with 20g protein for snack". If the user names a food ("add an apple", "log Greek yogurt", "two slices of bread") use log_food INSTEAD — that path stores full nutrition and creates a reusable food row. If the user gives kJ, convert to kcal yourself (1 kcal = 4.184 kJ). The kcal and any macros must be numbers the user stated: NEVER pass a number you estimated or looked up. An estimate goes on a review card (propose_food, or propose_quick_calories when the user asks for quick calories) so the user confirms it. Returns { error } if the user has disabled Quick Calories in Settings → Diary.',
     parameters: {
       type: 'object',
       properties: {
@@ -195,7 +226,7 @@ export const TOOLS = [
   },
   {
     name: 'propose_quick_calories',
-    description: 'Propose a Quick Calories entry for the user to REVIEW before anything is written to the diary. This tool DOES NOT WRITE to the diary, DOES NOT CREATE a food, and DOES NOT LOG anything — it ONLY displays an estimate card with Discard / Add to Diary buttons for the user to confirm. Treat the tool returning `ok: true` as "the card was shown to the user", NOT as "the food was logged". After calling this tool you MUST NOT say things like "I\'ve added X" or "Logged X to your diary" — the user has not yet confirmed. Instead say something like "Here\'s my estimate — tap Add to Diary to log it." Use this tool whenever the user attaches a meal photo and wants a quick kcal-style log (no permanent food row needed), or when they explicitly say "log this quick", "add this as quick calories", "quick add this". For photos where the user wants a reusable food (not a kcal-only entry), use propose_food instead.',
+    description: 'Propose a Quick Calories entry for the user to REVIEW before anything is written to the diary. This tool DOES NOT WRITE to the diary, DOES NOT CREATE a food, and DOES NOT LOG anything — it ONLY displays an estimate card with Discard / Add to Diary buttons for the user to confirm. Treat the tool returning `ok: true` as "the card was shown to the user", NOT as "the food was logged". After calling this tool you MUST NOT say things like "I\'ve added X" or "Logged X to your diary" — the user has not yet confirmed. Instead say something like "Here\'s my estimate — tap Add to Diary to log it." Use this for a kcal-style entry whose numbers YOU estimated: a meal photo the user wants logged ("log this", "throw this in for lunch"), or, with or without a photo, when the user asks for quick calories ("add this as quick calories", "just kcal it"). Only kcal, protein, carbs and fat are kept when they tap Add. Do NOT use it for a kcal number the user gave you (log_quick_calories), for a named food the user has not asked you to estimate (log_food searches first), or for a question that only asks for the numbers (answer in text). For any other estimate the user wants logged, and for a reusable food, use propose_food. If this returns that Quick Calories is turned off, use propose_food. Proposing the card that is already on screen again does nothing.',
     parameters: {
       type: 'object',
       properties: {
@@ -211,7 +242,7 @@ export const TOOLS = [
   },
   {
     name: 'propose_food',
-    description: 'Propose a reusable FOOD entry for the user to REVIEW before anything is created. This tool DOES NOT WRITE to the Foods library, DOES NOT WRITE to the diary — it ONLY displays a review card so the user can decide to (a) Save to Foods only, (b) Save & Add to Diary, or (c) Discard. Treat the tool returning `ok: true` as "the card was shown", NOT as "the food was saved" or "added to diary". After calling this tool you MUST NOT say things like "I\'ve added X to your Foods" or "Added X to your diary" — the user has not yet confirmed. Say something like "Here\'s my estimate — pick Save to Foods if you just want to keep it for later, or Save & Add to Diary to also add it to today." Use this when the user wants a REUSABLE food (not a one-off kcal entry): "add this to my foods", "save this as a food", "remember this for later", "create a food entry for this". ALSO USE THIS as the manual-estimate bypass for log_food: when the user explicitly asks you to estimate a named food without searching the database ("don\'t search, just estimate a currywurst", "you estimate it and log it"), pass your best-guess nutrition here so the user reviews the numbers on the card and picks Save & Add to Diary. Nutrition values are per the portion you specify (default 100 g if you cannot tell).\n\nThis is the ONLY tool that can create a food, and it works with or without a photo. When the user asks for a food to be created and says not to log it, this is the tool, and the answer is to point them at the card\'s Save to Foods button.',
+    description: 'Propose a reusable FOOD entry for the user to REVIEW before anything is created. This tool DOES NOT WRITE to the Foods library, DOES NOT WRITE to the diary — it ONLY displays a review card so the user can decide to (a) Save to Foods only, (b) Save & Add to Diary, or (c) Discard. Treat the tool returning `ok: true` as "the card was shown", NOT as "the food was saved" or "added to diary". After calling this tool you MUST NOT say things like "I\'ve added X to your Foods" or "Added X to your diary" — the user has not yet confirmed. Say something like "Here\'s my estimate — pick Save to Foods if you just want to keep it for later, or Save & Add to Diary to also add it to today." Use this when the user wants a REUSABLE food (not a one-off kcal entry): "add this to my foods", "save this as a food", "remember this for later", "create a food entry for this". ALSO USE THIS as the manual-estimate bypass for log_food: when the user explicitly asks you to estimate a named food without searching the database ("don\'t search, just estimate a currywurst", "you estimate it and log it"), or log_food found nothing and the user wants your estimate, pass your best-guess nutrition here so the user reviews the numbers on the card and picks Save & Add to Diary (the full nutrition is kept). Nutrition values are per the portion you specify (default 100 g if you cannot tell).\n\nThis is the ONLY tool that can create a food, and it works with or without a photo. When the user asks for a food to be created and says not to log it, this is the tool, and the answer is to point them at the card\'s Save to Foods button.',
     parameters: {
       type: 'object',
       properties: {
@@ -239,9 +270,50 @@ export const TOOLS = [
   },
 ];
 
+/**
+ * fetch() to a provider from this browser. Its "Failed to fetch" says
+ * nothing: the browser gives it when the address can't be reached, and when
+ * the answer doesn't allow this site to read it (CORS), which is what a proxy
+ * that adds CORS headers only to successful answers does to every error,
+ * such as a model refusing tools (TraceApps/notetrace#18). Say what to check.
+ */
+export async function fetchProvider(url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    // Only a network failure is reworded (Chrome: "Failed to fetch", Firefox:
+    // "NetworkError when attempting to fetch resource.", Safari: "Load
+    // failed"). A cancelled request, or one fetch refused to send (a header
+    // it can't carry, say), stays as it was.
+    if (!(err instanceof TypeError) || !/failed to fetch|networkerror|load failed/i.test(err.message || '')) throw err;
+    let host = '';
+    try { host = new URL(url).host; } catch { /* not a URL */ }
+    host = host || String(url);
+    const page = typeof location !== 'undefined' ? location : null;
+    const official = /(^|\.)(openai\.com|anthropic\.com|googleapis\.com)$/i.test(host);
+    // An https page can't call a plain-http address (localhost aside). The
+    // Android app can (allowMixedContent), so there it's the usual advice.
+    const native = !!globalThis.Capacitor?.isNativePlatform?.();
+    const insecure = !native && page?.protocol === 'https:' && /^http:/i.test(String(url)) && !/^(localhost|127\.|\[::1\])/i.test(host);
+    const key = official ? 'unreachable_official' : insecure ? 'unreachable_insecure' : 'unreachable';
+    let message = `Couldn't get an answer from ${host}.`;
+    try {
+      const t = get(_);
+      if (typeof t === 'function') message = t(`trace.${key}`, { values: { host, origin: page?.origin || 'this site' } });
+    } catch { /* i18n not ready: the plain line above */ }
+    const e = new Error(message);
+    e.cause = err;
+    // Not "you're offline": this says what it is.
+    e.offline = false;
+    throw e;
+  }
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
-export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl }) {
+// onToolsUnsupported runs when the model can't use tools and answered
+// without them (TraceApps/nutritrace#259).
+export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, onToolsUnsupported, baseUrl }) {
   // The 'oai-compat' provider points at any /v1/chat/completions endpoint
   // (Ollama, LM Studio, LocalAI, vLLM, DeepSeek, Groq, Together AI, etc.)
   // Local endpoints don't need an API key; cloud ones do. Other providers
@@ -251,12 +323,13 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
   }
   switch (provider) {
     case 'claude':     return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
-    case 'openai':     return _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, 'https://api.openai.com');
+    case 'openai':     return _callOpenAIWithTools(apiKey, renamedModel(model), messages, systemPrompt, tools, onToolCall, 'https://api.openai.com', onToolsUnsupported);
     case 'gemini':     return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
     case 'oai-compat': {
-      if (!baseUrl) throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
-      if (!model)   throw new Error('OpenAI Compatible provider needs a model name. Set one in Settings → AI Assistant.');
-      return _callOpenAIWithTools(apiKey || 'no-key', model, messages, systemPrompt, tools, onToolCall, baseUrl.replace(/\/+$/, ''));
+      const base = openAIBase(baseUrl);
+      if (!base)  throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
+      if (!model) throw new Error('OpenAI Compatible provider needs a model name. Set one in Settings → AI Assistant.');
+      return _callOpenAIWithTools(apiKey || 'no-key', model, messages, systemPrompt, tools, onToolCall, base, onToolsUnsupported);
     }
     default: throw new Error(`Unknown AI provider: ${provider}`);
   }
@@ -273,21 +346,25 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
  * Tool execution stays client-side — tools touch local DB + UI state the
  * server doesn't have. This function runs the multi-round loop: send
  * messages → if proxy returns toolCalls, execute them locally, append
- * the assistant message + tool result messages, loop. Up to 5 rounds,
- * matching the direct-call cap in _callOpenAIWithTools.
+ * the assistant message + tool result messages, loop. Up to TOOL_ROUNDS,
+ * as the direct calls, then one last request with the tools off.
  *
  * Auth: PWA uses cookies + CSRF; native server mode uses a Bearer token
  * (cookies don't persist across the Android WebView's reloads). Matches
  * the pattern in api.js#_fetch — without the Bearer header, env-locked
  * AI calls from Android return 401 even though the chat path looks fine.
  */
-export async function callAIProxy({ messages, systemPrompt, tools, onToolCall }) {
+export async function callAIProxy({ messages, systemPrompt, tools, onToolCall, onToolsUnsupported }) {
   const { apiUrl, isNative, getServerUrl, getAuthToken } = await import('./platform.js');
 
   let currentMessages = [...messages];
-  const MAX_ROUNDS = 5;
+  const startBytes = _bytes(currentMessages);
+  const dropped = [];
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
+  for (let round = 0; round <= TOOL_ROUNDS; round++) {
+    // The server takes 60 messages in one request: Trace wraps up while a
+    // round of several tool calls still fits (PROXY_WRAP_MESSAGES).
+    const last = _lastRound(round, currentMessages, startBytes) || (round > 0 && currentMessages.length > PROXY_WRAP_MESSAGES);
     const headers = { 'Content-Type': 'application/json' };
     if (isNative && getServerUrl()) {
       const token = getAuthToken();
@@ -300,25 +377,49 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall })
       method: 'POST',
       credentials: 'include',
       headers,
-      body: JSON.stringify({ messages: currentMessages, systemPrompt, tools }),
+      // Out of rounds: told to answer in the system prompt, and the server
+      // turns the tools off (one that doesn't yet still gets the prompt).
+      body: JSON.stringify(last && tools?.length
+        ? { messages: currentMessages, systemPrompt: `${systemPrompt}\n\n${OUT_OF_ROUNDS}${dropped.length ? `\n\n${TOOLS_DROPPED} ${dropped.join(', ')}.` : ''}`, tools, toolChoice: 'none' }
+        : { messages: currentMessages, systemPrompt, tools }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       if (res.status === 401) throw new Error('Not signed in — sign in again to use AI features.');
-      throw new Error(data.error || `AI proxy error ${res.status}`);
+      throw _inLanguage(Object.assign(new Error(data.error || `AI proxy error ${res.status}`), { code: data.code }));
     }
 
     // No tools fired — final reply, return it.
+    // The server's model can't use tools and answered without them.
+    if (data.toolsUnsupported) onToolsUnsupported?.({ routed: !!data.toolsRouted });
+    // A server or model that still asks for a tool: its text, if any, is the answer.
+    if (last && tools?.length) return _finalAnswer(data.text || data.assistantMessage?.content);
     if (!data.toolCalls || data.toolCalls.length === 0) {
       return data.text || '';
     }
 
     // Tools fired: append assistant message verbatim, execute each tool
-    // locally, append tool result messages, loop for next round.
-    currentMessages.push(data.assistantMessage);
-    for (const tc of data.toolCalls) {
+    // locally, append tool result messages, loop for next round. Calls past
+    // what the next request can hold are dropped from it; the model sees
+    // what came back and can ask again.
+    const room = PROXY_MAX_MESSAGES - currentMessages.length - 1;
+    if (room < 1) return _finalAnswer(data.text || data.assistantMessage?.content);
+    const toolCalls = data.toolCalls.slice(0, room);
+    // Cut by position (the server keeps both lists in the same order), so a
+    // server that sends no ids or the same id twice still pairs up.
+    const assistant = toolCalls.length < data.toolCalls.length && Array.isArray(data.assistantMessage?.tool_calls)
+      ? { ...data.assistantMessage, tool_calls: data.assistantMessage.tool_calls.slice(0, toolCalls.length) }
+      : data.assistantMessage;
+    // Calls left out are named in the next (last) request, so the model
+    // doesn't say they ran.
+    dropped.push(...data.toolCalls.slice(room).map(tc => tc.name));
+    // Measured before the model's own message: only what the tools answer
+    // counts, so calls whose arguments are already sent aren't skipped for nothing.
+    const budget = _budget(currentMessages, startBytes);
+    currentMessages.push(assistant);
+    for (const tc of toolCalls) {
       if (onToolCall) onToolCall(tc.name);
-      const result = await _executeTool(tc.name, tc.args || {});
+      const result = await _runTool(tc.name, tc.args || {}, budget);
       currentMessages.push({
         role: 'tool',
         tool_call_id: tc.id,
@@ -330,7 +431,7 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall })
     }
   }
 
-  throw new Error('Too many tool call rounds');
+  return _finalAnswer(''); // not reached: the last round always answers
 }
 
 // ── Default models per provider ───────────────────────────────────────────────
@@ -341,40 +442,62 @@ export const AI_PROVIDERS = [
   { value: 'oai-compat', label: 'OpenAI Compatible' },
 ];
 
+// Checked against the vendors' model and deprecation pages on 2026-10-09
+// (platform.claude.com, developers.openai.com, ai.google.dev). Labels compare
+// list prices within each provider. A saved model that is no longer listed
+// (Gemini 2.5 is open to existing users only) keeps working: the picker
+// shows it as a custom model.
 export const AI_MODELS = {
   claude: [
-    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku (fast, cheap)' },
-    { value: 'claude-sonnet-5',           label: 'Claude Sonnet 5 (balanced)' },
-    { value: 'claude-opus-5',             label: 'Claude Opus 5'              },
-    { value: 'claude-fable-5-1',          label: 'Claude Fable 5.1 (most capable)' },
-    { value: 'claude-fable-5',            label: 'Claude Fable 5 (previous)' },
-    { value: 'claude-opus-4-8',           label: 'Claude Opus 4.8 (previous)' },
-    { value: '__custom__',                label: 'Custom…'                    },
+    { value: 'claude-haiku-5-5',  label: 'Claude Haiku 5.5 (fast, cheapest)'  },
+    { value: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 (balanced)'       },
+    { value: 'claude-opus-5-5',   label: 'Claude Opus 5.5 (smarter)'          },
+    { value: 'claude-fable-5-1',  label: 'Claude Fable 5.1 (most capable)'    },
+    { value: 'claude-sonnet-5',   label: 'Claude Sonnet 5 (previous)'         },
+    { value: 'claude-opus-5',     label: 'Claude Opus 5 (previous)'           },
+    { value: 'claude-fable-5',    label: 'Claude Fable 5 (previous)'          },
+    { value: 'claude-opus-4-8',   label: 'Claude Opus 4.8 (previous)'         },
+    { value: '__custom__',        label: 'Custom…'                            },
   ],
+  // GPT-6.1 Sol and GPT-6 Astra are left out: Trace calls tools through
+  // Chat Completions, which those two don't support (only the Responses
+  // API does, per their model pages).
   openai: [
-    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (fast, cheap)' },
-    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'   },
-    { value: 'gpt-5.6',       label: 'GPT-5.6 (smarter)'          },
-    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'     },
-    { value: 'gpt-4o',        label: 'GPT-4o (previous)'          },
-    { value: '__custom__',    label: 'Custom…'                    },
+    { value: 'gpt-6-luna',    label: 'GPT-6 Luna (fast, cheapest)'   },
+    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)'      },
+    { value: 'gpt-5.6-sol',   label: 'GPT-5.6 Sol (most capable)'    },
+    { value: 'gpt-5.6-luna',  label: 'GPT-5.6 Luna (previous)'       },
+    { value: 'gpt-4o-mini',   label: 'GPT-4o mini (previous)'        },
+    { value: 'gpt-4o',        label: 'GPT-4o (previous)'             },
+    { value: '__custom__',    label: 'Custom…'                       },
   ],
   gemini: [
-    { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (cheapest)' },
-    { value: 'gemini-3.6-flash',      label: 'Gemini 3.6 Flash (fast, cheap)'   },
-    { value: 'gemini-3.1-pro',        label: 'Gemini 3.1 Pro (smarter)'         },
-    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (previous)' },
-    { value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash (previous)'      },
-    { value: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (previous)'        },
-    { value: '__custom__',            label: 'Custom…'                          },
+    { value: 'gemini-3.1-flash-lite',  label: 'Gemini 3.1 Flash Lite (cheapest)'      },
+    { value: 'gemini-3.5-flash-lite',  label: 'Gemini 3.5 Flash Lite (cheap)'         },
+    { value: 'gemini-3.8-flash',       label: 'Gemini 3.8 Flash (fast)'               },
+    { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (most capable)' },
+    { value: 'gemini-3.6-flash',       label: 'Gemini 3.6 Flash (previous)'           },
+    { value: '__custom__',             label: 'Custom…'                               },
   ],
 };
 
+// Used when no model is chosen. Someone who picked a model keeps it.
 export const AI_DEFAULT_MODELS = {
-  claude: 'claude-haiku-4-5-20251001',
+  claude: 'claude-haiku-5-5',
   openai: 'gpt-5.6-luna',
-  gemini: 'gemini-3.6-flash',
+  gemini: 'gemini-3.8-flash',
 };
+
+// Model IDs that changed name: a saved old name is sent as the new one.
+// gemini-3.1-pro never existed (only the preview does), and Google points
+// the shut-down gemini-3-pro-preview at it. gpt-5.6 is the alias of
+// gpt-5.6-sol, which the picker now names.
+export const AI_MODEL_RENAMES = {
+  'gemini-3.1-pro': 'gemini-3.1-pro-preview',
+  'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
+  'gpt-5.6': 'gpt-5.6-sol',
+};
+export const renamedModel = (model) => AI_MODEL_RENAMES[model] || model;
 
 // ── Anthropic Claude (with tool use) ─────────────────────────────────────────
 
@@ -386,33 +509,45 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
   }));
 
   let currentMessages = [...messages];
-  const MAX_ROUNDS = 5;
+  const startBytes = _bytes(currentMessages);
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
+  for (let round = 0; round <= TOOL_ROUNDS; round++) {
+    const last = _lastRound(round, currentMessages, startBytes);
     const body = {
       model: model || AI_DEFAULT_MODELS.claude,
-      max_tokens: 4096,
-      system: systemPrompt,
+      max_tokens: REPLY_MAX_TOKENS,
+      // Out of rounds: told to answer in the system prompt, so the
+      // conversation itself stays in the order the provider expects.
+      system: last ? `${systemPrompt}\n\n${OUT_OF_ROUNDS}` : systemPrompt,
       messages: currentMessages,
     };
     if (claudeTools.length) body.tools = claudeTools;
+    // The tools stay declared (the history has tool calls in it), but can't be called.
+    if (last && claudeTools.length) body.tool_choice = { type: 'none' };
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify(body),
+    // A model that can't write that many is asked again as before (trace-reply.js).
+    const res = await sendWithLengthFallback(body, async (b) => {
+      const r = await fetchProvider('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify(b),
+      });
+      return { ok: r.ok, status: r.status, data: await r.json() };
     });
-    const data = await res.json();
+    const data = res.data;
     if (!res.ok) throw new Error(data.error?.message || `Claude API error ${res.status}`);
+    const short = stoppedShort('claude', data);
+    if (short) throw _stoppedShort(short);
 
     // Check if response contains tool use
     const toolUses = (data.content || []).filter(b => b.type === 'tool_use');
     const textBlocks = (data.content || []).filter(b => b.type === 'text');
+    if (last) return _finalAnswer(textBlocks.map(b => b.text).join('\n'));
 
     if (toolUses.length === 0 || data.stop_reason !== 'tool_use') {
       // No tool calls — return text
@@ -420,22 +555,26 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
     }
 
     // Execute tool calls
+    const budget = _budget(currentMessages, startBytes); // before the model's message (see callAIProxy)
     currentMessages.push({ role: 'assistant', content: data.content });
     const toolResults = [];
     for (const tu of toolUses) {
       if (onToolCall) onToolCall(tu.name);
-      const result = await _executeTool(tu.name, tu.input);
+      const result = await _runTool(tu.name, tu.input, budget);
       toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) });
     }
     currentMessages.push({ role: 'user', content: toolResults });
   }
 
-  throw new Error('Too many tool call rounds');
+  return _finalAnswer(''); // not reached: the last round always answers
 }
 
 // ── OpenAI (with function calling) ──────────────────────────────────────────
 
-async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl = 'https://api.openai.com') {
+// Models found unable to use tools, by base URL and model (#259).
+const toolSupport = createToolSupportMemory();
+
+async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl = 'https://api.openai.com', onToolsUnsupported) {
   const openaiTools = (tools || []).map(t => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters },
@@ -445,53 +584,76 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     { role: 'system', content: systemPrompt },
     ...messages,
   ];
-  const MAX_ROUNDS = 5;
+  const startBytes = _bytes(currentMessages);
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
+  for (let round = 0; round <= TOOL_ROUNDS; round++) {
+    const last = _lastRound(round, currentMessages, startBytes);
     const selectedModel = model || AI_DEFAULT_MODELS.openai;
     const body = {
       model: selectedModel,
-      messages: currentMessages,
+      // Out of rounds: told to answer in the system prompt (see Claude above).
+      messages: last ? [{ role: 'system', content: `${systemPrompt}\n\n${OUT_OF_ROUNDS}` }, ...currentMessages.slice(1)] : currentMessages,
       ...getOpenAIChatParams({
         baseUrl,
         model: selectedModel,
         hasTools: openaiTools.length > 0,
+        maxTokens: REPLY_MAX_TOKENS,
       }),
     };
     if (openaiTools.length) body.tools = openaiTools;
+    if (last && openaiTools.length) body.tool_choice = 'none';
 
     // Some self-hosted endpoints (Ollama in particular) reject the
     // Authorization header when it carries a placeholder key. Only send
     // the header when we actually have a key.
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     if (apiKey && apiKey !== 'no-key') headers['Authorization'] = `Bearer ${apiKey}`;
 
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
+    // A server that won't take the longer reply is asked again as before.
+    const send = (body) => sendWithLengthFallback(body, async (b) => {
+      const res = await fetchProvider(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(b),
+      });
+      return { ok: res.ok, status: res.status, data: await res.json() };
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || `AI API error ${res.status}`);
+    // A model that can't use tools gets the request again without them.
+    let sent = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+    // A server that refuses tool_choice "none" is asked once more without it.
+    if (last && !sent.ok && (sent.status === 400 || sent.status === 422) && body.tool_choice) {
+      delete body.tool_choice;
+      sent = await sendWithToolFallback(body, send, { memory: toolSupport, baseUrl, model: selectedModel });
+    }
+    const { ok, status, data, toolsDropped, toolsRouted } = sent;
+    if (!ok) throw new Error(data.error?.message || `AI API error ${status}`);
+    if (toolsDropped) onToolsUnsupported?.({ routed: toolsRouted });
+    // Cut off, an answer would be half of one and a tool call half its arguments.
+    const short = stoppedShort('openai', data);
+    if (short) throw _stoppedShort(short);
 
     const choice = data.choices[0];
     const msg = choice.message;
+    // A server that ignores tool_choice may still ask for a tool on the last
+    // round: its text, if any, is the answer.
+    if (last) return _finalAnswer(msg.content);
 
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
       return msg.content || '';
     }
 
     // Execute tool calls
+    const budget = _budget(currentMessages, startBytes); // before the model's message (see callAIProxy)
     currentMessages.push(msg);
     for (const tc of msg.tool_calls) {
       if (onToolCall) onToolCall(tc.function.name);
       const args = JSON.parse(tc.function.arguments || '{}');
-      const result = await _executeTool(tc.function.name, args);
+      const result = await _runTool(tc.function.name, args, budget);
       currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
     }
   }
 
-  throw new Error('Too many tool call rounds');
+  return _finalAnswer(''); // not reached: the last round always answers
 }
 
 // ── Google Gemini (with function calling) ────────────────────────────────────
@@ -501,14 +663,23 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
 // users who never opened Settings don't suddenly start hitting 404 / quota=0
 // errors. The dropdown auto-migration in SettingsTrace handles the visible
 // case; this is the fallback for the no-visit path.
-const GEMINI_RETIRED = new Set([
+// Shut down per ai.google.dev/gemini-api/docs/deprecations (2026-10-09).
+export const GEMINI_RETIRED = new Set([
   'gemini-1.5-flash', 'gemini-1.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+  'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-lite-001',
+  'gemini-2.0-flash-lite-preview', 'gemini-2.0-flash-lite-preview-02-05',
+  'gemini-2.5-pro-preview-03-25', 'gemini-2.5-pro-preview-05-06', 'gemini-2.5-pro-preview-06-05',
+  'gemini-2.5-flash-preview-05-20', 'gemini-2.5-flash-preview-09-25', 'gemini-2.5-flash-lite-preview-09-2025',
+  'gemini-3.1-flash-lite-preview',
 ]);
+/** The Gemini model to call for a saved one: renamed ones by their new name, shut-down ones by the default. */
+export function geminiModelFor(model) {
+  const m = renamedModel(model || AI_DEFAULT_MODELS.gemini);
+  return GEMINI_RETIRED.has(m) ? AI_DEFAULT_MODELS.gemini : m;
+}
 
 async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall) {
-  let m = model || AI_DEFAULT_MODELS.gemini;
-  if (GEMINI_RETIRED.has(m)) m = AI_DEFAULT_MODELS.gemini;
+  const m = geminiModelFor(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
   const geminiTools = (tools || []).length ? [{
@@ -528,47 +699,88 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
     return { role: msg.role === 'assistant' ? 'model' : 'user', parts };
   });
 
-  const MAX_ROUNDS = 5;
+  const startBytes = _bytes(contents);
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
+  for (let round = 0; round <= TOOL_ROUNDS; round++) {
+    const last = _lastRound(round, contents, startBytes);
     const body = {
-      systemInstruction: { parts: [{ text: systemPrompt }] },
+      // Out of rounds: told to answer in the system prompt (see Claude above).
+      systemInstruction: { parts: [{ text: last ? `${systemPrompt}\n\n${OUT_OF_ROUNDS}` : systemPrompt }] },
       contents,
     };
     if (geminiTools) body.tools = geminiTools;
+    if (last && geminiTools) body.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
 
-    const res = await fetch(url, {
+    const res = await fetchProvider(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || `Gemini API error ${res.status}`);
+    const short = stoppedShort('gemini', data);
+    if (short) throw _stoppedShort(short);
 
     const candidate = data.candidates?.[0];
     const parts = candidate?.content?.parts || [];
     const functionCalls = parts.filter(p => p.functionCall);
     const textParts = parts.filter(p => p.text);
+    if (last) return _finalAnswer(textParts.map(p => p.text).join('\n'));
 
     if (functionCalls.length === 0) {
       return textParts.map(p => p.text).join('\n') || '';
     }
 
     // Execute function calls
+    const budget = _budget(contents, startBytes); // before the model's message (see callAIProxy)
     contents.push({ role: 'model', parts });
     const responseParts = [];
     for (const fc of functionCalls) {
       if (onToolCall) onToolCall(fc.functionCall.name);
-      const result = await _executeTool(fc.functionCall.name, fc.functionCall.args || {});
-      responseParts.push({ functionResponse: { name: fc.functionCall.name, response: result } });
+      const result = await _runTool(fc.functionCall.name, fc.functionCall.args || {}, budget);
+      responseParts.push({ functionResponse: { name: fc.functionCall.name, response: geminiToolResponse(result) } });
     }
     contents.push({ role: 'user', parts: responseParts });
   }
 
-  throw new Error('Too many tool call rounds');
+  return _finalAnswer(''); // not reached: the last round always answers
 }
 
 // ── Tool execution ───────────────────────────────────────────────────────────
+
+// Rounds of tool calls in one answer. Going through a month of diary days,
+// a meals library or a client's weeks takes more than a handful
+// (TraceApps/notetrace#34), coaching drafts included; a model that loops
+// forever still stops.
+export const TOOL_ROUNDS = 12;
+// Said to the model when the rounds run out: the answer comes from what it has.
+export const OUT_OF_ROUNDS = "You can't call more tools for this request. Answer now from what you found. If you couldn't go through everything you needed to, say so plainly: what you covered and what's left, so the user can ask for the rest or narrow it down.";
+// What the tool calls and their answers may add to the conversation, in
+// bytes, before Trace wraps up early the same way: in tokens about what a
+// 128k-token model can hold, Japanese or Chinese included. A photo the user
+// attached is already there and doesn't count.
+export const HISTORY_MAX_BYTES = 300000;
+const _bytes = (x) => new TextEncoder().encode(JSON.stringify(x)).length;
+// The last request: out of rounds, or the tools have added as much as they should.
+const _lastRound = (round, history, start) => round === TOOL_ROUNDS || (round > 0 && _bytes(history) - start > HISTORY_MAX_BYTES);
+// Said for a tool call left unrun because one round's answers already passed
+// HISTORY_MAX_BYTES: a model that asks for many at once can't pass it by much.
+export const TOOL_SKIPPED = "Not run: this answer has already gathered as much as it can hold. Answer from what you have, and say what's left.";
+// Said in the last request for calls left out to stay under the server's 60 messages.
+export const TOOLS_DROPPED = "These tool calls you asked for weren't run, for lack of room:";
+const _budget = (history, start) => ({ left: HISTORY_MAX_BYTES - (_bytes(history) - start) });
+async function _runTool(name, args, budget) {
+  if (budget.left <= 0) return { error: TOOL_SKIPPED };
+  const result = await _executeTool(name, args);
+  budget.left -= _bytes(JSON.stringify(result)); // as it's sent: a JSON string inside the request
+  return result;
+}
+// The server takes 60 messages in one request (AI_MAX_MESSAGES in
+// server/routes/ai.js). A round adds the model's message and one per tool it
+// calls, so Trace wraps up past 48, and runs only the calls that fit when a
+// model asks for more at once.
+const PROXY_MAX_MESSAGES = 60;
+const PROXY_WRAP_MESSAGES = 48;
 
 let _toolHandler = null;
 

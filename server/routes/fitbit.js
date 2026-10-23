@@ -521,12 +521,9 @@ router.post('/sync', wrap(async (req, res) => {
     if (cur <= end) await new Promise(r => setTimeout(r, 250)); // throttle
   }
 
-  // Weekly summary on Sundays
-  if (new Date().getDay() === 0) {
-    import('../lib/push-notify.js').then(({ sendWeeklySummary }) => {
-      sendWeeklySummary(u).catch(() => {});
-    }).catch(() => {});
-  }
+  // The weekly summary is the scheduler's alone (lib/scheduler.js): on the
+  // day and hour the person chose, once a week. This used to send it again
+  // on every range sync that ran on a Sunday.
 
   res.json({ ok: true, from, to, ...results });
 }));

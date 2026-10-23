@@ -1,8 +1,11 @@
 /**
  * api.js - External API calls (Open Food Facts)
  */
+import { settingPrefix } from './setting-key.js';
 import { rankOFFResults } from './off-rank.js';
 import { offProductName } from './off-name.js';
+import { asSoldNutriments } from './off-nutrition-sets.js';
+import { shareWithOff, OffShareError } from './off-contribute.js';
 
 // In native mode, call external APIs directly (no CORS in WebView).
 // In web mode, go through the server proxy to avoid CORS.
@@ -22,7 +25,7 @@ import { offProductName } from './off-name.js';
 async function _extFetch(url, { live = false } = {}) {
   const proxyPath = '/api/proxy?url=' + encodeURIComponent(url) + (live ? '&live=1' : '');
   if (isNative) {
-    const { CapacitorHttp } = await import('@capacitor/core');
+    const { NativeHttp } = await import('./native-http.js');
     const { apiUrl, getServerUrl, getAuthToken } = await import('./platform.js');
     let envLockedOffLocal = false;
     try {
@@ -37,7 +40,7 @@ async function _extFetch(url, { live = false } = {}) {
       const headers = { 'Accept': 'application/json' };
       const token = getAuthToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      const resp = await CapacitorHttp.get({ url: proxyUrl, headers });
+      const resp = await NativeHttp.get({ url: proxyUrl, headers });
       return {
         ok: resp.status >= 200 && resp.status < 300,
         status: resp.status,
@@ -46,7 +49,7 @@ async function _extFetch(url, { live = false } = {}) {
     }
     // Default native path: direct call (bypasses WebView CORS, unchanged
     // behavior for all users who don't enable the local mirror).
-    const resp = await CapacitorHttp.get({ url, headers: { 'Accept': 'application/json' } });
+    const resp = await NativeHttp.get({ url, headers: { 'Accept': 'application/json' } });
     return {
       ok: resp.status >= 200 && resp.status < 300,
       status: resp.status,
@@ -65,8 +68,7 @@ async function _extFetch(url, { live = false } = {}) {
 // localStorage instead of the store to keep this module store-free.
 function _getOffSearchCountry() {
   try {
-    const userId = localStorage.getItem('wl:userId');
-    const setKey = userId ? `wl_u${userId}_offSearchCountry` : 'wl_offSearchCountry';
+    const setKey = settingPrefix() + 'offSearchCountry';
     const raw = localStorage.getItem(setKey);
     if (!raw) return null;
     const country = JSON.parse(raw);
@@ -120,8 +122,7 @@ function _offSearchUrl(query, page, pageSize) {
 // _getOffSearchCountry.
 function _getOffSearchLanguage() {
   try {
-    const userId = localStorage.getItem('wl:userId');
-    const setKey = userId ? `wl_u${userId}_offSearchLanguage` : 'wl_offSearchLanguage';
+    const setKey = settingPrefix() + 'offSearchLanguage';
     const raw = localStorage.getItem(setKey);
     if (!raw) return 'en';
     const lang = JSON.parse(raw);
@@ -212,6 +213,36 @@ const API = {
   OFF_BASE: 'https://world.openfoodfacts.org',
 
   /** What OFF has for a product seen this session, or null (see _offInfo). */
+  // #241: a full product lookup, with the product's "as sold" values when
+  // v3 leaves them out. v3 serves one set of values and prefers "as prepared",
+  // so a product that has both comes back "as prepared" only; v3.5 serves all
+  // the sets (see off-nutrition-sets.js). Asked only in that case, and any
+  // failure or surprise keeps the v3 answer, as does an "as sold" set with no
+  // calories (a formula listing only "sugars 0"): 0 kcal is worse than the
+  // "as prepared" values the user is offered then.
+  async _mapFullOFFProduct(product, code, { live = false } = {}) {
+    const mapped = this._mapOFFProduct(product, { full: true });
+    if (!mapped || !mapped._offPreparedOnly) return mapped;
+    try {
+      const url = `${this.OFF_BASE}/api/v3.5/product/${code}?fields=nutrition`;
+      const res = await _extFetch(url, { live });
+      if (!res.ok) return mapped;
+      const data = await res.json();
+      const asSold = _isOffSuccess(data) ? asSoldNutriments(data.product?.nutrition, product.serving_quantity) : null;
+      if (!asSold) return mapped;
+      const merged = this._mapOFFProduct({
+        ...product,
+        nutriments: { ...(product.nutriments || {}), ...asSold.nutriments },
+        nutrition_data_per: asSold.per,
+      }, { full: true });
+      if (merged && merged._offPresent.includes('calories')) return merged;
+      // The merge registered its own reading of the product; put back v3's.
+      return this._mapOFFProduct(product, { full: true });
+    } catch {
+      return mapped;
+    }
+  },
+
   offNutritionInfo(barcode) {
     return barcode ? (_offInfo.get(String(barcode)) || null) : null;
   },
@@ -231,7 +262,7 @@ const API = {
       if (!res.ok) return null;
       const data = await res.json();
       if (!_isOffSuccess(data)) return null;
-      return this._mapOFFProduct(data.product, { full: true });
+      return await this._mapFullOFFProduct(data.product, barcode, { live });
     } catch(e) {
       console.error('Barcode lookup failed:', e);
       return null;
@@ -270,7 +301,7 @@ const API = {
       if (!res.ok) return null;
       const data = await res.json();
       if (!_isOffSuccess(data)) return null;
-      const mapped = this._mapOFFProduct(data.product, { full: true });
+      const mapped = await this._mapFullOFFProduct(data.product, code);
       if (mapped) {
         if (this._offHydrateCache.size >= this._OFF_HYDRATE_MAX) {
           const oldest = this._offHydrateCache.keys().next().value;
@@ -365,32 +396,28 @@ const API = {
       // Store/import lookup failed for some unrelated reason — don't block
       // the upload over an envLocks fetch glitch.
     }
-    const username = (settings && settings.offUsername) || "nutritrace-app";
-    const password = (settings && settings.offPassword) || "nutritrace";
+    // Only the person's own Open Food Facts login (#284). The shared
+    // "nutritrace-app" login it used to fall back to is refused by OFF.
+    const username = String((settings && settings.offUsername) || '').trim();
+    const password = (settings && settings.offPassword) || '';
+    if (!username || !password) throw new OffShareError('no_account');
     const uploadCountry = (settings && settings.offUploadCountry) || "Auto";
-    const lang = (navigator.language || "en").substring(0, 2);
+    const lang = (navigator.language || "en").substring(0, 2).toLowerCase();
     // If the food's portion is 100g exactly, our nutrition values are
     // per-100g and we send them as such. For any other portion size, our
     // values are per-that-portion, so we send them with nutrition_data_per
-    // = serving and tell OFF the serving size. Previously the function
-    // unconditionally claimed per-100g even when the values were per a
-    // different portion, which corrupted the OFF record.
+    // = serving and tell OFF the serving size.
     const portionVal = parseFloat(portion) || 0;
     const unitVal    = unit || 'g';
     const isPer100g  = portionVal === 100 && unitVal === 'g';
-    const perKey     = isPer100g ? '100g' : 'serving';
-    let params = "code=" + encodeURIComponent(barcode);
-    params += "&user_id=" + encodeURIComponent(username);
-    params += "&password=" + encodeURIComponent(password);
-    params += "&lang=" + lang;
-    params += "&product_name_" + lang + "=" + encodeURIComponent(name);
-    if (brand) params += "&brands=" + encodeURIComponent(brand);
-    params += "&nutrition_data_per=" + perKey;
-    if (!isPer100g) {
-      params += "&serving_size=" + encodeURIComponent(portionVal + " " + unitVal);
-    }
-    if (uploadCountry && uploadCountry !== "Auto")
-      params += "&countries=" + encodeURIComponent(uploadCountry);
+    const fields = {
+      code: barcode, lang, app_name: 'NutriTrace',
+      ['product_name_' + lang]: name,
+      nutrition_data_per: isPer100g ? '100g' : 'serving',
+    };
+    if (brand) fields.brands = brand;
+    if (!isPer100g) fields.serving_size = portionVal + " " + unitVal;
+    if (uploadCountry && uploadCountry !== "Auto") fields.countries = uploadCountry;
     // Per the official OFF spec (docs/api/ref/requestBodies/
     // add_or_edit_a_product.yaml): nutriment field naming is
     // `nutriment_<nutrient_id>` regardless of whether the values are
@@ -405,38 +432,47 @@ const API = {
     const nut = nutrition || {};
     for (const [key, field] of Object.entries(nutMap)) {
       if (nut[key] !== undefined && nut[key] !== "" && !isNaN(parseFloat(nut[key])))
-        params += "&nutriment_" + field + "=" + nut[key];
+        fields["nutriment_" + field] = nut[key];
     }
-    const res = await fetch("https://world.openfoodfacts.org/cgi/product_jqm2.pl?" + params);
-    const json = await res.json();
-    if (json.status !== 1) throw new Error(json.status_verbose || "Upload failed");
+    // The photo goes up after the product, as a multipart POST.
+    let image = imgUrl ? await this._fetchImageBlob(imgUrl) : null;
+    // Over the server's 10 MB cap: the product goes without it.
+    const photoTooBig = !!image && image.size > 10 * 1024 * 1024;
+    if (photoTooBig) image = null;
 
-    // Best-effort image upload as a separate multipart POST. Failure here
-    // doesn't roll back the data upload — the product record is already
-    // created, the image is just an enhancement. Previously the picture
-    // was silently dropped. Image upload uses cgi/product_image_upload.pl
-    // with imagefield=front_<lang> + imgupload_<imagefield>=<file>.
-    if (imgUrl) {
-      try {
-        const blob = await this._fetchImageBlob(imgUrl);
-        if (blob) {
-          const fd = new FormData();
-          fd.append('code', barcode);
-          fd.append('user_id', username);
-          fd.append('password', password);
-          const imagefield = 'front_' + lang;
-          fd.append('imagefield', imagefield);
-          // Field name encodes the slot per OFF's docs.
-          fd.append('imgupload_' + imagefield, blob, 'front.jpg');
-          await fetch('https://world.openfoodfacts.org/cgi/product_image_upload.pl', {
-            method: 'POST', body: fd,
-          });
-        }
-      } catch (e) {
-        console.warn('[OFF] image upload failed (data was still submitted):', e?.message || e);
-      }
+    // The Android app with no server sends to Open Food Facts itself (it
+    // allows any origin). Everything else goes through this app's server,
+    // which POSTs with the login in the body and names the app.
+    if (isNative && !getServerUrl()) {
+      const sent = await shareWithOff({ fetchImpl: fetch, userId: username, password, fields, image });
+      return photoTooBig ? { ...sent, photo: 'failed' } : sent;
     }
-    return true;
+    const fd = new FormData();
+    fd.append('user_id', username);
+    fd.append('password', password);
+    fd.append('fields', JSON.stringify(fields));
+    if (image) fd.append('image', image, 'front.jpg');
+    const headers = {};
+    if (isNative) {
+      const token = getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      const csrf = localStorage.getItem('nt:csrf');
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+    }
+    let res;
+    try {
+      res = await fetch(apiUrl('/api/off/contribute'), { method: 'POST', headers, body: fd, credentials: 'include', cache: 'no-store' });
+    } catch {
+      throw new Error('Could not reach the NutriTrace server.');
+    }
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (out.kind && out.kind !== 'off_local_only') throw new OffShareError(out.kind, out.detail || '');
+      throw new Error(out.error || `API error ${res.status}`);
+    }
+    if (out.ok !== true) throw new OffShareError('unreachable');
+    return photoTooBig ? { ...out, photo: 'failed' } : out;
   },
 
   // Fetch any imgUrl (relative server path, absolute URL, or data: URI)
@@ -445,9 +481,10 @@ const API = {
   async _fetchImageBlob(imgUrl) {
     if (!imgUrl) return null;
     try {
-      const res = await fetch(imgUrl, { credentials: 'include' });
+      const res = await fetch(resolveAssetUrl(imgUrl), { credentials: 'include' });
       if (!res.ok) return null;
-      return await res.blob();
+      const blob = await res.blob();
+      return blob && blob.size && /^image\//.test(blob.type || 'image/') ? blob : null;
     } catch {
       return null;
     }
@@ -463,8 +500,7 @@ const API = {
     // Open Food Facts → Import Portion As, and only when the product actually
     // exposes serving_quantity + at least one *_serving nutriment. Otherwise the
     // 100g path is used unchanged.
-    const userId = localStorage.getItem('wl:userId');
-    const setKey = userId ? `wl_u${userId}_offImportPortion` : 'wl_offImportPortion';
+    const setKey = settingPrefix() + 'offImportPortion';
     let importPortion = 'per100g';
     try {
       const raw = localStorage.getItem(setKey);
@@ -648,101 +684,10 @@ function _rankUSDAResults(items) {
   });
 }
 
-// USDA FoodData Central nutrient ID → our nutrition object key
-const _USDA_NUTRIENT_MAP = {
-  1008: 'calories',        // Energy kcal
-  1062: 'kilojoules',      // Energy kJ
-  1003: 'proteins',
-  1004: 'fat',
-  1258: 'saturated-fat',
-  1257: 'trans-fat',
-  1292: 'monounsaturated-fat',
-  1293: 'polyunsaturated-fat',
-  1005: 'carbohydrates',
-  2000: 'sugars',
-  1235: 'added-sugars',
-  1079: 'fiber',
-  1093: 'sodium',          // mg
-  1253: 'cholesterol',     // mg
-  1087: 'calcium',         // mg
-  1089: 'iron',            // mg
-  1092: 'potassium',       // mg
-  1090: 'magnesium',       // mg
-  1095: 'zinc',            // mg
-  1091: 'phosphorus',      // mg
-  1162: 'vitamin-c',       // mg
-  1106: 'vitamin-a',       // mcg
-  1114: 'vitamin-d',       // mcg
-  1109: 'vitamin-e',       // mg
-  1185: 'vitamin-k',       // mcg
-  1165: 'b1',              // mg
-  1166: 'b2',              // mg
-  1167: 'b3',              // mg
-  1175: 'b6',              // mg
-  1177: 'b9',              // mcg (folate)
-  1178: 'b12',             // mcg
-};
-
 const USDA = {
-  _mapProduct(item, servingSize) {
-    // Normalise all nutrient values to per-100g basis
-    // servingSize is the USDA serving size in g/ml; factor scales values → per 100g
-    const factor = (servingSize && servingSize > 0) ? (100 / servingSize) : 1;
-    const nutrition = {};
-
-    for (const fn of (item.foodNutrients || [])) {
-      // Search API returns nutrientId directly; detail API nests it under fn.nutrient.id
-      const nid = fn.nutrientId || (fn.nutrient && fn.nutrient.id);
-      const key = _USDA_NUTRIENT_MAP[nid];
-      // Search API uses fn.value; Foundation/SR Legacy detail API uses fn.amount
-      const raw = fn.value != null ? fn.value : fn.amount;
-      if (key && raw != null) {
-        nutrition[key] = Math.round(raw * factor * 10000) / 10000;
-      }
-    }
-
-    // Derive kJ from kcal if kJ nutrient not present (Android does same conversion)
-    if (nutrition.calories && !nutrition.kilojoules) {
-      nutrition.kilojoules = Math.round(nutrition.calories * 4.184 * 10) / 10;
-    }
-
-    // Derive salt from sodium (or vice versa) via the regulatory factor.
-    // Sets `_derived.salt` so the food editor can render the calculator icon.
-    Nutrition.deriveSodiumSalt(nutrition);
-
-    // USDA "Carbohydrate, by difference" includes fiber — subtract to match OFF net-carbs
-    if (nutrition.carbohydrates != null && nutrition.fiber != null) {
-      let corrected = nutrition.carbohydrates - nutrition.fiber;
-      // Floor at sugars value (can't be less than sugars)
-      if (corrected < (nutrition.sugars || 0)) corrected = nutrition.sugars || 0;
-      nutrition.carbohydrates = Math.round(corrected * 10000) / 10000;
-    }
-
-    const rawUnit = (item.servingSizeUnit || 'g').toLowerCase();
-    const unit = rawUnit === 'ml' ? 'ml' : 'g';
-
-    return {
-      name:      (item.description || '').trim(),
-      brand:     (item.brandOwner || item.brandName || '').trim(),
-      // Use fdcId_ prefix as barcode (matches Android; lets food editor link to USDA page)
-      barcode:   item.fdcId ? 'fdcId_' + item.fdcId : (item.gtinUpc || ''),
-      unit,
-      portion:   100,
-      quantity:  1,
-      imgUrl: '',
-      dateTime:  new Date().toISOString(),
-      categories: [],
-      nutrition,
-      // USDA's `dataType` distinguishes the source database. Feeds both the
-      // in-page result sort (curated tiers first) and the small badge that
-      // renders next to each USDA result row so users can pick informed.
-      // Values seen from USDA: 'Foundation' (highest curated quality),
-      // 'SR Legacy' (established), 'Survey (FNDDS)' (derived dietary
-      // composite), 'Branded' (brand-submitted, quality varies wildly),
-      // 'Experimental' (research; tiny). Null for old imports that lack it.
-      dataType:  item.dataType || null,
-      _source:   'usda',
-    };
+  // Per 100 g (or 100 ml) as USDA gives it; servingSize is never a factor (#290).
+  _mapProduct(item) {
+    return mapUsdaFood(item);
   },
 
   async searchByName(query, page, apiKey) {
@@ -759,11 +704,7 @@ const USDA = {
       const res = await _extFetch(url);
       if (!res.ok) return [];
       const data = await res.json();
-      const items = (data.foods || []).map(f => {
-        // Use servingSize when available, otherwise fall back to 100g base
-        const ss = (f.servingSize && !isNaN(f.servingSize)) ? f.servingSize : 100;
-        return this._mapProduct(f, ss);
-      }).filter(f => f.name);
+      const items = (data.foods || []).map(f => this._mapProduct(f)).filter(f => f.name);
       return _rankUSDAResults(items);
     } catch(e) {
       console.error('[USDA] Search failed:', e);
@@ -784,10 +725,7 @@ const USDA = {
       const res = await _extFetch(url);
       if (!res.ok) return { items: [], totalHits: 0, page, hasMore: false };
       const data = await res.json();
-      const items = (data.foods || []).map(f => {
-        const ss = (f.servingSize && !isNaN(f.servingSize)) ? f.servingSize : 100;
-        return this._mapProduct(f, ss);
-      }).filter(f => f.name);
+      const items = (data.foods || []).map(f => this._mapProduct(f)).filter(f => f.name);
       const totalHits = typeof data.totalHits === 'number' ? data.totalHits : items.length;
       const totalPages = typeof data.totalPages === 'number' ? data.totalPages : Math.ceil(totalHits / pageSize);
       const hasMore = page < totalPages;
@@ -812,12 +750,25 @@ const USDA = {
         f.gtinUpc && (f.gtinUpc === barcode || f.gtinUpc === barcode.replace(/^0+/, ''))
       );
       if (!match) return null;
-      const ss = (match.servingSize && !isNaN(match.servingSize)) ? match.servingSize : 100;
-      return this._mapProduct(match, ss);
+      return this._mapProduct(match);
     } catch(e) {
       console.error('[USDA] Barcode lookup failed:', e);
       return null;
     }
+  },
+
+  // One food by its FoodData Central id, for Refresh from USDA in the food
+  // editor (#290). Returns null when USDA does not have it; throws when the
+  // request fails, so the editor can tell the two apart.
+  async lookupFdcId(fdcId, apiKey) {
+    if (!apiKey || !fdcId) return null;
+    const url = _USDA_BASE + '/food/' + encodeURIComponent(fdcId) +
+      '?api_key=' + encodeURIComponent(apiKey);
+    const res = await _extFetch(url);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('USDA ' + res.status);
+    const item = await res.json();
+    return item && item.fdcId ? this._mapProduct(item) : null;
   }
 };
 
@@ -828,6 +779,7 @@ const USDA = {
 // or native with a server URL configured) this HTTP implementation is used.
 import { isNative, getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
 import { Nutrition } from './nutrition.js';
+import { mapUsdaFood } from './usda-map.js';
 
 const _NtApiHttp = {
   // Core fetch — apiUrl() handles the server URL prefix (native server mode)
@@ -855,7 +807,14 @@ const _NtApiHttp = {
       cache: 'no-store',
       body: isUpload ? body : body != null ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `API error ${res.status}`); }
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      const err = new Error(e.error || `API error ${res.status}`);
+      err.status = res.status;
+      // A code (and its values) names the error, for the app to say in the person's language.
+      if (typeof e.code === 'string') { err.code = e.code; if (e.params && typeof e.params === 'object') err.params = e.params; }
+      throw err;
+    }
     return res.json();
   },
 

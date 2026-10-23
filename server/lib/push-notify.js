@@ -7,6 +7,18 @@
 
 import db from '../db.js';
 import { logger } from '../logger.js';
+import { fetchChecked, serviceBase } from './ssrf-guard.js';
+import { userWeeklyRange } from './weekly-range.js';
+
+// Push services (Gotify, ntfy, Apprise) usually live on the home network,
+// so that's allowed for every account; the address is still checked on
+// every redirect hop, a redirect only followed on the same server (never
+// cloud metadata), and the connection pinned.
+async function _send(url, init) {
+  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
+  try { await res.body?.cancel(); } catch {}
+  return res;
+}
 
 // Cleanup stale dedup keys older than 7 days (runs once at module load)
 // Key format: _goal_<userId>_<type>_<YYYY-MM-DD> — extract date suffix
@@ -69,7 +81,7 @@ async function _pushGotify(userId, title, message, priority) {
   const token = _getUserSetting(userId, 'gotifyToken');
   if (!url || !token) return;
 
-  const res = await fetch(`${url.replace(/\/+$/, '')}/message?token=${encodeURIComponent(token)}`, {
+  const res = await _send(`${serviceBase(url) ?? url}/message?token=${encodeURIComponent(token)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: `NutriTrace — ${title}`, message, priority }),
@@ -89,7 +101,7 @@ async function _pushNtfy(userId, title, message, priority) {
   const headers = { 'Title': _encodeHeaderValue(`NutriTrace — ${title}`), 'Priority': String(Math.min(5, priority)) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${url.replace(/\/+$/, '')}/${encodeURIComponent(topic)}`, {
+  const res = await _send(`${serviceBase(url) ?? url}/${encodeURIComponent(topic)}`, {
     method: 'POST',
     headers,
     body: message,
@@ -108,7 +120,7 @@ async function _pushApprise(userId, title, message, priority) {
   const body = { title: `NutriTrace — ${title}`, body: message, type: priority >= 7 ? 'warning' : 'info' };
   if (tag) body.tag = tag;
 
-  const res = await fetch(`${url.replace(/\/+$/, '')}/notify`, {
+  const res = await _send(`${serviceBase(url) ?? url}/notify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -121,6 +133,14 @@ async function _pushApprise(userId, title, message, priority) {
 
 export async function pushNotify(userId, settingKey, title, message, priority = 5) {
   if (!_isEnabled(userId, settingKey)) return;
+  return _pushToService(userId, title, message, priority);
+}
+
+/** Same, for a notification that is on until the person turns it off
+ *  (coaching: a setting never saved counts as on). */
+export async function pushNotifyDefaultOn(userId, settingKey, title, message, priority = 5) {
+  const v = _getUserSetting(userId, settingKey);
+  if (v === false || v === 'false') return;
   return _pushToService(userId, title, message, priority);
 }
 
@@ -184,12 +204,18 @@ export function notifyStepGoal(userId, steps, goal) {
 }
 
 export async function sendWeeklySummary(userId) {
+  // The last 7 days, or with a First Day of Week chosen, the same whole
+  // week the email covers (#232, lib/weekly-range.js).
+  const week = userWeeklyRange(userId);
+  const span = week ? `date >= ? AND date <= ?` : `date >= date('now','-7 days')`;
+  const spanArgs = week ? [week.from, week.to] : [];
+  const spanTo = week ? `date >= ? AND date <= ?` : `date >= date('now','-7 days') AND date <= date('now')`;
   const rows = db.prepare(
     `SELECT metric_type, AVG(value) as avg FROM wellness_data
-     WHERE user_id=? AND source='fitbit' AND date >= date('now','-7 days')
+     WHERE user_id=? AND source='fitbit' AND ${span}
      AND metric_type IN ('steps','calories_out','sleep_duration_min')
      GROUP BY metric_type`
-  ).all(userId);
+  ).all(userId, ...spanArgs);
 
   const m = {};
   for (const r of rows) m[r.metric_type] = r.avg;
@@ -221,9 +247,9 @@ export async function sendWeeklySummary(userId) {
       const doneRow = db.prepare(
         `SELECT COUNT(*) AS n FROM diary
           WHERE user_id = ? AND completed_at IS NOT NULL
-            AND date >= date('now','-7 days') AND date <= date('now')
+            AND ${spanTo}
             AND deleted_at IS NULL`
-      ).get(userId);
+      ).get(userId, ...spanArgs);
       const done = Number(doneRow?.n || 0);
       if (done > 0) {
         parts.push(`Marked complete: ${done} of 7 days`);

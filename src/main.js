@@ -3,8 +3,19 @@
 import { setAppVersion } from './lib/log-capture.js';
 import { APP_VERSION } from './lib/version.js';
 import { installRequestIdFetch } from './lib/request-id-fetch.js';
+import { Capacitor } from '@capacitor/core';
+import { imagePolicy } from './lib/plain-http.js';
 setAppVersion(APP_VERSION);
-installRequestIdFetch();
+const _native = Capacitor.isNativePlatform();
+installRequestIdFetch({ native: _native });
+// Android app: images over plain http:// only from a confirmed server on your
+// own network, as fetch and CapacitorHttp (lib/plain-http.js, #194).
+if (_native) {
+  const csp = document.createElement('meta');
+  csp.httpEquiv = 'Content-Security-Policy';
+  csp.content = imagePolicy();
+  document.head.prepend(csp);
+}
 import { startViewportProbe } from './lib/viewport-probe.js';
 startViewportProbe();
 // Exposed for iconUrl() in platform.js: appended to every icon <img>

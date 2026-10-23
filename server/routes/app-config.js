@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireAdmin, userMgmtActive } from '../middleware/auth.js';
@@ -183,8 +184,7 @@ router.post('/test-email', requireAuth, requireAdmin, wrap(async (req, res) => {
   const to = (typeof body.to === 'string' && body.to.trim()) || req.user?.email || undefined;
   // Origin lets the email template load the app logo. Recipient name
   // personalizes the greeting.
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-  const origin = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+  const origin = linkBase(req);
   const recipientName = req.user?.full_name || req.user?.nickname || req.user?.username || null;
   try {
     const result = await testSmtp({ overrides, to, origin, recipientName });

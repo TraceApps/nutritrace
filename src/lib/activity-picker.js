@@ -7,6 +7,7 @@
 // matches; the picker is purely additive to the existing manual form.
 
 import compendium from './activity-compendium.json';
+import { foldText } from './search-text.js';
 
 /** All compendium activities as a flat array of { id, category, name, met }. */
 export const ACTIVITIES = compendium.activities;
@@ -64,14 +65,14 @@ export function groupedByCategory() {
  *  Case-insensitive substring match, ranked by (name-startsWith → name-contains
  *  → category-contains). Caller can slice(0, N) for typeahead brevity. */
 export function search(query) {
-  const q = String(query || '').toLowerCase().trim();
+  const q = foldText(query).trim();
   if (!q) return [];
   const startsWith = [];
   const nameHit = [];
   const catHit = [];
   for (const a of ACTIVITIES) {
-    const name = a.name.toLowerCase();
-    const cat = a.category.toLowerCase();
+    const name = foldText(a.name);
+    const cat = foldText(a.category);
     if (name.startsWith(q)) startsWith.push(a);
     else if (name.includes(q)) nameHit.push(a);
     else if (cat.includes(q)) catHit.push(a);

@@ -20,6 +20,8 @@
   import { unitGroupsWithCustoms } from '../../lib/units.js';
   import { customUnits } from '../../stores/settings.js';
   import { portal } from '../../lib/portal.js';
+  import { foldText } from '../../lib/search-text.js';
+
 
   /** Stored abbreviation. Must be a member of the merged catalog. */
   export let value = '';
@@ -45,8 +47,8 @@
         .map(g => ({
           ...g,
           units: g.units.filter(u =>
-            u.abbr.toLowerCase().includes(_query.toLowerCase()) ||
-            u.full.toLowerCase().includes(_query.toLowerCase())
+            foldText(u.abbr).includes(foldText(_query)) ||
+            foldText(u.full).includes(foldText(_query))
           ),
         }))
         .filter(g => g.units.length > 0)

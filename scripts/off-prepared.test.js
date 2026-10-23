@@ -4,10 +4,15 @@
  * They used to arrive as 0 kcal foods everywhere: shown as 0 kcal, saved as
  * 0 kcal, and logged by Trace as 0 kcal with a success message. Their "as
  * prepared" values are never used unasked, because what they are varies by
- * product (the fixtures are real OFF products): Nesquik's are the drink made
- * with milk, one formula's are the made-up milk, another's are the powder
- * typed into the wrong column, and one powder claims 1,127 kcal per 100 g.
- * The user chooses, seeing the number first.
+ * product (the fixtures are real OFF products, as OFF's v3 API returns them):
+ * Nesquik's are the drink made with milk, one formula's are the made-up milk,
+ * another's are the powder typed into the wrong column, and one powder claims
+ * 1,127 kcal per 100 g. The user chooses, seeing the number first.
+ *
+ * v3 leaves out a product's "as sold" values when it has "as prepared" ones
+ * too, and these products all have both; off-nutrition-sets.test.js covers
+ * how the app finds them. What is tested here is what happens to a product
+ * that has none.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,9 +36,9 @@ function realApi() {
   assert.ok(a > 0 && t > 0 && r > 0, 'api.js still has the mapper, the table and the registry');
   const table = src.slice(t, src.indexOf('];', t) + 2);
   const registry = src.slice(r, src.indexOf('const API = {', r));
-  const make = new Function('offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition',
+  const make = new Function('offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', 'settingPrefix',
     `${table}\n${registry}\nreturn { map(p, full) { ${src.slice(a + sig.length, b)} }, info: (code) => _offInfo.get(String(code)) || null };`);
-  return make(offProductName, () => 'en', { getItem: () => null }, Nutrition);
+  return make(offProductName, () => 'en', { getItem: () => null }, Nutrition, () => 'wl_');
 }
 
 test('real products: each "as prepared" case is found and kept apart from the saved food', () => {

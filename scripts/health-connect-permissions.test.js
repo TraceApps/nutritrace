@@ -20,7 +20,7 @@ import {
 // ── DESIRED_READS coverage ─────────────────────────────────────────────
 
 test('DESIRED_READS contains every type the read code queries', () => {
-  // These are the types readTodayData / readDateRange / readExerciseSessions
+  // These are the types readDays / readExerciseSessions
   // actually call hc.aggregateRecords / hc.readRecords with. If any drift
   // out of DESIRED_READS, the runtime permission for that type would
   // never be requested and syncs would silently return nothing.

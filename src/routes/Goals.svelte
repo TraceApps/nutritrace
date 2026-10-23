@@ -7,7 +7,8 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { portal } from '../lib/portal.js';
-  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, calorieGoalMode, calorieGoalFactor } from '../stores/settings.js';
+  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, calorieGoalMode, calorieGoalFactor, weekStartDay } from '../stores/settings.js';
+  import { weekdayOrder } from '../lib/week.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
@@ -15,6 +16,18 @@
   import { loadEntry } from '../stores/diary.js';
   import { showSuccess } from '../stores/toast.js';
   import MacroRing from '../components/diary/MacroRing.svelte';
+  import { foldText } from '../lib/search-text.js';
+  import { fold } from '../lib/fold.js';
+  import CoachingTabs from '../components/coaching/CoachingTabs.svelte';
+  import TargetsCard from '../components/coaching/TargetsCard.svelte';
+  import { coachTab, coachingState, coachRecommendations, loadCoachRecommendations } from '../stores/coaching.js';
+  import { coachNameFor, goalsCardRecommendation } from '../lib/coaching-view.js';
+
+  // A coach's recommended targets: only for someone with a coach (nobody
+  // else asks for anything, and Goals looks as it always did for them).
+  $: if ($coachTab) loadCoachRecommendations({ refresh: true }).catch(() => {});
+  $: _coachRec = $coachTab ? goalsCardRecommendation($coachRecommendations) : null;
+
 
   // Mirror settings/Goals.svelte: any wearable that reports calorie burn
   // unlocks Dynamic mode. Uses the shared derived fitbitFamilyEnabled so
@@ -150,6 +163,8 @@
   function applyTemplate(tpl) {
     goals.set(_migrateKilojoulesGoal({ ...tpl.goals }));
     if (tpl.waterGoalMl != null) waterGoalMl.set(tpl.waterGoalMl);
+    // A template saved before a coach's change also holds the calorie mode.
+    if (tpl.calorieGoalMode) calorieGoalMode.set(tpl.calorieGoalMode);
     showApplyConfirm = null;
     activeTab = 'yours';
     showSuccess($_('goals.toast.template_applied', { values: { name: tpl.name } }));
@@ -208,6 +223,29 @@
   // Fire as soon as settings stores resolve true — avoids the first-load race
   // where onMount ran before settings loaded from server (both start false).
   $: if (($fitbitFamilyEnabled || $garminEnabled) && !_wellnessLoaded) loadWellnessToday();
+
+  // Half open like a book, the targets go on the left-hand page and the
+  // preview on the right, with the crease as the gutter between them: the
+  // flat two-column split put the targets across the crease. Only when both
+  // pages have room for them; otherwise the preview follows below.
+  let goalsBodyEl, goalsBodyLeft = 0, goalsBodyW = 0;
+  function measureGoalsBody() {
+    const box = goalsBodyEl?.getBoundingClientRect();
+    goalsBodyLeft = box?.left ?? 0;
+    goalsBodyW = box?.width ?? 0;
+  }
+  onMount(() => {
+    measureGoalsBody();
+    const ro = new ResizeObserver(measureGoalsBody);
+    if (goalsBodyEl) ro.observe(goalsBodyEl);
+    return () => ro.disconnect();
+  });
+  $: if ($fold !== undefined && goalsBodyEl) measureGoalsBody();
+  $: goalsFoldLeftW = $fold?.posture === 'book' && goalsBodyW > 0 ? $fold.start - goalsBodyLeft : null;
+  $: goalsHinge = $fold?.posture === 'book' ? Math.max(0, $fold.end - $fold.start) : 0;
+  $: goalsFoldPages = goalsFoldLeftW != null
+    && goalsFoldLeftW >= 280
+    && goalsBodyW - goalsFoldLeftW - goalsHinge >= 280;
 
   onMount(async () => {
     // #146 migration on page load. See _migrateKilojoulesGoal above.
@@ -378,7 +416,8 @@
         editVal0 = String(toDisp(g.max ?? g.min ?? ''));
       } else {
         editDayVals = g.days ? g.days.map(v => v != null ? String(toDisp(v)) : '') : ['','','','','','',''];
-        editVal0 = String(editDayVals[0]);
+        // The first day shown (the week's first day, #232) seeds One Target.
+        editVal0 = String(editDayVals[$weekStartDay]);
       }
     } else {
       editShared  = true; editIsMin = false;
@@ -442,6 +481,8 @@
     editOpen = false;
   }
 
+  // Indexed by weekday (0 Sunday), as goals store their days; the editor
+  // lists them from the week's first day (#232).
   const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   const MACRO_DENSITY = { fat: 9, 'saturated-fat': 9, carbohydrates: 4, sugars: 4, proteins: 4 };
@@ -640,9 +681,9 @@
   // ── All-fields filter (desktop search input) ───────────────────────────
   let _allFieldsQuery = '';
   function _matchesQuery(stat) {
-    const q = _allFieldsQuery.trim().toLowerCase();
+    const q = foldText(_allFieldsQuery).trim();
     if (!q) return true;
-    return ((stat.label || stat.id) + '').toLowerCase().includes(q);
+    return foldText((stat.label || stat.id) + '').includes(q);
   }
 
   // ── Reset-all-goals (rail button on desktop) ───────────────────────────
@@ -664,6 +705,8 @@
   <header class="page-header" class:banner-gradient={$bannerStyle === 'gradient'} class:banner-animated={$bannerStyle === 'animated'}>
     <h1>{$_('routes.goals.title')}</h1>
   </header>
+  <!-- Goals | Coach | Clients: only for people in coaching. -->
+  <CoachingTabs />
 
   <!-- Tabs -->
   <div class="tab-bar">
@@ -681,7 +724,8 @@
   <div class="page-content">
   <!-- Desktop three-pane wrapper (≥1280px). On mobile / force-mobile-layout
        .goals-body is a plain block; the rails are display:none. -->
-  <div class="goals-body">
+  <div class="goals-body" bind:this={goalsBodyEl} class:fold-pages={goalsFoldPages}
+    style={goalsFoldPages ? `--goals-left-w: ${goalsFoldLeftW}px; --goals-hinge: ${goalsHinge}px;` : ''}>
 
     <!-- ─── LEFT RAIL (desktop only) ────────────────────────────────────── -->
     <aside class="goals-left-rail">
@@ -762,6 +806,10 @@
 
     <!-- ─── CENTER PANE ─────────────────────────────────────────────────── -->
     <div class="goals-main">
+
+    {#if _coachRec && activeTab === 'yours'}
+      <TargetsCard rec={_coachRec} coachName={coachNameFor($coachingState, _coachRec.pairing_id)} on:answered={() => loadCoachRecommendations()} />
+    {/if}
 
     <!-- ── Adaptive TDEE readiness card (shown only when adaptive mode is on) ── -->
     {#if activeTab === 'yours' && $calorieGoalMode === 'adaptive' && _adaptiveLoaded}
@@ -1338,7 +1386,8 @@
           <input class="input" type="text" inputmode="decimal" use:decimalInput
             placeholder="0" bind:value={editVal0} />
         {:else}
-          {#each DAYS as day, i}
+          {#each weekdayOrder($weekStartDay) as i}
+            {@const day = DAYS[i]}
             <label class="form-label">{$_('goals_page.editor.value_label_day', { values: { day, unit: editIsPercent ? $_('goals_page.editor.value_percent_of_cal') : (_editUnit || '') } })}</label>
             <input class="input" type="text" inputmode="decimal" use:decimalInput
               placeholder="0" bind:value={editDayVals[i]} style="margin-bottom:8px" />
@@ -1950,6 +1999,19 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: 12px;
+    }
+    /* Half open like a book: targets on the left-hand page, the preview on
+       the right, the crease between them; with too little room either side,
+       the preview follows below. */
+    :global(html.fold-book.wide-content) .goals-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    :global(html.fold-book.wide-content) .goals-body.fold-pages {
+      grid-template-columns: var(--goals-left-w) minmax(0, 1fr);
+      column-gap: var(--goals-hinge);
+    }
+    :global(html.fold-book.wide-content) .goals-body:not(.fold-pages) .goals-right-rail {
+      position: static;
     }
   }
 </style>

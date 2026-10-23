@@ -1,14 +1,22 @@
 import { Router } from 'express';
+import { linkBase } from '../lib/public-url.js';
 import { localizeImage } from '../lib/image-localizer.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import db from '../db.js';
+import { normalizeGender } from '../lib/profile-fields.js';
 import { wrap } from '../logger.js';
-import { signToken, sessionMaxAge, userMgmtActive, requireAuth, requireAdmin } from '../middleware/auth.js';
+import { signToken, sessionMaxAge, userMgmtActive, setupRequired, requireAuth, requireAdmin } from '../middleware/auth.js';
 import { listProviders as oidcListProviders, publicProvider as oidcPublicProvider, isPasswordLoginEnabled, listUserLinks } from '../lib/oidc.js';
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
 import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/password-strength.js';
 import { claimAnonymousData, purgeUnreferencedUserData, purgeUserRows } from '../lib/claim-anonymous-data.js';
+import { ownerOrOptIn } from '../lib/outbound-policy.js';
+import { deletePhotosForUser, deleteAllPhotos } from '../lib/coaching-messages.js';
+import { COACHING_VERSION, coachingState, endCoachingIfNotCoach, requestFromInvite, canCoach, roleOf, personName } from '../lib/coaching.js';
+
+// The roles an admin can give. A Coach is a User everywhere except coaching.
+const ROLES = ['user', 'coach', 'admin'];
 
 const router = Router();
 
@@ -83,6 +91,24 @@ const COOKIE_OPTS = {
   secure:   !_insecureCookies,
 };
 
+// A browser drops a Secure cookie on a plain-HTTP page (localhost aside), so
+// signing in from one succeeds and then lands back on the login page with
+// nothing in the log to say why (#20, #41, #43, #195). The browser's Origin
+// header shows the page it was on, whatever proxy sits in between. Said once
+// an hour at most. The login page shows the same thing on screen.
+let _plainHttpWarnedAt = 0;
+function warnIfPlainHttp(req) {
+  if (_insecureCookies) return;
+  const origin = String(req.get('origin') || req.get('referer') || '');
+  if (!/^http:\/\//i.test(origin)) return;
+  if (/^http:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i.test(origin)) return;
+  if (Date.now() - _plainHttpWarnedAt < 60 * 60 * 1000) return;
+  _plainHttpWarnedAt = Date.now();
+  let page = origin;
+  try { page = new URL(origin).origin; } catch {}
+  console.warn(`[WARN] Sign-in from a plain-HTTP page (${page}). The sign-in cookie only works over HTTPS, so the browser drops it and the user lands back on the login page. Serve NutriTrace over HTTPS, or set INSECURE_COOKIES=1 on a trusted LAN. See https://traceapps.github.io/docs/getting-started/lan-http/`);
+}
+
 function safeUser(u) {
   const { password_hash, ...rest } = u;
   // Linked OIDC providers + password-set flag — surfaced so the Profile page
@@ -93,6 +119,15 @@ function safeUser(u) {
 }
 
 // ── Status: is user management active? ────────────────────────────────────
+// This server's random id (see /status), made once and kept in app_config.
+// Made again if a restore emptied app_config.
+function serverInstanceId() {
+  const row = db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get();
+  if (row?.value) return row.value;
+  db.prepare(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('instance_id', ?)`).run(crypto.randomUUID());
+  return db.prepare(`SELECT value FROM app_config WHERE key = 'instance_id'`).get()?.value || null;
+}
+
 router.get('/status', wrap((req, res) => {
   const active = userMgmtActive();
   // setup_required tells the client whether to force the wizard's
@@ -110,17 +145,32 @@ router.get('/status', wrap((req, res) => {
   const policy = db.prepare(`SELECT value FROM app_config WHERE key = 'password_policy'`).get()?.value || 'standard';
   res.json({
     active,
-    setup_required: !active && !singleUser,
+    setup_required: setupRequired(),
     single_user_mode: singleUser,
     oidc: { providers, enable_email_password_login: isPasswordLoginEnabled() },
     password_policy: policy,                  // 'standard' | 'strong'
     password_min_score: policy === 'strong' ? STRONG_MIN_SCORE : 0,
+    // Whether the sign-in cookie is HTTPS-only, so the login page can say up
+    // front that signing in from a plain-HTTP page will not stick.
+    secure_cookies: !_insecureCookies,
+    // A random id for this server, so the Android app can tell the same
+    // server at another address (LAN IP, domain) from a different one.
+    instance_id: serverInstanceId(),
+    // What the Android sync speaks. 2: notes and completion marks carry
+    // their edit time (newer wins), a save without a note keeps the
+    // day's note. Servers before this report none, and treat a save
+    // without a note as clearing it, so the app sends its note every time.
+    sync_version: 2,
+    // Coaching (1.5). Servers before it report none, and the app hides
+    // coaching there.
+    coaching: COACHING_VERSION,
   });
 }));
 
 // ── Who am I? ─────────────────────────────────────────────────────────────
-// `features` is kept in the response shape for forward compatibility but is
-// currently empty. The federation API (Settings → API Tokens) used to be
+// `features` carries server facts a signed-in person's app needs: `email`,
+// whether this server sends email (the weekly summary can go by email). The
+// federation API (Settings → API Tokens) used to be
 // gated by NT_FEATURES_API=1; that gate was removed in rc.42 once the API
 // matured and sister apps (LiftTrace public, CookTrace in private beta)
 // started relying on it as a documented product feature. New feature flags
@@ -128,8 +178,15 @@ router.get('/status', wrap((req, res) => {
 router.get('/me', wrap((req, res) => {
   const features = {};
   if (!req.user) return res.json({ user: null, csrf: null, features });
+  // Whether this server sends email: signed-in people only (the weekly
+  // summary toggle shows for someone with no push service when it can go
+  // by email). Never told to anyone signed out.
+  features.email = isEmailConfigured();
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  res.json({ user: user ? safeUser(user) : null, csrf: req.user.csrf || null, features });
+  // Where this person stands in coaching, so the app knows whether to show
+  // the Coach and Clients tabs without asking again.
+  const coaching = user && userMgmtActive() ? coachingState(user.id) : null;
+  res.json({ user: user ? safeUser(user) : null, csrf: req.user.csrf || null, features, coaching });
 }));
 
 // ── Login ──────────────────────────────────────────────────────────────────
@@ -140,6 +197,12 @@ router.post('/login', rateLimitLogin, wrap((req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
+  // A fresh install has no account to sign in to yet. Said plainly: Android
+  // apps from before /api/health reported it show this message as is.
+  if (setupRequired()) {
+    return res.status(503).json({ error: "This server isn't set up yet. Open it in a browser to create the first account.", setup_required: true });
+  }
+
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim().toLowerCase());
   if (!user || !user.password_hash || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Invalid username or password' });
@@ -147,6 +210,7 @@ router.post('/login', rateLimitLogin, wrap((req, res) => {
 
   const token = signToken(user);
   const cookieOpts = { ...COOKIE_OPTS, maxAge: sessionMaxAge() };
+  warnIfPlainHttp(req);
   res.cookie('nt_token', token, cookieOpts);
   res.json({ user: safeUser(user), token });
 }));
@@ -171,14 +235,14 @@ router.post('/register', wrap((req, res) => {
   { const pwErr = validatePassword(password, [username, email, full_name].filter(Boolean)); if (pwErr) return res.status(400).json({ error: pwErr }); }
 
   const hash = bcrypt.hashSync(password, 12);
-  const assignedRole = isFirst ? 'admin' : (role === 'admin' ? 'admin' : 'user');
+  const assignedRole = isFirst ? 'admin' : (ROLES.includes(role) ? role : 'user');
 
   const result = db.prepare(
     `INSERT INTO users (username, password_hash, full_name, nickname, birthday, gender, role, email)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     username.trim().toLowerCase(), hash,
-    full_name || null, nickname || null, birthday || null, gender || null, assignedRole,
+    full_name || null, nickname || null, birthday || null, normalizeGender(gender), assignedRole,
     email ? email.trim().toLowerCase() : null
   );
 
@@ -192,6 +256,7 @@ router.post('/register', wrap((req, res) => {
   // Both have to be claimed or the data silently disappears (issue #2).
   if (isFirst) {
     claimAnonymousData(user.id);
+    warnIfPlainHttp(req);
     res.cookie('nt_token', signToken(user), COOKIE_OPTS);
   }
 
@@ -200,15 +265,27 @@ router.post('/register', wrap((req, res) => {
 
 // ── Update own profile ─────────────────────────────────────────────────────
 router.put('/profile', requireAuth, wrap(async (req, res) => {
-  const { full_name, nickname, birthday, gender, email } = req.body;
+  const body = req.body || {};
+  const before = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id) || {};
+  // A field the request leaves out stays as it is. Profile always sends all
+  // of them (an empty one clears it); turning user accounts on sends only
+  // what this device knew, and used to wipe the email just registered (#269).
+  const given = (k) => Object.prototype.hasOwnProperty.call(body, k) && body[k] !== undefined;
+  const full_name = given('full_name') ? body.full_name : before.full_name;
+  const nickname = given('nickname') ? body.nickname : before.nickname;
+  const birthday = given('birthday') ? body.birthday : before.birthday;
+  const gender = given('gender') ? body.gender : before.gender;
+  const email = given('email') ? body.email : before.email;
   // A picture chosen with no connection arrives embedded in this request,
   // since there was nowhere to upload it to. It becomes a file here, the
   // same way a food's photo does.
-  const avatar_url = await localizeImage(req.body?.avatar_url);
+  const avatar_url = given('avatar_url')
+    ? await localizeImage(body.avatar_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') })
+    : before.avatar_url;
   db.prepare(
     `UPDATE users SET full_name=?, nickname=?, birthday=?, gender=?, avatar_url=?, email=? WHERE id=?`
-  ).run(full_name || null, nickname || null, birthday || null, gender || null, avatar_url || null,
-        email ? email.trim().toLowerCase() : null, req.user.id);
+  ).run(full_name || null, nickname || null, birthday || null, normalizeGender(gender), avatar_url || null,
+        email ? String(email).trim().toLowerCase() : null, req.user.id);
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: safeUser(user) });
@@ -266,6 +343,8 @@ router.delete('/me', requireAuth, wrap((req, res) => {
   // CASCADE handles foods, meals, diary, settings, wellness_data, ai_chat_history, etc.
   // Tables with no FK to users(id) do not cascade — clear this user's rows.
   purgeUserRows(userId);
+  // Coaching conversations cascade with the pairing; their photo files go too.
+  deletePhotosForUser(userId);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   res.clearCookie('nt_token');
   res.json({ ok: true });
@@ -312,6 +391,7 @@ router.delete('/users/:id', requireAuth, requireAdmin, wrap((req, res) => {
   }
   // Tables with no FK to users(id) do not cascade — clear this user's rows.
   purgeUserRows(id);
+  deletePhotosForUser(id);
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
   res.json({ ok: true });
 }));
@@ -325,11 +405,11 @@ router.put('/users/:id/password', requireAuth, requireAdmin, wrap((req, res) => 
   res.json({ ok: true });
 }));
 
-// ── Admin: change another user's role (user | admin) ──────────────────────
+// ── Admin: change another user's role (user | coach | admin) ──────────────
 router.put('/users/:id/role', requireAuth, requireAdmin, wrap((req, res) => {
   const id = parseInt(req.params.id);
   const { role } = req.body;
-  if (!['admin', 'user'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (!ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (id === req.user.id) return res.status(400).json({ error: 'Cannot change your own role' });
   // Last-admin guard — refuse to demote the only admin and lock the instance out.
   if (role !== 'admin') {
@@ -342,7 +422,10 @@ router.put('/users/:id/role', requireAuth, requireAdmin, wrap((req, res) => {
     }
   }
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
-  res.json({ ok: true });
+  // Someone who can no longer coach stops coaching: their requests and
+  // pairings end.
+  const ended = endCoachingIfNotCoach(id, req.user.id);
+  res.json({ ok: true, coaching_ended: ended });
 }));
 
 // ── Admin: disable user management (delete all users) ─────────────────────
@@ -350,6 +433,7 @@ router.delete('/management', requireAuth, requireAdmin, wrap((req, res) => {
   db.prepare('DELETE FROM users').run();
   // Tables without an FK to users(id) survive the cascade — clear them too.
   purgeUnreferencedUserData();
+  deleteAllPhotos();
   // Remember this was an intentional disable, not a fresh install — so
   // /status returns setup_required=false and the client doesn't re-route
   // to the wizard's mandatory account-creation step. Cleared on next
@@ -376,6 +460,7 @@ router.post('/recover', rateLimitLogin, wrap((req, res) => {
   db.prepare('DELETE FROM users').run();
   // Tables without an FK to users(id) survive the cascade — clear them too.
   purgeUnreferencedUserData();
+  deleteAllPhotos();
   // Same single-user-mode flag as DELETE /management (intentional disable,
   // not a fresh install). Without this the lockout-recovery path also
   // re-triggers the wizard on next load.
@@ -411,10 +496,9 @@ router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
   const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
   db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);
 
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-  const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+  const baseUrl = linkBase(req);
   try {
-    await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
+    if (baseUrl) await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
   } catch (e) {
     // Don't surface email-send errors to the client — it would leak existence.
     // The token is still issued; the admin can investigate the email backend.
@@ -443,6 +527,13 @@ router.post('/reset-password', wrap((req, res) => {
 // ── Admin: create invite ───────────────────────────────────────────────────
 router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
   const { email, role = 'user' } = req.body;
+  if (!ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  // An invite can name a coach (a Coach or an admin). The request is made
+  // when the account is created and waits for the person to answer it.
+  let coachId = req.body?.coach_id == null || req.body.coach_id === '' ? null : Number(req.body.coach_id);
+  if (coachId != null && (!Number.isInteger(coachId) || !canCoach(roleOf(coachId)))) {
+    return res.status(400).json({ error: 'That person is not a coach.' });
+  }
 
   // Refuse if the email is already registered — silently sending an invite
   // to an existing user would let the recipient create a second account.
@@ -458,11 +549,11 @@ router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
 
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
-  db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
-    .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires);
+  db.prepare('INSERT INTO invite_tokens (token, email, role, created_by, expires_at, coach_id) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(token, email ? email.trim().toLowerCase() : null, role, req.user.id, expires, coachId);
 
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
-  const baseUrl = `${proto}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+  const baseUrl = linkBase(req);
+  if (!baseUrl) return res.status(500).json({ error: 'The app\'s address is unknown. Set PUBLIC_URL, then try again.' });
   const inviteUrl = `${baseUrl}/#/accept-invite?token=${token}`;
 
   if (email && isEmailConfigured()) {
@@ -478,12 +569,16 @@ router.post('/invite', requireAuth, requireAdmin, wrap(async (req, res) => {
 // ── Admin: list pending invites (not used, not expired) ───────────────────
 router.get('/invites', requireAuth, requireAdmin, wrap((req, res) => {
   const rows = db.prepare(
-    `SELECT token, email, role, expires_at, created_by
-     FROM invite_tokens
-     WHERE used = 0 AND expires_at > datetime('now')
-     ORDER BY expires_at DESC`
+    `SELECT i.token, i.email, i.role, i.expires_at, i.created_by, i.coach_id,
+            c.full_name AS coach_full_name, c.username AS coach_username
+     FROM invite_tokens i LEFT JOIN users c ON c.id = i.coach_id
+     WHERE i.used = 0 AND i.expires_at > datetime('now')
+     ORDER BY i.expires_at DESC`
   ).all();
-  res.json(rows);
+  res.json(rows.map(({ coach_full_name, coach_username, ...r }) => ({
+    ...r,
+    coach: r.coach_id != null ? { id: r.coach_id, name: personName({ full_name: coach_full_name, username: coach_username }) } : null,
+  })));
 }));
 
 // ── Admin: revoke a pending invite ────────────────────────────────────────
@@ -522,6 +617,8 @@ router.post('/accept-invite', wrap((req, res) => {
   );
 
   db.prepare('UPDATE invite_tokens SET used = 1 WHERE token = ?').run(token);
+  // The coach the invite named asks now; the request waits for an answer.
+  requestFromInvite(invite.coach_id ?? null, Number(result.lastInsertRowid));
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
   res.cookie('nt_token', signToken(user), COOKIE_OPTS);

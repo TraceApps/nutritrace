@@ -11,6 +11,7 @@
   import { APP_VERSION } from '../../lib/version.js';
   import { syncState } from '../../lib/sync.js';
   import { updateAvailable } from '../../lib/updates.js';
+  import { coachingBadge } from '../../stores/coaching.js';
   import { pwaUpdateReady } from '../../lib/pwa-update.js';
 
   export let open = false;
@@ -143,6 +144,9 @@
           {:else}
             <span class="material-symbols-rounded sidebar-icon">
               {item.icon}
+              {#if item.path === '/goals' && $coachingBadge}
+                <span class="nav-update-dot" aria-label={$_('coaching.badge')}></span>
+              {/if}
               {#if item.path === '/settings' && ($updateAvailable.available || $pwaUpdateReady)}
                 <span class="nav-update-dot" aria-label="Update available"></span>
               {/if}

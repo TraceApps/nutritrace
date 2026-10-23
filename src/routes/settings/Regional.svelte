@@ -4,8 +4,18 @@
   import { AVAILABLE_LOCALES } from '../../i18n/index.js';
   import { scheduleSave } from '../../stores/settings.js';
   import {
-    language, dateFormat, timeFormat, energyUnit,
+    language, dateFormat, timeFormat, energyUnit, firstDayOfWeek,
   } from '../../stores/settings.js';
+  import { localeFirstDay } from '../../lib/week.js';
+
+  // What Automatic comes to here, named in the app's language (#232).
+  // 2023-01-01 was a Sunday.
+  $: autoDayName = _dayName(localeFirstDay(), $language);
+  function _dayName(day, lang) {
+    const d = new Date(Date.UTC(2023, 0, 1 + day));
+    try { return d.toLocaleDateString(String(lang || 'en').replace(/_/g, '-'), { weekday: 'long', timeZone: 'UTC' }); }
+    catch { return d.toLocaleDateString('en', { weekday: 'long', timeZone: 'UTC' }); }
+  }
 
   const ENERGY_OPTS = [
     { value: 'kcal', label: 'Calories (kcal)' },
@@ -61,6 +71,21 @@
         <select class="select sel-sm" value={$timeFormat} on:change={e => timeFormat.set(e.target.value)}>
           <option value="12h">{$_('settings.regional.time_12h')}</option>
           <option value="24h">{$_('settings.regional.time_24h')}</option>
+        </select>
+      </div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-row">
+      <div>
+        <span class="setting-label">{$_('settings.regional.first_day')}</span>
+        <div class="setting-desc">{$_('settings.regional.first_day_desc', { values: { day: autoDayName } })}</div>
+      </div>
+      <div class="select-wrap" style="width:160px">
+        <select class="select sel-sm" value={$firstDayOfWeek} on:change={e => firstDayOfWeek.set(e.target.value)}>
+          <option value="auto">{$_('settings.regional.first_day_auto')}</option>
+          <option value="monday">{$_('settings.regional.first_day_monday')}</option>
+          <option value="sunday">{$_('settings.regional.first_day_sunday')}</option>
+          <option value="saturday">{$_('settings.regional.first_day_saturday')}</option>
         </select>
       </div>
     </div>

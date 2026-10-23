@@ -21,5 +21,6 @@
         <item>android.permission.health.READ_BODY_TEMPERATURE</item>
         <item>android.permission.health.READ_BASAL_METABOLIC_RATE</item>
         <item>android.permission.health.READ_VO2_MAX</item>
+        <item>android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND</item>
     </array>
 </resources>

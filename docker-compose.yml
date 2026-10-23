@@ -45,13 +45,13 @@ services:
       # - TOKEN_ENC_KEY=${TOKEN_ENC_KEY:-}
       # Optional — lockout recovery token (required for login page recovery)
       - RECOVERY_TOKEN=${RECOVERY_TOKEN:-}
-      # Optional — set to 1 ONLY when running on plain HTTP (no TLS in front).
-      # Without TLS, auth cookies default to Secure and the browser silently
-      # drops them after login, so every request 401s and the login screen
-      # keeps re-appearing. Common gotcha for first-time self-hosters on a
-      # LAN (#41, #43). Cookies travel in cleartext when this is on, so use
-      # only on a trusted network; for anything internet-facing put TLS in
-      # front (Caddy, nginx with Let's Encrypt, Cloudflare Tunnel, etc.).
+      # Optional: set to 1 only when browsers open the app over plain HTTP (no
+      # TLS in front). The sign-in cookie is HTTPS-only by default, so at a
+      # plain http:// address other than localhost the browser drops it and
+      # signing in loops back to the sign-in page (#41, #43). The cookie
+      # travels in cleartext when this is on, so use it only on a trusted
+      # network, and leave it off behind HTTPS (Caddy, nginx with Let's
+      # Encrypt, Cloudflare Tunnel, Tailscale Serve). See .env.example.
       # - INSECURE_COOKIES=${INSECURE_COOKIES:-}
       # Optional — mount at a subpath instead of root (for reverse-proxy setups)
       # - BASE_URL=/nutritrace

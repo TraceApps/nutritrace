@@ -10,6 +10,7 @@ import { Router } from 'express';
 import db from '../../../db.js';
 import { wrap } from '../../../logger.js';
 import { requireScope } from '../../../middleware/bearer-auth.js';
+import { foldText } from '../../../lib/search-text.js';
 
 const router = Router();
 
@@ -27,8 +28,8 @@ router.get('/', requireScope('read:foods'), wrap((req, res) => {
   const args = [userId];
 
   if (q) {
-    conds.push('(name LIKE ? OR brand LIKE ?)');
-    const like = `%${q}%`;
+    conds.push('(fold(name) LIKE ? OR fold(brand) LIKE ?)');
+    const like = `%${foldText(q)}%`;
     args.push(like, like);
   }
   if (category) {

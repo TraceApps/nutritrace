@@ -1,4 +1,5 @@
 <script>
+  import AttachImageButton from './AttachImageButton.svelte';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { offNutritionStatus, needsFullLookup } from '../../lib/off-nutrition.js';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -30,8 +31,15 @@
   import { currentUser } from '../../stores/auth.js';
   import SmartLogModal from '../diary/SmartLogModal.svelte';
   import { showError } from '../../stores/toast.js';
+  import { createToolsNotice, forModel } from '../../lib/tool-support.js';
   import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
   import { acquireScreenWakeLock } from '../../lib/wake-lock.js';
+  import { diaryRange, mealsPage } from '../../lib/trace-pages.js';
+  import { coachingTools, coachingPrompt, runCoachingTool } from '../../lib/coach-trace.js';
+  import { traceToolsForTurn, cardKey, repeatedCard, repeatedCardResult, cardContext } from '../../lib/trace-cards.js';
+  import { formatDay } from '../../lib/coaching-view.js';
+  import { coachTab, clientsTab, coachDraft } from '../../stores/coaching.js';
+
 
   // ── State ──────────────────────────────────────────────────────────────────
   let panelOpen  = false;
@@ -42,6 +50,8 @@
   let hasUnread  = false;
   let attachedImage = null; // { base64, mimeType, preview }
   let _toolStatus = ''; // shown while AI is calling tools
+  // Says once per conversation that the model can't use tools (#259).
+  const toolsNotice = createToolsNotice();
 
   // Photo-log review card state. When the AI calls propose_quick_calories,
   // its sanitized payload lands here and the chat renders an FDA-style
@@ -59,22 +69,41 @@
   //   _commitFoodCatalogOnly  — create food row, no diary write
   //   _commitFoodAndLog       — create food row AND log it to diary
   let _pendingFoodProposal = null; // { name, brand, portion, unit, nutrition, notes }
+  // The last card the user answered ({ key, name, action: added | saved |
+  // discarded }). The model is told about it, and it doesn't come back by
+  // itself until another card is shown (trace-cards.js).
+  let _answeredCard = null;
+  // The card still waiting on the user, if any.
+  function _pendingCardKey() {
+    if (_pendingProposal && !_proposalCommitted) return cardKey('quick', _pendingProposal);
+    if (_pendingFoodProposal && !_foodProposalCommitted) return cardKey('food', _pendingFoodProposal);
+    return '';
+  }
+  // A new card replaces the one waiting; its result says which, so the model
+  // doesn't tell the user to tap a card that is gone.
+  function _replacedCard() {
+    const p = (_pendingProposal && !_proposalCommitted) ? _pendingProposal
+      : (_pendingFoodProposal && !_foodProposalCommitted) ? _pendingFoodProposal : null;
+    return p ? { replaced: p.name } : {};
+  }
+  // A draft Trace prepared for a coach (draft_targets / draft_day_plan):
+  // only shown here; the coach opens it in the app, reviews it and sends it.
+  let _coachDraftCard = null;
+  // Coaching tools, for people in coaching only (a coach with clients, a client with a coach).
+  $: _coaching = { coach: !!$clientsTab, client: !!$coachTab };
+  function openCoachDraft() {
+    const d = _coachDraftCard;
+    if (!d) return;
+    coachDraft.set({ kind: d.kind, clientId: d.clientId, date: d.date, payload: d.payload, note: d.note, at: Date.now() });
+    _coachDraftCard = null;
+    panelOpen = false;
+    import('svelte-spa-router').then(({ push }) => push(`/goals/clients/${d.clientId}`));
+  }
   let _foodProposalCommitted = false;
   let _foodProposalCommittedKind = '';   // 'catalog' | 'logged'
   // null = Don't Log. The card starts there: saving a food must never
   // quietly pick a meal for a diary entry nobody asked for.
   let _foodProposalCommittedMealIdx = null;
-  let fileInput;
-  let _cameraInput;
-  let _showAttachMenu = false;
-  let _hasCamera = false;
-
-  // Check if device has a camera (PWA only)
-  if (!isNative && navigator.mediaDevices?.enumerateDevices) {
-    navigator.mediaDevices.enumerateDevices().then(devices => {
-      _hasCamera = devices.some(d => d.kind === 'videoinput');
-    }).catch(() => {});
-  }
 
   // Whether AI config is locked via env vars (proxy mode). Derived from
   // the global envLocks store (populated by App.svelte's startup fetch
@@ -90,7 +119,7 @@
   $: if (panelOpen) {
     hasUnread     = false;
     // Mark current message count as seen so remounts don't show false unread dot
-    try { localStorage.setItem('nt:chatSeenCount', String(messages.length)); } catch {}
+    try { localStorage.setItem('nt:chatSeenCount', String(forModel(messages).length)); } catch {}
     assistantName = $aiAssistantName;
     apiKey        = $aiApiKey;
     tick().then(() => _scrollBottom(true));
@@ -205,12 +234,12 @@
             return _convertWellnessUnits(data);
           } catch { return {}; }
         }
-        case 'get_diary': {
+        case 'get_diary': return diaryRange(args, async (date) => {
           try {
-            const entry = await NtApi.getDiaryDate(args.date);
+            const entry = await NtApi.getDiaryDate(date);
             // Manual activity is its own table — fetch alongside the diary
             // row so the AI sees the full picture for the day, not just food.
-            const activities = await NtApi.getActivity(args.date).catch(() => []);
+            const activities = await NtApi.getActivity(date).catch(() => []);
             const hasItems = entry?.items?.length > 0;
             const notes = (entry?.notes || '').trim();
             const totals = hasItems ? Nutrition.sum(entry.items.map(i => Nutrition.calculate(i))) : {};
@@ -247,7 +276,7 @@
             }
             if (LENGTH_KEYS.some(k => k in bodyStats)) bodyStats.length_unit = lu;
             const result = {
-              date: args.date, meals,
+              date, meals,
               totals: hasItems ? { calories: Math.round(totals.calories || 0), protein: Math.round(totals.proteins || 0), carbs: Math.round(totals.carbohydrates || 0), fat: Math.round(totals.fat || 0) } : null,
               body_stats: bodyStats,
               water_ml: (entry?.water || []).reduce((s, l) => s + (l.amount || 0), 0),
@@ -263,8 +292,8 @@
               }));
             }
             return result;
-          } catch { return { date: args.date, error: 'Could not load diary' }; }
-        }
+          } catch { return { date, error: 'Could not load diary' }; }
+        });
         case 'get_meals': {
           try {
             const [rawMeals, rawRecipes] = await Promise.all([
@@ -291,13 +320,10 @@
               if (typeof m.notes === 'string' && m.notes.trim()) out.notes = m.notes.trim();
               return out;
             };
-            const q = (args.query || '').toLowerCase().trim();
-            let list = [
+            return mealsPage([
               ...rawMeals.map(m => shape(m, 'meal')),
               ...rawRecipes.map(m => shape(m, 'recipe')),
-            ];
-            if (q) list = list.filter(m => m.name?.toLowerCase().includes(q));
-            return { count: list.length, meals: list.slice(0, 50) };
+            ], args);
           } catch { return { error: 'Could not load meals library' }; }
         }
         case 'get_workouts': {
@@ -341,8 +367,10 @@
             // Build the date window: the previous numDays days, excluding today.
             const dates = new Set();
             for (let i = numDays; i >= 1; i--) {
+              // Local days, as the diary keys them: the UTC date moved the
+              // window a day forward in the evening west of UTC.
               const d = new Date(); d.setDate(d.getDate() - i);
-              dates.add(d.toISOString().slice(0, 10));
+              dates.add(localDateStr(d));
             }
             // Single bulk fetch instead of N per-date round trips. The server
             // returns every diary row for this user; we filter client-side.
@@ -730,7 +758,7 @@
           // Tier 3: nothing matched. Tell the user how to add it.
           return {
             no_match: true,
-            suggestion: `No local food and no Open Food Facts match for "${foodQuery}". The user should add it via the Foods tab — either scan a barcode or tap "+" to enter it manually — then ask again.`,
+            suggestion: `No local food and no Open Food Facts match for "${foodQuery}". Tell the user, and offer to estimate it on a review card (propose_food) or to add it via the Foods tab (scan a barcode or tap "+" to enter it manually).`,
           };
         }
         case 'log_quick_calories': {
@@ -801,13 +829,20 @@
             serving_size:  servingSize,
             nutrition: clean,
           };
+          // The same card again (the one on screen, or the one the user just
+          // added or discarded) is left alone; anything else replaces the
+          // pending card.
+          const repeat = repeatedCard(cardKey('quick', payload), { pendingKey: _pendingCardKey(), answered: _answeredCard });
+          if (repeat) return repeatedCardResult(repeat);
+          const replaced = _replacedCard();
+          _answeredCard = null;
           _pendingProposal = payload;
           _proposalCommitted = false;
           _proposalCommittedKcal = 0;
           // Clear any in-flight food proposal — two cards stacked in one
           // turn would be confusing.
           _pendingFoodProposal = null;
-          return { ok: true, kind: 'quick_calories_proposal', ...payload };
+          return { ok: true, kind: 'quick_calories_proposal', ...payload, ...replaced };
         }
         case 'propose_food': {
           // Does NOT create a food, does NOT log to diary. Surfaces a
@@ -833,15 +868,27 @@
             if (Number.isFinite(n) && n >= 0) clean[k] = Math.round(n * 10) / 10;
           }
           const payload = { name, brand, portion, unit, nutrition: clean, notes };
+          const repeat = repeatedCard(cardKey('food', payload), { pendingKey: _pendingCardKey(), answered: _answeredCard });
+          if (repeat) return repeatedCardResult(repeat);
+          const replaced = _replacedCard();
+          _answeredCard = null;
           _pendingFoodProposal = payload;
           _foodProposalCommitted = false;
           _foodProposalCommittedKind = '';
           _foodProposalCommittedMealIdx = null;
           _pendingProposal = null;
-          return { ok: true, kind: 'food_proposal', ...payload };
+          return { ok: true, kind: 'food_proposal', ...payload, ...replaced };
         }
-        default:
+        default: {
+          // Coaching: a client's summary and catalog, drafts for a coach,
+          // and a client's recommendations (never the conversation).
+          const c = await runCoachingTool(name, args, _coaching);
+          if (c) {
+            if (c.draft) _coachDraftCard = c.draft;
+            return c.result;
+          }
           return { error: `Unknown tool: ${name}` };
+        }
       }
     });
 
@@ -901,14 +948,22 @@
     tick().then(() => _scrollBottom(true));
   }
 
-  async function _refetchChatHistory() {
+  // The safety net, after a sync that changed nothing: every few minutes,
+  // not every 30s (each is a request for the whole history).
+  let _lastQuietRefetch = 0;
+  async function _refetchChatHistory(e) {
+    if (e?.detail?.changed === false) {
+      if (Date.now() - _lastQuietRefetch < 5 * 60 * 1000) return;
+      _lastQuietRefetch = Date.now();
+    }
     try {
       const rows = await NtApi.get('/api/ai/history');
       if (!Array.isArray(rows)) return;
       const next = rows.map(r => ({ role: r.role, content: r.content, time: _fmtCreatedAt(r.created_at) }));
       // Only update if the list actually changed (length or last message differs)
-      const changed = next.length !== messages.length
-        || (next.length && messages.length && next[next.length - 1].content !== messages[messages.length - 1].content);
+      const shown = forModel(messages);
+      const changed = next.length !== shown.length
+        || (next.length && shown.length && next[next.length - 1].content !== shown[shown.length - 1].content);
       if (!changed) return;
       // Compare against persisted seen count — not in-memory messages.length
       // (which resets to 0 on component remount, causing false unread dots)
@@ -1044,6 +1099,7 @@
   let showSmartLog = false;
   let smartLogPreParsed = null;     // [{ item, candidates, best, source }, ...]
   let smartLogMeal = null;
+  let smartLogDate = null;          // the day it logs to, fixed when it was heard
   let smartLogText = '';
 
   async function _hapticBuzz(style = 'medium') {
@@ -1223,7 +1279,10 @@
         showError(`Couldn't find any food in "${text}"`);
         return;
       }
-      const matches = await matchItems(parsed.items);
+      // The Smart Log below logs to today, so "same as yesterday" is the
+      // day before today (#280: counted from the day being logged to).
+      smartLogDate = localDateStr();
+      const matches = await matchItems(parsed.items, { date: smartLogDate });
       smartLogPreParsed = matches;
       smartLogMeal = parsed.meal;
       showSmartLog = true;
@@ -1625,6 +1684,11 @@
 
   function buildSystemPrompt(ctx) {
     const name = $aiAssistantName;
+    const cardLine = cardContext(_pendingProposal && !_proposalCommitted
+      ? { pending: _pendingProposal, pendingKind: 'quick' }
+      : _pendingFoodProposal && !_foodProposalCommitted
+        ? { pending: _pendingFoodProposal, pendingKind: 'food' }
+        : { answered: _answeredCard });
     return `You are ${name}, a friendly and knowledgeable AI nutrition and fitness coach built into NutriTrace.
 
 You have FULL ACCESS to the user's complete health data through tools. ALWAYS use tools to look up data — NEVER guess or make up numbers. Available data:
@@ -1638,6 +1702,8 @@ You have FULL ACCESS to the user's complete health data through tools. ALWAYS us
 - **Nutrition goals**: calorie and macro targets — use get_goals
 
 When the user asks about their data (steps, sleep, weight, food log, etc.) for ANY date or date range, USE THE APPROPRIATE TOOL to fetch the real data. Do not estimate or hallucinate numbers.
+
+To go through many days of the diary ("what did I eat last week", "which days did I have pizza"), read them with get_diary's to (31 days a call) and go on from next_from until complete is true. get_meals comes a page at a time the same way (offset). Say whether you covered everything.
 
 LOGGING STREAK — When the user asks about their food-logging streak in any phrasing ("how long have I been logging", "what's my streak", "when did I start logging", "first day I logged", "days in a row", "consecutive days"), you MUST call get_logging_streak FIRST and report the exact streak_days + streak_start values from its response. NEVER guess streak length or first-logged dates from context or memory. NEVER use get_diary_averages as a substitute. If the user pushes back ("that's wrong", "actually it's longer"), call get_logging_streak again and quote the streak_start + streak_days verbatim — do not adjust the number based on the user's claim, because the tool walks the actual diary table.
 
@@ -1658,17 +1724,18 @@ LOGGING A REAL FOOD — When the user wants to add a NAMED food to their diary (
 - For "1 apple", "a banana" — just pass food + meal; portion defaults to the food's stored serving size.
 - For "200g of X" — pass portion=200, unit="g". For "two apples" — pass quantity=2 (and leave portion/unit as defaults).
 - If the tool returns \`candidates\`, present the names back to the user and ask which one; then call log_food again with the chosen name as the \`food\` field.
-- If the tool returns \`no_match\`, tell the user to add it via the Foods tab (barcode scan or manual entry) and then try again.
+- If the tool returns \`no_match\`, nothing was found. Say so in one sentence and offer to estimate it on a review card, or to add it via the Foods tab (barcode scan or manual entry). If they want your estimate, call propose_food.
 - If the tool returns \`no_nutrition\`, Open Food Facts has the product but no "as sold" values, so nothing was logged. Relay its message. Do not use log_quick_calories or any other tool to force the food in.
-- DO NOT use log_quick_calories when the user names a food. Quick Calories is ONLY for kcal-number asks.
+- DO NOT use log_quick_calories when the user names a food. log_quick_calories is ONLY for kcal-number asks.
 - When the tool returns ok:true, confirm using the \`meal_name\` and \`food_name\` from the tool result — do not assume the meal name from the index you passed. This is how you avoid telling the user "I added X to snacks" when it actually went to a different meal.
-- MANUAL ESTIMATE PATH: if the user EXPLICITLY asks you to estimate ("don't search, just estimate it", "skip the database, estimate it yourself", "you estimate it and log it"), skip log_food and use propose_food instead. Pass a full nutrition estimate you're confident about. The user gets a review card and picks the meal and Save & Add to Diary. This is the ONLY sanctioned bypass — do not use it when the user hasn't explicitly opted out of the search.
+- MANUAL ESTIMATE PATH: if the user EXPLICITLY asks you to estimate ("don't search, just estimate it", "skip the database, estimate it yourself", "you estimate it and log it"), skip log_food and use propose_food instead. Pass a full nutrition estimate you're confident about. The user gets a review card and picks the meal and Save & Add to Diary, and the full nutrition is kept. Use propose_quick_calories only when they ask for quick calories. This is the ONLY sanctioned bypass — do not use it when the user hasn't explicitly opted out of the search.
 
 LOGGING QUICK CALORIES — When the user gives a kcal number WITH NO FOOD NAME ("log 200 calories for lunch", "punch in 1200 kJ for dinner", "add 350 quick calories"), use log_quick_calories. This is the Fitbit-style quick-add path; no food row is created. Rules:
 - If the user gave kJ, convert to kcal yourself: kcal = kj / 4.184. Pass the kcal number.
 - Pass the meal index per YOUR MEALS above.
 - Optional name field: if the user said "for office snack" or similar, pass that as name (max 60 chars).
 - If the user named a food ("apple", "banana", "chicken breast"), use log_food NOT log_quick_calories.
+- The kcal (and any macros) must be numbers the user gave you. Never pass a number you estimated or looked up: an estimate goes on a review card (REVIEW CARDS below), so the user confirms it.
 - Tool refuses kcal=0 and refuses if the user has disabled Quick Calories in Settings — relay any error message verbatim.
 
 CREATING A FOOD WITHOUT LOGGING IT (no photo): when the user asks you to add a food to their FOODS LIBRARY rather than to their diary ("create a food called X", "add X to my foods", "save X as a food but don't log it", "make a food entry for my protein shake"), call propose_food. Rules:
@@ -1677,15 +1744,25 @@ CREATING A FOOD WITHOUT LOGGING IT (no photo): when the user asks you to add a f
 - Pass the user's own numbers when they give them. If they describe the food instead, estimate it under the honesty rules below and say the numbers are an estimate they can correct on the card.
 - Ask for the serving size when the user has not said one and you cannot infer it. A food row saved against the wrong portion basis is worse than one more question.
 
-PHOTO MEAL HANDLING — When the user attaches a MEAL PHOTO, never write to the diary directly. The user's intent decides which of these four paths you take:
+REVIEW CARDS (text or photo): numbers you estimate reach the diary only through a review card the user confirms, never through log_quick_calories or another write tool. Show a card when:
+- the user attaches a meal photo and wants it logged or saved;
+- the user asks you to estimate a food, or to skip the search (MANUAL ESTIMATE PATH above);
+- log_food found nothing and the user wants your estimate.
+A named food the user just wants logged, without asking you to estimate, goes to log_food first. A kcal number the user gave you goes to log_quick_calories.
 
-1. INFO ONLY ("what is this?", "how many calories in this?", "is this healthy?", "tell me about this"): do NOT call any propose_* or log_* tool. Just describe what you see and give a brief nutrition estimate in plain text. The user is asking a question, not logging anything.
+Which card depends on what the user wants:
 
-2. QUICK CALORIES PROPOSAL ("log this", "add this as quick calories", "throw this in for lunch", "just kcal it"): call propose_quick_calories. This surfaces an editable card. The food does NOT get saved as a reusable food row, just a kcal+macros diary entry for that day.
+1. INFO ONLY ("what is this?", "how many calories in this?", "how much protein is in a bagel?", "is this healthy?"): do NOT call any propose_* or log_* tool. Answer in plain text with a brief estimate. The user is asking a question, not logging anything; if they then want it logged, show the card.
 
-3. FOOD CATALOG PROPOSAL ("save this as a food", "add to my foods", "remember this for later", "create a food entry"): call propose_food. The card has a "Save to Foods" button. No diary write unless the user picks "Save & Add to Diary" on the same card.
+2. QUICK CALORIES (with a photo: "log this", "throw this in for lunch"; with or without one: "add this as quick calories", "just kcal it"): call propose_quick_calories. The card has the meal and Add to Diary. No food row is saved, and only kcal, protein, carbs and fat are kept.
 
-4. FOOD + DIARY ("add this as a food entry to lunch", "save this and log it", "log this as a real food, not quick calories"): also call propose_food. The user picks the meal on the card and taps "Save & Add to Diary".
+3. SAVE AS A FOOD ("save this as a food", "add to my foods", "remember this for later", "create a food entry"): call propose_food. The card has a "Save to Foods" button. No diary write unless the user picks "Save & Add to Diary" on the same card.
+
+4. FOOD + DIARY ("add this as a food entry to lunch", "save this and log it", "log this as a real food, not quick calories"), and any estimate in text the user wants logged without asking for quick calories (MANUAL ESTIMATE PATH, or log_food found nothing): call propose_food. The user picks the meal on the card and taps "Save & Add to Diary"; the full nutrition is kept.
+
+If propose_quick_calories says Quick Calories is turned off, use propose_food instead.
+
+One card shows at a time: a new card replaces the one on screen (the tool result names the card it replaced). When the user wants several foods logged in one message, put them on one card with a combined name and totals. A card stays on screen until the user answers it (REVIEW CARD at the end, when there is one). Do not propose the same card again; changed numbers, serving or date get a new card.
 
 CRITICAL RULES for propose_quick_calories and propose_food:
 - These tools DO NOT WRITE anything. They only surface a review card.
@@ -1695,7 +1772,7 @@ CRITICAL RULES for propose_quick_calories and propose_food:
 NUTRITION HONESTY RULES (applies to BOTH propose tools):
 - The nutrition numbers you pass MUST be internally consistent with the serving you claim. If you say "350 kcal per 250 g of Chicken Pot Pie", those 350 kcal must actually correspond to ~250 g of that specific food based on real nutrition data — NOT a plausible-sounding number you invented to fill the schema.
 - If you genuinely don't have a reliable basis (the food is unrecognizable, lighting is bad, the portion is impossible to gauge), DO NOT GUESS. Say so explicitly: "I can't reliably estimate this from the photo — what is it, and roughly how much (in grams or a familiar measure)?" The user prefers an honest "I don't know" over a fabricated 400 kcal that's actually 700.
-- Always estimate serving_grams (for quick) or portion+unit (for food) from the photo whenever possible. "Per serving" is meaningless without a weight; without it the user has nothing to sanity-check against.
+- Always estimate serving_grams (for quick) or portion+unit (for food) from the photo or the description whenever possible. "Per serving" is meaningless without a weight; without it the user has nothing to sanity-check against.
 
 NUTRITION COVERAGE — populate the full profile:
 - The nutrition object is keyed by NutriTrace nutriment IDs. The complete list of supported keys is: ${NUTRIMENT_ID_LIST}.
@@ -1739,7 +1816,8 @@ Water: ${ctx.waterText}
 Diary logging streak: ${ctx.streakText || '(unknown)'}`
          + (ctx.statsText    ? `\nBody stats: ${ctx.statsText}` : '')
          + (ctx.wellnessText ? `\nWellness: ${ctx.wellnessText}` : '')
-         + `\n\nFor any "what's my streak / how long have I been logging / when did I start logging" question, the answer is in the "Diary logging streak" line above — quote it directly, do not call any tool, do not estimate or guess.`;
+         + `\n\nFor any "what's my streak / how long have I been logging / when did I start logging" question, the answer is in the "Diary logging streak" line above — quote it directly, do not call any tool, do not estimate or guess.`
+         + (cardLine ? `\n\nREVIEW CARD: ${cardLine}` : '');
   }
 
   function fmtTime() {
@@ -1777,9 +1855,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     // a new message. The "Logged X kcal to Lunch" / "Saved to Foods"
     // indicators were sticking around past the turn that committed them,
     // so subsequent messages still rendered them under the card slot
-    // and read as "the card keeps coming back" to the user. Leaving the
-    // pending-but-uncommitted state alone so a user who's mid-review
-    // can't lose their unconfirmed card by sending an aside.
+    // and read as "the card keeps coming back" to the user. A card still
+    // waiting stays, so an aside doesn't lose it; only a new card the
+    // model proposes replaces it.
     if (_proposalCommitted)     { _pendingProposal = null;     _proposalCommitted = false; _proposalCommittedKcal = 0; }
     if (_foodProposalCommitted) { _pendingFoodProposal = null; _foodProposalCommitted = false; _foodProposalCommittedKind = ''; }
     await tick();
@@ -1790,9 +1868,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
 
     try {
       const ctx          = await buildContext();
-      const systemPrompt = buildSystemPrompt(ctx);
+      const systemPrompt = buildSystemPrompt(ctx) + coachingPrompt(_coaching);
       // Build API messages — include image in the last user message if present
-      const apiMessages  = messages
+      const apiMessages  = forModel(messages)
         .map(m => ({ role: m.role, content: m.content }))
         .slice(-20);
       // If image attached, modify the last user message to include it.
@@ -1809,36 +1887,27 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         apiMessages[lastIdx] = _buildImageMessage(imgProvider, content || 'What is this?', image);
       }
       const onToolCall = (toolName) => { _toolStatus = `Fetching ${toolName.replace(/_/g, ' ')}…`; };
-      // Photo turn: REMOVE the silent-write tool (log_quick_calories) so
-      // the photo path is forced through propose_quick_calories /
-      // propose_food, which both surface a review card. Mini-class
-      // models (gpt-4o-mini and friends) cannot be trusted to honor
-      // "use propose_X instead of log_X" prose in the system prompt
-      // when the user's verb matches a write tool's purpose.
-      //
-      // Text-only turn: propose_quick_calories is the photo estimate
-      // path, and log_quick_calories covers "log 200 kcal" in text, so
-      // it stays out. propose_food must stay IN. Stripping it left no
-      // tool that can create a food without writing to the diary, so
-      // "save this as a food, don't log it" fell through to log_food and
-      // the user got a diary entry they had explicitly refused.
-      //
-      // It comes out only while an uncommitted card is still on screen.
-      // That is the case the blanket strip was for: a mini model that saw
-      // a propose_* call in chat history re-called it on the next text
-      // question, and the card appeared to keep coming back. Stripping the
-      // tool from the schema is bulletproof, because the model physically
-      // cannot call a tool that isn't there this round, but it has to be
-      // aimed at that case alone.
-      const _cardAwaitingUser = !!_pendingProposal || !!_pendingFoodProposal;
-      const toolsForRound = image
-        ? TOOLS.filter(t => t.name !== 'log_quick_calories')
-        : TOOLS.filter(t => t.name !== 'propose_quick_calories'
-                         && !(t.name === 'propose_food' && _cardAwaitingUser));
+      // Both review-card tools are offered on every turn, text or photo:
+      // they never write, the user taps Add to Diary or Save to Foods. A
+      // photo turn also leaves out log_quick_calories, so an estimate from
+      // a photo reaches the diary only through a card. A card the model
+      // proposes again while it is still on screen (or after the user
+      // discarded it) is caught in the propose handlers, not by taking the
+      // tools away: that blocked every new card until the user tapped one.
+      const toolsForRound = [...traceToolsForTurn(TOOLS, { image: !!image }), ...coachingTools(_coaching)];
+      // The model can't use tools and answered without them: a note in the
+      // conversation says so, once (#259). routed: the gateway picked a
+      // model for this request that can't, another pick may well.
+      let toolsNote = null;
+      const onToolsUnsupported = ({ routed } = {}) => {
+        toolsNote = routed ? 'trace.tools_unsupported_routed'
+          : aiEnvLocked ? 'trace.tools_unsupported_server' : 'trace.tools_unsupported';
+      };
       const reply = aiEnvLocked
-        ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall })
-        : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall });
+        ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall, onToolsUnsupported })
+        : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall, onToolsUnsupported });
       messages = [...messages, { role: 'assistant', content: reply, time: fmtTime() }];
+      if (toolsNote) messages = toolsNotice.add(messages, $_(toolsNote));
       // Persist assistant reply to server (best-effort)
       NtApi.post('/api/ai/history', { role: 'assistant', content: reply }).catch(() => {});
       if (!panelOpen) hasUnread = true;
@@ -1871,34 +1940,17 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     return { role: 'user', content: text };
   }
 
-  function _attachImage() {
-    if (isNative) {
-      import('@capacitor/camera').then(({ Camera, CameraResultType, CameraSource }) => {
-        Camera.getPhoto({ quality: 80, resultType: CameraResultType.Base64, source: CameraSource.Prompt, width: 1024 })
-          .then(photo => { attachedImage = { base64: photo.base64String, mimeType: `image/${photo.format || 'jpeg'}`, preview: `data:image/${photo.format || 'jpeg'};base64,${photo.base64String}` }; })
-          .catch(() => {});
-      });
-    } else if (_hasCamera) {
-      _showAttachMenu = !_showAttachMenu;
-    } else {
-      fileInput?.click();
-    }
-  }
-
-  function _attachFromCamera() { _showAttachMenu = false; _cameraInput?.click(); }
-  function _attachFromFile()   { _showAttachMenu = false; fileInput?.click(); }
-
-  function _onFileSelected(e) {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
+  // From the shared attach button: an array of image Files. Trace takes one.
+  function _useImageFiles(files) {
+    const file = files?.[0];
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result;
-      const base64 = dataUrl.split(',')[1];
-      attachedImage = { base64, mimeType: file.type, preview: dataUrl };
+      const base64 = String(dataUrl).split(',')[1] || '';
+      attachedImage = { base64, mimeType: file.type || 'image/jpeg', preview: dataUrl };
     };
     reader.readAsDataURL(file);
-    e.target.value = '';
   }
 
   function _removeImage() { attachedImage = null; }
@@ -1919,6 +1971,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       dangerous: true,
     })) return;
     messages = [];
+    toolsNotice.reset();
     localStorage.removeItem('wl:aiChatHistory');
     NtApi.del('/api/ai/history').catch(() => {});
     // Clear ANY pending review card so a cleared chat doesn't strand a
@@ -1933,6 +1986,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     _foodProposalCommitted = false;
     _foodProposalCommittedKind = '';
     _foodProposalCommittedMealIdx = null;
+    _answeredCard = null;
+    _coachDraftCard = null;
   }
 
   function quickAsk(q) { input = q; send(); }
@@ -1940,6 +1995,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   /** User reviewed the AI's photo-log estimate and tapped Discard. Clears
    *  the card from the chat without writing to the diary. */
   function _discardProposal() {
+    if (_pendingProposal && !_proposalCommitted) {
+      _answeredCard = { key: cardKey('quick', _pendingProposal), name: _pendingProposal.name, action: 'discarded' };
+    }
     _pendingProposal = null;
     _proposalCommitted = false;
     _proposalCommittedKcal = 0;
@@ -1974,8 +2032,12 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         carbohydrates: optMacro(p.nutrition?.carbohydrates),
         fat:           optMacro(p.nutrition?.fat),
       });
-      _proposalCommittedKcal = kcal;
-      _proposalCommitted = true;
+      _answeredCard = { key: cardKey('quick', p), name: p.name, action: 'added' };
+      // A card that arrived while this saved is not the one that was logged.
+      if (_pendingProposal === p) {
+        _proposalCommittedKcal = kcal;
+        _proposalCommitted = true;
+      }
     } catch (e) {
       showError($_('common.errors.save_failed') + ': ' + (e?.message || String(e)));
     }
@@ -1989,6 +2051,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   //                              meal the user picked on the card
 
   function _discardFoodProposal() {
+    if (_pendingFoodProposal && !_foodProposalCommitted) {
+      _answeredCard = { key: cardKey('food', _pendingFoodProposal), name: _pendingFoodProposal.name, action: 'discarded' };
+    }
     _pendingFoodProposal = null;
     _foodProposalCommitted = false;
     _foodProposalCommittedKind = '';
@@ -1997,10 +2062,14 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   /** Save the proposed food to /api/foods only. No diary write. */
   async function _commitFoodCatalogOnly() {
     if (!_pendingFoodProposal) return;
+    const p = _pendingFoodProposal;
     try {
-      await _saveProposedFood();
-      _foodProposalCommittedKind = 'catalog';
-      _foodProposalCommitted = true;
+      await _saveProposedFood(p);
+      _answeredCard = { key: cardKey('food', p), name: p.name, action: 'saved' };
+      if (_pendingFoodProposal === p) {
+        _foodProposalCommittedKind = 'catalog';
+        _foodProposalCommitted = true;
+      }
     } catch (e) {
       showError($_('common.errors.save_failed') + ': ' + (e?.message || String(e)));
     }
@@ -2013,9 +2082,10 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     // No meal chosen means Don't Log; the button is disabled then, and this
     // guard keeps a stray call from logging to a meal nobody picked.
     if (!_pendingFoodProposal || _foodProposalCommittedMealIdx == null) return;
+    const p = _pendingFoodProposal;
+    const mealIdx = _foodProposalCommittedMealIdx;
     try {
-      const food = await _saveProposedFood();
-      const p    = _pendingFoodProposal;
+      const food = await _saveProposedFood(p);
       const { addDiaryItem } = await import('../../stores/diary.js');
       // Log one full portion (the nutrition values are per-portion as
       // saved on the food row, so portion=1 here means "one serving").
@@ -2023,9 +2093,12 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         ...food,
         portion: p.portion,
         unit:    p.unit,
-      }, _foodProposalCommittedMealIdx, localDateStr());
-      _foodProposalCommittedKind = 'logged';
-      _foodProposalCommitted = true;
+      }, mealIdx, localDateStr());
+      _answeredCard = { key: cardKey('food', p), name: p.name, action: 'added' };
+      if (_pendingFoodProposal === p) {
+        _foodProposalCommittedKind = 'logged';
+        _foodProposalCommitted = true;
+      }
     } catch (e) {
       showError($_('common.errors.save_failed') + ': ' + (e?.message || String(e)));
     }
@@ -2035,8 +2108,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
    *  server's response so the caller can chain a diary write off it.
    *  notes goes into the food's notes column; gets surfaced in the
    *  diary when "Show item notes" is enabled. */
-  async function _saveProposedFood() {
-    const p = _pendingFoodProposal;
+  async function _saveProposedFood(p) {
     return NtApi.createFood({
       name:      p.name,
       brand:     p.brand || null,
@@ -2152,7 +2224,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
 
       <!-- Messages -->
       <div class="ai-messages" bind:this={messagesEl}>
-        {#if !apiKey && !aiEnvLocked}
+        {#if !apiKey && !aiEnvLocked && !($aiProvider === 'oai-compat' && $aiBaseUrl?.trim())}
           <!-- Setup needed. Skipped when env-locked: the server proxy handles
                auth so no per-user API key is required. This was the rc.33
                #36 follow-up I missed — the chat send path correctly routed
@@ -2203,6 +2275,12 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                is safe here because chat is strictly append-only — no reorders
                or interior insertions to worry about. -->
           {#each messages as msg, i (i + ':' + msg.role + ':' + msg.time)}
+            {#if msg.role === 'note'}
+              <div class="ai-note" role="status">
+                <span class="material-symbols-rounded">info</span>
+                <span>{msg.content}</span>
+              </div>
+            {:else}
             <div class="ai-msg" class:user={msg.role === 'user'}>
               {#if msg.role === 'assistant'}
                 <div class="ai-msg-avatar">
@@ -2219,6 +2297,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                 {/if}
               </div>
             </div>
+            {/if}
           {/each}
 
           <!-- Photo-log review card. Renders below the most recent
@@ -2276,6 +2355,22 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                     Logged {_proposalCommittedKcal} kcal to {(mealNames.get() || ['Breakfast','Lunch','Dinner','Snacks'])[_pendingProposal.meal] || 'meal'}
                   </div>
                 {/if}
+              </div>
+            </div>
+          {/if}
+
+          <!-- A coaching draft (targets or a day plan) for a coach to open
+               and review in the app; nothing is sent from here. -->
+          {#if _coachDraftCard}
+            <div class="ai-msg">
+              <div class="ai-msg-avatar"><TraceFace size={24} /></div>
+              <div class="ai-msg-body coach-draft" style="width:100%">
+                <div class="proposal-name">{$_(_coachDraftCard.kind === 'targets' ? 'coaching.trace.draft_targets' : 'coaching.trace.draft_plan', { values: { name: _coachDraftCard.clientName, date: _coachDraftCard.date ? formatDay(_coachDraftCard.date, $dateFormat) : '' } })}</div>
+                <p class="coach-draft-sub">{$_('coaching.trace.draft_sub')}</p>
+                <div class="proposal-actions">
+                  <button class="btn btn-secondary" on:click={() => _coachDraftCard = null}>{$_('coaching.trace.discard')}</button>
+                  <button class="btn btn-primary" on:click={openCoachDraft}>{$_(_coachDraftCard.kind === 'targets' ? 'coaching.trace.open_targets' : 'coaching.trace.open_plan')}</button>
+                </div>
               </div>
             </div>
           {/if}
@@ -2374,21 +2469,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         </div>
       {/if}
       <div class="ai-input-bar">
-        <div style="position:relative">
-          <button class="ai-attach-btn" on:click={_attachImage} disabled={loading} title={$_('trace.attach_image')}>
-            <span class="material-symbols-rounded">photo_camera</span>
-          </button>
-          {#if _showAttachMenu}
-            <div class="ai-attach-menu">
-              <button class="ai-attach-option" on:click={_attachFromCamera}>
-                <span class="material-symbols-rounded" style="font-size:18px">photo_camera</span> Camera
-              </button>
-              <button class="ai-attach-option" on:click={_attachFromFile}>
-                <span class="material-symbols-rounded" style="font-size:18px">photo_library</span> Gallery
-              </button>
-            </div>
-          {/if}
-        </div>
+        <AttachImageButton disabled={loading} title={$_('trace.attach_image')}
+          on:files={e => _useImageFiles(e.detail)} />
         <textarea
           class="ai-textarea"
           bind:value={input}
@@ -2401,15 +2483,13 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
           <span class="material-symbols-rounded">send</span>
         </button>
       </div>
-      <input type="file" accept="image/*" bind:this={fileInput} on:change={_onFileSelected} style="display:none" />
-      <input type="file" accept="image/*" capture="environment" bind:this={_cameraInput} on:change={_onFileSelected} style="display:none" />
     </aside>
   {/if}
 
   <!-- ── Smart Log modal — global mount, opens after a hold-to-record gesture ── -->
   {#if showSmartLog && smartLogPreParsed}
     <SmartLogModal
-      date={localDateStr()}
+      date={smartLogDate || localDateStr()}
       defaultMealSlot={0}
       openMode="preParsed"
       preParsedMatches={smartLogPreParsed}
@@ -2898,49 +2978,6 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   .ai-send-btn:not(:disabled):active { transform: scale(0.94); }
   .ai-send-btn .material-symbols-rounded { font-size: 20px; }
 
-  .ai-attach-btn {
-    width: 40px; height: 40px;
-    border-radius: 50%;
-    background: none;
-    color: var(--text-3);
-    border: 1px solid var(--border);
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    transition: color var(--dur-fast), border-color var(--dur-fast);
-  }
-  .ai-attach-btn:hover { color: var(--accent); border-color: var(--accent); }
-  .ai-attach-btn:disabled { opacity: 0.4; cursor: default; }
-  .ai-attach-btn .material-symbols-rounded { font-size: 20px; }
-
-  .ai-attach-menu {
-    position: absolute;
-    bottom: 48px;
-    left: 0;
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-    overflow: hidden;
-    z-index: 10;
-    min-width: 140px;
-  }
-  .ai-attach-option {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 10px 14px;
-    background: none;
-    border: none;
-    color: var(--text-1);
-    font-size: 14px;
-    cursor: pointer;
-    text-align: left;
-  }
-  .ai-attach-option:hover { background: var(--surface-2); }
-  .ai-attach-option + .ai-attach-option { border-top: 1px solid var(--border); }
-
   .ai-image-preview {
     position: relative;
     padding: 8px 16px 0;
@@ -2996,6 +3033,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   }
   /* propose_food has three buttons — let them wrap on narrow viewports. */
   .proposal-actions-wide { flex-wrap: wrap; }
+  .coach-draft-sub { margin: 4px 0 8px; font-size: 13px; color: var(--text-2); }
   .proposal-actions .btn {
     display: inline-flex; align-items: center; gap: 4px;
   }
@@ -3019,6 +3057,18 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     padding: 4px 8px;
     font-size: 13px;
   }
+  /* A note from the app in the conversation, such as a model that can't
+     use tools (#259). Styled like the proposal confirmation row. */
+  .ai-note {
+    display: flex; align-items: flex-start; gap: 6px;
+    margin-left: 40px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 13px; line-height: 1.4; color: var(--text-2);
+  }
+  .ai-note .material-symbols-rounded { font-size: 18px; color: var(--accent); flex-shrink: 0; }
   .proposal-committed {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 10px 14px;

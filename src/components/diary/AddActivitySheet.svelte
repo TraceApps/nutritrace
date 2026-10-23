@@ -11,6 +11,8 @@
   import { readBodyStat } from '../../lib/body-stats-unit.js';
   import ActivityCategoryPicker from './ActivityCategoryPicker.svelte';
   import { decimalInput, parseDecimal } from '../../lib/decimal-input.js';
+  import { foldText } from '../../lib/search-text.js';
+
 
   export let open = false;
   export let date = '';        // YYYY-MM-DD
@@ -151,7 +153,7 @@
   $: q = name.trim();
   $: compendiumMatches = q ? searchCompendium(q).slice(0, 8) : [];
   $: pastMatches = q
-    ? pastNames.filter(n => n.toLowerCase().includes(q.toLowerCase())).slice(0, 4)
+    ? pastNames.filter(n => foldText(n).includes(foldText(q))).slice(0, 4)
     : [];
   // Show the dropdown on focus even with an empty query as long as at least
   // one templates row exists (that's the whole point of "Save as template"
@@ -168,7 +170,7 @@
   // typing, so a saved "Bike ride" template still shows when they've typed
   // "bik". When empty, all templates render (see hasSuggestions above).
   $: filteredTemplates = q.length > 0
-    ? templates.filter(t => (t.name || '').toLowerCase().includes(q.toLowerCase()))
+    ? templates.filter(t => foldText(t.name).includes(foldText(q)))
     : templates;
 
   function pickCompendium(a) {

@@ -7,7 +7,10 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { Nutrition } from '../lib/nutrition.js';
   import { mealNames, energyUnit, goals, weightUnit, heightUnit, lengthUnit, distUnit, tempUnit, waterUnit, bulkSet } from '../stores/settings.js';
-  import { currentUser, userMgmtActive, setupRequired, loadAuthState } from '../stores/auth.js';
+  import { currentUser, userMgmtActive, setupRequired, loadAuthState, signInProblem } from '../stores/auth.js';
+  import { get } from 'svelte/store';
+  import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
+  import CookieWarning from '../components/ui/CookieWarning.svelte';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { showError } from '../stores/toast.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
@@ -28,6 +31,16 @@
   const _isNativeLocal       = isNative && !getServerUrl();
   const _isPwa               = !isNative;
   const _forceAccountCreation = _isPwa && $setupRequired;
+
+  // A new account signs straight in, so a plain-HTTP page with an HTTPS-only
+  // cookie would loop here too. Say so on the account step (cookie-check.js).
+  let _authStatus = null;
+  if (_isPwa) {
+    fetch(apiUrl('/api/auth/status'), { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { _authStatus = d; if (cookieBlockedByHttp(d)) signInProblem.set('http'); })
+      .catch(() => {});
+  }
 
   // Steps: usermgmt (optional on native, mandatory on PWA), welcome, units, ...
   // Native local mode: drops usermgmt (no auth needed) but inserts a single
@@ -276,6 +289,13 @@
           if (!res.ok) { umError = data.error || 'Registration failed'; umLoading = false; return; }
           localStorage.setItem('wl:userId', data.user.id);
           await loadAuthState();
+          // The account exists, but the browser didn't keep the sign-in
+          // cookie, so every later step would fail. Stop and say why.
+          if (_isPwa && !get(currentUser)) {
+            signInProblem.set(droppedCookieReason(_authStatus));
+            umLoading = false;
+            return;
+          }
         } catch(e) {
           umError = 'Could not connect to server';
           umLoading = false;
@@ -432,6 +452,17 @@
     if (_useLocalProfile && localName.trim()) batch.localUserName = localName.trim();
     await bulkSet(batch);
 
+    // An account keeps birthday and gender on the account itself, which is
+    // what Profile shows. The server copies these answers there when the
+    // account has none (#269); show them now too, connection or not.
+    if (!_useLocalProfile) {
+      currentUser.update(u => (u ? {
+        ...u,
+        birthday: u.birthday || dob || null,
+        gender: u.gender || (gender === 'female' ? 'Female' : gender === 'male' ? 'Male' : null),
+      } : u));
+    }
+
     // Refresh the synthetic LOCAL_USER so Sidebar / Trace / etc. pick up the
     // new name without a page reload.
     if (_useLocalProfile && localName.trim()) {
@@ -512,6 +543,9 @@
 
         {#if enableUserMgmt}
           <div class="um-form" transition:fly={{ y: 10, duration: 200 }}>
+            {#if $signInProblem}
+              <CookieWarning reason={$signInProblem} />
+            {/if}
             <p class="um-section-label">{$_('wizard.usermgmt.admin_section')}</p>
 
             <div class="form-row-2">

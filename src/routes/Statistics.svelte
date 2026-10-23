@@ -20,9 +20,12 @@
            fitbitEnabled, garminEnabled, withingsEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, wellnessMetrics,
            calorieGoalMode,
            fastingEnabled,
-           diaryShowCompletion } from '../stores/settings.js';
+           diaryShowCompletion, weekStartDay } from '../stores/settings.js';
+  import { leadingBlanks, inWeekOrder } from '../lib/week.js';
   import FastingInsights from '../components/diary/FastingInsights.svelte';
   import { isNative } from '../lib/platform.js';
+  import { foldText } from '../lib/search-text.js';
+
   let _waterShowInStats = DB.getSetting('waterShowInStats', true);
   let _waterUnit        = DB.getSetting('waterUnit', 'ml');
   // Reload when settings change
@@ -890,7 +893,7 @@
   let showYearPicker  = false;
   let showMonthPicker = false;
 
-  $: calFirstDay    = new Date(calYear, calMonth, 1).getDay();
+  $: calFirstDay    = leadingBlanks(calYear, calMonth, $weekStartDay);
   $: calDaysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
   $: calMonthName   = new Date(calYear, calMonth, 1).toLocaleDateString(undefined, { month: 'long' });
   const _yearRange  = Array.from({ length: 22 }, (_, i) => new Date().getFullYear() - 10 + i);
@@ -968,7 +971,7 @@
     <div class="stats-rail-heading">Metrics</div>
     <input class="stats-rail-search" type="search" placeholder="Filter metrics…" bind:value={_railQuery} />
     {#each groupedMetrics as g}
-      {@const _filtered = g.metrics.filter(m => !_railQuery || m.label.toLowerCase().includes(_railQuery.toLowerCase()))}
+      {@const _filtered = g.metrics.filter(m => !_railQuery || foldText(m.label).includes(foldText(_railQuery)))}
       {#if _filtered.length}
         <p class="stats-rail-group">{g.label}</p>
         {#each _filtered as m}
@@ -1320,7 +1323,7 @@
         </div>
       {:else}
         <div class="dp-grid">
-          {#each ['Su','Mo','Tu','We','Th','Fr','Sa'] as dh}
+          {#each inWeekOrder(['Su','Mo','Tu','We','Th','Fr','Sa'], $weekStartDay) as dh}
             <div class="dp-dh">{dh}</div>
           {/each}
           {#each {length: calFirstDay} as _}<div></div>{/each}

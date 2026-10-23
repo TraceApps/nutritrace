@@ -13,6 +13,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { safeJson, toolResult, toolError } from '../_util.js';
+import { foldText } from '../../search-text.js';
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -40,13 +41,13 @@ export function registerSearchFoods(server, { userId }) {
       // row. Uses backslash escaping under an explicit ESCAPE clause so
       // we don't collide with the SQLite default.
       const escaped = q.replace(/[\\%_]/g, c => '\\' + c);
-      const like = `%${escaped}%`;
+      const like = `%${foldText(escaped)}%`;
       const rows = db.prepare(
         `SELECT id, name, brand, barcode, portion, unit, nutrition, category
            FROM foods
           WHERE user_id = ?
             AND deleted_at IS NULL
-            AND (name LIKE ? ESCAPE '\\' OR brand LIKE ? ESCAPE '\\')
+            AND (fold(name) LIKE ? ESCAPE '\\' OR fold(brand) LIKE ? ESCAPE '\\')
           ORDER BY name COLLATE NOCASE ASC
           LIMIT ?`
       ).all(userId, like, like, cap);

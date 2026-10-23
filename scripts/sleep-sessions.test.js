@@ -99,13 +99,13 @@ test('Google Health now calls the shared walk instead of its own copy', () => {
   assert.doesNotMatch(gh, /let lastAwakeBigIdx/, 'the inline walk is gone, so there is one copy');
 });
 
-test('the foreground sync reads the whole night and attributes it to the synced day', () => {
+test('the foreground sync reads the whole night and attributes it to each day read', () => {
+  // Per-day behavior is exercised in health-connect-days.test.js (#294).
   const hc = read('../src/lib/health-connect.js');
-  assert.match(hc, /export async function readTodayData\(dateStr\)/);
-  assert.match(hc, /const metrics = await readTodayData\(dateStr\);/);
-  assert.match(hc, /const sleepFrom = new Date\(now\.getFullYear\(\), now\.getMonth\(\), now\.getDate\(\) - 1\)\.toISOString\(\);/);
-  assert.match(hc, /deriveHealthConnectSleep\(records, dateStr \|\| localDate\(now\.getTime\(\)\)\)/);
-  const sleepBlock = hc.slice(hc.indexOf('const sleepFrom'), hc.indexOf('// Exercise sessions'));
+  assert.match(hc, /const \{ byDay, failed \} = await readDays\(hc, \[\.\.\.days\], \{ now, granted \}\);/);
+  assert.match(hc, /const sleepFrom = dayBounds\(addDays\(run\[0\], -1\)\)\.start;/);
+  assert.match(hc, /for \(const day of run\) Object\.assign\(byDay\[day\], deriveHealthConnectSleep\(records \|\| \[\], day\)\);/);
+  const sleepBlock = hc.slice(hc.indexOf('const sleepFrom'), hc.indexOf('// Exercise sessions: their minutes'));
   assert.doesNotMatch(sleepBlock, /records\[records\.length - 1\]/, 'no more "keep the last record"');
 });
 

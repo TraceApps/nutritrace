@@ -58,7 +58,7 @@ public class ReminderWorker extends Worker {
             }
 
             SQLiteDatabase db = SQLiteDatabase.openDatabase(
-                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
+                dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READWRITE);
             try {
                 runChecks(db);
             } finally {
@@ -425,8 +425,11 @@ public class ReminderWorker extends Worker {
             c = db.rawQuery("SELECT value FROM user_settings WHERE key = ? LIMIT 1",
                 new String[]{key});
             if (c.moveToFirst()) return c.getString(0);
-        } catch (Exception e) {
-            // table may not exist yet on first launch
+        } catch (RuntimeException e) {
+            // A settings table not there yet (first launch) is "unset". Any
+            // other failure is an error, never "off": it goes up, and what
+            // is scheduled stays as it is (LocalDb).
+            if (!LocalDb.isMissingTable(e)) throw e;
         } finally {
             if (c != null) c.close();
         }

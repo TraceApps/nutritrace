@@ -9,7 +9,12 @@
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
   import { DB } from '../lib/db.js';
   import { takePhoto } from '../lib/camera.js';
-  import { isNative, resolveAssetUrl } from '../lib/platform.js';
+  import { isNative, resolveAssetUrl, getServerUrl } from '../lib/platform.js';
+  import ShareSheet from '../components/ui/ShareSheet.svelte';
+  import SendToClientSheet from '../components/coaching/SendToClientSheet.svelte';
+  import { sharingOn, noteSharingStatus } from '../stores/sharing.js';
+  import { userMgmtActive } from '../stores/auth.js';
+  import { clientsTab, coachingState } from '../stores/coaching.js';
   import { portal } from '../lib/portal.js';
   import Sheet from '../components/ui/Sheet.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
@@ -21,8 +26,10 @@
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, visibleNutriments, nutrimentsOrder, catName as _catName, catDisplay as _catDisplay, energyUnit, foodsSort, mealsSort, recipesSort, offEnabled, usdaEnabled, usdaApiKey } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
-  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist } from '../lib/editor-draft.js';
-  import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
+  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
+  import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
+  import { foldText } from '../lib/search-text.js';
+
 
   export let params = {};
 
@@ -66,10 +73,12 @@
   // editorState.mealPrefill.id. Without this, editing meal A leaks
   // into the next "add new meal" (same class of bug as FoodEditor,
   // fixed together for Wildenhaus's #157 feedback).
-  $: _draftKey = _mkDraftKey('meal', params?.id ?? editorState.mealPrefill?.id ?? null);
+  // Worked out once, as the editor opens: a key that followed editorState
+  // would switch mid-edit when the editor resets it ("Open existing") and
+  // write this form into another item's draft.
+  const _draftKey = _mkDraftKey('meal', params?.id ?? editorState.mealPrefill?.id ?? null, editorState.mealPrefill);
   let _draftReady = false;
-  let _persistDraft = null;
-  $: if (_draftKey) _persistDraft = makeDebouncedPersist(_draftKey, 400);
+  const _persistDraft = makeDebouncedPersist(_draftKey, 400);
   // Bundle every field the user can mutate before save. Transient
   // picker/camera UI state is deliberately NOT persisted.
   $: _draftState = { meal, photoPreviewUrl, recipeAmount, recipeUnit, recipeYields, isRecipe };
@@ -116,6 +125,7 @@
   async function _refreshPickerSharing() {
     try {
       const s = await NtApi.getSharingStatus();
+      noteSharingStatus(s);
       _pickerSharingEnabled = s.sharing_enabled === true;
       _pickerSharedCounts   = { foods: s.foods || 0 };
     } catch { _pickerSharingEnabled = false; _pickerSharedCounts = { foods: 0 }; }
@@ -142,6 +152,7 @@
 
 
   onMount(async () => {
+    sweepDrafts();
     isRecipe = editorState.mealIsRecipe || false;
     store    = isRecipe ? 'recipes' : 'meals';
     if (editorState.mealPrefill) {
@@ -254,7 +265,11 @@
       };
       const remoteTs = new Date(_iso(fresh.updated_at)).getTime();
       const localTs  = new Date(_iso(meal.updated_at) || 0).getTime();
-      if (Number.isFinite(remoteTs) && Number.isFinite(localTs) && remoteTs > localTs) {
+      // Imported before CookTrace scaled each ingredient to its amount
+      // (#296): offer the refresh so the per-serving values get fixed.
+      const _unscaledImport = (fresh.items || []).some(it => typeof it?.scaled === 'boolean')
+        && !(meal.items || []).some(it => typeof it?.ct_scaled === 'boolean');
+      if (_unscaledImport || (Number.isFinite(remoteTs) && Number.isFinite(localTs) && remoteTs > localTs)) {
         _ctUpdateAvailable = fresh;
       }
     } catch { /* CT unreachable / auth issue: quietly skip */ }
@@ -501,8 +516,8 @@
   $: pickerFiltered = (_isExternalSearch || !pickerSearch)
     ? _pickerListSorted
     : _pickerListSorted.filter(f =>
-        (f.name||'').toLowerCase().includes(pickerSearch.toLowerCase()) ||
-        (f.brand||'').toLowerCase().includes(pickerSearch.toLowerCase()));
+        foldText(f.name).includes(foldText(pickerSearch)) ||
+        foldText(f.brand).includes(foldText(pickerSearch)));
 
   // Switching the outer tab (Foods/Meals/Recipes) resets cross-source state
   // so the Foods source filter doesn't leak into Meals/Recipes views.
@@ -702,7 +717,9 @@
         );
       }
       const items = [...meal.items];
-      items[editingIndex] = { ...item, portion: newTotal, unit: portionUnit, quantity: 1, nutrition: newNutrition };
+      // Once the amount is set here the values match it (#296).
+      const { ct_amount: _ctAmount, ...kept } = item;
+      items[editingIndex] = { ...kept, portion: newTotal, unit: portionUnit, quantity: 1, nutrition: newNutrition };
       meal = { ...meal, items };
       editingIndex = null;
     } else {
@@ -805,6 +822,11 @@
   // Server returns 403 on PUT regardless; locking the UI gives the user one
   // clear action — Save a Copy — instead of letting them edit and fail.
   $: _readOnly = !!meal._shared_by;
+  // Share (one item, as Bulk Share does a category): when an admin has
+  // sharing on. Send to Client: a coach with clients.
+  let _shareOpen = false, _sendOpen = false;
+  $: _canShare = $sharingOn && $userMgmtActive && !(isNative && !getServerUrl());
+  $: _canSend = $clientsTab && (Number($coachingState?.as_coach?.active) || 0) > 0 && !(isNative && !getServerUrl());
 
   async function saveAsCopy() {
     saving = true;
@@ -858,7 +880,10 @@
         const _itemsMatchSourceCount = Array.isArray(meal.items)
           && Array.isArray(_serverBaseline?.meal?.items)
           && meal.items.length === _serverBaseline.meal.items.length;
-        if (_hasSourceRollup && _itemsMatchSourceCount) {
+        // An amount CookTrace couldn't convert, now set here, isn't in
+        // CookTrace's rollup: count the ingredients instead (#296).
+        const _ctAmountFixed = (meal.items || []).some(it => it?.ct_scaled === false && it.ct_amount == null);
+        if (_hasSourceRollup && _itemsMatchSourceCount && !_ctAmountFixed) {
           item.nutrition = Object.fromEntries(
             Object.entries(meal.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
           );
@@ -868,7 +893,9 @@
           );
         }
       }
-      if (meal.id) await NtApi.updateMeal(meal.id, item);
+      // Sharing is set by Share (or Bulk Share), never by saving: an older
+      // copy here (a draft, an older load) must not undo it.
+      if (meal.id) { const { visibility: _v, _specific_users: _s, ...changes } = item; await NtApi.updateMeal(meal.id, changes); }
       else await NtApi.createMeal(item);
       clearMealEditorState();
       // #157: draft persistence — clear the localStorage draft now
@@ -922,13 +949,23 @@
         <span class="material-symbols-rounded">{meal.favorite ? 'favorite' : 'favorite_border'}</span>
       </button>
     {/if}
+    {#if meal.id && !_readOnly && _canShare}
+      <button class="btn-icon" on:click={() => _shareOpen = true} aria-label={$_('share_item.button')} title={$_('share_item.button')}>
+        <span class="material-symbols-rounded">share</span>
+      </button>
+    {/if}
+    {#if meal.id && !_readOnly && _canSend}
+      <button class="btn-icon" on:click={() => _sendOpen = true} aria-label={$_('coaching.send.button')} title={$_('coaching.send.button')}>
+        <span class="material-symbols-rounded">send</span>
+      </button>
+    {/if}
     {#if _readOnly}
       <button class="btn btn-primary" style="height:36px;padding:0 14px;font-size:13px;white-space:nowrap"
         on:click={saveAsCopy} disabled={saving}>
         {saving ? 'Copying…' : 'Save to My Catalog'}
       </button>
     {:else}
-      <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
+      <button class="btn btn-primary hdr-save" style="height:36px;font-size:13px"
         on:click={save} disabled={saving}>
         {saving ? 'Saving…' : 'Save'}
       </button>
@@ -1024,7 +1061,7 @@
           <span class="material-symbols-rounded ct-source-icon">restaurant_menu</span>
           <div class="ct-source-text">
             <span class="ct-source-label">
-              {meal.source_app === 'cooktrace' ? 'From CookTrace' : `From ${meal.source_app}`}
+              {meal.source_app === 'cooktrace' ? 'From CookTrace' : meal.source_app === 'coach' ? $_('coaching.send.from_coach') : `From ${meal.source_app}`}
             </span>
             {#if meal.source_url}
               <a class="ct-source-link" href={meal.source_url} target="_blank" rel="noopener noreferrer">
@@ -1193,6 +1230,12 @@
               <div class="ing-info">
                 <span class="ingredient-name">{item.name}</span>
                 <span class="text-3" style="font-size:12px">{item.portion} {item.unit}</span>
+                {#if item.ct_amount != null}
+                  <span class="ing-unscaled">
+                    <span class="material-symbols-rounded ct-source-warn-icon" style="font-size:14px">warning</span>
+                    {item.ct_amount ? $_('meal_editor.ct_unscaled', { values: { amount: item.ct_amount } }) : $_('meal_editor.ct_unscaled_blank')}
+                  </span>
+                {/if}
               </div>
               <span class="text-3 text-sm">{_ingEnergy.value.toLocaleString()} {_ingEnergy.unit}</span>
               <button class="btn-icon btn-sm" on:click={() => openEditIngredient(i)}
@@ -1440,6 +1483,11 @@
   />
 {/if}
 
+<!-- Share this meal or recipe (only when an admin has sharing on), and Send
+     to Client (only for a coach with clients). -->
+<ShareSheet bind:open={_shareOpen} kind="meals" item={meal} on:shared={(e) => { meal.visibility = e.detail.visibility; meal = meal; }} />
+<SendToClientSheet bind:open={_sendOpen} {meal} isRecipe={isRecipe || !!meal.is_recipe} />
+
 <style>
   .editor-page {
     padding-top: 0;
@@ -1455,7 +1503,14 @@
     border-bottom: 1px solid var(--border); background: var(--surface-1);
     position: sticky; top: 0; z-index: 10;
   }
-  .editor-title { font-size: 17px; font-weight: 600; flex: 1; }
+  /* One line: with Share and Send to Client in the header, a narrow phone
+     would wrap the title; a long one ends in an ellipsis instead. */
+  .editor-title { font-size: 17px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hdr-save { padding: 0 16px; flex-shrink: 0; }
+  @media (max-width: 400px) {
+    .editor-header { gap: 6px; padding-left: 12px; padding-right: 12px; }
+    .hdr-save { padding: 0 12px; }
+  }
   .fav-btn { color: var(--text-3); }
   .fav-btn.on { color: var(--macro-protein, #ec4899); }
   .editor-content { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 32px; }
@@ -1559,6 +1614,7 @@
     font-size: 13px;
   }
   .ct-source-warn-icon { color: var(--warning, #f59e0b); flex-shrink: 0; font-size: 18px; }
+  .ing-unscaled { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--warning, #f59e0b); }
   .ct-source-warn-line { margin: 0; }
   .ct-source-warn-line + .ct-source-warn-line { margin-top: 4px; }
   /* #207 companion: refresh banner shown when the CT source recipe has

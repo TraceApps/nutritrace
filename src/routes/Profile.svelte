@@ -111,6 +111,13 @@
   $: pwScore = passwordStrength(new_password);
 
   const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
+  // Setup asks "male" or "female" (it picks the calorie formula) and keeps
+  // the answer that way, which matched none of these, so the field showed
+  // empty (#269). Read any spelling as the choice it names.
+  const _genderChoice = (v) => {
+    const s = typeof v === 'string' ? v.trim() : '';
+    return GENDERS.find(g => g.toLowerCase() === s.toLowerCase()) || s;
+  };
 
   let full_name  = '';
   let nickname   = '';
@@ -134,7 +141,7 @@
       full_name  = DB.getSetting('localUserName',     '') || '';
       nickname   = DB.getSetting('localUserNickname', '') || '';
       birthday   = DB.getSetting('dob',               '') || '';
-      gender     = DB.getSetting('gender',            '') || '';
+      gender     = _genderChoice(DB.getSetting('gender', ''));
       avatar_url = DB.getSetting('localUserAvatar',   '') || '';
       email      = '';
       return;
@@ -144,7 +151,7 @@
     full_name  = u.full_name  || '';
     nickname   = u.nickname   || '';
     birthday   = u.birthday   || '';
-    gender     = u.gender     || '';
+    gender     = _genderChoice(u.gender);
     avatar_url = u.avatar_url || '';
     email      = u.email      || '';
     loadOidc();
@@ -170,10 +177,17 @@
       // with no connection is queued like everything else and goes up when
       // the connection returns (lib/offline-api.js).
       const data = await NtApi.updateProfile({ full_name, nickname, birthday, gender, avatar_url, email });
-      if (data?.user) currentUser.set(data.user);
+      // A save kept to send later answers with only the fields sent: keep
+      // the rest of who is signed in (id, role), or the app loses track of
+      // whose settings it is showing.
+      if (data?.user) currentUser.set({ ...get(currentUser), ...data.user });
       showSuccess($_('profile.saved'));
     } catch(e) {
-      showError($_('profile.errors.save_failed'));
+      // Say what went wrong (#269): this device could not keep it, there is
+      // no connection (Android), or the server said no.
+      showError(e?.storage ? $_('profile.errors.not_kept')
+        : e?.offline ? $_('profile.errors.needs_connection')
+        : $_('profile.errors.save_failed'));
     } finally {
       saving = false;
     }

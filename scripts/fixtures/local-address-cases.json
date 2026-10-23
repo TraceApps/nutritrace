@@ -1,0 +1,1015 @@
+{
+  "comment": "Server addresses and what plain HTTP to them is (#194). src/lib/local-address.js must give `expect` and read `host`; LocalAddress.kt must give `kotlin` when set (a host that is not ASCII once percent-decoded, refused on purpose because Java IDN and the WebView can read it as different hosts) and otherwise `expect` and the same `host`. https: always fine; local: http:// on your own network; public: http:// refused; invalid: not an http(s) URL.",
+  "cases": [
+    {
+      "url": "https://example.com",
+      "expect": "https",
+      "note": "https:// is always allowed",
+      "host": "example.com"
+    },
+    {
+      "url": "https://203.0.113.10:8443",
+      "expect": "https",
+      "note": "https:// is always allowed",
+      "host": "203.0.113.10"
+    },
+    {
+      "url": "HTTPS://NutriTrace.Example.com/sub",
+      "expect": "https",
+      "note": "https:// is always allowed",
+      "host": "nutritrace.example.com"
+    },
+    {
+      "url": "https://192.168.1.20:3001",
+      "expect": "https",
+      "note": "https:// is always allowed",
+      "host": "192.168.1.20"
+    },
+    {
+      "url": "http://10.0.0.1",
+      "expect": "local",
+      "note": "private IPv4 10/8",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "http://10.255.255.255:3001",
+      "expect": "local",
+      "note": "private IPv4 10/8",
+      "host": "10.255.255.255"
+    },
+    {
+      "url": "http://10.0.2.2:3971",
+      "expect": "local",
+      "note": "private IPv4 10/8",
+      "host": "10.0.2.2"
+    },
+    {
+      "url": "http://172.16.0.1",
+      "expect": "local",
+      "note": "private IPv4 172.16/12",
+      "host": "172.16.0.1"
+    },
+    {
+      "url": "http://172.31.255.254:3001",
+      "expect": "local",
+      "note": "private IPv4 172.16/12",
+      "host": "172.31.255.254"
+    },
+    {
+      "url": "http://192.168.1.20:3001",
+      "expect": "local",
+      "note": "private IPv4 192.168/16",
+      "host": "192.168.1.20"
+    },
+    {
+      "url": "http://192.168.0.1/nutritrace",
+      "expect": "local",
+      "note": "private IPv4 192.168/16",
+      "host": "192.168.0.1"
+    },
+    {
+      "url": "http://192.168.255.255",
+      "expect": "local",
+      "note": "private IPv4 192.168/16",
+      "host": "192.168.255.255"
+    },
+    {
+      "url": "http://100.64.0.1",
+      "expect": "local",
+      "note": "Tailscale/CGNAT 100.64/10",
+      "host": "100.64.0.1"
+    },
+    {
+      "url": "http://100.101.102.103:3001",
+      "expect": "local",
+      "note": "Tailscale/CGNAT 100.64/10",
+      "host": "100.101.102.103"
+    },
+    {
+      "url": "http://100.127.255.254",
+      "expect": "local",
+      "note": "Tailscale/CGNAT 100.64/10",
+      "host": "100.127.255.254"
+    },
+    {
+      "url": "http://127.0.0.1:3001",
+      "expect": "local",
+      "note": "loopback 127/8",
+      "host": "127.0.0.1"
+    },
+    {
+      "url": "http://127.255.0.1",
+      "expect": "local",
+      "note": "loopback 127/8",
+      "host": "127.255.0.1"
+    },
+    {
+      "url": "http://169.254.10.20",
+      "expect": "local",
+      "note": "link-local 169.254/16",
+      "host": "169.254.10.20"
+    },
+    {
+      "url": "http://172.15.255.255",
+      "expect": "public",
+      "note": "just outside a private range",
+      "host": "172.15.255.255"
+    },
+    {
+      "url": "http://172.32.0.1",
+      "expect": "public",
+      "note": "just outside a private range",
+      "host": "172.32.0.1"
+    },
+    {
+      "url": "http://100.63.255.255",
+      "expect": "public",
+      "note": "just outside a private range",
+      "host": "100.63.255.255"
+    },
+    {
+      "url": "http://100.128.0.1",
+      "expect": "public",
+      "note": "just outside a private range",
+      "host": "100.128.0.1"
+    },
+    {
+      "url": "http://192.169.1.1",
+      "expect": "public",
+      "note": "just outside a private range",
+      "host": "192.169.1.1"
+    },
+    {
+      "url": "http://11.0.0.1",
+      "expect": "public",
+      "note": "just outside a private range",
+      "host": "11.0.0.1"
+    },
+    {
+      "url": "http://169.255.0.1",
+      "expect": "public",
+      "note": "just outside a private range",
+      "host": "169.255.0.1"
+    },
+    {
+      "url": "http://9.255.255.255",
+      "expect": "public",
+      "note": "just outside a private range",
+      "host": "9.255.255.255"
+    },
+    {
+      "url": "http://128.0.0.1",
+      "expect": "public",
+      "note": "just outside a private range",
+      "host": "128.0.0.1"
+    },
+    {
+      "url": "http://203.0.113.10",
+      "expect": "public",
+      "note": "public and special IPv4",
+      "host": "203.0.113.10"
+    },
+    {
+      "url": "http://198.51.100.7:3001",
+      "expect": "public",
+      "note": "public and special IPv4",
+      "host": "198.51.100.7"
+    },
+    {
+      "url": "http://8.8.8.8",
+      "expect": "public",
+      "note": "public and special IPv4",
+      "host": "8.8.8.8"
+    },
+    {
+      "url": "http://0.0.0.0",
+      "expect": "public",
+      "note": "public and special IPv4",
+      "host": "0.0.0.0"
+    },
+    {
+      "url": "http://255.255.255.255",
+      "expect": "public",
+      "note": "public and special IPv4",
+      "host": "255.255.255.255"
+    },
+    {
+      "url": "http://224.0.0.1",
+      "expect": "public",
+      "note": "public and special IPv4",
+      "host": "224.0.0.1"
+    },
+    {
+      "url": "http://[::1]:3001",
+      "expect": "local",
+      "note": "IPv6 loopback, unique local, link-local",
+      "host": "[::1]"
+    },
+    {
+      "url": "http://[0:0:0:0:0:0:0:1]",
+      "expect": "local",
+      "note": "IPv6 loopback, unique local, link-local",
+      "host": "[::1]"
+    },
+    {
+      "url": "http://[fc00::1]",
+      "expect": "local",
+      "note": "IPv6 loopback, unique local, link-local",
+      "host": "[fc00::1]"
+    },
+    {
+      "url": "http://[fd12:3456:789a::1]",
+      "expect": "local",
+      "note": "IPv6 loopback, unique local, link-local",
+      "host": "[fd12:3456:789a::1]"
+    },
+    {
+      "url": "http://[FDFF:FFFF::1]:3001",
+      "expect": "local",
+      "note": "IPv6 loopback, unique local, link-local",
+      "host": "[fdff:ffff::1]"
+    },
+    {
+      "url": "http://[fe80::1]",
+      "expect": "local",
+      "note": "IPv6 loopback, unique local, link-local",
+      "host": "[fe80::1]"
+    },
+    {
+      "url": "http://[febf::1]",
+      "expect": "local",
+      "note": "IPv6 loopback, unique local, link-local",
+      "host": "[febf::1]"
+    },
+    {
+      "url": "http://[fec0::1]",
+      "expect": "public",
+      "note": "other IPv6",
+      "host": "[fec0::1]"
+    },
+    {
+      "url": "http://[fb00::1]",
+      "expect": "public",
+      "note": "other IPv6",
+      "host": "[fb00::1]"
+    },
+    {
+      "url": "http://[2001:db8::1]",
+      "expect": "public",
+      "note": "other IPv6",
+      "host": "[2001:db8::1]"
+    },
+    {
+      "url": "http://[::]",
+      "expect": "public",
+      "note": "other IPv6",
+      "host": "[::]"
+    },
+    {
+      "url": "http://[::2]",
+      "expect": "public",
+      "note": "other IPv6",
+      "host": "[::2]"
+    },
+    {
+      "url": "http://[64:ff9b::c0a8:105]",
+      "expect": "public",
+      "note": "other IPv6",
+      "host": "[64:ff9b::c0a8:105]"
+    },
+    {
+      "url": "http://[::ffff:192.168.1.5]",
+      "expect": "public",
+      "note": "IPv4-mapped and IPv4-compatible IPv6 are refused",
+      "host": "[::ffff:c0a8:105]"
+    },
+    {
+      "url": "http://[::ffff:127.0.0.1]",
+      "expect": "public",
+      "note": "IPv4-mapped and IPv4-compatible IPv6 are refused",
+      "host": "[::ffff:7f00:1]"
+    },
+    {
+      "url": "http://[::ffff:c0a8:105]",
+      "expect": "public",
+      "note": "IPv4-mapped and IPv4-compatible IPv6 are refused",
+      "host": "[::ffff:c0a8:105]"
+    },
+    {
+      "url": "http://[::127.0.0.1]",
+      "expect": "public",
+      "note": "IPv4-mapped and IPv4-compatible IPv6 are refused",
+      "host": "[::7f00:1]"
+    },
+    {
+      "url": "http://[::ffff:10.0.0.1]:3001",
+      "expect": "public",
+      "note": "IPv4-mapped and IPv4-compatible IPv6 are refused",
+      "host": "[::ffff:a00:1]"
+    },
+    {
+      "url": "http://[fe80::1%25eth0]",
+      "expect": "invalid",
+      "note": "IPv6 zone ids are not URLs",
+      "host": null
+    },
+    {
+      "url": "http://nutritrace:3001",
+      "expect": "local",
+      "note": "bare one-word name",
+      "host": "nutritrace"
+    },
+    {
+      "url": "http://NutriTrace",
+      "expect": "local",
+      "note": "bare one-word name",
+      "host": "nutritrace"
+    },
+    {
+      "url": "http://localhost:3001",
+      "expect": "local",
+      "note": "bare one-word name",
+      "host": "localhost"
+    },
+    {
+      "url": "http://nutritrace_srv",
+      "expect": "local",
+      "note": "bare one-word name",
+      "host": "nutritrace_srv"
+    },
+    {
+      "url": "http://nas/nutritrace",
+      "expect": "local",
+      "note": "bare one-word name",
+      "host": "nas"
+    },
+    {
+      "url": "http://nas.local",
+      "expect": "local",
+      "note": "local suffixes",
+      "host": "nas.local"
+    },
+    {
+      "url": "http://nas.local:3001/nutritrace",
+      "expect": "local",
+      "note": "local suffixes",
+      "host": "nas.local"
+    },
+    {
+      "url": "http://box.home.arpa",
+      "expect": "local",
+      "note": "local suffixes",
+      "host": "box.home.arpa"
+    },
+    {
+      "url": "http://a.b.internal",
+      "expect": "local",
+      "note": "local suffixes",
+      "host": "a.b.internal"
+    },
+    {
+      "url": "http://server.lan",
+      "expect": "local",
+      "note": "local suffixes",
+      "host": "server.lan"
+    },
+    {
+      "url": "http://NAS.LOCAL",
+      "expect": "local",
+      "note": "local suffixes",
+      "host": "nas.local"
+    },
+    {
+      "url": "http://nas.local.",
+      "expect": "local",
+      "note": "local suffixes",
+      "host": "nas.local."
+    },
+    {
+      "url": "http://nutritrace.",
+      "expect": "public",
+      "note": "a one-word name with a trailing dot is a top-level name",
+      "host": "nutritrace."
+    },
+    {
+      "url": "http://localhost.",
+      "expect": "public",
+      "note": "a one-word name with a trailing dot is a top-level name",
+      "host": "localhost."
+    },
+    {
+      "url": "http://home.arpa",
+      "expect": "public",
+      "note": "a suffix with nothing before it",
+      "host": "home.arpa"
+    },
+    {
+      "url": "http://.local",
+      "expect": "public",
+      "note": "a suffix with nothing before it",
+      "host": ".local"
+    },
+    {
+      "url": "http://example.com",
+      "expect": "public",
+      "note": "public names",
+      "host": "example.com"
+    },
+    {
+      "url": "http://nutritrace.example.com:3001",
+      "expect": "public",
+      "note": "public names",
+      "host": "nutritrace.example.com"
+    },
+    {
+      "url": "http://example.com.",
+      "expect": "public",
+      "note": "public names",
+      "host": "example.com."
+    },
+    {
+      "url": "http://EXAMPLE.COM",
+      "expect": "public",
+      "note": "public names",
+      "host": "example.com"
+    },
+    {
+      "url": "http://192.168.1.1.example.com",
+      "expect": "public",
+      "note": "look-alikes: a private address or local suffix inside a public name",
+      "host": "192.168.1.1.example.com"
+    },
+    {
+      "url": "http://10.0.0.1.nip.io",
+      "expect": "public",
+      "note": "look-alikes: a private address or local suffix inside a public name",
+      "host": "10.0.0.1.nip.io"
+    },
+    {
+      "url": "http://192.168.1.20.sslip.io",
+      "expect": "public",
+      "note": "look-alikes: a private address or local suffix inside a public name",
+      "host": "192.168.1.20.sslip.io"
+    },
+    {
+      "url": "http://nas.local.example.com",
+      "expect": "public",
+      "note": "look-alikes: a private address or local suffix inside a public name",
+      "host": "nas.local.example.com"
+    },
+    {
+      "url": "http://example.local.com",
+      "expect": "public",
+      "note": "look-alikes: a private address or local suffix inside a public name",
+      "host": "example.local.com"
+    },
+    {
+      "url": "http://lan.example.com",
+      "expect": "public",
+      "note": "look-alikes: a private address or local suffix inside a public name",
+      "host": "lan.example.com"
+    },
+    {
+      "url": "http://internal.example.com:3001",
+      "expect": "public",
+      "note": "look-alikes: a private address or local suffix inside a public name",
+      "host": "internal.example.com"
+    },
+    {
+      "url": "http://evil.com#.local",
+      "expect": "public",
+      "note": "look-alikes: the suffix is not in the host",
+      "host": "evil.com"
+    },
+    {
+      "url": "http://evil.com?.local",
+      "expect": "public",
+      "note": "look-alikes: the suffix is not in the host",
+      "host": "evil.com"
+    },
+    {
+      "url": "http://evil.com/.local",
+      "expect": "public",
+      "note": "look-alikes: the suffix is not in the host",
+      "host": "evil.com"
+    },
+    {
+      "url": "http://evil.com/192.168.1.5",
+      "expect": "public",
+      "note": "look-alikes: the suffix is not in the host",
+      "host": "evil.com"
+    },
+    {
+      "url": "http://192.168.1.5@evil.com",
+      "expect": "public",
+      "note": "userinfo tricks: the host is after the @",
+      "host": "evil.com"
+    },
+    {
+      "url": "http://192.168.1.5:3001@evil.com",
+      "expect": "public",
+      "note": "userinfo tricks: the host is after the @",
+      "host": "evil.com"
+    },
+    {
+      "url": "http://nas.local@example.com",
+      "expect": "public",
+      "note": "userinfo tricks: the host is after the @",
+      "host": "example.com"
+    },
+    {
+      "url": "http://evil.com\\@192.168.1.5",
+      "expect": "public",
+      "note": "userinfo tricks: the host is after the @",
+      "host": "evil.com"
+    },
+    {
+      "url": "http://user:pass@192.168.1.5:3001",
+      "expect": "local",
+      "note": "userinfo on a local host",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://evil.com@192.168.1.5",
+      "expect": "local",
+      "note": "userinfo on a local host",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://a@b@192.168.1.5",
+      "expect": "local",
+      "note": "userinfo on a local host",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://user@[::1]:3001",
+      "expect": "local",
+      "note": "userinfo on a local host",
+      "host": "[::1]"
+    },
+    {
+      "url": "http://192.168.1.5\\.evil.com",
+      "expect": "local",
+      "note": "the host ends where the URL parser ends it",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://192.168.1.5#@evil.com",
+      "expect": "local",
+      "note": "the host ends where the URL parser ends it",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://192.168.1.5?@evil.com",
+      "expect": "local",
+      "note": "the host ends where the URL parser ends it",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://3232235777",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "192.168.1.1"
+    },
+    {
+      "url": "http://0xC0A80101",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "192.168.1.1"
+    },
+    {
+      "url": "http://0300.0250.1.1",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "192.168.1.1"
+    },
+    {
+      "url": "http://192.168.1",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "192.168.0.1"
+    },
+    {
+      "url": "http://10.1",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "http://0x7f.1",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "127.0.0.1"
+    },
+    {
+      "url": "http://127.1",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "127.0.0.1"
+    },
+    {
+      "url": "http://2130706433:3001",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "127.0.0.1"
+    },
+    {
+      "url": "http://0x0a.0.0.1",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "http://0xa.0x0.0x0.0x1",
+      "expect": "local",
+      "note": "decimal, hex and octal IPv4 the URL parser normalizes",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "http://134744072",
+      "expect": "public",
+      "note": "numeric forms of public IPv4",
+      "host": "8.8.8.8"
+    },
+    {
+      "url": "http://0x08080808",
+      "expect": "public",
+      "note": "numeric forms of public IPv4",
+      "host": "8.8.8.8"
+    },
+    {
+      "url": "http://010.0.0.1",
+      "expect": "public",
+      "note": "numeric forms of public IPv4",
+      "host": "8.0.0.1"
+    },
+    {
+      "url": "http://0172.016.0.1",
+      "expect": "public",
+      "note": "numeric forms of public IPv4",
+      "host": "122.14.0.1"
+    },
+    {
+      "url": "http://0300.0251.1.1",
+      "expect": "public",
+      "note": "numeric forms of public IPv4",
+      "host": "192.169.1.1"
+    },
+    {
+      "url": "http://0x.1.1.1",
+      "expect": "public",
+      "note": "numeric forms of public IPv4",
+      "host": "0.1.1.1"
+    },
+    {
+      "url": "http://1.0x",
+      "expect": "public",
+      "note": "numeric forms of public IPv4",
+      "host": "1.0.0.0"
+    },
+    {
+      "url": "http://09.1.1.1",
+      "expect": "invalid",
+      "note": "numbers the URL parser rejects",
+      "host": null
+    },
+    {
+      "url": "http://256.1.1.1",
+      "expect": "invalid",
+      "note": "numbers the URL parser rejects",
+      "host": null
+    },
+    {
+      "url": "http://1.2.3.4.5",
+      "expect": "invalid",
+      "note": "numbers the URL parser rejects",
+      "host": null
+    },
+    {
+      "url": "http://10.0.0.256",
+      "expect": "invalid",
+      "note": "numbers the URL parser rejects",
+      "host": null
+    },
+    {
+      "url": "http://4294967296",
+      "expect": "invalid",
+      "note": "numbers the URL parser rejects",
+      "host": null
+    },
+    {
+      "url": "http://0x100000000",
+      "expect": "invalid",
+      "note": "numbers the URL parser rejects",
+      "host": null
+    },
+    {
+      "url": "http://192%2e168%2e1%2e1",
+      "expect": "local",
+      "note": "percent-encoded hosts",
+      "host": "192.168.1.1"
+    },
+    {
+      "url": "http://nas%2elocal:3001",
+      "expect": "local",
+      "note": "percent-encoded hosts",
+      "host": "nas.local"
+    },
+    {
+      "url": "http://%31%30.0.0.1",
+      "expect": "local",
+      "note": "percent-encoded hosts",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "http://ex%61mple.com",
+      "expect": "public",
+      "note": "percent-encoded public host",
+      "host": "example.com"
+    },
+    {
+      "url": "http://evil%2ecom",
+      "expect": "public",
+      "note": "percent-encoded public host",
+      "host": "evil.com"
+    },
+    {
+      "url": "http://192.168.1.1%2f.evil.com",
+      "expect": "invalid",
+      "note": "percent-encoded forbidden characters",
+      "host": null
+    },
+    {
+      "url": "http://nas%40local",
+      "expect": "invalid",
+      "note": "percent-encoded forbidden characters",
+      "host": null
+    },
+    {
+      "url": "http://192.168.1.1%00.evil.com",
+      "expect": "invalid",
+      "note": "percent-encoded forbidden characters",
+      "host": null
+    },
+    {
+      "url": "http://１９２．１６８．１．１",
+      "expect": "local",
+      "note": "Unicode forms the URL parser maps to ASCII",
+      "host": "192.168.1.1",
+      "kotlin": "invalid"
+    },
+    {
+      "url": "http://nas。local",
+      "expect": "local",
+      "note": "Unicode forms the URL parser maps to ASCII",
+      "host": "nas.local",
+      "kotlin": "invalid"
+    },
+    {
+      "url": "http://nаs.local",
+      "expect": "local",
+      "note": "Unicode forms the URL parser maps to ASCII",
+      "host": "xn--ns-7kc.local",
+      "kotlin": "invalid"
+    },
+    {
+      "url": "http://straße.local",
+      "expect": "local",
+      "note": "international local names",
+      "host": "xn--strae-oqa.local",
+      "kotlin": "invalid"
+    },
+    {
+      "url": "http://stra%C3%9Fe.local",
+      "expect": "local",
+      "note": "international local names",
+      "host": "xn--strae-oqa.local",
+      "kotlin": "invalid"
+    },
+    {
+      "url": "http://ς.local",
+      "expect": "local",
+      "note": "international local names",
+      "host": "xn--3xa.local",
+      "kotlin": "invalid"
+    },
+    {
+      "url": "http://ｅｘａｍｐｌｅ.com",
+      "expect": "public",
+      "note": "Unicode public names",
+      "host": "example.com",
+      "kotlin": "invalid"
+    },
+    {
+      "url": "http://еxample.com",
+      "expect": "public",
+      "note": "Unicode public names",
+      "host": "xn--xample-2of.com",
+      "kotlin": "invalid"
+    },
+    {
+      "url": "http://192.168.1.1.",
+      "expect": "local",
+      "note": "trailing dots on addresses",
+      "host": "192.168.1.1"
+    },
+    {
+      "url": "http://10.0.0.1.:3001",
+      "expect": "local",
+      "note": "trailing dots on addresses",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "http://1.1.1.1.",
+      "expect": "public",
+      "note": "trailing dots on public addresses",
+      "host": "1.1.1.1"
+    },
+    {
+      "url": "http://1.1.1.1..",
+      "expect": "public",
+      "note": "trailing dots on public addresses",
+      "host": "1.1.1.1.."
+    },
+    {
+      "url": "  http://10.0.0.1  ",
+      "expect": "local",
+      "note": "spaces, tabs and newlines the URL parser drops",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "http://10.0.\t0.1",
+      "expect": "local",
+      "note": "spaces, tabs and newlines the URL parser drops",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "http://10.0.0.1\n",
+      "expect": "local",
+      "note": "spaces, tabs and newlines the URL parser drops",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "\thttp://nas.local",
+      "expect": "local",
+      "note": "spaces, tabs and newlines the URL parser drops",
+      "host": "nas.local"
+    },
+    {
+      "url": "http:192.168.1.5:3001",
+      "expect": "local",
+      "note": "scheme forms the URL parser accepts",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http:/\\192.168.1.5",
+      "expect": "local",
+      "note": "scheme forms the URL parser accepts",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "HTTP://192.168.1.5",
+      "expect": "local",
+      "note": "scheme forms the URL parser accepts",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http:\\\\10.0.0.1",
+      "expect": "local",
+      "note": "scheme forms the URL parser accepts",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "http:///10.0.0.1",
+      "expect": "local",
+      "note": "scheme forms the URL parser accepts",
+      "host": "10.0.0.1"
+    },
+    {
+      "url": "",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "http://",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "http://:3001",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "http://@",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "ftp://192.168.1.5",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "192.168.1.5:3001",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "nutritrace.lan:3001",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "//192.168.1.5",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "javascript:alert(1)",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "nutritrace",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "http://exa mple.com",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "http://[::1",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "http://[192.168.1.5]",
+      "expect": "invalid",
+      "note": "not an http(s) URL",
+      "host": null
+    },
+    {
+      "url": "http://192.168.1.5:80",
+      "expect": "local",
+      "note": "ports",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://192.168.1.5:",
+      "expect": "local",
+      "note": "ports",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://192.168.1.5:65535",
+      "expect": "local",
+      "note": "ports",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://192.168.1.5:003001",
+      "expect": "local",
+      "note": "ports",
+      "host": "192.168.1.5"
+    },
+    {
+      "url": "http://192.168.1.5:99999",
+      "expect": "invalid",
+      "note": "bad ports",
+      "host": null
+    },
+    {
+      "url": "http://192.168.1.5:abc",
+      "expect": "invalid",
+      "note": "bad ports",
+      "host": null
+    },
+    {
+      "url": "http://192.168.1.5:-1",
+      "expect": "invalid",
+      "note": "bad ports",
+      "host": null
+    },
+    {
+      "url": "http://192.168.1.5:1:2",
+      "expect": "invalid",
+      "note": "bad ports",
+      "host": null
+    }
+  ]
+}

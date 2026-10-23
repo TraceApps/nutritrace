@@ -3,6 +3,27 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
+import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
+import { coachingSignature } from '../lib/coaching.js';
+import { fillIfSetupAnswers } from '../lib/profile-fields.js';
+
+// Push services usually live on the home network, so that's allowed for
+// every account; the address is still checked, and a redirect only
+// followed on the same server.
+const _sendPush = (url, init) => fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
+
+// The service's own short error ("unauthorized"), never its raw reply.
+async function _pushErrorMessage(resp) {
+  const raw = await resp.text().catch(() => '');
+  let message = '';
+  try {
+    const j = JSON.parse(raw);
+    for (const v of [j?.errorDescription, j?.error?.message, j?.error, j?.message]) {
+      if (typeof v === 'string' && v) { message = v; break; }
+    }
+  } catch {}
+  return message ? `: ${message.slice(0, 100)}` : '';
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -11,6 +32,10 @@ router.use(requireAuth);
 // SECURITY: server-only keys (OAuth secrets, admin config) are filtered out.
 router.get('/', wrap((req, res) => {
   if (!userMgmtActive() || !req.user) return res.json({});
+  // Where this person stands in coaching, as a short fingerprint: the app
+  // already refreshes settings, so a new coaching request or an ended
+  // pairing shows up without another request or timer.
+  res.set('X-NT-Coaching', coachingSignature(req.user.id));
   const rows = db.prepare('SELECT key, value FROM user_settings WHERE user_id = ? AND deleted_at IS NULL').all(req.user.id);
   const out = {};
   for (const { key, value } of rows) {
@@ -30,6 +55,8 @@ router.put('/', wrap((req, res) => {
   db.prepare(`INSERT INTO user_settings (user_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now'), deleted_at = NULL`)
     .run(req.user.id, key, JSON.stringify(value));
+  // Setup's birthday and gender belong on the account too (#269).
+  fillIfSetupAnswers(db, req.user.id, [key]);
   res.json({ ok: true });
 }));
 
@@ -54,6 +81,8 @@ router.put('/bulk', wrap((req, res) => {
       upsert.run(req.user.id, key, JSON.stringify(value));
       written++;
     }
+    // Setup's birthday and gender belong on the account too (#269).
+    fillIfSetupAnswers(db, req.user.id, Object.keys(settings).filter(k => !isServerOnlyKey(k)));
   })();
   res.json({ ok: true, written, skipped });
 }));
@@ -116,7 +145,7 @@ async function _pushTestHandler(req, res) {
       const url = _s('gotifyUrl');
       const token = _s('gotifyToken');
       if (!url || !token) return res.status(400).json({ error: 'Gotify URL and token required — save settings first' });
-      resp = await fetch(`${url.replace(/\/+$/, '')}/message?token=${encodeURIComponent(token)}`, {
+      resp = await _sendPush(`${serviceBase(url) ?? url}/message?token=${encodeURIComponent(token)}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: title || 'NutriTrace', message: message || 'Test notification — connected!', priority: priority || 5 }),
       });
@@ -127,7 +156,7 @@ async function _pushTestHandler(req, res) {
       if (!topic) return res.status(400).json({ error: 'ntfy topic required' });
       const headers = { 'Title': title || 'NutriTrace', 'Priority': String(Math.min(5, priority || 5)) };
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      resp = await fetch(`${url.replace(/\/+$/, '')}/${encodeURIComponent(topic)}`, {
+      resp = await _sendPush(`${serviceBase(url) ?? url}/${encodeURIComponent(topic)}`, {
         method: 'POST', headers, body: message || 'Test notification — connected!',
       });
     } else if (svc === 'apprise') {
@@ -136,7 +165,7 @@ async function _pushTestHandler(req, res) {
       if (!url) return res.status(400).json({ error: 'Apprise URL required' });
       const body = { title: title || 'NutriTrace', body: message || 'Test notification — connected!', type: 'info' };
       if (tag) body.tag = tag;
-      resp = await fetch(`${url.replace(/\/+$/, '')}/notify`, {
+      resp = await _sendPush(`${serviceBase(url) ?? url}/notify`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
     } else {
@@ -144,9 +173,9 @@ async function _pushTestHandler(req, res) {
     }
 
     if (!resp.ok) {
-      const body = await resp.text().catch(() => '');
-      return res.status(resp.status).json({ error: `${svc} ${resp.status}: ${body.slice(0, 100)}` });
+      return res.status(resp.status).json({ error: `${svc} ${resp.status}${await _pushErrorMessage(resp)}` });
     }
+    try { await resp.body?.cancel(); } catch {}
     res.json({ ok: true });
   } catch (e) {
     res.status(502).json({ error: `${svc}: ${e.message}` });

@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import db from '../../../db.js';
 import { safeJson, toolResult } from '../_util.js';
+import { foldText } from '../../search-text.js';
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -38,7 +39,7 @@ export function searchMealsCore(userId, { query, limit, include_recipes } = {}) 
     ).all(userId, cap);
   } else {
     const escaped = q.replace(/[\\%_]/g, c => '\\' + c);
-    const like = `%${escaped}%`;
+    const like = `%${foldText(escaped)}%`;
     rows = db.prepare(
       `SELECT id, name, is_recipe, servings, portion, unit, nutrition,
               favorite, usage_count, last_used_at
@@ -46,7 +47,7 @@ export function searchMealsCore(userId, { query, limit, include_recipes } = {}) 
         WHERE user_id = ?
           AND deleted_at IS NULL
           ${recipeClause}
-          AND name LIKE ? ESCAPE '\\'
+          AND fold(name) LIKE ? ESCAPE '\\'
         ORDER BY favorite DESC, usage_count DESC, name COLLATE NOCASE ASC
         LIMIT ?`
     ).all(userId, like, cap);

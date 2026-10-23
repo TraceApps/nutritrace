@@ -22,6 +22,9 @@ function apply(next) {
   const root = document.documentElement;
   root.classList.toggle('fold-book', next?.posture === 'book');
   root.classList.toggle('fold-tabletop', next?.posture === 'tabletop');
+  // Open flat: no crease to avoid, but --fold-start/--fold-end still say where
+  // the hinge is, so a layout can line its gutter up with it.
+  root.classList.toggle('fold-flat', next?.posture === 'flat');
   root.style.setProperty('--fold-start', next ? `${next.start}px` : '0px');
   root.style.setProperty('--fold-end', next ? `${next.end}px` : '0px');
   fold.set(next);

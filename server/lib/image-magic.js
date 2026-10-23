@@ -45,8 +45,9 @@ function _identify(buf, len) {
   if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38 &&
       (buf[4] === 0x37 || buf[4] === 0x39) && buf[5] === 0x61) return 'gif';
 
-  // BMP: 42 4D ("BM")
-  if (buf[0] === 0x42 && buf[1] === 0x4D) return 'bmp';
+  // BMP: 42 4D ("BM"), then a DIB header of one of the known sizes at 14
+  if (buf[0] === 0x42 && buf[1] === 0x4D && len >= 18 &&
+      [12, 40, 52, 56, 64, 108, 124].includes(buf[14] | (buf[15] << 8) | (buf[16] << 16) | (buf[17] << 24))) return 'bmp';
 
   // WebP: "RIFF????WEBP"
   if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&

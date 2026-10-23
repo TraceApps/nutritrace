@@ -28,9 +28,15 @@ export function getMealDetailsCore(userId, { meal_id } = {}) {
       WHERE user_id = ? AND id = ? AND deleted_at IS NULL`
   ).get(userId, meal_id);
   if (!row) throw new Error(`meal_id ${meal_id} not found in your catalog.`);
+  // Each ingredient's food by its server id (#277), as log_meal reads it:
+  // food_server_id, else server_id on one saved in the Android app (whose
+  // `id` is the phone's own), else id.
+  const serverId = it => (typeof it?.food_server_id === 'number' ? it.food_server_id
+    : it && 'server_id' in it ? (typeof it.server_id === 'number' ? it.server_id : null)
+    : (typeof it?.id === 'number' ? it.id : null));
   const items = safeJson(row.items, []).map(it => ({
-    id: typeof it?.id === 'number' ? it.id : null,
-    food_server_id: typeof it?.food_server_id === 'number' ? it.food_server_id : null,
+    id: it && 'server_id' in it ? serverId(it) : (typeof it?.id === 'number' ? it.id : null),
+    food_server_id: serverId(it),
     name: it?.name || null,
     brand: it?.brand || null,
     portion: Number.isFinite(Number(it?.portion)) ? Number(it.portion) : null,

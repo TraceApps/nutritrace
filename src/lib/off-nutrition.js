@@ -3,9 +3,10 @@
  *
  * The OFF mapper turns every missing value into 0, so a product with no "as
  * sold" values used to arrive as a 0 kcal food: shown as 0 kcal, saved as
- * 0 kcal, and logged by Trace as 0 kcal with a success message. Over half
- * of OFF's chocolate drink powders are like that, because they list only
- * "as prepared" values.
+ * 0 kcal, and logged by Trace as 0 kcal with a success message. Some
+ * products have no values at all, and some only "as prepared" ones. (A
+ * product with both used to look "as prepared" only too, because of how OFF's
+ * API serves them; off-nutrition-sets.js finds its "as sold" values.)
  *
  * "As prepared" values are never used unasked. For a drink powder they
  * describe the finished drink made with milk, not the powder you weigh (a

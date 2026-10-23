@@ -30,7 +30,7 @@ NutriTrace uses [svelte-i18n](https://github.com/kaisermann/svelte-i18n) with on
 
 ### Two ways to contribute (pick either)
 
-**A. Weblate (preferred, no code required).** NutriTrace is hosted at [hosted.weblate.org/projects/nutritrace/](https://hosted.weblate.org/projects/nutritrace/). Pick a language, translate strings in the web UI, and pull requests to `dev` are opened automatically. If your language isn't in the list, click **Add new translation** and it'll be approved. If you already have a completed JSON file, seed the language with **Files → Upload translation → Add as translation** on the language page.
+**A. Weblate (preferred, no code required).** NutriTrace is hosted at [hosted.weblate.org/projects/nutritrace/](https://hosted.weblate.org/projects/nutritrace/). Pick a language and translate strings in the web UI; Weblate commits your work to `dev`. If your language isn't in the list, click **Add new translation**. If you already have a completed JSON file, seed the language with **Files → Upload translation → Add as translation** on the language page.
 
 [![Translation status](https://hosted.weblate.org/widget/nutritrace/multi-auto.svg)](https://hosted.weblate.org/engage/nutritrace/)
 
@@ -40,10 +40,8 @@ Full guidance for both paths: [traceapps.github.io/docs/contribute/translations/
 
 ### Adding a new language via direct PR
 
-If you'd rather bootstrap a language locally and open a PR directly:
-
-1. Copy `src/i18n/en.json` to `src/i18n/<code>.json` where `<code>` is the BCP-47 short code (`fr`, `de`, `nl`, `es`, `pt`, `ja`, etc.).
-2. Translate the values. Leave the keys exactly as they are. Keep `{placeholder}` tokens and any HTML tags (`<strong>`, `<code>`, `<br>`) intact and in the right grammatical position for your language.
+1. Copy `src/i18n/en.json` to `src/i18n/<code>.json` where `<code>` is a BCP-47 short code (`fr`, `de`, `nl`, `es`, `pt_BR`, `ja`, `zh_Hans`, `zh_Hant`, etc.).
+2. Translate the values. Leave the keys exactly as they are. Keep `{placeholder}` tokens, plural blocks (`{count, plural, one {...} other {...}}`) and any HTML tags (`<strong>`, `<code>`, `<br>`) intact, with the placeholders in the right grammatical position for your language.
 3. In `src/i18n/index.js`, register the new locale and add it to `AVAILABLE_LOCALES`:
    ```js
    register('fr', () => import('./fr.json'));
@@ -53,7 +51,7 @@ If you'd rather bootstrap a language locally and open a PR directly:
      { code: 'fr', label: 'Français' },
    ];
    ```
-   The label is what shows in the Settings → Regional & Units → Language picker. Use the language's native name (e.g. `Français` not `French`).
+   The label is what shows in the Settings → Regional & Units → Language picker. Use the language's native name (`Français` not `French`).
 4. Run `npm run i18n:check` to confirm no keys are missing or orphaned.
 5. Open a PR against `dev`.
 
@@ -63,20 +61,20 @@ Note: the `index.js` step is required whether you go through Weblate or PR direc
 
 If you translated through Weblate: keep using Weblate. Direct edits to a file that Weblate is watching will be overwritten by the next Weblate sync.
 
-If new keys are added to `en.json` between releases, your locale file will report them as "missing" in `npm run i18n:check`. The app will fall back to English for those strings until you translate them. No urgency, translate at your own pace.
+If new keys are added to `en.json` between releases, your locale file will report them as "missing" in `npm run i18n:check`. The app falls back to English for those strings until you translate them. No urgency; translate at your own pace.
 
-The English source text may also change occasionally without renaming the key. We do not have automatic stale-translation detection, so a quick diff of `en.json` against the version you originally translated from is the most reliable way to catch these.
+The English source text may also change occasionally without renaming the key. There is no automatic stale-translation detection, so a quick diff of `en.json` against the version you originally translated from is the most reliable way to catch these.
 
 ### Translation guidance
 
 - **Domain conventions matter.** For nutrition labels, use the regulatory terms used on food packaging in your country (e.g. French food labels say `Glucides` / `Lipides` / `Protéines`, not the literal translations of the English words).
 - **Match the tone.** NutriTrace's English copy is informal and direct ("How did today feel?"). Try to keep that register rather than translating to a more formal style.
 - **Length awareness.** Some buttons are tight on small screens. If your translation is significantly longer than the English, test on a phone-sized viewport.
-- **Do not translate proper nouns or product names** — `NutriTrace`, `OFF`, `USDA`, `Mealie`, `Trace` (the AI assistant), `Open Food Facts` stay as-is.
+- **Do not translate proper nouns or product names.** `NutriTrace`, `Trace` (the AI assistant), `Open Food Facts`, `OFF`, `USDA`, `Mealie` stay as-is.
 
-### For code contributors — instrumenting new strings
+### For code contributors: instrumenting new strings
 
-Every user-facing string added to the app should be extracted into `en.json` and rendered through `svelte-i18n`'s `$_()` helper. Hardcoded English literals in templates are the reason translation coverage lags the codebase — please prevent them at PR time rather than retrofit them later.
+Every user-facing string added to the app should be extracted into `en.json` and rendered through `svelte-i18n`'s `$_()` helper. Hardcoded English literals in templates are the reason translation coverage lags the codebase; please prevent them at PR time rather than retrofit them later.
 
 The pattern:
 
@@ -86,18 +84,20 @@ The pattern:
 </script>
 
 <h1>{$_('routes.diary.title')}</h1>
-<input placeholder={$_('routes.foods.search_placeholder')} />
+<input placeholder={$_('foods.search_placeholder')} />
 ```
 
 Then in `src/i18n/en.json`:
 
 ```json
-"routes": {
-  "diary": {
-    "title": "Diary"
+{
+  "routes": {
+    "diary": {
+      "title": "Diary"
+    }
   },
   "foods": {
-    "search_placeholder": "Search foods…"
+    "search_placeholder": "Search foods or scan barcode..."
   }
 }
 ```
@@ -105,8 +105,8 @@ Then in `src/i18n/en.json`:
 Guidelines:
 
 - **Group by area**, not by page. `settings.notifications.section` is better than `settings_notifications_section`.
-- **Only add English** in your PR. Do not machine-translate or hand-translate into other languages you don't natively speak — that misrepresents contributor work. The `en.json` addition is enough; translators fill in their locale files in follow-up PRs. `svelte-i18n`'s `fallbackLocale: 'en'` renders English until a translation lands.
-- **Skip developer-facing strings** — error stacks, log messages, JSON payload keys, class names. Only pull out what a user reads on screen.
+- **Only add English** in your PR. Do not machine-translate or hand-translate into other languages you don't natively speak; that misrepresents contributor work. The `en.json` addition is enough; translators fill in the other languages through Weblate. `svelte-i18n`'s `fallbackLocale: 'en'` renders English until a translation lands.
+- **Skip developer-facing strings.** Error stacks, log messages, JSON payload keys, class names. Only pull out what a user reads on screen.
 - **Interpolation** uses `{$_('key', { values: { name: user.name } })}` and `{name}` in the JSON value. Prefer this over string concatenation so translators can reorder words.
 - **Run `npm run i18n:check`** before opening the PR. It flags orphaned keys and missing translations across every locale file, catching typos and stale entries.
 
@@ -118,7 +118,7 @@ Do not add translations for locales you don't natively speak, and do not merge m
 
 ### What's translatable today vs not
 
-The full client-side string surface is extracted as of v1.1.0 — navigation, all Settings sections, Diary, Foods, Wellness, Goals, Statistics, the wizard, auth flow, the AI assistant, action sheets, toasts, dialog copy. Any new user-facing string added to the app is expected to land as a key in `en.json` in the same commit (see instrumenting guidance above); hardcoded English literals get flagged in review. `npm run i18n:check` runs against every locale file to catch missing translations and orphaned keys.
+The full client-side string surface is extracted as of v1.1.0: navigation, all Settings sections, Diary, Foods, Wellness, Goals, Statistics, the wizard, auth flow, the AI assistant, action sheets, toasts, dialog copy. Any new user-facing string added to the app is expected to land as a key in `en.json` in the same commit (see instrumenting guidance above); hardcoded English literals get flagged in review. `npm run i18n:check` runs against every locale file to catch missing translations and orphaned keys.
 
 Server-side strings (email subject lines, push notification bodies, AI system prompts) are not currently translatable and stay English.
 
