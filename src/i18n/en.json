@@ -1133,6 +1133,7 @@
       "name_balanced": "Balanced",
       "name_keto": "Keto",
       "name_high_protein": "High-Protein",
+      "name_custom": "Custom",
       "carbohydrates": "Carbohydrates"
     },
     "rail": {

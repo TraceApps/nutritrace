@@ -907,7 +907,7 @@
           <button class="chip" class:chip-active={_currentPreset === 'High-Protein'} on:click={() => applyMacroPreset('high-protein')}>{$_('goals_page.macros.high_protein')}</button>
           {#if _currentPreset}
             <span class="goals-macro-current" title={$_('goals_page.macros.preset_match_hint')}>
-              {$_('goals_page.macros.currently')} <strong>{_currentPreset === 'Balanced' ? $_('goals_page.macros.name_balanced') : _currentPreset === 'Keto' ? $_('goals_page.macros.name_keto') : $_('goals_page.macros.name_high_protein')}</strong>
+              {$_('goals_page.macros.currently')} <strong>{_currentPreset === 'Balanced' ? $_('goals_page.macros.name_balanced') : _currentPreset === 'Keto' ? $_('goals_page.macros.name_keto') : _currentPreset === 'High-Protein' ? $_('goals_page.macros.name_high_protein') : $_('goals_page.macros.name_custom')}</strong>
             </span>
           {/if}
         </div>
