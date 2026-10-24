@@ -15,6 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Vitamins and minerals follow Nutrition Facts order.** Phosphorus, Magnesium and Zinc moved to where the label puts them. A custom order you set in Settings → Nutrients is kept.
 
+### Fixed
+
+- **The unit list stays against its field as you type.** Near the bottom of the screen the unit list opened above the field and, as typing narrowed it to one match, floated rows above it.
+
 ---
 
 ## [1.5.0-dev02] - 2026-10-23 (pre-release)

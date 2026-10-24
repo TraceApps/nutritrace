@@ -117,7 +117,6 @@
       anchorTop: r.top, anchorBottom: r.bottom, viewportHeight: vh,
       maxHeight: POP_MAX_H, gap: GAP, margin: EDGE, fold: get(fold),
     });
-    const top = place.top;
     const maxH = place.maxHeight;
 
     // Horizontal: the popover wants at least POP_MIN_W. Anchor to the input's
@@ -129,7 +128,7 @@
     let left = r.left;
     if (left + popWidth > vw - EDGE) left = Math.max(EDGE, vw - popWidth - EDGE);
 
-    popStyle = `top:${top}px;left:${left}px;width:${popWidth}px;max-height:${maxH}px;`;
+    popStyle = `${place.edge}left:${left}px;width:${popWidth}px;max-height:${maxH}px;`;
   }
   function _onScrollOrResize() { if (open) _repositionPopover(); }
   onMount(() => {
