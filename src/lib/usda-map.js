@@ -48,6 +48,13 @@ export const USDA_NUTRIENT_MAP = {
   1175: 'b6',              // mg
   1177: 'b9',              // mcg (folate)
   1178: 'b12',             // mcg
+  1170: 'b5',              // mg (pantothenic acid)
+  1009: 'starch',          // g
+  1100: 'iodine',          // mcg
+  1103: 'selenium',        // mcg
+  1098: 'copper',          // mg
+  1101: 'manganese',       // mg
+  1180: 'choline',         // mg (Choline, total)
 };
 
 /** The fdcId in a food's barcode ("fdcId_2607245"), or null. */

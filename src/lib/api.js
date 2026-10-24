@@ -189,6 +189,13 @@ const _OFF_NUTRIENTS = [
   ['b12', 'vitamin-b12', 1000000],
   ['zinc', 'zinc', 1000],
   ['phosphorus', 'phosphorus', 1000],
+  ['starch', 'starch'],
+  ['b5', 'pantothenic-acid', 1000],
+  ['iodine', 'iodine', 1000000],
+  ['selenium', 'selenium', 1000000],
+  ['copper', 'copper', 1000],
+  ['manganese', 'manganese', 1000],
+  ['choline', 'choline', 1000],
 ];
 
 // #241: what Open Food Facts actually has for each product seen this session,

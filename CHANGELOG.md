@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **More label nutrients** ([#281](https://github.com/TraceApps/nutritrace/issues/281)). Starch, Selenium, Copper, Manganese, Choline, Iodine and Pantothenic Acid (B5) are built in, in the order they appear on a Nutrition Facts label. Open Food Facts and USDA fill them in, and the label scanner reads them.
+
+### Changed
+
+- **Vitamins and minerals follow Nutrition Facts order.** Phosphorus, Magnesium and Zinc moved to where the label puts them. A custom order you set in Settings → Nutrients is kept.
+
 ---
 
 ## [1.5.0-dev02] - 2026-10-23 (pre-release)

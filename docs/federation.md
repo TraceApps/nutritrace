@@ -359,12 +359,18 @@ must ignore them.
 | `fiber`            | g             |
 | `sugars`           | g             |
 | `added-sugars`     | g             |
+| `starch`           | g             |
 | `proteins`         | g             |
 | `calcium`          | mg            |
 | `iron`             | mg            |
 | `magnesium`        | mg            |
 | `phosphorus`       | mg            |
 | `zinc`             | mg            |
+| `iodine`           | µg            |
+| `selenium`         | µg            |
+| `copper`           | mg            |
+| `manganese`        | mg            |
+| `choline`          | mg            |
 | `caffeine`         | mg            |
 | `alcohol`          | g             |
 | `vitamin-a`        | µg            |
@@ -372,7 +378,7 @@ must ignore them.
 | `vitamin-d`        | µg            |
 | `vitamin-e`        | mg            |
 | `vitamin-k`        | µg            |
-| `b1` ... `b12`     | mg / µg       |
+| `b1` ... `b12`, `b5` | mg / µg     |
 
 ---
 

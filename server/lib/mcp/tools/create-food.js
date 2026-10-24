@@ -43,6 +43,8 @@ const KEY_ALIASES = {
   'vitamin-b6':   'b6',
   'vitamin-b9':   'b9',
   'vitamin-b12':  'b12',
+  'vitamin-b5':   'b5',
+  'pantothenic-acid': 'b5',
 };
 
 export function registerCreateFood(server, { userId }) {

@@ -189,12 +189,18 @@ function _nutritionFrom(row) {
   _norm(nutrition, 'fiber',                row, 'fiber (g)');
   _norm(nutrition, 'sugars',               row, 'sugars (g)');
   _norm(nutrition, 'added-sugars',         row, 'added sugars (g)');
+  _norm(nutrition, 'starch',               row, 'starch (g)');
   _norm(nutrition, 'proteins',             row, 'protein (g)');
   _norm(nutrition, 'calcium',              row, 'calcium (mg)');
   _norm(nutrition, 'iron',                 row, 'iron (mg)');
   _norm(nutrition, 'magnesium',            row, 'magnesium (mg)');
   _norm(nutrition, 'phosphorus',           row, 'phosphorus (mg)');
   _norm(nutrition, 'zinc',                 row, 'zinc (mg)');
+  _norm(nutrition, 'iodine',               row, 'iodine (µg)', 'iodine (μg)');
+  _norm(nutrition, 'selenium',             row, 'selenium (µg)', 'selenium (μg)');
+  _norm(nutrition, 'copper',               row, 'copper (mg)');
+  _norm(nutrition, 'manganese',            row, 'manganese (mg)');
+  _norm(nutrition, 'choline',              row, 'choline (mg)');
   _norm(nutrition, 'caffeine',             row, 'caffeine (mg)');
   _norm(nutrition, 'alcohol',              row, 'alcohol (g)');
   // Vitamins (handle both micro-sign encodings)
@@ -207,6 +213,7 @@ function _nutritionFrom(row) {
   _norm(nutrition, 'b2',                   row, 'b2 (riboflavin) (mg)');
   _norm(nutrition, 'b3',                   row, 'b3 (niacin) (mg)');
   _norm(nutrition, 'b6',                   row, 'b6 (pyridoxine) (mg)');
+  _norm(nutrition, 'b5',                   row, 'b5 (pantothenic acid) (mg)', 'pantothenic acid (b5) (mg)', 'pantothenic acid (mg)');
   _norm(nutrition, 'b9',                   row, 'folate (µg)', 'folate (μg)');
   _norm(nutrition, 'b12',                  row, 'b12 (cobalamin) (µg)', 'b12 (cobalamin) (μg)');
   return nutrition;
