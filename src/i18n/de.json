@@ -53,6 +53,10 @@
       "network_error_upload": "Netzwerkfehler beim Hochladen",
       "voice_unsupported": "Spracheingabe wird von diesem Browser nicht unterstützt",
       "cant_start_mic": "Mikrofon konnte nicht gestartet werden"
+    },
+    "macro_pct": {
+      "carbs": "Kohlenhydrate{pct}%",
+      "fat": "Fett {pct}%"
     }
   },
   "sync": {
@@ -127,7 +131,10 @@
       "first_day_auto": "Automatisch",
       "first_day_monday": "Montag",
       "first_day_sunday": "Sonntag",
-      "first_day_saturday": "Samstag"
+      "first_day_saturday": "Samstag",
+      "units_heading": "Einheiten",
+      "energy_kcal": "Kalorien (kcal)",
+      "energy_kj": "Kilojoules (kJ)"
     },
     "diary": {
       "section": "Tagebuch",
@@ -815,6 +822,16 @@
         "name_required": "Name erforderlich",
         "kcal_required": "Kalorien erforderlich"
       }
+    },
+    "macro_letter": {
+      "p": "P",
+      "c": "C",
+      "f": "F"
+    },
+    "bar": {
+      "g_protein": "g Eiweiß",
+      "g_carbs": "g Kohlenhydrate",
+      "g_fat": "g Fett"
     }
   },
   "foods": {
@@ -872,7 +889,12 @@
       "deleted": "Lebensmittel gelöscht",
       "off_prepared_only": "Open Food Facts listet für dieses Produkt nur „zubereitete“ Werte auf. Tippe auf Bearbeiten, um sie anzuzeigen und zu entscheiden, ob du sie verwenden möchtest.",
       "off_implausible": "Open Food Facts listet für dieses Produkt nur „zubereitete“ Werte auf, und diese scheinen nicht zu stimmen. Tippe auf Bearbeiten, um die Werte von der Verpackung einzutragen.",
-      "off_none": "Open Food Facts hat keine Nährwertangaben für dieses Produkt. Tippe auf Bearbeiten, um die Werte von der Verpackung einzutragen."
+      "off_none": "Open Food Facts hat keine Nährwertangaben für dieses Produkt. Tippe auf Bearbeiten, um die Werte von der Verpackung einzutragen.",
+      "meal_deleted": "Mahlzeit gelöscht",
+      "delete_recipe_aria": "Lösche Rezept",
+      "delete_recipe_confirm_title": "Diese Rezept löschen?",
+      "delete_recipe_confirm_body": "„{name}“ wird aus deinen Rezepten entfernt. Bestehende Tagebucheinträge, die dieses Rezept verwenden, bleiben erhalten.",
+      "recipe_deleted": "Rezept gelöscht"
     },
     "sources": {
       "local": "Lokal",
@@ -908,6 +930,25 @@
       "search_hint": "Du bist offline, daher wurden nur deine eigenen Lebensmittel durchsucht. Open Food Facts, USDA und andere Quellen erfordern eine Verbindung.",
       "barcode": "Du bist offline, daher wurden nur deine eigenen Lebensmittel nach diesem Barcode durchsucht.",
       "import": "Dieser Import erfordert eine Verbindung. Er funktioniert wieder, sobald du online bist."
+    },
+    "prev_day": {
+      "section_yesterday": "gestrige Mahlzeiten",
+      "section_from": "Von {day}",
+      "yesterday": "Gestern",
+      "today": "Heute",
+      "sheet_title": "{day}: {meal}",
+      "add_title": "Zu Tagebuch hinzufügen",
+      "add_aria": "Füge {meal} zu Tagebuch hinzu"
+    },
+    "tabs": {
+      "meals": "Mahlzeiten",
+      "recipes": "Rezepte"
+    },
+    "empty": {
+      "no_meals": "Noch keine Mahlzeiten",
+      "no_recipes": "Noch keine Rezepte",
+      "add_meal": "Mahlzeit hinzufügen",
+      "add_recipe": "Rezept hinzufügen"
     }
   },
   "trace": {
@@ -1024,6 +1065,18 @@
       "value_label_day": "{day} ({unit})",
       "remove_goal": "Ziel entfernen",
       "water_sheet_label": "Ziel ({unit})"
+    },
+    "tabs": {
+      "yours": "Deine Ziele",
+      "all": "Alle Felder",
+      "templates": "Vorlagen"
+    },
+    "macros": {
+      "currently": "Aktuell:",
+      "name_balanced": "Ausgeglichen"
+    },
+    "rail": {
+      "navigate": "Navigiere"
     }
   },
   "goals": {
@@ -1223,7 +1276,8 @@
   "nutrition_facts": {
     "title": "Nährwertangaben",
     "serving_size": "Portionsgröße",
-    "amount_per": "Menge pro Portion"
+    "amount_per": "Menge pro Portion",
+    "includes": "Enthält {amount} {label}"
   },
   "fasting_insights": {
     "title": "Fasten",
@@ -1451,6 +1505,10 @@
       "implausible": "Open Food Facts listet dieses Produkt nur „zubereitet“ auf, und diese Werte scheinen nicht zu stimmen ({kcal} kcal pro 100 {unit}). Trage die Werte von der Verpackung ein.",
       "none": "Open Food Facts hat keine Nährwertangaben für dieses Produkt. Trage die Werte von der Verpackung ein.",
       "note": "Nährwertangaben gelten für die zubereitete Form (aus Open Food Facts)."
+    },
+    "off_share": {
+      "save_and_share": "Speichern und teilen",
+      "login": "Open Food Facts hate deinen Benutzernamen oder Passwort nicht akzeptiert."
     }
   },
   "meal_editor": {
@@ -2428,5 +2486,21 @@
     "off": "Das Teilen ist auf diesem Server deaktiviert.",
     "people": "Mitglieder mit Zugriff",
     "no_people": "Noch keine weiteren Mitglieder auf diesem Server vorhanden."
+  },
+  "trace_reply": {
+    "stopped_length": "Die Antwort wurde vor dem Ende unterbrochen und wurde deswegen nicht benutzt. Versuche es wenigstens einmal erneut oder frage weniger an.",
+    "stopped_thinking": "Das Modell hat seinen Denkprozess gesendet aber keine Antwort. Versuche es erneut oder senke seinen den Wert für seinen Denkprozess.",
+    "out_of_rounds": "Es hat mehr Schritte benötigt als erlaubt sind und es kam keine Antwort zurück. Frage weniger an oder wähle eine kürzere Zeitspanne."
+  },
+  "diary_rail": {
+    "overview": "Übersicht",
+    "custom": "+ Personalisiert",
+    "no_measurements": "Es wurden heute keine Messungen eingetragen",
+    "edit_weight": "Bearbeite das heutige Gewicht",
+    "open_summary": "Öffne die ganze Nährwerte Übersicht",
+    "remove_entry": "Lösche diesen Eintrag",
+    "close": "Schließe",
+    "remove_entry_label": "Lösche den Eintrag",
+    "pin_panel_hint": "Füge Widgets an"
   }
 }
