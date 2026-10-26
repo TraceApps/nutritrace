@@ -340,6 +340,12 @@ export const NtApiCached = {
 
   // ── Users (server-only) ───────────────────────────────────────────────
 
+  // The Profile screen calls this in native server mode as well as web.
+  // Account fields live on the server, outside the diary sync tables.
+  updateProfile(data) {
+    return this.put('/api/auth/profile', data);
+  },
+
   async getUsersList() {
     try { return await _serverFetch('GET', '/api/auth/users/list'); }
     catch { return []; }
