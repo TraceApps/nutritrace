@@ -53,6 +53,11 @@
       "network_error_upload": "Nettverksfeil under opplasting",
       "voice_unsupported": "Taleinput støttes ikke i denne nettleseren",
       "cant_start_mic": "Kunne ikke starte mikrofonen"
+    },
+    "macro_pct": {
+      "protein": "Protein {pct}%",
+      "carbs": "Karbonhydrater {pct}%",
+      "fat": "Fett {pct}%"
     }
   },
   "sync": {
@@ -121,7 +126,19 @@
       "distance": "Distanse",
       "temperature": "Temperatur",
       "time_12h": "12-timers (AM/PM)",
-      "time_24h": "24-timers"
+      "time_24h": "24-timers",
+      "formats_heading": "Språk & Formater",
+      "formats_sub": "Språk og hvordan datoer og tider vises.",
+      "units_heading": "Enheter",
+      "units_sub": "Enhetsvalg gjelder overalt hvor verdiene vises.",
+      "energy_kcal": "Kalorier (kcal)",
+      "energy_kj": "Kilojouler (kJ)",
+      "first_day": "Første dag i uken",
+      "first_day_desc": "Automatisk følger enhetsregionen din, som starter uken på {day}.",
+      "first_day_auto": "Automatisk",
+      "first_day_monday": "Mandag",
+      "first_day_sunday": "Søndag",
+      "first_day_saturday": "Lørdag"
     },
     "diary": {
       "section": "Dagbok",
@@ -533,7 +550,8 @@
       "browser_open_failed": "Kunne ikke åpne påloggingsnettleser",
       "connected": "Koblet til server",
       "login_failed": "Innlogging mislyktes",
-      "server_needs_setup": "Denne serveren er ikke satt opp ennå. Åpne den i en nettleser for å opprette den første kontoen, og koble til her."
+      "server_needs_setup": "Denne serveren er ikke satt opp ennå. Åpne den i en nettleser for å opprette den første kontoen, og koble til her.",
+      "unreachable": "Kunne ikke nå serveren"
     }
   },
   "profile": {
@@ -571,7 +589,9 @@
       "save_failed": "Kunne ikke lagre profil",
       "upload_failed": "Opplasting mislyktes",
       "password_change_failed": "Kunne ikke endre passord",
-      "delete_account_failed": "Kunne ikke slette konto"
+      "delete_account_failed": "Kunne ikke slette konto",
+      "not_kept": "Denne nettleseren kunne ikke bevare profilen din for å sende senere. Sjekk at den har ledig plass og tillater denne siden å lagre data, og prøv igjen.",
+      "needs_connection": "Å bevare profilen din krever en forbindelse. Prøv igjen når du er tilkoblet."
     }
   },
   "wizard": {
@@ -692,7 +712,8 @@
     "nav": {
       "previous_day": "Forrige dag",
       "next_day": "Neste dag",
-      "jump_to_date": "Gå til dato"
+      "jump_to_date": "Gå til dato",
+      "has_notes": "Har notater"
     },
     "actions": {
       "cancel_selection": "Avbryt valg",
@@ -811,6 +832,21 @@
         "name_required": "Navn påkrevd",
         "kcal_required": "Kalorier påkrevd"
       }
+    },
+    "macro_letter": {
+      "p": "P",
+      "c": "C",
+      "f": "F"
+    },
+    "bar": {
+      "eaten": "spist",
+      "left": "tilbake",
+      "g_protein": "g protein",
+      "g_carbs": "g Karbohydrater",
+      "g_fat": "g Fett",
+      "adjusted_for_activity": "Justert etter aktivitet",
+      "expand_panel": "Utvid næringspanel",
+      "collapse_panel": "Fold sammen næringspanel"
     }
   },
   "foods": {
@@ -837,7 +873,7 @@
       "usda_foundation_hint": "(kuratert)",
       "usda_sr_legacy": "SR Legacy",
       "usda_sr_legacy_hint": "(referanse)",
-      "usda_survey": "Survey (FNDDS)",
+      "usda_survey": "Undersøkelse (FNDDS)",
       "usda_survey_hint": "(sammensatt)",
       "usda_branded": "Merkevare",
       "usda_branded_hint": "(merkevare-innsendt)",
@@ -870,7 +906,15 @@
       "delete_aria": "Slett matvare",
       "delete_confirm_title": "Slette denne matvaren?",
       "delete_confirm_body": "\"{name}\" vil bli fjernet fra matvarene dine. Eksisterende dagbokoppføringer som refererer til denne matvaren beholdes.",
-      "deleted": "Matvare slettet"
+      "deleted": "Matvare slettet",
+      "delete_meal_aria": "Slett måltid",
+      "delete_meal_confirm_title": "Slett dette måltidet?",
+      "meal_deleted": "Måltid slettet",
+      "delete_recipe_aria": "Slett oppskrift",
+      "delete_recipe_confirm_title": "Slett denne oppskriften?",
+      "delete_recipe_confirm_body": "\"{name}\" vil bli fjernet fra dine oppskrifter. Eksisterende dagboksinnlegg som refererer til denne oppskriften beholdes.",
+      "recipe_deleted": "Oppskrift slettet",
+      "delete_meal_confirm_body": "\"{name}\" vil bli fjernet fra dine måltider. Eksisterende dagbok innlegg som refererer til måltidet blir behold."
     },
     "sources": {
       "local": "Lokal",
@@ -904,6 +948,28 @@
       "meal_partly_added": "Noen ingredienser kunne ikke legges til: {names}",
       "meal_none_added": "Kunne ikke legge til dette måltidet. Sjekk tilkoblingen din og prøv igjen.",
       "meal_stale_ingredients": "Lagt til i dagbok. Disse ingrediensene er ikke lenger i matvarene dine: {names}. Rediger måltidet for å fikse dem."
+    },
+    "prev_day": {
+      "section_yesterday": "Gårsdagens måltider",
+      "section_from": "Fra {day}",
+      "yesterday": "I går",
+      "today": "I dag",
+      "sheet_title": "{day}: {meal}",
+      "add_title": "Legg til i dagboken",
+      "add_aria": "Legg til {meal} i dagboken"
+    },
+    "tabs": {
+      "foods": "Matvarer",
+      "meals": "Måltider",
+      "recipes": "Oppskrifter"
+    },
+    "empty": {
+      "no_foods": "Ingen matvarer enda",
+      "no_meals": "Ingen måltider enda",
+      "no_recipes": "Ingen oppskrifter enda",
+      "add_food": "Legg til matvarer",
+      "add_meal": "Legg til måltid",
+      "add_recipe": "Legg til oppskrift"
     }
   },
   "trace": {
@@ -933,7 +999,10 @@
     },
     "tools_unsupported": "Denne modellen kan ikke bruke verktøy: den kan svare, men den kan ikke logge mat eller slå opp dataene dine. Velg en modell med verktøystøtte i Innstillinger.",
     "tools_unsupported_server": "Denne modellen kan ikke bruke verktøy: den kan svare, men den kan ikke logge mat eller slå opp dataene dine. Administratoren din kan angi en modell med verktøystøtte.",
-    "tools_unsupported_routed": "Modellen som svarte kan ikke bruke verktøy, så ingenting ble logget eller slått opp."
+    "tools_unsupported_routed": "Modellen som svarte kan ikke bruke verktøy, så ingenting ble logget eller slått opp.",
+    "unreachable": "Kunne ikke få svar fra {host}. Sjekk grunnleggende URL i Innstillinger → AI-assistent. Hvis den er riktig, må serveren tillate forespørsler fra {origin} på hver svar, inkludert feil (med nginx, add_header … alltid), eller Trace kan settes opp på NutriTrace-serveren i stedet.",
+    "unreachable_insecure": "Denne siden er på HTTPS, så nettleseren vil ikke ringe {host} over plain HTTP. Gi leverandøren din en https://-adresse, eller sett opp Trace på NutriTrace-serveren i stedet.",
+    "unreachable_official": "{host} svarte ikke. Sjekk denne enhetens nettverksforbindelse."
   },
   "goals_page": {
     "adaptive": {
@@ -1017,6 +1086,27 @@
       "value_label_day": "{day} ({unit})",
       "remove_goal": "Fjern mål",
       "water_sheet_label": "Mål ({unit})"
+    },
+    "tabs": {
+      "yours": "Dine mål",
+      "all": "Alle felt",
+      "templates": "Maler"
+    },
+    "macros": {
+      "title": "Makroer",
+      "balanced": "Balansert 30/40/30",
+      "keto": "Keto 25/5/70",
+      "high_protein": "Høyprotein 40/30/30",
+      "currently": "Nåværende:",
+      "preset_match_hint": "Forholdet matcher denne forhåndsinnstillingen (±2% toleranse)",
+      "name_balanced": "Balansert",
+      "name_keto": "Keto",
+      "name_high_protein": "Høyprotein",
+      "name_custom": "Tilpasset",
+      "carbohydrates": "Karbonhydrater"
+    },
+    "rail": {
+      "navigate": "Naviger"
     }
   },
   "goals": {
@@ -1226,7 +1316,8 @@
   "nutrition_facts": {
     "title": "Næringsinnhold",
     "serving_size": "Porsjonsstørrelse",
-    "amount_per": "Mengde per porsjon"
+    "amount_per": "Mengde per porsjon",
+    "includes": "Inkluderer {amount} {label}"
   },
   "fasting_insights": {
     "title": "Faste",
@@ -1450,10 +1541,32 @@
       "saved_copy": "Lagret en kopi i katalogen din",
       "save_copy_failed": "Kunne ikke lagre kopi: {error}",
       "save_failed": "Lagring mislyktes: {error}",
-      "unknown_error": "ukjent feil"
+      "unknown_error": "ukjent feil",
+      "usda_updated": "{count, plural, one {Oppdatert # verdi fra USDA} other {Oppdatert # verdier fra USDA}}. Lagre for å beholde dem.",
+      "usda_up_to_date": "Allerede matchet USDA",
+      "usda_not_found": "Ikke funnet i USDA FoodData Central",
+      "usda_units_differ": "Denne maten måles i {unit}, som USDA-verdiene ikke kan konverteres til, så ingenting ble endret",
+      "usda_no_nutrition": "USDA har ingen næringsverdier for denne maten",
+      "usda_offline": "Oppdatering fra USDA krever en forbindelse. Det vil virke når du er tilbake online.",
+      "usda_needs_key": "Oppdatering fra USDA krever at USDA er aktivert med en API-nøkkel. Oppsett den i Innstillinger under Matkilder."
     },
     "errors": {
       "name_required": "Vennligst skriv inn et navn"
+    },
+    "off_share": {
+      "need_account": "Legg til din Open Food Facts-konto for å dele. Den lagres i Innstillinger > Matkilder.",
+      "login": "Open Food Facts aksepterte ikke brukernavnet eller passordet ditt.",
+      "refused": "Open Food Facts aksepterte ikke produktet: {detail}",
+      "refused_plain": "Open Food Facts aksepterte ikke produktet.",
+      "photo_failed": "Produktet ble delt, men Open Food Facts tok ikke foto.",
+      "save_and_share": "Lagre og del",
+      "unreachable": "Open Food Facts kunne ikke nås. Prøv igjen senere."
+    },
+    "refresh_usda": "Oppdater fra USDA",
+    "energy": "Energi",
+    "derived": {
+      "sodium_from_salt": "Beregnet fra salt (× 400 mg/g)",
+      "salt_from_sodium": "Beregnet fra natrium (÷ 400"
     }
   },
   "meal_editor": {
@@ -1500,7 +1613,9 @@
     "errors": {
       "no_ingredients": "Vennligst legg til minst én ingrediens",
       "off_no_values": "Open Food Facts har ingen verdier \"som solgt\" for {name}. Legg den til under Matvarer med verdiene fra etiketten, og velg den deretter her."
-    }
+    },
+    "ct_unscaled": "CookTrace kunne ikke konvertere {amount}. Rediger mengden.",
+    "ct_unscaled_blank": "CookTrace hadde ingen mengde for dette. Rediger mengden."
   },
   "settings_wellness": {
     "master": {
@@ -1667,7 +1782,10 @@
       "bg_sync_label": "Bakgrunnssynkronisering",
       "bg_sync_desc": "Kjører hver time i bakgrunnen selv når NutriTrace er lukket, slik at dagens data fra aktivitetsmåleren allerede er på serveren når du åpner NutriTrace et annet sted. Hvis synkroniseringen stopper opp, sjekk Android-innstillinger → Apper → NutriTrace → Batteri og sett den til uten restriksjoner. Enkelte produsentgrensesnitt (Samsung, Xiaomi, OnePlus) krever også at NutriTrace legges til i hvitelisten for \"apper som aldri sover\" eller autostart.",
       "synced_count": "Synkroniserte {count} Health Connect-metrikk(er) for {date}",
-      "sync_failed": "Health Connect-synkronisering mislyktes: "
+      "sync_failed": "Health Connect-synkronisering mislyktes: ",
+      "bg_read_off": "Lesing i bakgrunnen er ikke tillatt, så NutriTrace leser bare Health Connect når appen er åpen.",
+      "bg_read_unsupported": "Health Connect på denne telefonen kan ikke leses i bakgrunnen, så NutriTrace leser den bare når appen er åpen.",
+      "bg_read_allow": "Tillat"
     },
     "lifttrace": {
       "title": "LiftTrace",
@@ -1692,7 +1810,7 @@
     },
     "empty": {
       "user_mgmt_required": "Brukeradministrasjon er påkrevd",
-      "user_mgmt_required_desc": "Enkelpålogging (SSO) er knyttet til brukerkontoer, så brukeradministrasjon må aktiveres først. Sett det opp under Innstillinger → Brukeradministrasjon, og kom tilbake hit.",
+      "user_mgmt_required_desc": "Enkelpålogging (SSO) er knyttet til brukerkontoer, så Brukeradministrasjon må aktiveres først. Sett det opp under Innstillinger → Brukeradministrasjon, og kom tilbake hit.",
       "admin_only": "Kun for administratorer",
       "admin_only_desc": "Bare administratorer kan konfigurere identitetsleverandører. Hvis du trenger denne tilgangen, be administratoren for denne NutriTrace-instansen om å gjøre kontoen din til administrator."
     },
@@ -2000,7 +2118,9 @@
     "toast": {
       "connected": "Trace AI koblet til, assistenten er klar",
       "test_failed": "Test mislyktes",
-      "empty_response": "Tom respons fra AI"
+      "empty_response": "Tom respons fra AI",
+      "fill_fields": "Fyll først inn API-nøkkelen",
+      "fill_fields_custom": "Fyll først inn grunnleggende URL og modell"
     },
     "provider_env_locked": "Miljølåst",
     "env_lock_banner": "Konfigurert via miljøvariabler, endringer er deaktivert.",
@@ -2042,7 +2162,12 @@
       "activity_estimate": "Anslå aktivitetskalorier",
       "activity_estimate_desc": "Når du logger en treningsøkt via Trace uten et kalorinummer (\"Jeg gikk 10 miles\"), la Trace anslå forbrenningen fra kroppsprofilen din. Estimeringer krever vekt, høyde, alder og kjønn registrert; mangler noe av dette, stopper estimatoren og Trace vil i stedet be om et tall.",
       "goal_insights": "Målinnsikt",
-      "goal_insights_desc": "Assistenten analyserer inntakstrendene dine og foreslår proaktivt måljusteringer når mønstrene er konsistente"
+      "goal_insights_desc": "Assistenten analyserer inntakstrendene dine og foreslår proaktivt måljusteringer når mønstrene er konsistente",
+      "test_connection_desc": "Sjekker om Trace kan nå leverandøren.",
+      "test_connection_desc_locked": "Sjekker om Trace kan nå serverens AI-leverandør.",
+      "test": "Test",
+      "test_connection": "Test tilkobling",
+      "testing": "Tester…"
     },
     "voice_langs": {
       "auto": "Auto (bruk enhetsspråk)",
@@ -2147,7 +2272,9 @@
       "empty_local": "Ingen sikkerhetskopier ennå – trykk Opprett sikkerhetskopi for å komme i gang.",
       "min_ago": "for {n} min siden",
       "hr_ago": "for {n} t siden",
-      "days_ago": "for {n} dager siden"
+      "days_ago": "for {n} dager siden",
+      "zone_differs": "Sikkerhetskopiering kjøres kl. {time} i {zone}, som er {local} der du er. Bruk min egen tidszone kjører dem kl. {time} på din klokke.",
+      "use_my_zone": "Bruk min egen tidszone"
     },
     "danger": {
       "clear_data": "Tøm all data",
@@ -2248,7 +2375,8 @@
       "min_60": "60 min",
       "min_90": "90 min",
       "smart_message": "Smart melding",
-      "smart_message_desc": "Juster påminnelsen basert på gårsdagens nattesøvn (hvis sporet)"
+      "smart_message_desc": "Juster påminnelsen basert på gårsdagens nattesøvn (hvis sporet)",
+      "bedtime_time": "Leggetid"
     },
     "alerts": {
       "goals": "Målfeiringer",
@@ -2271,7 +2399,10 @@
       "day_wed": "Ons",
       "day_thu": "Tor",
       "day_fri": "Fre",
-      "day_sat": "Lør"
+      "day_sat": "Lør",
+      "weekly_desc_push": "Ukentlig oppsummering med gjennomsnittlig kalorier, protein, skritt, søvn, mål treffrate og vektsendring, leveres via push-varsling",
+      "weekly_desc_email": "Ukentlig oppsummering med gjennomsnittlig kalorier, protein, skritt, søvn, mål treffrate og vektsendring, leveres via e-post",
+      "weekly_desc_none": "Ukentlig oppsummering med gjennomsnittlig kalorier, protein, skritt, søvn, mål treffrate og vektsendring. Den kommer via push-varsling eller e-post: velg en Push-tjeneste for å motta den"
     }
   },
   "wellness_page": {
@@ -2353,7 +2484,18 @@
       "hint_wellness": "Koble til en aktivitetsmåler under Innstillinger → Velvære",
       "hint_other": "Ingen oppføringer funnet – prøv en annen datointervall"
     },
-    "history_heading": "Historikk"
+    "history_heading": "Historikk",
+    "chips": {
+      "w1": "1U",
+      "w2": "2U",
+      "m1": "1M",
+      "m3": "3M",
+      "m6": "6M",
+      "y1": "1Å",
+      "all": "Alle",
+      "custom": "Tilpasset"
+    },
+    "toggle_chart_type": "Skift diagramtype"
   },
   "accept_invite": {
     "title": "Opprett konto",
@@ -2761,5 +2903,122 @@
       "empty": "Ingenting logget denne dagen.",
       "meal_n": "Måltid {n}"
     }
+  },
+  "trace_reply": {
+    "stopped_length": "Svaret ble avbrutt før slutten, så det ble ikke brukt. Prøv igjen, eller be om mindre på en gang.",
+    "stopped_thinking": "Modellen ga sin begrunnelse, men ingen svar. Prøv igjen, eller reduser den logiske begrunnelsen.",
+    "out_of_rounds": "Det tok flere trinn enn en svar tillater, og ingenting ble sendt tilbake. Be om mindre på en gang, for eksempel en kortere tidsperiode."
+  },
+  "server_signin": {
+    "web_page": "Noe annet enn NutriTrace svarte med en nettside: ofte en logginnproxy (Authentik, Authelia, Cloudflare Access), eller så er dette ikke din serverens adresse. La appen nå /api på serveren din.",
+    "options_failed": "Kunne ikke laste inn logginnalternativene for denne serveren. Prøv igjen, eller logg inn med passordet ditt hvis serveren tillater det.",
+    "token_refused": "Denne logginnverifiseringen kunne ikke sjekkes, så den ble stoppet. Hvis serveren din er eldre enn NutriTrace 1.4, oppdater den, eller koble til med passordet ditt.",
+    "retry": "Prøv igjen",
+    "checking": "Sjekker logginnalternativer…",
+    "unreachable": "Kan ikke nå serveren din nå. Sjekk at den kjører, og prøv igjen.",
+    "proxy_web": "Noe foran serveren din ber deg om å logge inn. Logg inn der, og last deretter denne siden på nytt.",
+    "server_error": "Serveren din svarte med en error. Prøv igjen snart."
+  },
+  "plain_http": {
+    "warning_title": "Koble til uten kryptering?",
+    "warning_body": "Denne serveren bruker plain HTTP, så forbindelsen er ikke kryptert. Någon på samme nettverk kan lese og endre det som sendes, inkludert passordet ditt.",
+    "warning_advice": "Bruk bare på hjemmenettverket eller over en VPN.",
+    "connect_anyway": "Koble likevel",
+    "refused_title": "HTTPS nødvendig",
+    "refused_stored": "Ingenting synkroniseres med denne serveren, og appen fortsetter å bruke det som er på denne telefonen. For å bytte til en HTTPS-adresse, kobler du fra i Innstillinger > Serverforbindelse og forbinder på nytt.",
+    "refused_short": "Plain HTTP fungerer bare med en server på eget nettverk. Bruk en https://-adresse for denne serveren.",
+    "https_guide": "Hvordan man setter opp HTTPS",
+    "not_encrypted": "Ikke kryptert",
+    "invalid_address": "Skriv inn en adresse som starter med http:// eller https://, for eksempel https://nutritrace.example.com.",
+    "blocked": "Plain HTTP til {origin} er ikke tillatt. Bruk en https://-adresse, eller en server på eget nettverk.",
+    "warning_stored": "ør du kobler til, synkroniseres ikke noe med denne serveren, og appen fortsetter å fungere med det som er på denne telefonen. Den spør igjen neste gang den åpnes.",
+    "refused_body": "Denne serveren bruker plain HTTP og den er ikke på ditt eget nettverk, så appen vil ikke koble til den. Plain HTTP fungerer kun med en server på en privat ip-addresse, som f.eks 192.168.1.20, eller et lokalt navn, som f.eks nutritrace.local. alle andre steder, bruk HTTPS.",
+    "unreachable": "Kunne ikke nå {url}. sjekk adressen, og at denne telefonen er på samme nettverk eller VPN som serveren."
+  },
+  "diary_rail": {
+    "overview": "Oversikt",
+    "of_goal": "av {value}",
+    "custom": "+ Tilpasset",
+    "weight_empty": "Vekt ikke registrert",
+    "log": "Registrer",
+    "no_measurements": "Ingen målinger registrert i dag",
+    "log_stats": "Registrer statistikk",
+    "edit_weight": "Rediger dagens vekt",
+    "open_summary": "Åpne full næringsoversikt",
+    "view_trend": "Vis trender",
+    "toggle_macros": "Skift mellom prosent og gram",
+    "open_water": "Åpne vannark",
+    "open_stats": "Åpne kroppsstatistikk ark",
+    "remove_entry": "Fjern dette innlegget",
+    "hide_panel": "Skjul widgetpanel",
+    "pin_panel": "Fastsett widgetpanel",
+    "close": "Lukk",
+    "toggle_macros_label": "Skift mellom prosentvis og gramvis visning av Makroer",
+    "remove_entry_label": "Fjern innlegg",
+    "hide_panel_hint": "Skjul widgets (kantfane åpner dem igjen)",
+    "pin_panel_hint": "Fastsett widgets",
+    "close_panel": "Lukk widgetpanel"
+  },
+  "nutriments": {
+    "calories": "Kalorier",
+    "kilojoules": "Kilojouler",
+    "fat": "Fett",
+    "saturated-fat": "Mettet fett",
+    "trans-fat": "Transfett",
+    "polyunsaturated-fat": "Polyumfattet fett",
+    "monounsaturated-fat": "Monoumfortet fett",
+    "cholesterol": "Kolesterol",
+    "sodium": "Natrium",
+    "salt": "Salt",
+    "carbohydrates": "Karbohydrater",
+    "fiber": "Fiber",
+    "sugars": "Sukker",
+    "added-sugars": "Tilført sukker",
+    "proteins": "Protein",
+    "vitamin-d": "Vitamin D",
+    "calcium": "Kalsium",
+    "iron": "Jern",
+    "potassium": "Kalsium",
+    "vitamin-a": "Vitamin A",
+    "vitamin-c": "Vitamin C",
+    "vitamin-e": "Vitamin E",
+    "vitamin-k": "Vitamin K",
+    "b1": "Vitamin B1",
+    "b2": "Vitamin B2",
+    "b3": "Vitamin B3",
+    "b6": "Vitamin B6",
+    "b9": "Folat (B9)",
+    "b12": "Vitamin B12",
+    "magnesium": "Magnesium",
+    "zinc": "Sink",
+    "phosphorus": "Fosfor",
+    "caffeine": "Koffein",
+    "alcohol": "Alkohol"
+  },
+  "body_metrics": {
+    "weight": "Vekt",
+    "neck": "Hals",
+    "waist": "Lende",
+    "hips": "Hofter",
+    "chest": "Bryst",
+    "thighs": "Lår",
+    "biceps": "Biceps",
+    "calves": "Legger",
+    "body_fat": "Kroppsfett",
+    "body_water": "Kroppsvann",
+    "water": "Vann",
+    "muscle": "Muskelmasse"
+  },
+  "wellness_goals": {
+    "steps": "Daglige skritt",
+    "active_minutes": "Aktive minutter",
+    "floors": "Etasjer klatret",
+    "calories_out": "Kalorier forbrent",
+    "sleep_duration_min": "Søvnvarighet",
+    "sleep_efficiency": "Søvneffektivitet",
+    "hrv_daily_rmssd": "HRV (RMSSD)",
+    "weight_kg": "Målvekt",
+    "body_fat_pct": "Mål for kroppsfettprosent",
+    "muscle_mass_kg": "Mål for muskelmasse"
   }
 }
