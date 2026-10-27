@@ -19,6 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **Uploading an Android app's diary to a server no longer sends a webhook for each day.** When an Android app used without a server connected to one, every day it uploaded sent `meal.logged`, `water.logged`, `body_stat.logged` and `goal.achieved` as if logged just then. The Upload now sends none, as restoring a backup never did.
+- **Clone on the web makes a copy again** ([#299](https://github.com/TraceApps/nutritrace/issues/299)). A meal or recipe that came from the Android app said Cloned and made nothing, and cloning a recipe imported from CookTrace renamed the original to "Copy of". Thanks @fatman00.
 - **The unit list stays against its field as you type.** Near the bottom of the screen the unit list opened above the field and, as typing narrowed it to one match, floated rows above it.
 
 ---

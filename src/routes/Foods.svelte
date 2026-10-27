@@ -36,6 +36,7 @@
   import { offCountryTagToFlag, offCountryTagToName } from '../lib/off-country-flag.js';
   import { dateFormat, foodsShowThumbnails, foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsSort, mealsSort, recipesSort, foodCategories, foodsShowYesterdayMeals, foodsYesterdayCollapsed, foodsSavedCollapsed, mealNames, usdaEnabled, usdaApiKey, offEnabled, offSearchCountry, offSearchLanguage, foodsDefaultSource, diaryDefaultField, catName as _catName, catDisplay as _catDisplay, pageBanners, bannerStyle, energyUnit } from '../stores/settings.js';
   import { mealIcon } from '../lib/mealIcon.js';
+  import { cloneOf } from '../lib/clone-item.js';
   import { focusDefaultField } from '../lib/default-field.js';
   import { pageScrollTop, restorePageScroll } from '../lib/scroll-anchor.js';
 
@@ -1504,8 +1505,7 @@
   }
 
   async function cloneItem(item) {
-    const { id: _drop, ...rest } = item;
-    const clone = { ...rest, name: 'Copy of ' + (item.name || ''), created_at: new Date().toISOString() };
+    const clone = cloneOf(item, 'Copy of ' + (item.name || ''));
     if (currentStore === 'foodList') await NtApi.createFood(clone);
     else await NtApi.createMeal(clone);
     await load();
