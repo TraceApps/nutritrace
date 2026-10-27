@@ -87,8 +87,11 @@ test.before(async () => {
     const t = (await j('POST', '/api/auth/login', { username: name, password: PW }, null)).token;
     const all = { ...settings, timezone: 'America/New_York', notifPushService: 'ntfy', ntfyUrl: `http://127.0.0.1:${ntfy.address().port}`, ntfyTopic: `nt-${name}` };
     for (const [key, value] of Object.entries(all)) await j('PUT', '/api/settings', { key, value }, t);
-    // Something for the weekly summary to say.
-    await j('POST', '/api/sync/push', { wellness: [{ date: new Date(NOW - 86400000).toISOString().slice(0, 10), source: 'fitbit', metric_type: 'steps', value: 9000 }] }, t);
+    // Something for the weekly summary to say. Its 7 days come from SQLite's
+    // date('now'), which reads the real clock, not the shim's, so one day is
+    // the day before the shim's and one is today on the real clock.
+    const days = [...new Set([new Date(NOW - 86400000), new Date()].map((d) => d.toISOString().slice(0, 10)))];
+    await j('POST', '/api/sync/push', { wellness: days.map((date) => ({ date, source: 'fitbit', metric_type: 'steps', value: 9000 })) }, t);
   }
   assert.ok(Date.now() < started + 28000, "setup ran past the scheduler's first pass: rerun on a less busy machine");
   // Wait for the first pass: the 23:55 bedtime fires on old and new code alike.
