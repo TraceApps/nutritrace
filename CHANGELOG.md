@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Norwegian** ([#300](https://github.com/TraceApps/nutritrace/issues/300)). Choose Norsk bokmål in Settings > Regional & Units > Language; a browser or phone set to Norwegian picks it on its own. Translated in full on Weblate by @JohannesKi.
 - **More label nutrients** ([#281](https://github.com/TraceApps/nutritrace/issues/281)). Starch, Selenium, Copper, Manganese, Choline, Iodine and Pantothenic Acid (B5) are built in, in the order they appear on a Nutrition Facts label. Open Food Facts and USDA fill them in, and the label scanner reads them.
 
 ### Changed

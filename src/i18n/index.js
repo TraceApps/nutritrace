@@ -8,6 +8,7 @@ register('fr', () => import('./fr.json'));
 register('de', () => import('./de.json'));
 register('es', () => import('./es.json'));
 register('ru', () => import('./ru.json'));
+register('nb', () => import('./nb.json'));
 
 export const AVAILABLE_LOCALES = [
   { code: 'en', label: 'English' },
@@ -15,6 +16,7 @@ export const AVAILABLE_LOCALES = [
   { code: 'de', label: 'Deutsch' },
   { code: 'es', label: 'Español' },
   { code: 'ru', label: 'Русский' },
+  { code: 'nb', label: 'Norsk bokmål' },
 ];
 
 export function initI18n(initialLocale) {
@@ -31,6 +33,8 @@ export function initI18n(initialLocale) {
 function pickInitialLocale() {
   const nav = getLocaleFromNavigator();
   if (!nav) return 'en';
-  const short = nav.split('-')[0];
+  let short = nav.split('-')[0];
+  // Browsers set to Norwegian may say no or nn; the translation is Bokmal.
+  if (short === 'no' || short === 'nn') short = 'nb';
   return AVAILABLE_LOCALES.some(l => l.code === short) ? short : 'en';
 }
