@@ -18,6 +18,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Uploading an Android app's diary to a server no longer sends a webhook for each day.** When an Android app used without a server connected to one, every day it uploaded sent `meal.logged`, `water.logged`, `body_stat.logged` and `goal.achieved` as if logged just then. The Upload now sends none, as restoring a backup never did.
 - **The unit list stays against its field as you type.** Near the bottom of the screen the unit list opened above the field and, as typing narrowed it to one match, floated rows above it.
 
 ---

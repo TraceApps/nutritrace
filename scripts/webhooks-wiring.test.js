@@ -88,7 +88,7 @@ test('a test-delivery endpoint exists so a webhook can be verified without waiti
 });
 
 test('diary.js dispatches meal.logged, water.logged, and body_stat.logged directly, and goal.achieved via the shared helper', () => {
-  assert.match(diaryJs, /import \{ dispatchWebhookEvent \} from '\.\.\/lib\/webhooks\.js'/);
+  assert.match(diaryJs, /import \{ dispatchWebhookEvent, isHistoryUpload \} from '\.\.\/lib\/webhooks\.js'/);
   assert.match(diaryJs, /dispatchWebhookEvent\(u, 'meal\.logged'/);
   assert.match(diaryJs, /dispatchWebhookEvent\(u, 'water\.logged'/);
   assert.match(diaryJs, /dispatchWebhookEvent\(u, 'body_stat\.logged'/);

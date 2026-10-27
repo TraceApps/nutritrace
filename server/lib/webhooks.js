@@ -195,6 +195,25 @@ async function _deliverWithRetry(row, event, data) {
 }
 
 /**
+ * A save that is part of the Android app's Upload (src/lib/migrate.js): a
+ * phone used without a server sending its diary to the server it just
+ * connected to, one PUT /api/diary/:date per day, through the same route
+ * the app and the web log through. That is history arriving, not something
+ * logged now, so it sends no webhooks; before this, every uploaded day sent
+ * meal.logged, water.logged, body_stat.logged and a goal.achieved per goal
+ * it reached.
+ *
+ * The app marks those saves `history_upload: true` (servers before this
+ * one ignore the field). An app from before this one sends its days as
+ * ordinary saves, with nothing that tells them apart, so they still send.
+ */
+export function isHistoryUpload(req) {
+  const body = req?.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  return body.history_upload === true;
+}
+
+/**
  * Fire `event` to every enabled webhook this user has subscribed to it.
  * Fire-and-forget: does not await delivery, callers should not await
  * this either (or if they do, only to know dispatch was scheduled, not

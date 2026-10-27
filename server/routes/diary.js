@@ -4,7 +4,7 @@ import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
 import { mergeEntries } from '../lib/diary-merge.js';
-import { dispatchWebhookEvent } from '../lib/webhooks.js';
+import { dispatchWebhookEvent, isHistoryUpload } from '../lib/webhooks.js';
 import { getGoalsCore } from '../lib/mcp/tools/goals.js';
 import { dailyTotalsCore } from '../lib/mcp/tools/daily-totals.js';
 import { checkNutritionGoalCrossing, checkWaterGoalCrossing } from '../lib/goal-webhook.js';
@@ -203,8 +203,9 @@ router.put('/:date', wrap((req, res) => {
   // Outgoing webhooks. Webhooks require a real account (webhooks.user_id
   // is NOT NULL), so this is naturally a no-op in single-user mode where
   // u is null. Every dispatch is wrapped so a webhook failure can never
-  // block or delay the save above, which has already committed.
-  if (u != null) {
+  // block or delay the save above, which has already committed. None for
+  // a day the app's Upload sends (isHistoryUpload): it is history, not a log.
+  if (u != null && !isHistoryUpload(req)) {
     try {
       const newItems = mergedItems.filter(it => it.uuid && !serverItems.some(s => s.uuid === it.uuid));
       if (newItems.length) dispatchWebhookEvent(u, 'meal.logged', { date, items: newItems });

@@ -222,6 +222,9 @@ export async function uploadLocalToServer({ serverUrl, authToken, onProgress } =
         water:      entry.water      || [],
         // An empty note here leaves the server's day as it is.
         ...(entry.notes ? { notes: entry.notes } : {}),
+        // History, not something logged now: the server sends none of the
+        // day's webhooks (server/lib/webhooks.js isHistoryUpload).
+        history_upload: true,
       });
       if (entry.completed_at) await _put(`${day}/completion`, headers, { completed: true });
       for (const slot of _slots(entry.completed_meals)) await _put(`${day}/meal-completion`, headers, { slot, completed: true });

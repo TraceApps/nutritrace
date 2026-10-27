@@ -37,6 +37,20 @@ signatures on the receiving end and cannot be retrieved again later.
 | `body_stat.logged` | A body-stat value (weight, body fat, a measurement) is logged or updated. |
 | `goal.achieved` | A daily nutrition goal (calories, a macro, or water) crosses from under-target to at-or-above-target on a save. Fires once per metric per crossing, not on every subsequent save that stays above target. |
 
+## What sends them, and what doesn't
+
+Webhooks are for something logged now. These bring in history, and send
+none:
+
+- **Upload**, when an Android app used without a server connects to one
+  and sends the diary it holds. Uploading again sends none either. What
+  you add to an uploaded day afterwards sends what any save sends. This
+  needs the server and the app from after 1.5.0-dev02; an earlier app's
+  Upload still sends `meal.logged`, `water.logged`, `body_stat.logged`
+  and `goal.achieved` for each day it brings, as it always did.
+- Restoring a backup.
+- Importing from MyFitnessPal, Cronometer, Lose It! or a spreadsheet.
+
 ## Payload
 
 Every delivery is a JSON POST with this envelope:
