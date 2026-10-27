@@ -12,6 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { classifyServerAddress, addressOrigin, isLocalHostname } from '../src/lib/local-address.js';
 import { render, OUT, kstr } from './gen-local-address-kotlin-test.mjs';
 
@@ -118,4 +119,21 @@ test('the Kotlin copy keeps the same ranges and suffixes', () => {
     /\(p\[0\] and 0xfe00\) == 0xfc00/, /\(p\[0\] and 0xffc0\) == 0xfe80/]) assert.match(kt, r);
   const js = read('../src/lib/local-address.js');
   assert.match(js, /const LOCAL_SUFFIXES = \['\.local', '\.home\.arpa', '\.internal', '\.lan'\];/);
+});
+
+// The rule, its Kotlin copy, the table, the sheet and its store are the same
+// in NutriTrace, LiftTrace, CookTrace and NoteTrace, and every app pins the
+// same hashes. Change all four copies together, then update the hashes in
+// every app.
+test('the shared plain-HTTP files match the hashes every Trace app pins', () => {
+  const sha = (text) => createHash('sha256').update(text).digest('hex');
+  const kt = read('../android/app/src/main/java/com/nutritrace/app/LocalAddress.kt');
+  assert.match(kt, /^package com\.nutritrace\.app\n/);
+  assert.equal(sha(kt.slice(kt.indexOf('\n') + 1)), 'bfb071278898c51679ed7dd58d8d10251d555070c448a0dbaa05c29c6ceed643', 'LocalAddress.kt');
+  for (const [f, hash] of [
+    ['../src/lib/local-address.js', 'ee27b3544cc630dece2e06923ec3296dca735f52c7e6cf686b6a790d36570756'],
+    ['./fixtures/local-address-cases.json', 'c3b925bfad27e1689815669678db0399da106b1082aea710c950a5a84dc7e43f'],
+    ['../src/stores/plainHttp.js', 'b8fc00b5e1cdd1a2bd7bd141032471ed4465258d4c47ce0a35e6d2e3aa686307'],
+    ['../src/components/ui/PlainHttpSheetMount.svelte', 'e8d8d5853b0b7e40411d57a8da7c8ed405b0cb0288b0371506c3649f4d59aac2'],
+  ]) assert.equal(sha(read(f)), hash, f);
 });
