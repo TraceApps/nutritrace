@@ -54,22 +54,64 @@ export async function sendWithLengthFallback(body, send) {
 }
 
 /**
+ * Send a request with `send(body)` ({ ok, status, data }), and once more,
+ * the same request, when the reply came back with no words and no tool call
+ * (TraceApps/nutritrace#286). Only this one request goes again: a tool that
+ * ran earlier in the turn never runs twice. A second try that fails or
+ * throws (a cancel aside) gives the first reply back, so the caller says it
+ * was empty.
+ */
+export async function resendIfEmpty(format, body, send) {
+  const first = await send(body);
+  if (!first.ok || stoppedShort(format, first.data) !== 'empty') return first;
+  let again;
+  try { again = await send(body); } catch (e) {
+    if (e?.name === 'AbortError') throw e; // stopped by the person: not an empty answer
+    return first;
+  }
+  return again.ok ? again : first;
+}
+
+/** One request for a reply: the reply length as above, and an empty reply asked for once more. */
+export function sendForReply(format, body, send) {
+  return sendWithLengthFallback(body, (b) => resendIfEmpty(format, b, send));
+}
+
+// Words, not just spaces: OpenAI's content is a string, or a list of parts.
+const hasWords = (text) => typeof text === 'string' && text.trim() !== '';
+const contentWords = (content) => Array.isArray(content)
+  ? content.some(p => hasWords(typeof p === 'string' ? p : p?.text))
+  : hasWords(content);
+
+/**
  * Why a reply stopped short, or null: 'length' when it reached its limit
  * before the end, 'thinking' when a reasoning model gave its reasoning and
- * no answer. `format` is the reply's: 'openai', 'claude' or 'gemini'.
+ * no answer, 'empty' when it came back with no words and no tool call.
+ * `format` is the reply's: 'openai', 'claude' or 'gemini'.
  */
 export function stoppedShort(format, data) {
-  if (format === 'claude') return data?.stop_reason === 'max_tokens' ? 'length' : null;
-  if (format === 'gemini') return data?.candidates?.[0]?.finishReason === 'MAX_TOKENS' ? 'length' : null;
+  if (format === 'claude') {
+    if (data?.stop_reason === 'max_tokens') return 'length';
+    const blocks = Array.isArray(data?.content) ? data.content : [];
+    return blocks.some(b => b?.type === 'tool_use' || (b?.type === 'text' && hasWords(b.text))) ? null : 'empty';
+  }
+  if (format === 'gemini') {
+    const candidate = data?.candidates?.[0];
+    if (candidate?.finishReason === 'MAX_TOKENS') return 'length';
+    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+    return parts.some(p => p?.functionCall || hasWords(p?.text)) ? null : 'empty';
+  }
   const choice = data?.choices?.[0];
   const msg = choice?.message || {};
-  if (!msg.content && !msg.tool_calls?.length && (msg.reasoning_content || msg.reasoning)) return 'thinking';
-  return /^(length|max_tokens)$/i.test(String(choice?.finish_reason || '')) ? 'length' : null;
+  if (!contentWords(msg.content) && !msg.tool_calls?.length && (msg.reasoning_content || msg.reasoning)) return 'thinking';
+  if (/^(length|max_tokens)$/i.test(String(choice?.finish_reason || ''))) return 'length';
+  return msg.tool_calls?.length || contentWords(msg.content) ? null : 'empty';
 }
 
 const SAID = {
   length: "The reply was cut off before the end, so it wasn't used. Try again, or ask for less at once.",
   thinking: 'The model gave its reasoning but no answer. Try again, or turn its reasoning down.',
+  empty: "The model sent back an empty answer. Anything Trace already did this turn is kept, so check before asking again.",
 };
 
 /** The error for a reply that stopped short; its `code` lets the app say it in its own language. */

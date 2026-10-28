@@ -4,7 +4,7 @@ import { wrap } from '../logger.js';
 import { getAiConfig } from '../ai.js';
 import { makeRateLimiter } from '../middleware/rate-limit.js';
 import { getOpenAIChatParams, openAIBase } from '../lib/openai-chat-params.js';
-import { REPLY_MAX_TOKENS, sendWithLengthFallback, stoppedShort, stoppedShortError } from '../lib/trace-reply.js';
+import { REPLY_MAX_TOKENS, sendForReply, stoppedShort, stoppedShortError } from '../lib/trace-reply.js';
 import { toolMessagesForOpenAI, toolNameFor, rememberToolCalls } from '../lib/tool-messages.js';
 import { geminiToolResponse } from '../lib/gemini-tool-response.js';
 import { createToolSupportMemory, sendWithToolFallback } from '../lib/tool-support.js';
@@ -273,7 +273,8 @@ async function _callClaude(apiKey, model, messages, systemPrompt, tools, toolsOf
   if (claudeTools.length) body.tools = claudeTools;
   if (toolsOff && claudeTools.length) body.tool_choice = { type: 'none' };
 
-  const sent = await sendWithLengthFallback(body, async (b) => {
+  // An empty reply is asked for once more (lib/trace-reply.js).
+  const sent = await sendForReply('claude', body, async (b) => {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -288,7 +289,8 @@ async function _callClaude(apiKey, model, messages, systemPrompt, tools, toolsOf
   const data = sent.data;
   if (!sent.ok) throw new Error(data.error?.message || `Claude API error ${sent.status}`);
   const short = stoppedShort('claude', data);
-  if (short) throw stoppedShortError(short);
+  // The last round: nothing at all goes back as no text, and the app says it ran out of rounds.
+  if (short && !(toolsOff && short === 'empty')) throw stoppedShortError(short);
 
   const blocks    = data.content || [];
   const toolUses  = blocks.filter(b => b.type === 'tool_use');
@@ -337,7 +339,8 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
   if (openaiTools.length) body.tools = openaiTools;
   if (toolsOff && openaiTools.length) body.tool_choice = 'none';
 
-  const send = (req) => sendWithLengthFallback(req, async (b) => {
+  // An empty reply is asked for once more (lib/trace-reply.js).
+  const send = (req) => sendForReply('openai', req, async (b) => {
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -360,7 +363,8 @@ async function _callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl
   const { ok, status, data, toolsDropped, toolsRouted } = sent;
   if (!ok) throw new Error(data.error?.message || `OpenAI API error ${status}`);
   const short = stoppedShort('openai', data);
-  if (short) throw stoppedShortError(short);
+  // The last round: nothing at all goes back as no text, and the app says it ran out of rounds.
+  if (short && !(toolsOff && short === 'empty')) throw stoppedShortError(short);
 
   const msg = data.choices?.[0]?.message || {};
   if (toolsOff || !msg.tool_calls || msg.tool_calls.length === 0) {
@@ -399,15 +403,20 @@ async function _callGemini(apiKey, model, messages, systemPrompt, tools, toolsOf
     if (toolsOff) body.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
   }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+  // An empty reply is asked for once more (lib/trace-reply.js).
+  const sent = await sendForReply('gemini', body, async (b) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(b),
+    });
+    return { ok: res.ok, status: res.status, data: await res.json() };
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || `Gemini API error ${res.status}`);
+  const data = sent.data;
+  if (!sent.ok) throw new Error(data.error?.message || `Gemini API error ${sent.status}`);
   const short = stoppedShort('gemini', data);
-  if (short) throw stoppedShortError(short);
+  // The last round: nothing at all goes back as no text, and the app says it ran out of rounds.
+  if (short && !(toolsOff && short === 'empty')) throw stoppedShortError(short);
 
   const parts = data.candidates?.[0]?.content?.parts || [];
   const fnCalls = parts.filter(p => p.functionCall);

@@ -1890,6 +1890,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       const reply = aiEnvLocked
         ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall, onToolsUnsupported })
         : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall, onToolsUnsupported });
+      // No words: said as an error, never shown or saved as a blank answer (#286).
+      if (!String(reply ?? '').trim()) throw new Error($_('trace_reply.stopped_empty'));
       messages = [...messages, { role: 'assistant', content: reply, time: fmtTime() }];
       if (toolsNote) messages = toolsNotice.add(messages, $_(toolsNote));
       // Persist assistant reply to server (best-effort)

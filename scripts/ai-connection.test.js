@@ -106,7 +106,7 @@ test('a provider the browser can\'t read says what to check, not "Failed to fetc
 
 test('direct provider requests go through fetchProvider', () => {
   const chat = read('../src/lib/aiChat.js');
-  for (const call of ["fetchProvider('https://api.anthropic.com/v1/messages'", 'fetchProvider(`${baseUrl}/v1/chat/completions`', 'const res = await fetchProvider(url, {']) {
+  for (const call of ["fetchProvider('https://api.anthropic.com/v1/messages'", 'fetchProvider(`${baseUrl}/v1/chat/completions`', 'const r = await fetchProvider(url, {']) {
     assert.ok(chat.includes(call), call);
   }
   const rest = chat.replace(/export async function fetchProvider[\s\S]*?\n\}\n/, '');
