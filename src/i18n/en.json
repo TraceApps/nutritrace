@@ -820,6 +820,9 @@
       "date": "Date",
       "tomorrow": "Tomorrow"
     },
+    "shortcut": {
+      "water_hidden": "Water is hidden in the Diary. Turn on Show In Diary to log it."
+    },
     "empty": {
       "tap_to_add_food": "Tap to add food"
     },
@@ -917,6 +920,10 @@
     }
   },
   "foods": {
+    "shortcut": {
+      "change": "Change",
+      "change_aria": "Change the meal or day"
+    },
     "prev_day": {
       "section_yesterday": "Yesterday's Meals",
       "section_from": "From {day}",

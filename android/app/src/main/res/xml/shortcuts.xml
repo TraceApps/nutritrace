@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon (#278): scan a barcode or log a food for the meal
+     of this time of day, or log water or weight, all for today. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="barcode"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_barcode"
+        android:shortcutShortLabel="@string/shortcut_barcode">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.nutritrace.app"
+            android:targetClass="com.nutritrace.app.MainActivity"
+            android:data="nutritrace://new/barcode" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="food"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_food"
+        android:shortcutShortLabel="@string/shortcut_food">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.nutritrace.app"
+            android:targetClass="com.nutritrace.app.MainActivity"
+            android:data="nutritrace://new/food" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="water"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_water"
+        android:shortcutShortLabel="@string/shortcut_water">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.nutritrace.app"
+            android:targetClass="com.nutritrace.app.MainActivity"
+            android:data="nutritrace://new/water" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="weight"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_weight"
+        android:shortcutShortLabel="@string/shortcut_weight">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.nutritrace.app"
+            android:targetClass="com.nutritrace.app.MainActivity"
+            android:data="nutritrace://new/weight" />
+    </shortcut>
+</shortcuts>

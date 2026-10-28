@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
-  import { push, location } from 'svelte-spa-router';
+  import { push, replace, location } from 'svelte-spa-router';
   import { _, locale } from 'svelte-i18n';
   import { closeOnBack } from '../lib/back-stack.js';
   import { fade, fly, slide } from 'svelte/transition';
@@ -11,6 +11,7 @@
   import Dialog      from '../components/ui/Dialog.svelte';
   import Sheet       from '../components/ui/Sheet.svelte';
   import FoodDetailSheet from '../components/ui/FoodDetailSheet.svelte';
+  import DayPicker   from '../components/ui/DayPicker.svelte';
   import { deleteCatalogItem, catalogKindForTab, markCatalogItemUsed, countsUseHere } from '../lib/catalog-kind.js';
   import UnitPicker  from '../components/ui/UnitPicker.svelte';
   import { portal } from '../lib/portal.js';
@@ -39,6 +40,7 @@
   import { mealIcon } from '../lib/mealIcon.js';
   import { cloneOf } from '../lib/clone-item.js';
   import { focusDefaultField } from '../lib/default-field.js';
+  import { rememberFoodsTab, lastFoodsTab } from '../lib/app-shortcut.js';
   import { pageScrollTop, restorePageScroll } from '../lib/scroll-anchor.js';
 
   // Query string params
@@ -53,6 +55,10 @@
   $: pickMode  = params.pick === '1';
   $: pickMeal  = params.meal;
   $: pickDate  = params.date;
+  // Opened by the Scan Barcode or Log Food shortcut (#278, lib/app-shortcut.js):
+  // the same add screen, naming where the food goes, with the meal and day
+  // open to change. The Diary's + (no via) is unchanged.
+  $: viaShortcut = pickMode && params.via === 'shortcut';
 
   $: TABS = $locale ? [
     { label: $_('foods.tabs.foods'),   value: 'foodList' },
@@ -82,7 +88,9 @@
   // Reset scroll so the new tab starts from the top.
   // Click handler runs BEFORE bind propagation, so first reset happens before
   // reactive blocks/DOM updates fire. rAF pass catches any restore after layout.
-  function onTabChange() {
+  function onTabChange(e) {
+    // The tab used last, for the Log Food shortcut (#278).
+    rememberFoodsTab(TABS.findIndex(t => t.value === e?.detail?.value));
     const reset = () => {
       const sc = document.querySelector('.page-transition') || document.scrollingElement || document.documentElement;
       if (sc) sc.scrollTop = 0;
@@ -1132,6 +1140,35 @@
     return $_(key, { values: { meal, ...dayValues(pickDate || localDateStr(), { lang: $language }) } });
   }
 
+  // Shortcut mode (#278): change where the food goes. The meal sheet with the
+  // day picker, as Add to Diary on a food's sheet has; the address follows,
+  // so the editor and a reload keep the choice, and so does the Diary's day,
+  // which is where adding comes back to.
+  // Named from its parts, so it follows a change (a call alone wouldn't).
+  $: _destText = viaShortcut ? $_('foods.detail.adding_to_day', { values: {
+    meal: ($mealNames || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'])[Number(pickMeal) || 0] || 'meal',
+    ...dayValues(pickDate || localDateStr(), { lang: $language }),
+  } }) : '';
+  let _scanOnOpen = false;
+  let _destOpen = false;
+  let _destDay = '';
+  $: _destActions = ($mealNames || ['Breakfast', 'Lunch', 'Dinner', 'Snacks']).map((label, value) => ({
+    label, value, icon: value === (Number(pickMeal) || 0) ? 'check' : mealIcon(label),
+  }));
+  function openDestination() {
+    _destDay = pickDate || localDateStr();
+    _destOpen = true;
+  }
+  function onDestinationPicked(e) {
+    pickMeal = String(Number(e.detail?.value) || 0);
+    pickDate = _destDay || pickDate || localDateStr();
+    _syncShortcutUrl();
+    if ($diaryDate !== pickDate) loadEntry(pickDate);
+  }
+  function _syncShortcutUrl() {
+    replace('/foods?' + new URLSearchParams({ pick: '1', meal: String(Number(pickMeal) || 0), date: pickDate || localDateStr(), via: 'shortcut' }).toString());
+  }
+
   function openMealEditor(item, isRecipe) {
     _saveScrollState();
     editorState.mealPrefill  = item ? { ...item } : null;
@@ -1299,7 +1336,7 @@
         showToast($_('foods.toast.meal_stale_ingredients', {
           values: { names: stale.join(', ') },
         }), 6000, 'info');
-      } else if (stay) {
+      } else if (stay || viaShortcut) {
         showSuccess(_addedToMsg('foods.detail.added_to_day'));
       } else {
         showSuccess($_('foods.toast.added_to_diary'));
@@ -1347,7 +1384,8 @@
         showSuccess(_addedToMsg('foods.detail.added_to_day'));
         return;
       }
-      import('../stores/toast.js').then(m => m.showSuccess($_('foods.toast.added_to_diary')));
+      const done = viaShortcut ? _addedToMsg('foods.detail.added_to_day') : $_('foods.toast.added_to_diary');
+      import('../stores/toast.js').then(m => m.showSuccess(done));
       history.back();
     } finally {
       _addingToDiary = false;
@@ -1915,6 +1953,18 @@
         _planSource = plan.source;
       }
     }
+    // A shortcut (#278): Scan Barcode opens the scanner on Foods, once (off
+    // the address, so coming back from the editor doesn't scan again); Log
+    // Food opens on the tab used last. Coming back keeps the tab it had.
+    if (viaShortcut && editorState.foodsActiveTab == null) {
+      if (params.scan === '1') {
+        activeTab = 0;
+        _scanOnOpen = true;
+      } else {
+        activeTab = lastFoodsTab();
+      }
+    }
+    if (viaShortcut && params.scan) _syncShortcutUrl();
     // Restore tab before load so the right list is fetched
     if (editorState.foodsActiveTab != null) {
       activeTab = editorState.foodsActiveTab;
@@ -1922,6 +1972,8 @@
     }
     // Load local data FIRST — don't block on server calls
     await load();
+    // After the load, so a scan finds a food already saved (#278).
+    if (_scanOnOpen) { _scanOnOpen = false; scannerOpen = true; }
     await loadYesterdayMeals();
     // Sharing status from server — non-blocking, updates UI when ready
     refreshSharingStatus();
@@ -2086,6 +2138,15 @@
       </button>
     {/if}
   </header>
+
+  {#if viaShortcut}
+    <!-- #278: from a shortcut, where the food goes, and a way to change it. -->
+    <button type="button" class="shortcut-destination" on:click={openDestination} aria-label={$_('foods.shortcut.change_aria')}>
+      <span class="material-symbols-rounded" aria-hidden="true">event</span>
+      <span class="sd-text">{_destText}</span>
+      <span class="sd-change">{$_('foods.shortcut.change')}</span>
+    </button>
+  {/if}
 
   <!-- Tabs + Search (sticky below header) -->
   <div class="foods-sticky-bar">
@@ -2794,8 +2855,9 @@
 <!-- Quantity prompt sheet -->
 <Sheet bind:open={showQtyPrompt} title={promptFood ? promptFood.name : 'Add to Diary'}>
   <div style="display:flex;flex-direction:column;gap:16px;padding-top:8px" on:keydown={_onQtyPromptKey}>
-    {#if !pickMode && showQtyPrompt}
-      <!-- #267: where it goes, as chosen on the food's sheet. -->
+    {#if (!pickMode || viaShortcut) && showQtyPrompt}
+      <!-- #267: where it goes, as chosen on the food's sheet (or, from a
+           shortcut, on this page: #278). -->
       <div class="qty-destination">
         <span class="material-symbols-rounded">event</span>
         <span>{_addedToMsg('foods.detail.adding_to_day')}</span>
@@ -2983,6 +3045,12 @@
 </Sheet>
 
 <BarcodeScanner bind:open={scannerOpen} on:scan={handleScan} on:close={() => scannerOpen = false} />
+
+{#if viaShortcut}
+  <ActionSheet bind:open={_destOpen} title={$_('foods.detail.add_to_which_meal')} actions={_destActions} on:select={onDestinationPicked}>
+    <svelte:fragment slot="header"><div class="dest-day"><DayPicker bind:value={_destDay} /></div></svelte:fragment>
+  </ActionSheet>
+{/if}
 
 <!-- Barcode-lookup loading overlay. Deferred reveal (see _armScanIndicator
      above) means fast lookups don't flash this UI; only lookups that run
@@ -3230,6 +3298,23 @@
     font-size: 14px; color: var(--text-2);
   }
   .qty-destination .material-symbols-rounded { font-size: 18px; color: var(--accent); }
+
+  /* #278: where a shortcut's food goes, tap to change. */
+  .shortcut-destination {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; margin: 0 0 10px; padding: 10px 14px;
+    min-height: 44px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-md);
+    color: var(--text-1); font-size: 14px; font-weight: 600; text-align: left;
+    cursor: pointer;
+  }
+  .shortcut-destination .material-symbols-rounded { font-size: 20px; color: var(--accent); flex-shrink: 0; }
+  .shortcut-destination .sd-text { flex: 1; min-width: 0; }
+  .shortcut-destination .sd-change { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+  .shortcut-destination:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dest-day { padding: 0 0 4px; }
 
   /* Notes display in quick-add sheets */
   .qty-notes {

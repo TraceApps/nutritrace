@@ -30,6 +30,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
 
             <!-- Health Connect permissions rationale -->
             <intent-filter>
@@ -46,6 +47,8 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="nutritrace" android:host="callback" />
                 <data android:scheme="nutritrace" android:host="oidc-callback" />
+                <!-- Not nutritrace://new: the app icon's shortcuts (#278) open it
+                     with explicit intents, and no web page needs to. -->
             </intent-filter>
 
         </activity>

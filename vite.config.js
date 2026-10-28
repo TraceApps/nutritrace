@@ -130,6 +130,15 @@ export default defineConfig({
         // at root (`/`) or at a subpath (`/nutritrace/`) without rebuilding.
         start_url: './',
         scope: './',
+        // Long-press the installed app's icon (#278): scan a barcode or log a
+        // food for the meal of this time of day, or log water or weight
+        // (src/lib/app-shortcut.js).
+        shortcuts: [
+          { name: 'Scan Barcode', short_name: 'Scan Barcode', url: './#/?new=barcode', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
+          { name: 'Log Food', short_name: 'Log Food', url: './#/?new=food', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
+          { name: 'Log Water', short_name: 'Log Water', url: './#/?new=water', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
+          { name: 'Log Weight', short_name: 'Log Weight', url: './#/?new=weight', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
+        ],
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

@@ -53,6 +53,7 @@ NutriTrace runs as a single Docker container on your own hardware, with a PWA fo
 ## Features
 
 - **Diary + meal logging.** Configurable meal slots, per-meal ⋮ menu, Select Multiple to move, copy or delete several items, copies that repeat for the next days, any day (Yesterday, Today, Tomorrow or a date) when adding, moving or copying, Split Recipe, IF tracker widget. [Full guide](https://traceapps.github.io/docs/nutritrace/diary/).
+- **App icon shortcuts.** Long-press the app icon (Android, or the installed web app) for Scan Barcode, Log Food, Log Water and Log Weight. Scanning and logging a food start on today's meal for the time of day, named on the screen with Change to pick another meal or day. [Full guide](https://traceapps.github.io/docs/nutritrace/diary/#app-icon-shortcuts).
 - **Foods, meals, recipes.** Personal database, source filter chips, OFF + USDA quality signals (v1.0.3), Scan Label AI OCR. [Full guide](https://traceapps.github.io/docs/nutritrace/foods/).
 - **Goals + Adaptive TDEE.** Fixed/Dynamic/Adaptive modes, 7,700 kcal/kg regression math. [Full guide](https://traceapps.github.io/docs/nutritrace/goals/).
 - **Wellness integrations (4).** Fitbit (via Google Health), Withings, Garmin, Health Connect, plus Trace-computed Sleep/Readiness/Resilience scores. [Full guide](https://traceapps.github.io/docs/nutritrace/wellness/).

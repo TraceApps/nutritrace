@@ -11,6 +11,7 @@
   import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
   import { responseJson, discoverSignIn, statusError, serverProblem } from '../lib/server-signin.js';
   import CookieWarning from '../components/ui/CookieWarning.svelte';
+  import { isShortcutHash } from '../lib/app-shortcut.js';
 
   let username = '';
   let password = '';
@@ -107,6 +108,8 @@
   });
 
   async function biometricLogin() {
+    // An app icon shortcut waiting under this screen (#278) opens once signed in.
+    const shortcutWaiting = isShortcutHash(window.location.hash);
     try {
       const bio = await import('../lib/biometric.js');
       const ok = await bio.authenticate($_('login.biometric.prompt'));
@@ -132,7 +135,7 @@
       }
       currentUser.set(cached);
       await loadServerSettings();
-      push('/');
+      if (!shortcutWaiting) push('/');
     } catch (e) {
       console.warn('[login] biometric flow failed:', e);
       showError($_('login.biometric.failed'));
@@ -171,6 +174,9 @@
 
   async function login() {
     if (!username.trim() || !password) return;
+    // An app icon shortcut waiting under this screen (#278) opens once signed
+    // in: read now, as the Diary may take it (and change the address) first.
+    const shortcutWaiting = isShortcutHash(window.location.hash);
     loading = true;
     try {
       const res = await fetch(apiUrl('/api/auth/login'), {
@@ -219,7 +225,7 @@
       }
       signInProblem.set(null);
       await loadServerSettings();
-      push('/');
+      if (!shortcutWaiting) push('/');
     } catch(e) {
       showError($_('common.errors.cant_reach_server'));
     } finally {

@@ -524,5 +524,7 @@ test('Foods: Add to Diary logs to the picked day on every path, pick mode untouc
   const add = foods.slice(foods.indexOf('async function _addFoodToDiary('), foods.indexOf('function toggleSelect'));
   assert.match(add, /if \(!pickMode\) \{[\s\S]*?showSuccess\(_addedToMsg\('foods\.detail\.added_to_day'\)\);\s*return;\s*\}[\s\S]*history\.back\(\);/);
   assert.match(foods, /\$: pickDate  = params\.date;/, 'pick mode keeps the Diary\'s date from the link');
-  assert.match(foods, /\{#if !pickMode && showQtyPrompt\}[\s\S]*?foods\.detail\.adding_to_day/);
+  // From the Diary's + (pick mode) the sheet names no day, as before; from a
+  // food's sheet, or a shortcut's add screen (#278), it does.
+  assert.match(foods, /\{#if \(!pickMode \|\| viaShortcut\) && showQtyPrompt\}[\s\S]*?foods\.detail\.adding_to_day/);
 });

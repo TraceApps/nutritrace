@@ -1,4 +1,5 @@
 <script>
+  import { defaultMealTime } from '../../lib/meal-by-time.js';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
@@ -18,7 +19,8 @@
   let _notifWaterInt = DB.getSetting('notifWaterInterval',   120);
   let _notifMeals    = DB.getSetting('notifMealReminders',   false);
   let _notifMealTimes = DB.getSetting('notifMealTimes', ['08:00','12:00','18:00']);
-  function _defaultMealTime(i) { return ['08:00','12:00','18:00','15:00','10:00','20:00'][i] || '12:00'; }
+  // Shared with the shortcuts' meal for the time of day (#278).
+  const _defaultMealTime = defaultMealTime;
   let _notifGoals    = DB.getSetting('notifGoalCelebrations', false);
   let _notifSteps    = DB.getSetting('notifStepGoal',        false);
   let _notifWeighIn  = DB.getSetting('notifWeighIn',         false);

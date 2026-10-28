@@ -2,7 +2,7 @@
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { fold } from '../lib/fold.js';
-  import { push } from 'svelte-spa-router';
+  import { push, replace, querystring } from 'svelte-spa-router';
   import { _, locale } from 'svelte-i18n';
   import { tr } from '../lib/i18n-label.js';
   import DatePicker from '../components/ui/DatePicker.svelte';
@@ -23,6 +23,8 @@
   import QuickCaloriesSheet from '../components/diary/QuickCaloriesSheet.svelte';
   import FastingWidget from '../components/diary/FastingWidget.svelte';
   import { mealIcon } from '../lib/mealIcon.js';
+  import { shortcutFromQuery, shortcutPickRoute } from '../lib/app-shortcut.js';
+  import { mealForTime } from '../lib/meal-by-time.js';
   import Sheet        from '../components/ui/Sheet.svelte';
   import Dialog       from '../components/ui/Dialog.svelte';
   import ActionSheet  from '../components/ui/ActionSheet.svelte';
@@ -932,6 +934,39 @@
     const scrollContainer = document.querySelector('.page-transition');
     editorState.diaryScrollY = scrollContainer ? scrollContainer.scrollTop : 0;
     push('/foods?pick=1&meal=' + mealIdx + '&date=' + $currentDate);
+  }
+
+  // ── App icon shortcuts (#278): /?new=barcode|food|water|weight ──────────
+  // lib/app-shortcut.js. Each is for today. Scan Barcode and Log Food open
+  // the add screen the + opens, for the meal of this time of day
+  // (lib/meal-by-time.js), which names it and lets it change; Log Water and
+  // Log Weight open their sheets here.
+  $: _openShortcut(shortcutFromQuery($querystring));
+  async function _openShortcut(kind) {
+    if (!kind) return;
+    // Off the address first, so going back here doesn't open it again.
+    replace('/');
+    // One at a time: another shortcut's sheet, still open, closes.
+    showWaterQuickAdd = false;
+    diaryShowBodyStats.set(false);
+    const today = localDateStr();
+    if ($currentDate !== today || $currentEntry?.date !== today) await loadEntry(today);
+    await tick();
+    if (kind === 'barcode' || kind === 'food') {
+      const reminderTimes = DB.getSetting('notifMealReminders', false) ? (DB.getSetting('notifMealTimes', null) || []) : null;
+      const meal = mealForTime($mealNames || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'], { reminderTimes });
+      // A fresh visit: not the tab or scroll an earlier trip to the food
+      // editor left behind (the editor's save comes back here, not to Foods).
+      editorState.foodsActiveTab = null;
+      editorState.foodsScrollY = null;
+      push(shortcutPickRoute({ kind, meal, date: today }));
+    } else if (kind === 'water') {
+      // Water hidden in Settings: say where it is turned on, never a blank screen.
+      if (_waterShowInDiary) _lockAndOpen(() => showWaterQuickAdd = true);
+      else { showInfo($_('diary.shortcut.water_hidden')); push('/settings/water'); }
+    } else if (kind === 'weight') {
+      openBodyStats();
+    }
   }
 
   // ── Quick Calories sheet — Fitbit-style "log just a calorie number" entry

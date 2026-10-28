@@ -4,4 +4,8 @@
     <string name="title_activity_main">NutriTrace</string>
     <string name="package_name">com.nutritrace.app</string>
     <string name="custom_url_scheme">com.nutritrace.app</string>
+    <string name="shortcut_barcode">Scan Barcode</string>
+    <string name="shortcut_food">Log Food</string>
+    <string name="shortcut_water">Log Water</string>
+    <string name="shortcut_weight">Log Weight</string>
 </resources>
