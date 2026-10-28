@@ -2,6 +2,7 @@ import { writable, get, derived } from 'svelte/store';
 import { DB } from '../lib/db.js';
 import { noteCoachingSignature } from './coaching.js';
 import { FIRST_DAY_DEFAULT, resolveFirstDay } from '../lib/week.js';
+import { FACTS_COLUMN_DEFAULT } from '../lib/facts-column.js';
 
 // Verbose settings sync logs gated on dev OR opt-in verbose mode
 // (Settings → Diagnostics → Verbose diagnostic logging).
@@ -40,6 +41,7 @@ export const USER_PREFS = new Set([
   'foodsShowCategories','foodsShowLabels','foodsShowNotes','foodsShowThumbnails',
   'foodsShowYesterdayMeals','foodsYesterdayCollapsed','foodsSavedCollapsed','foodsSort','mealsSort','recipesSort',
   'foodsDefaultSource',
+  'nutritionFactsColumn',
   'updateCheckInterval', // hours between checks: 1, 4, 12, 24, or 0 for manual only
   'barcodeBeep','cropPhotos',
   'offEnabled','offSearchLanguage','offSearchCountry','offUploadCountry','offImportPortion',
@@ -652,6 +654,9 @@ export const recipesSort            = createSettingStore('recipesSort',         
 // (requested via #128). Foods.svelte reads this on mount and initialises
 // searchSource from it.
 export const foodsDefaultSource     = createSettingStore('foodsDefaultSource',     'local');
+// Right-hand column of the Nutrition Facts label: 'dv' (% Daily Value) or
+// 'per100' (Per 100 g / 100 ml), #297. See lib/facts-column.js.
+export const nutritionFactsColumn   = createSettingStore('nutritionFactsColumn',   FACTS_COLUMN_DEFAULT);
 
 // Hours between automatic update checks. 0 = manual only (Settings →
 // Updates → Check now is the only way). Also gates the visibility-change

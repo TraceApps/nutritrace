@@ -299,3 +299,65 @@ export function scaleFactor(origPortion, origUnit, newPortion, newUnit, food = n
   // cross-system picks on foods without density).
   return newP / origP;
 }
+
+/**
+ * A serving as grams or milliliters, for the Nutrition Facts label's
+ * "Per 100 g" column (#297). Returns { amount, basis } with basis 'g' or
+ * 'ml', or null when the serving can't be weighed ("1 piece" with no grams
+ * for a piece, a custom unit, a zero or missing amount).
+ *
+ * Same resolution as scaleFactor, minus its plain-ratio fallback:
+ *   1. The food's own alt_units row (slice = 35 g). Grams, or milliliters
+ *      through density_g_ml for a food whose nutrition_basis is 'ml'.
+ *   2. The unit table. The answer is in the food's nutrition_basis when it
+ *      has one, so a drink labeled per 100 ml reads "Per 100 ml" even when
+ *      Open Food Facts imported it as "100 g". Density bridges grams and
+ *      milliliters; without it the bridge is UNIT_TO_G's 1 ml = 1 g, the
+ *      same one the rest of the app uses.
+ */
+export function servingInBase(portion, unit, food = null) {
+  const p = Number(portion);
+  if (!Number.isFinite(p) || p <= 0) return null;
+  const basis = food?.nutrition_basis === 'g' || food?.nutrition_basis === 'ml'
+    ? food.nutrition_basis : null;
+  const d = Number(food?.density_g_ml);
+  const hasDensity = Number.isFinite(d) && d > 0;
+
+  const alt = food ? altUnitGrams(food.alt_units, unit) : null;
+  if (alt != null) {
+    if (basis === 'ml') return { amount: hasDensity ? p * alt / d : p * alt, basis: 'ml' };
+    return { amount: p * alt, basis: 'g' };
+  }
+
+  const perUnit = unitToGrams(unit);
+  const system = unitSystem(unit);
+  if (perUnit == null || !system) return null;
+  const amount = p * perUnit;
+  if (!basis || basis === system) return { amount, basis: system };
+  if (!hasDensity) return { amount, basis }; // 1 ml = 1 g
+  return basis === 'g'
+    ? { amount: amount * d, basis: 'g' }   // ml -> g
+    : { amount: amount / d, basis: 'ml' }; // g -> ml
+}
+
+/**
+ * The whole of a meal's items as grams or milliliters, for the same column.
+ * Each item is weighed with servingInBase against its own food data
+ * (items carry their food's alt_units, density and basis). Null when any
+ * item can't be weighed or when the items mix grams and milliliters, since
+ * a meal's total weight is then unknown.
+ */
+export function itemsInBase(items) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  let total = 0;
+  let basis = null;
+  for (const it of items) {
+    const q = Number(it?.quantity);
+    const s = servingInBase(Number(it?.portion) * (Number.isFinite(q) && q > 0 ? q : 1), it?.unit, it);
+    if (!s) return null;
+    if (basis && s.basis !== basis) return null;
+    basis = s.basis;
+    total += s.amount;
+  }
+  return total > 0 ? { amount: total, basis } : null;
+}

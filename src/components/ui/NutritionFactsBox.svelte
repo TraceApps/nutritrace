@@ -27,6 +27,12 @@
    *                         AI proposal cards so the user sees everything
    *                         the model estimated, not just their normal
    *                         daily-view subset.
+   *   portion, unit, food: the serving the values are for, so the right
+   *                         column can read "Per 100 g" instead of % Daily
+   *                         Value when the user picks that (#297). `food`
+   *                         carries alt_units / density_g_ml /
+   *                         nutrition_basis; units without a weight leave
+   *                         the column blank, like a nutrient with no %DV.
    */
   import {
     NUTRIMENTS, DEFAULT_VISIBLE_NUTRIMENT_IDS,
@@ -34,7 +40,9 @@
     energyLabel, energyUnitSuffix,
     Nutrition,
   } from '../../lib/nutrition.js';
-  import { visibleNutriments, energyUnit } from '../../stores/settings.js';
+  import { visibleNutriments, energyUnit, nutritionFactsColumn } from '../../stores/settings.js';
+  import { servingInBase, amountAndUnit } from '../../lib/units.js';
+  import { factsColumn, per100 } from '../../lib/facts-column.js';
 
   export let nutrition = {};
   export let servings = null;
@@ -42,6 +50,25 @@
   export let servingDescription = '';
   export let servingsPerContainer = null;
   export let forceShowAll = false;
+  export let portion = null;
+  export let unit = '';
+  export let food = null;
+
+  // #297: the right column is % Daily Value (default) or Per 100 g / ml.
+  $: per100Mode = factsColumn($nutritionFactsColumn) === 'per100';
+  $: base = per100Mode ? servingInBase(portion, unit || 'g', food) : null;
+  $: baseUnit = base?.basis || 'g';
+  function colText(nut, v, per100Mode, base) {
+    if (!per100Mode) {
+      const dv = dvPercent(nut, v);
+      return dv != null ? `${dv}%` : '';
+    }
+    const p = per100(v, base);
+    return p != null ? fmt(p, nut.unit) : '';
+  }
+  $: caloriesPer100 = per100Mode && caloriesNut ? per100(nutrition[caloriesNut.id], base) : null;
+  $: baseAmountText = base
+    ? amountAndUnit(Math.round(base.amount * 10) / 10, base.basis) : '';
 
   // Effective visible-set: user choice if any, else the default subset.
   // Bypassed entirely when forceShowAll is on — the AI proposal card is
@@ -135,14 +162,20 @@
         {caloriesValDisplay}{#if $energyUnit === 'kJ'}<span class="cal-unit"> {caloriesUnitLabel}</span>{/if}
       </span>
     </div>
+    {#if caloriesPer100 != null}
+      <div class="cal-per100">{$_('nutrition_facts.per_100_energy', { values: { value: Nutrition.displayEnergy(caloriesPer100, $energyUnit).value + ($energyUnit === 'kJ' ? ' ' + caloriesUnitLabel : ''), unit: baseUnit } })}</div>
+    {/if}
     <div class="rule mid"></div>
   {/if}
 
-  <div class="dv-header">% Daily Value*</div>
+  {#if per100Mode}
+    <div class="dv-header">{$_('nutrition_facts.per_100', { values: { unit: baseUnit } })}</div>
+  {:else}
+    <div class="dv-header">% Daily Value*</div>
+  {/if}
 
   {#each macroRows as nut (nut.id)}
     {@const v = nutrition[nut.id]}
-    {@const dv = dvPercent(nut, v)}
     {@const depth = _depth(nut)}
     {@const derived = isDerived(nutrition, nut.id)}
     <div class="row" class:bold={nut.bold && depth === 0} class:italic={nut.italic}
@@ -161,7 +194,7 @@
             title="Derived from {nut.id === 'sodium' ? 'salt' : 'sodium'}">calculate</span>
         {/if}
       </span>
-      <span class="row-dv">{dv != null ? `${dv}%` : ''}</span>
+      <span class="row-dv" class:per100={per100Mode}>{colText(nut, v, per100Mode, base)}</span>
     </div>
   {/each}
 
@@ -169,23 +202,30 @@
     <div class="rule thick"></div>
     {#each vitMinRows as nut, i (nut.id)}
       {@const v = nutrition[nut.id]}
-      {@const dv = dvPercent(nut, v)}
       <div class="row vmin" class:no-bottom={i === vitMinRows.length - 1}>
         <span class="row-label">
           <span class="row-name">{tr('nutriments', nut.id, nut.label, $locale)}</span>
           <span class="row-value">{fmt(v, nut.unit)}</span>
         </span>
-        <span class="row-dv">{dv != null ? `${dv}%` : ''}</span>
+        <span class="row-dv" class:per100={per100Mode}>{colText(nut, v, per100Mode, base)}</span>
       </div>
     {/each}
   {/if}
 
   <div class="rule thick"></div>
+  {#if per100Mode}
+    <p class="footnote">
+      {base
+        ? $_('nutrition_facts.per_100_from', { values: { unit: baseUnit, amount: baseAmountText } })
+        : $_('nutrition_facts.per_100_unknown')}
+    </p>
+  {:else}
   <p class="footnote">
     * The % Daily Value (DV) tells you how much a nutrient in a serving
     of food contributes to a daily diet. 2,000 calories a day is used
     for general nutrition advice.
   </p>
+  {/if}
 </div>
 {/if}
 
@@ -247,6 +287,12 @@
   .cal-name  { font-size: 26px; font-weight: 900; line-height: 1; }
   .cal-value { font-size: 38px; font-weight: 900; line-height: 1; }
   .cal-unit  { font-size: 14px; font-weight: 700; }
+  .cal-per100 {
+    text-align: right;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0 0 4px;
+  }
 
   .dv-header {
     text-align: right;
@@ -277,6 +323,8 @@
     text-align: right;
     flex-shrink: 0;
   }
+
+  .row-dv.per100 { font-weight: 400; }
 
   .row.vmin {
     font-size: 13px;

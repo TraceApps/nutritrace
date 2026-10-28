@@ -43,6 +43,7 @@
   import ActionSheet from './ActionSheet.svelte';
   import NutritionFactsBox from './NutritionFactsBox.svelte';
   import { resolveAssetUrl } from '../../lib/platform.js';
+  import { itemsInBase } from '../../lib/units.js';
   import { Nutrition, energyUnitSuffix } from '../../lib/nutrition.js';
   import { energyUnit, mealNames, disableAnimations } from '../../stores/settings.js';
   import { NtApi } from '../../lib/api.js';
@@ -103,6 +104,21 @@
   $: servingDescription = _displayFood
     ? _formatServing(_displayFood)
     : $_('foods.detail.per_serving');
+
+  // The serving the label's values are for, so its right column can read
+  // Per 100 g (#297). A food or recipe serving is its portion + unit (a
+  // recipe stores one serving's weight). A meal's stored portion is only the
+  // column default, so a meal is weighed from its items instead, or left
+  // blank when they can't all be weighed.
+  $: _factsServing = (() => {
+    const f = _displayFood;
+    if (!f) return { portion: null, unit: '', food: null };
+    if (kind === 'meal') {
+      const b = itemsInBase(f.items);
+      return { portion: b?.amount ?? null, unit: b?.basis || '', food: null };
+    }
+    return { portion: f.portion, unit: f.unit || 'g', food: f };
+  })();
 
   function _formatServing(f) {
     const p = Number(f.portion);
@@ -265,7 +281,10 @@
           <div class="nutrition-wrap">
             <NutritionFactsBox
               nutrition={_displayFood.nutrition || {}}
-              servingDescription={servingDescription} />
+              servingDescription={servingDescription}
+              portion={_factsServing.portion}
+              unit={_factsServing.unit}
+              food={_factsServing.food} />
           </div>
         {:else}
           <div class="off-missing" role="status">
@@ -346,7 +365,10 @@
           <div class="nutrition-wrap">
             <NutritionFactsBox
               nutrition={_displayFood.nutrition || {}}
-              servingDescription={servingDescription} />
+              servingDescription={servingDescription}
+              portion={_factsServing.portion}
+              unit={_factsServing.unit}
+              food={_factsServing.food} />
           </div>
         {:else}
           <div class="off-missing" role="status">

@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Norwegian** ([#300](https://github.com/TraceApps/nutritrace/issues/300)). Choose Norsk bokmål in Settings > Regional & Units > Language; a browser or phone set to Norwegian picks it on its own. Translated in full on Weblate by @JohannesKi.
 - **More label nutrients** ([#281](https://github.com/TraceApps/nutritrace/issues/281)). Starch, Selenium, Copper, Manganese, Choline, Iodine and Pantothenic Acid (B5) are built in, in the order they appear on a Nutrition Facts label. Open Food Facts and USDA fill them in, and the label scanner reads them.
+- **Per 100 g on the Nutrition Facts label** ([#297](https://github.com/TraceApps/nutritrace/issues/297)). Settings > Foods > Right Column swaps % Daily Value for the amount in 100 g (100 ml for drinks), so foods with different serving sizes are easy to compare. Thanks @fatman00.
 
 ### Changed
 

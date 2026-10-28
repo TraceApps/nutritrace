@@ -1348,7 +1348,11 @@
     "title": "Nutrition Facts",
     "serving_size": "Serving Size",
     "amount_per": "Amount Per Serving",
-    "includes": "Includes {amount} {label}"
+    "includes": "Includes {amount} {label}",
+    "per_100": "Per 100 {unit}",
+    "per_100_energy": "{value} per 100 {unit}",
+    "per_100_from": "Per 100 {unit} values are worked out from a serving of {amount}.",
+    "per_100_unknown": "Per 100 g needs to know what this weighs. Give the serving size, or each ingredient, an amount in grams or milliliters to see it."
   },
   "fasting_insights": {
     "title": "Fasting",
@@ -1522,7 +1526,13 @@
     "meals_sort": "Meals Sort",
     "opt_recent": "Recently Used",
     "opt_most": "Most Used",
-    "opt_alpha": "Alphabetical"
+    "opt_alpha": "Alphabetical",
+    "facts_heading": "Nutrition Facts Label",
+    "facts_sub": "The label shown when you open a food, meal, or recipe.",
+    "facts_column": "Right Column",
+    "facts_column_desc": "% Daily Value, or the amount in 100 g (100 ml for drinks) so foods with different serving sizes are easy to compare.",
+    "facts_column_dv": "% Daily Value",
+    "facts_column_per100": "Per 100 g"
   },
   "barcode_scanner": {
     "toast": {

@@ -2329,6 +2329,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                   <NutritionFactsBox
                     nutrition={_pendingProposal.nutrition}
                     servingDescription={_pendingProposal.serving_grams ? `${_pendingProposal.serving_grams} g${_pendingProposal.serving_size ? ' (' + _pendingProposal.serving_size + ')' : ''}` : (_pendingProposal.serving_size || 'per serving')}
+                    portion={_pendingProposal.serving_grams}
+                    unit="g"
                     forceShowAll={true} />
                   <div class="proposal-meal-picker">
                     <label>
@@ -2396,6 +2398,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                   <NutritionFactsBox
                     nutrition={_pendingFoodProposal.nutrition}
                     servingDescription={`${_pendingFoodProposal.portion} ${_pendingFoodProposal.unit}`}
+                    portion={_pendingFoodProposal.portion}
+                    unit={_pendingFoodProposal.unit}
+                    food={_pendingFoodProposal}
                     forceShowAll={true} />
                   <div class="proposal-meal-picker">
                     <label>

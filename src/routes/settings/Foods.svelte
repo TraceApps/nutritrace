@@ -6,8 +6,9 @@
     foodsShowCategories, foodsShowLabels, foodsShowNotes, foodsShowThumbnails,
     foodsShowYesterdayMeals, foodsSort, mealsSort, recipesSort,
     foodsDefaultSource, offEnabled, usdaEnabled,
-    barcodeBeep, barcodeFlashlight, cropPhotos,
+    barcodeBeep, barcodeFlashlight, cropPhotos, nutritionFactsColumn,
   } from '../../stores/settings.js';
+  import { factsColumn } from '../../lib/facts-column.js';
   import { DB } from '../../lib/db.js';
   // Mealie is a plain localStorage flag (not a store), unlike OFF/USDA.
   const _mealieEnabled = DB.getSetting('mealieEnabled', false);
@@ -42,6 +43,25 @@
     <div class="setting-row">
       <div><span class="setting-label">Show Yesterday's Meals</span><div class="setting-desc">Pin the meals of the day before the one you're adding to as quick-add cards in the Meals tab. Tap the info icon to see what's in each one.</div></div>
       <Toggle checked={$foodsShowYesterdayMeals} on:change={e => foodsShowYesterdayMeals.set(e.detail)} />
+    </div>
+  </div>
+
+  <!-- Group: Nutrition Facts Label. #297: its right column is % Daily
+       Value or Per 100 g (100 ml for drinks), one at a time. -->
+  <p class="settings-group-heading">{$_('settings_foods_picker.facts_heading')}</p>
+  <p class="settings-group-sub">{$_('settings_foods_picker.facts_sub')}</p>
+  <div class="card settings-card">
+    <div class="setting-row">
+      <div>
+        <span class="setting-label">{$_('settings_foods_picker.facts_column')}</span>
+        <div class="setting-desc">{$_('settings_foods_picker.facts_column_desc')}</div>
+      </div>
+      <div class="select-wrap" style="width:160px">
+        <select class="select sel-sm" value={factsColumn($nutritionFactsColumn)} on:change={e => nutritionFactsColumn.set(e.target.value)}>
+          <option value="dv">{$_('settings_foods_picker.facts_column_dv')}</option>
+          <option value="per100">{$_('settings_foods_picker.facts_column_per100')}</option>
+        </select>
+      </div>
     </div>
   </div>
 
