@@ -1565,6 +1565,7 @@
     "card_categories": "Categories",
     "card_notes": "Notes",
     "card_nutrition": "Nutrition",
+    "values_for": "Values for {amount}",
     "take_photo": "Take Photo",
     "crop_photo": "Crop Photo",
     "crop_hint": "Drag the box to reposition; drag the corner to resize",

@@ -30,6 +30,7 @@
   import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
   import { acquireScreenWakeLock } from '../lib/wake-lock.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
+  import { snapshotOf, scaledFood } from '../lib/proportional-scale.js';
 
   // ── Photo capture / upload ─────────────────────────────────
   let fileInput;
@@ -340,34 +341,23 @@
     }, 3000);
   }
 
-  function takeSnapshot() {
-    const allNuts = [...NUTRIMENTS, ...($customNutriments || [])];
-    _snapshot = { portion: parseDecimal(food.portion) || 0 };
-    for (const n of allNuts) _snapshot[n.id] = parseDecimal(food[n.id]) || 0;
-  }
+  const _allNuts = () => [...NUTRIMENTS, ...($customNutriments || [])];
+
+  function takeSnapshot() { _snapshot = snapshotOf(food, _allNuts()); }
 
   let _scaleTimer = null;
+  let _pendingScale = null;
 
-  function applyProportional(changedId, newVal) {
+  function applyProportional(changedId, newVal, keepId = null) {
     if (!linked || !_snapshot) return;
-    const origVal = changedId === '__portion__' ? _snapshot.portion : _snapshot[changedId];
-    if (!origVal || origVal <= 0 || newVal <= 0) return;
-    const ratio = newVal / origVal;
-    const allNuts = [...NUTRIMENTS, ...($customNutriments || [])];
-    for (const n of allNuts) {
-      if (n.id === changedId) continue;
-      const v = _snapshot[n.id];
-      if (v > 0) food[n.id] = Math.round(v * ratio * 10000) / 10000;
-    }
-    if (changedId !== '__portion__') {
-      if (_snapshot.portion > 0) food.portion = Math.round(_snapshot.portion * ratio * 100) / 100;
-    }
-    food = { ...food };
+    const next = scaledFood(food, _snapshot, changedId, newVal, _allNuts(), keepId);
+    if (next) food = next;
   }
 
   function scheduleScale(changedId, getVal) {
     clearTimeout(_scaleTimer);
-    _scaleTimer = setTimeout(() => { applyProportional(changedId, getVal()); }, 400);
+    _pendingScale = (keepId) => applyProportional(changedId, getVal(), keepId);
+    _scaleTimer = setTimeout(() => { _pendingScale = null; applyProportional(changedId, getVal()); }, 400);
   }
 
   function onPortionInput() { scheduleScale('__portion__', () => parseDecimal(food.portion) || 0); }
@@ -378,6 +368,14 @@
     // scale on nutrient edits would surprise users fixing a typo'd
     // protein gram with a cascade across every other field.
     if (id === 'sodium' || id === 'salt') _handleSaltSodiumDerivation(id);
+    // What was just typed is the new baseline, so a later serving-size
+    // change scales it too instead of skipping it or writing the old value
+    // back over it (#298). A serving-size change still waiting is applied
+    // first, to every field but this one.
+    if (linked) {
+      if (_pendingScale) { clearTimeout(_scaleTimer); const run = _pendingScale; _pendingScale = null; run(id); }
+      takeSnapshot();
+    }
   }
 
   // Sodium ↔ salt derivation in the editor. When the user types in one and
@@ -1286,6 +1284,11 @@
           </button>
         {/if}
       </div>
+      <!-- What the numbers below are for: values typed per 100 g with a
+           60 g serving otherwise save as per 60 g unnoticed (#298). -->
+      {#if parseDecimal(food.portion) > 0}
+        <div class="form-hint values-for">{$_('food_editor.values_for', { values: { amount: `${String(food.portion).trim()} ${food.unit || ''}`.trim() } })}</div>
+      {/if}
       <!-- Hidden file input for the web Scan Label flow. On native we go
            through @capacitor/camera directly. -->
       <input bind:this={scanLabelFileInput} type="file" accept="image/*" capture="environment" style="display:none" />
@@ -1563,6 +1566,7 @@
     color: var(--text-3);
     line-height: 1.4;
   }
+  .values-for { margin: 0 0 12px; }
   .alt-units {
     display: flex; flex-direction: column; gap: 8px;
   }
