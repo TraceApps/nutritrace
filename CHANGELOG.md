@@ -19,6 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Trace no longer says nothing is logged when it couldn't read your diary** ([#288](https://github.com/TraceApps/nutritrace/issues/288)). A failed read of today's diary looked like an empty day, so Trace could answer "you haven't logged anything" without checking. It now looks the day up instead, and water shows as unknown. Thanks @jsapede.
 - **Asking Trace to save a review card says which button to tap** ([#292](https://github.com/TraceApps/nutritrace/issues/292)). Only the card's buttons save it, so you can check the estimate first; typing "save it" now gets a plain answer naming the button, never a claim that it was saved. Thanks @jsapede.
 - **Changing a food's serving size rescales the values you just typed** ([#298](https://github.com/TraceApps/nutritrace/issues/298)). With the link toggle on, a nutrient typed after the editor opened was left as it was, and a corrected one was set back to its old value times the new ratio. The nutrition card now also says what serving its values are for, such as Values for 60 g. Thanks @ThomasLeMezo.
 - **Uploading an Android app's diary to a server no longer sends a webhook for each day.** When an Android app used without a server connected to one, every day it uploaded sent `meal.logged`, `water.logged`, `body_stat.logged` and `goal.achieved` as if logged just then. The Upload now sends none, as restoring a backup never did.

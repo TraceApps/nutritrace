@@ -11,6 +11,7 @@
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { DB, localDateStr } from '../../lib/db.js';
   import { Nutrition, NUTRIMENTS } from '../../lib/nutrition.js';
+  import { diaryContextText, waterContextText } from '../../lib/trace-context.js';
   // Comma-joined list of every NT-tracked nutriment ID — inlined into the
   // system prompt so the AI knows the full key universe at a glance and
   // doesn't default to "just the four macros".
@@ -1439,23 +1440,7 @@
     if (_act)               profileBits.push(`activity level: ${_act}`);
     const profileText = profileBits.join(', ');
 
-    let diaryText = 'No food logged today yet.';
-    if (entry && entry.items?.length) {
-      const tot  = Nutrition.sum(entry.items.map(i => Nutrition.calculate(i)));
-      diaryText  = `Totals: ${Math.round(tot.calories||0)} ${eUnit}, `
-                 + `${Math.round(tot.proteins||0)}g protein, `
-                 + `${Math.round(tot.carbohydrates||0)}g carbs, `
-                 + `${Math.round(tot.fat||0)}g fat.\n`;
-      const byMeal = {};
-      for (const it of entry.items) {
-        const m = it.meal ?? 0;
-        (byMeal[m] = byMeal[m] || []).push(it);
-      }
-      for (const [mIdx, items] of Object.entries(byMeal)) {
-        const mName = mNames[Number(mIdx)] || `Meal ${Number(mIdx)+1}`;
-        diaryText += `${mName}: ${items.map(i => `${i.name} (${i.portion||100}${i.unit||'g'})`).join(', ')}\n`;
-      }
-    }
+    const diaryText = diaryContextText(entry, { mealNames: mNames, energyUnit: eUnit });
 
     const calGoal  = g.calories?.max        ?? g.calories?.min;
     const proGoal  = g.proteins?.max        ?? g.proteins?.min;
@@ -1482,8 +1467,7 @@
     if (bsParts.length) statsText = bsParts.join(', ');
 
     // Water intake
-    const waterMl   = (entry?.water || []).reduce((s, l) => s + (l.amount || 0), 0);
-    const waterText  = waterMl > 0 ? `${(waterMl / 1000).toFixed(2)} L (${Math.round(waterMl)} ml)` : 'None logged';
+    const waterText = waterContextText(entry);
 
     // Wellness data — Fitbit + Garmin + Withings, best-effort, silent on failure
     let wellnessText = '';
