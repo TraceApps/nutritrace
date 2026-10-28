@@ -240,3 +240,20 @@ test('the routing keeps search first and sends estimates to a card', () => {
   assert.match(desc('propose_food'), /manual-estimate bypass for log_food/);
   assert.match(desc('log_food'), /offer to estimate it on a review card \(propose_food\)/);
 });
+
+// #292: "save it" typed while a card is pending gets the button to tap, not a
+// vague answer or a claim that it was saved.
+test('a pending card tells the model only its buttons save it', async () => {
+  for (const [kind, button] of [['food', /Save to Foods or Save & Add to Diary/], ['quick', /Add to Diary/]]) {
+    const line = cards.cardContext({ pending: lasagna, pendingKind: kind });
+    assert.match(line, /Only the buttons on the card save it: you cannot/);
+    assert.match(line, button);
+    assert.match(line, /never say it was saved or added/);
+  }
+  const s = session();
+  await s.food(banana);
+  const r = await s.food(banana);
+  assert.equal(r.already_on_screen, true);
+  assert.match(r.message, /tell them to tap Save to Foods/);
+  assert.match(r.message, /never say it was saved or added/);
+});

@@ -49,9 +49,13 @@ export function repeatedCard(key, { pendingKey = '', answered = null } = {}) {
 const _done = (action) => action === 'discarded' ? 'discarded' : action === 'saved' ? 'saved to their Foods' : 'added to their diary';
 
 /** What the model hears back when its proposal repeats a card. */
+// #292: only the card's buttons save it, so a typed "save it" gets told
+// which button to tap rather than a vague answer or a false "saved".
+const SAVE_BY_BUTTON = 'Only the buttons on the card save it: you cannot. If the user asks to save or add it, tell them to tap Save to Foods or Save & Add to Diary (a food card) or Add to Diary (a Quick Calories card), and never say it was saved or added.';
+
 export function repeatedCardResult(repeat) {
   if (repeat === 'pending') {
-    return { already_on_screen: true, message: 'This exact card is already on screen, waiting for the user. Nothing changed. Do not mention it again unless the user asks about it; answer their latest message. The user can change the meal on the card.' };
+    return { already_on_screen: true, message: 'This exact card is already on screen, waiting for the user. Nothing changed. Do not mention it again unless the user asks about it; answer their latest message. The user can change the meal on the card. ' + SAVE_BY_BUTTON };
   }
   return {
     already_answered: repeat,
@@ -66,7 +70,7 @@ export function repeatedCardResult(repeat) {
 export function cardContext({ pending = null, pendingKind = '', answered = null } = {}) {
   if (pending) {
     const what = pendingKind === 'food' ? 'food card (Save to Foods / Save & Add to Diary)' : 'Quick Calories card (Add to Diary)';
-    return `A review card is on screen: "${pending.name}", ${Math.round(Number(pending.nutrition?.calories) || 0)} kcal, ${what}, waiting for the user. Do not propose it again. A different food or changed numbers get a new card, which replaces this one.`;
+    return `A review card is on screen: "${pending.name}", ${Math.round(Number(pending.nutrition?.calories) || 0)} kcal, ${what}, waiting for the user. Do not propose it again. A different food or changed numbers get a new card, which replaces this one. ${SAVE_BY_BUTTON}`;
   }
   if (answered) {
     return `The user ${_done(answered.action)} the last review card: "${answered.name}". Do not propose it again unless they ask for it.`;
