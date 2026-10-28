@@ -77,6 +77,66 @@ export function sendForReply(format, body, send) {
   return sendWithLengthFallback(body, (b) => resendIfEmpty(format, b, send));
 }
 
+// ── The same tool call again (TraceApps/nutritrace#287) ──────────────────
+// A stuck model can ask for one tool with the same arguments round after
+// round until the rounds run out. A call that changes nothing (a read, a
+// name that isn't a tool) gets the answer it already has the second time,
+// and the third time the next request is the last, with the tools off. A
+// tool that writes (logs, changes) runs every time: two of the same item can
+// be meant.
+
+/** A tool call as text: its name and its arguments as JSON with every object's keys in order. */
+export function toolCallKey(name, args) {
+  let a = args;
+  if (typeof a === 'string') { try { a = JSON.parse(a); } catch { /* compared as it came */ } }
+  const sorted = (v) => (Array.isArray(v) ? v.map(sorted)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v);
+  return `${name}\n${JSON.stringify(sorted(a ?? {}))}`;
+}
+
+// The answer for a call not run again because it was already made this turn.
+export const TOOL_REPEATED = "Not run again: you already made this exact call earlier in this answer, and its result is above. Answer from that result, or call something different.";
+
+/** Said in the last request when a model kept making the same call. */
+export function toolStuckNote(name) {
+  return `You asked for the same ${name} call with the same arguments three times, so the tools are off now. Answer from what you have, and tell the user you got stuck repeating ${name}, so they can ask another way.`;
+}
+
+/**
+ * One answer's tool calls. `check(name, args)` is 'run' for a call to make,
+ * 'repeat' for the second time the same call comes (answer it with
+ * TOOL_REPEATED instead), and 'stuck' from the third time on (the same, and
+ * `stuck` names the tool, so the next request is the last). Only calls
+ * `readOnly(name)` says change nothing are counted; any other runs every time
+ * and starts the count over, since what was read may have changed.
+ * `forget(name, args)`: a call that failed (offline, say) can be made once
+ * more; one that fails again counts as before.
+ */
+export function createRepeatGuard(readOnly) {
+  const seen = new Map();
+  const retried = new Set();
+  let stuck = null;
+  return {
+    check(name, args) {
+      if (!readOnly(name)) { seen.clear(); return 'run'; }
+      const key = toolCallKey(name, args);
+      const times = (seen.get(key) || 0) + 1;
+      seen.set(key, times);
+      if (times === 1) return 'run';
+      if (times === 2) return 'repeat';
+      if (!stuck) stuck = name;
+      return 'stuck';
+    },
+    forget(name, args) {
+      const key = toolCallKey(name, args);
+      if (retried.has(key)) return;
+      retried.add(key);
+      seen.delete(key);
+    },
+    get stuck() { return stuck; },
+  };
+}
+
 // Words, not just spaces: OpenAI's content is a string, or a list of parts.
 const hasWords = (text) => typeof text === 'string' && text.trim() !== '';
 const contentWords = (content) => Array.isArray(content)

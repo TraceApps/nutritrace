@@ -26,7 +26,10 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 // `stopAfter` rounds), then answers. `rejectChoice`: an OpenAI-compatible
 // server that refuses tool_choice; `ignoreChoice`: one that ignores it and
 // asks for a tool anyway, with no text.
-let stopAfter = Infinity, rejectChoice = false, rejectStatus = 400, ignoreChoice = false, perRound = 1, argPad = '';
+let stopAfter = Infinity, rejectChoice = false, rejectStatus = 400, ignoreChoice = false, perRound = 1, argPad = '', plan = null;
+// The k-th call of round n: something else each time, as a model going
+// through a lot does, or what a test plans (`plan`, TraceApps/nutritrace#287).
+const callOf = (n, k) => (plan ? plan(n, k) : { name: 'get_diary', args: { date: `2026-10-01 ${n * perRound + k}`, ...(argPad ? { pad: argPad } : {}) } });
 const seen = [];
 const toolRounds = (b, path) => (path.startsWith('/claude')
   ? (b.messages || []).filter((m) => Array.isArray(m.content) && m.content.some((c) => c.type === 'tool_result')).length
@@ -49,17 +52,17 @@ const endpoint = http.createServer((req, res) => {
     if (req.url.startsWith('/claude')) {
       out = b.tool_choice?.type === 'none' || n >= stopAfter
         ? { content: [{ type: 'text', text: `answer after ${n}` }], stop_reason: 'end_turn' }
-        : { content: Array.from({ length: perRound }, (_, k) => ({ type: 'tool_use', id: `t${n}_${k}`, name: 'get_diary', input: { date: '2026-10-01', ...(argPad ? { pad: argPad } : {}) } })), stop_reason: 'tool_use' };
+        : { content: Array.from({ length: perRound }, (_, k) => { const c = callOf(n, k); return { type: 'tool_use', id: `t${n}_${k}`, name: c.name, input: c.args }; }), stop_reason: 'tool_use' };
     } else if (req.url.startsWith('/gemini')) {
       out = b.toolConfig?.functionCallingConfig?.mode === 'NONE' || n >= stopAfter
         ? { candidates: [{ content: { parts: [{ text: `answer after ${n}` }] }, finishReason: 'STOP' }] }
-        : { candidates: [{ content: { parts: Array.from({ length: perRound }, () => ({ functionCall: { name: 'get_diary', args: { date: '2026-10-01', ...(argPad ? { pad: argPad } : {}) } } })) }, finishReason: 'STOP' }] };
+        : { candidates: [{ content: { parts: Array.from({ length: perRound }, (_, k) => { const c = callOf(n, k); return { functionCall: { name: c.name, args: c.args } }; }) }, finishReason: 'STOP' }] };
     } else {
       if (rejectChoice && b.tool_choice) return res.writeHead(rejectStatus, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { message: "Unsupported value: 'tool_choice' none" } }));
       const answer = (b.tool_choice === 'none' && !ignoreChoice) || n >= stopAfter;
       out = { choices: [{ index: 0, finish_reason: answer ? 'stop' : 'tool_calls', message: answer
         ? { role: 'assistant', content: `answer after ${n}` }
-        : { role: 'assistant', content: null, tool_calls: Array.from({ length: perRound }, (_, k) => ({ id: `c${n}_${k}`, type: 'function', function: { name: 'get_diary', arguments: JSON.stringify({ date: '2026-10-01', ...(argPad ? { pad: argPad } : {}) }) } })) } }] };
+        : { role: 'assistant', content: null, tool_calls: Array.from({ length: perRound }, (_, k) => { const c = callOf(n, k); return { id: `c${n}_${k}`, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.args) } }; }) } }] };
     }
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(out));
   });
@@ -105,7 +108,7 @@ const COACH = { name: 'get_client_summary', description: 'A client', parameters:
 const fresh = (o = {}) => {
   if (!o.samePerson) person++;
   seen.length = 0; calls = 0; stopAfter = o.stopAfter ?? Infinity; rejectChoice = !!o.rejectChoice;
-  rejectStatus = o.rejectStatus ?? 400; ignoreChoice = !!o.ignoreChoice; toolResult = o.toolResult ?? { ok: true }; perRound = o.perRound ?? 1; argPad = o.argPad ?? '';
+  rejectStatus = o.rejectStatus ?? 400; ignoreChoice = !!o.ignoreChoice; toolResult = o.toolResult ?? { ok: true }; perRound = o.perRound ?? 1; argPad = o.argPad ?? ''; plan = o.plan ?? null;
 };
 const QUESTION = [{ role: 'user', content: 'Go through every day last month and find the days I had pizza.' }];
 const ask = (provider, o = {}) => client.callAI({
@@ -312,4 +315,134 @@ test('a tool that answers with a list reaches Gemini in an object, in the app an
   fresh({ perRound: 2, stopAfter: 1, toolResult: { error: 'No diary for that day' } });
   assert.equal(await askProxy(), 'answer after 1');
   assert.deepEqual(answers(), [{ error: 'No diary for that day' }, { error: 'No diary for that day' }]);
+});
+
+// ── The same tool call again (TraceApps/nutritrace#287) ─────────────────
+// The report: five requests a second apart, the same tool call each time,
+// then nothing. Now the same call a second time isn't run again, and a third
+// time the next request is the last, saying which tool it got stuck on.
+const reply = await import('../src/lib/trace-reply.js');
+// The same call every time, its arguments' keys in another order every other round.
+const sameCall = (name = 'get_diary') => (n) => ({ name, args: n % 2 ? { meal: 'lunch', date: '2026-10-17' } : { date: '2026-10-17', meal: 'lunch' } });
+const times = (s, text) => (text ? JSON.stringify(s.body).split(text).length - 1 : 0);
+const repeated = (s) => times(s, reply.TOOL_REPEATED);
+
+test('#287: the same call a second time isn\'t run again: the model hears it has that answer already', async () => {
+  for (const provider of DIRECT) {
+    fresh({ plan: sameCall(), stopAfter: 2 });
+    assert.equal(await ask(provider), 'answer after 2', provider);
+    assert.equal(calls, 1, `${provider}: the tool ran once`);
+    assert.equal(seen.length, 3, provider);
+    assert.equal(repeated(seen[2]), 1, `${provider}: the second call has its answer`);
+    assert.ok(!toolsOff(seen[2]), `${provider}: the tools are still on`);
+  }
+  // The arguments compare by their JSON with the keys in order.
+  assert.equal(reply.toolCallKey?.('get_diary', { a: 1, b: { d: 2, c: [3, { f: 4, e: 5 }] } }), reply.toolCallKey?.('get_diary', '{"b":{"c":[3,{"e":5,"f":4}],"d":2},"a":1}'));
+  assert.notEqual(reply.toolCallKey?.('get_diary', { date: '2026-10-17' }), reply.toolCallKey?.('get_diary', { date: '2026-10-18' }));
+  assert.notEqual(reply.toolCallKey?.('get_diary', {}), reply.toolCallKey?.('get_meals', {}));
+});
+
+test('#287: a third time, the next request is the last, with the tools off, and it names the tool', async () => {
+  for (const provider of DIRECT) {
+    fresh({ plan: sameCall() });
+    assert.equal(await ask(provider), 'answer after 3', provider);
+    assert.equal(calls, 1, provider);
+    assert.equal(seen.length, 4, `${provider}: 4 requests, not 13`);
+    assert.ok(toolsOff(seen[3]) && !toolsOff(seen[2]), provider);
+    assert.ok(systemOf(seen[3]).includes(client.OUT_OF_ROUNDS), provider);
+    assert.ok(reply.toolStuckNote && systemOf(seen[3]).endsWith(reply.toolStuckNote('get_diary')), `${provider}: the last request names the tool`);
+    assert.match(systemOf(seen[3]), /stuck repeating get_diary/);
+    assert.ok(!systemOf(seen[2]).includes(client.OUT_OF_ROUNDS), provider);
+  }
+  // Three of the same in one round: each has an answer, and the next request is the last.
+  for (const provider of DIRECT) {
+    fresh({ perRound: 3, plan: () => ({ name: 'get_diary', args: { date: '2026-10-17' } }) });
+    await ask(provider);
+    assert.deepEqual([calls, seen.length, repeated(seen[1])], [1, 2, 2], provider);
+    assert.ok(toolsOff(seen[1]), provider);
+  }
+  // A model that still answers with nothing: the person hears which tool it got stuck on.
+  fresh({ plan: sameCall(), ignoreChoice: true });
+  assert.match(await ask('oai-compat'), /kept asking for the same information/);
+  assert.equal(seen.length, 4);
+  const en = JSON.parse(read('../src/i18n/en.json'));
+  assert.match(en.trace_reply.stuck_on_tool ?? '', /^Trace kept asking for the same information/);
+});
+
+test('#287: different arguments, or another call in the same round, still run', async () => {
+  for (const provider of DIRECT) {
+    // The same day twice and another day: two run, one is answered from before.
+    fresh({ perRound: 3, stopAfter: 1, plan: (n, k) => ({ name: 'get_diary', args: { date: k < 2 ? '2026-10-17' : '2026-10-18' } }) });
+    assert.match(await ask(provider), /^answer after/);
+    assert.equal(calls, 2, provider);
+    assert.equal(repeated(seen[1]), 1, provider);
+    // Every day of a month, one a round: all run, nothing said to repeat.
+    fresh({ stopAfter: 10 });
+    assert.equal(await ask(provider), 'answer after 10');
+    assert.equal(calls, 10, provider);
+    assert.ok(seen.every((s) => repeated(s) === 0), provider);
+  }
+});
+
+test('#287: a tool that writes runs every time it is asked, and is never said to have run when it didn\'t', async () => {
+  // Every tool the model can call that doesn't start with get_ or propose_
+  // (a card already on screen isn't shown twice) logs or drafts: none of
+  // them is counted.
+  const coaching = [...read('../src/lib/coach-trace.js').matchAll(/^ {4}name: '([a-z_]+)'/gm)].map((m) => m[1]);
+  assert.ok(coaching.includes('draft_day_plan') && coaching.includes('get_coach_recommendations'));
+  const names = [...client.TOOLS.map((t) => t.name), ...coaching];
+  assert.ok(client.READ_TOOLS instanceof Set, 'READ_TOOLS');
+  for (const name of names) assert.equal(client.READ_TOOLS.has(name), /^(get|propose)_/.test(name), name);
+  for (const name of client.READ_TOOLS) assert.ok(names.includes(name), `${name} is a tool`);
+  for (const provider of DIRECT) {
+    // The same egg three rounds running: logged three times, as asked.
+    fresh({ stopAfter: 3, plan: () => ({ name: 'log_food', args: { query: 'egg', grams: 50 } }) });
+    assert.equal(await ask(provider), 'answer after 3');
+    assert.equal(calls, 3, provider);
+    // Two at once.
+    fresh({ perRound: 2, stopAfter: 1, plan: () => ({ name: 'log_food', args: { query: 'egg', grams: 50 } }) });
+    await ask(provider);
+    assert.equal(calls, 2, provider);
+    // A diary read again after a write reads it again: it has changed.
+    fresh({ stopAfter: 3, plan: (n) => (n === 1 ? { name: 'log_food', args: { query: 'egg' } } : { name: 'get_diary', args: { date: '2026-10-17' } }) });
+    await ask(provider);
+    assert.equal(calls, 3, provider);
+    assert.ok(seen.every((s) => repeated(s) === 0 && !systemOf(s).includes('stuck')), provider);
+  }
+});
+
+test('#287 through the server: the same call is counted once, by the app, and the last request names the tool', async (t) => {
+  if (!db) return t.skip('better-sqlite3 is not built for this Node');
+  for (const provider of DIRECT) {
+    envLock(provider);
+    fresh({ plan: sameCall(), stopAfter: 2 });
+    assert.equal(await askProxy(), 'answer after 2', provider);
+    assert.deepEqual([calls, seen.length, repeated(seen[2])], [1, 3, 1], provider);
+    fresh({ plan: sameCall() });
+    assert.equal(await askProxy(), 'answer after 3', provider);
+    assert.deepEqual([calls, seen.length], [1, 4], provider);
+    assert.ok(toolsOff(seen[3]) && !toolsOff(seen[2]), provider);
+    assert.match(systemOf(seen[3]), /stuck repeating get_diary/, provider);
+    fresh({ stopAfter: 3, plan: () => ({ name: 'log_food', args: { query: 'egg' } }) });
+    assert.equal(await askProxy(), 'answer after 3', provider);
+    assert.equal(calls, 3, provider);
+  }
+  envLock('oai-compat');
+  fresh({ plan: sameCall(), ignoreChoice: true });
+  assert.match(await askProxy(), /kept asking for the same information/);
+});
+
+test('#287: a made-up tool asked for again is counted too, and a lookup that failed may be tried once more', async () => {
+  for (const provider of DIRECT) {
+    // A tool the app doesn't have: nothing ran, nothing changed.
+    fresh({ plan: sameCall('get_diary_entries') });
+    assert.equal(await ask(provider), 'answer after 3', provider);
+    assert.deepEqual([calls, seen.length], [1, 4], provider);
+    assert.match(systemOf(seen[3]), /stuck repeating get_diary_entries/, provider);
+    // Offline the first time: asked again, it runs again; failing again, it counts.
+    fresh({ plan: sameCall(), toolResult: { error: 'Offline' } });
+    assert.equal(await ask(provider), 'answer after 4', provider);
+    assert.deepEqual([calls, seen.length], [2, 5], provider);
+    assert.equal(repeated(seen[3]), 1, provider);
+  }
 });
