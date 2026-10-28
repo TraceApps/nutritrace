@@ -21,6 +21,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **The app's icon on an iPhone home screen fills its square.** Added from Safari, it showed a white rim around the rounded icon, because iOS fills the see-through corners of the icon with white. Remove the icon from the home screen and add it again to get the new one.
 - **Select Multiple's buttons show with a Gradient or Animated banner.** Cancel and Delete were white on the plain header that Select Multiple uses, so they couldn't be seen.
 - **Trace and MCP read weekday goals on the right days** ([#285](https://github.com/TraceApps/nutritrace/issues/285)). Trace's summary of today used the week's highest target instead of today's, and the goals Trace, MCP and `GET /api/v1/goals` return didn't say their weekday list starts on Sunday, so AI models could put a day's target on the wrong day. They now also give each target by named day and today's targets; the existing fields are unchanged. With energy in kJ, the calories in Trace's summary of today were kcal numbers labeled kJ; they're now converted. Thanks @kgenerozov.
 - **Choosing Light or Dark sticks when your system switches themes.** The app went light or dark with your device until it was reopened, and with System the browser bar lost your accent color.

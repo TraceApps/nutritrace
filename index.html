@@ -37,7 +37,10 @@
        fallback would resolve to the wrong absolute path under BASE_URL. -->
   <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png?v=dev26" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=dev26" />
-  <link rel="apple-touch-icon" href="/icons/icon-192.png?v=dev26" />
+  <!-- iPhone home screen: a full square with no see-through edges. iOS rounds
+       the corners itself and fills anything see-through with white, which
+       showed as a white rim around the rounded icon. -->
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png?v=ios1" />
 
   <!-- Apply theme before first paint to prevent flash of wrong colour -->
   <!-- Disable service worker in Capacitor native mode (assets served natively, SW causes offline.html redirect) -->
