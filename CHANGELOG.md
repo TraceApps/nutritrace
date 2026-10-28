@@ -11,6 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Norwegian** ([#300](https://github.com/TraceApps/nutritrace/issues/300)). Choose Norsk bokmål in Settings > Regional & Units > Language; a browser or phone set to Norwegian picks it on its own. Translated in full on Weblate by @JohannesKi.
 - **More label nutrients** ([#281](https://github.com/TraceApps/nutritrace/issues/281)). Starch, Selenium, Copper, Manganese, Choline, Iodine and Pantothenic Acid (B5) are built in, in the order they appear on a Nutrition Facts label. Open Food Facts and USDA fill them in, and the label scanner reads them.
+- **Copy and move several diary items at once, and repeat a copy** ([#283](https://github.com/TraceApps/nutritrace/issues/283)). Select Multiple now has Move and Copy next to Delete. Copy takes the selected items, from any meals, to another day, each into its own meal or all into one; Move takes them to another meal, on the same day or another. Copying one item, a meal or a selection can also repeat for up to the next 14 days, and if a day can't be saved the message names it. Thanks @fatman00.
+- **Choose the day when adding, moving or copying** ([#267](https://github.com/TraceApps/nutritrace/issues/267)). Add to Diary on the Foods page asks which day as well as which meal, starting on the day the Diary shows, and Move to Meal can move an item to another day. Every day choice has Yesterday, Today and Tomorrow buttons, and the message says where it went ("Added to yesterday's Dinner"). Thanks @jsapede.
 - **Per 100 g on the Nutrition Facts label** ([#297](https://github.com/TraceApps/nutritrace/issues/297)). Settings > Foods > Right Column swaps % Daily Value for the amount in 100 g (100 ml for drinks), so foods with different serving sizes are easy to compare. Thanks @fatman00.
 
 ### Changed
@@ -19,6 +21,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Select Multiple's buttons show with a Gradient or Animated banner.** Cancel and Delete were white on the plain header that Select Multiple uses, so they couldn't be seen.
 - **Trace and MCP read weekday goals on the right days** ([#285](https://github.com/TraceApps/nutritrace/issues/285)). Trace's summary of today used the week's highest target instead of today's, and the goals Trace, MCP and `GET /api/v1/goals` return didn't say their weekday list starts on Sunday, so AI models could put a day's target on the wrong day. They now also give each target by named day and today's targets; the existing fields are unchanged. With energy in kJ, the calories in Trace's summary of today were kcal numbers labeled kJ; they're now converted. Thanks @kgenerozov.
 - **Choosing Light or Dark sticks when your system switches themes.** The app went light or dark with your device until it was reopened, and with System the browser bar lost your accent color.
 - **Trace no longer says nothing is logged when it couldn't read your diary** ([#288](https://github.com/TraceApps/nutritrace/issues/288)). A failed read of today's diary looked like an empty day, so Trace could answer "you haven't logged anything" without checking. It now looks the day up instead, and water shows as unknown. Thanks @jsapede.

@@ -750,6 +750,8 @@
     },
     "actions": {
       "cancel_selection": "Cancel Selection",
+      "move_selected": "Move Selected",
+      "copy_selected": "Copy Selected",
       "delete_selected": "Delete Selected",
       "log_water": "Log Water",
       "log_water_long": "Water — log your water intake",
@@ -785,6 +787,38 @@
       "updated": "Updated",
       "item_removed": "Item removed",
       "activity_removed": "Activity removed"
+    },
+    "copy": {
+      "title_selection": "Copy {n, plural, one {# Item} other {# Items}} to…",
+      "keep_meals": "Keep Each Item's Meal",
+      "repeat": "Repeat",
+      "repeat_off": "Off",
+      "repeat_value": "{n, plural, one {Next Day} other {Next # Days}}",
+      "fewer_days": "Fewer Days",
+      "more_days": "More Days",
+      "repeat_hint": "Copies to {days} days: {from} to {to}.",
+      "toast_day_meal": "Copied {n, plural, one {# item} other {# items}} to {rel, select, yesterday {yesterday's {meal}} today {today's {meal}} tomorrow {tomorrow's {meal}} other {{meal} on {day}}}",
+      "toast_day": "Copied {n, plural, one {# item} other {# items}} to {rel, select, yesterday {yesterday} today {today} tomorrow {tomorrow} other {{day}}}",
+      "toast_days_meal": "Copied {n, plural, one {# item} other {# items}} to {meal} on {days} days, {from} to {to}",
+      "toast_days": "Copied {n, plural, one {# item} other {# items}} to {days} days, {from} to {to}",
+      "toast_partial": "Copied {n, plural, one {# item} other {# items}} to {done} of {total} days. Not copied to {failed}.",
+      "toast_failed": "Copy failed",
+      "toast_failed_reason": "Copy failed: {error}",
+      "toast_nothing": "Nothing to copy"
+    },
+    "move": {
+      "title": "Move to…",
+      "title_selection": "Move {n, plural, one {# Item} other {# Items}} to…",
+      "moved": "Moved {n, plural, one {# item} other {# items}} to {rel, select, yesterday {yesterday's {meal}} today {today's {meal}} tomorrow {tomorrow's {meal}} other {{meal} on {day}}}",
+      "already_there": "Already in {meal}",
+      "failed": "Move failed",
+      "failed_reason": "Move failed: {error}",
+      "both_days": "{n, plural, one {The item was} other {The items were}} added to {rel, select, yesterday {yesterday's {meal}} today {today's {meal}} tomorrow {tomorrow's {meal}} other {{meal} on {day}}} but may still be on this day too. Check here and delete {n, plural, one {it} other {them}} if you don't want both."
+    },
+    "day_picker": {
+      "label": "Day",
+      "date": "Date",
+      "tomorrow": "Tomorrow"
     },
     "empty": {
       "tap_to_add_food": "Tap to add food"
@@ -945,6 +979,8 @@
       "per_serving": "per serving",
       "barcode": "Barcode",
       "added_to": "Added to {meal}",
+      "added_to_day": "Added to {rel, select, yesterday {yesterday's {meal}} today {today's {meal}} tomorrow {tomorrow's {meal}} other {{meal} on {day}}}",
+      "adding_to_day": "Adding to {rel, select, yesterday {yesterday's {meal}} today {today's {meal}} tomorrow {tomorrow's {meal}} other {{meal} on {day}}}",
       "delete_aria": "Delete food",
       "delete_confirm_title": "Delete this food?",
       "delete_confirm_body": "\"{name}\" will be removed from your foods. Existing diary entries that reference this food are kept.",

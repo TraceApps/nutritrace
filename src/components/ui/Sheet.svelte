@@ -13,6 +13,9 @@
    *  empty. Useful for sheets that draw their own header/banner inside the
    *  slot and need the X to stay visible while the content scrolls. */
   export let overlayClose = false;
+  /** z-index for a sheet opened from something that sits above ordinary
+   *  sheets (an ActionSheet, at 120): the date picker inside a DayPicker. */
+  export let layer = null;
 
   const dispatch = createEventDispatcher();
   let _locked = false;
@@ -37,7 +40,7 @@
 {#if open}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div use:portal class="sheet-backdrop" on:click={onBackdropClick} use:closeOnBack={close}
+  <div use:portal class="sheet-backdrop" style={layer != null ? `z-index:${layer}` : null} on:click={onBackdropClick} use:closeOnBack={close}
     in:fade={{ duration: 200 }} out:fade={{ duration: 160 }}>
     <div
       class="sheet-panel"

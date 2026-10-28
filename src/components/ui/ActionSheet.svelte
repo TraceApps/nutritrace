@@ -19,7 +19,9 @@
     _locked = true;
     _lockTimer = setTimeout(() => _locked = false, 400);
   }
-  const pick     = (a) => { open = false; dispatch('select', a); };
+  // A second tap while it closes would act twice (#283: a move to another
+  // day would put the item there twice).
+  const pick     = (a) => { if (!open) return; open = false; dispatch('select', a); };
   const cancel   = () => { if (!_locked) { open = false; dispatch('cancel'); } };
 </script>
 
@@ -38,6 +40,8 @@
       {#if title}
         <p class="as-title">{title}</p>
       {/if}
+      <!-- Optional controls above the choices (the DayPicker on Move and Add to Diary). -->
+      <slot name="header" />
       {#each actions as action}
         <button
           class="as-btn"

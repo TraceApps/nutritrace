@@ -5,6 +5,7 @@ import { localDateStr, DB } from '../lib/db.js';
 import { resolveAssetUrl, isNative } from '../lib/platform.js';
 import { itemSourceRef } from '../lib/item-source.js';
 import { markCatalogItemUsed, countsUseHere } from '../lib/catalog-kind.js';
+import { foodServerIdFor, copyOfDiaryItem, copyToDays, moveItemsToMeal } from '../lib/diary-copy.js';
 
 function todayStr() {
   return localDateStr();
@@ -295,11 +296,7 @@ export async function addDiaryItem(foodItem, meal, date, { kind = null, shared =
   // server's, so it keeps its food_server_id (and food_device) as is.
   const keepsSource = !('server_id' in foodItem) && 'food_server_id' in foodItem
     && (typeof foodItem.food_server_id === 'number' || foodItem.food_server_id === null);
-  const food_server_id = keepsSource
-    ? foodItem.food_server_id
-    : ('server_id' in foodItem)
-      ? foodItem.server_id
-      : (typeof foodItem.id === 'number' ? foodItem.id : null);
+  const food_server_id = foodServerIdFor(foodItem);
   const item = {
     ...foodItem,
     uuid: _newUuid(),
@@ -763,6 +760,186 @@ export async function copyMealToDate(fromMealIdx, targetDate, targetMealIdx) {
     items: [...(target.items || []), ...copies],
   }));
   return src.length;
+}
+
+/**
+ * #283: copy the given diary items to each of `dates`, into meal `meal` (null
+ * keeps each item's own meal). Each copy is what Copy makes of one item
+ * (see copyOfDiaryItem); `items` is read once, so a copy landing on the day
+ * it came from is never copied again. One save per day: offline it queues
+ * like any diary change. Returns copyToDays' { copied, failed, items }.
+ */
+export async function copyItemsToDates(items, dates, meal) {
+  const src = (items || []).filter(Boolean);
+  if (!src.length) return { copied: [], failed: [], items: 0, nothing: true };
+  return copyToDays(dates, async (date) => {
+    const now = new Date().toISOString();
+    const copies = src.map(it => copyOfDiaryItem(it, meal, { uuid: _newUuid(), now }));
+    await _refetchAndSave(date, (target) => ({
+      ...target,
+      items: [...(target.items || []), ...copies],
+    }));
+    return copies.length;
+  });
+}
+
+/**
+ * #283: copyMealToDate for several days. The meal is read once from the
+ * viewed day, so copying it onto that same day doesn't grow what the next
+ * days get. Returns copyToDays' { copied, failed, items, nothing }.
+ */
+export async function copyMealToDates(fromMealIdx, dates, targetMealIdx) {
+  let viewDate = null;
+  currentDate.subscribe(v => viewDate = v)();
+  if (!viewDate) return { copied: [], failed: [], items: 0, nothing: true };
+  const srcEntry = _fromApi(await NtApi.getDiaryDate(viewDate));
+  const src = (srcEntry?.items || []).filter(it => Number(it.meal ?? 0) === Number(fromMealIdx));
+  if (!src.length) return { copied: [], failed: [], items: 0, nothing: true };
+  return copyToDays(dates, async (date) => {
+    const now = new Date().toISOString();
+    // Fresh uuid on every copy, as copyMealToDate explains.
+    const copies = src.map(it => ({ ...it, uuid: _newUuid(), meal: Number(targetMealIdx), addedAt: now }));
+    await _refetchAndSave(date, (target) => ({
+      ...target,
+      items: [...(target.items || []), ...copies],
+    }));
+    return copies.length;
+  });
+}
+
+/**
+ * #283: move the items at `indices` (the viewed day's rows) to meal `toMeal`,
+ * the way Move to Meal moves one. Returns how many moved (items already in
+ * that meal stay put and aren't counted).
+ */
+export async function moveDiaryItemsToMeal(indices, toMeal) {
+  let entry = null;
+  currentEntry.subscribe(v => entry = v)();
+  if (!entry) return 0;
+  const { items, moved } = moveItemsToMeal(entry.items, indices, toMeal, new Date().toISOString());
+  if (!moved) return 0;
+  currentEntry.set(await _save({ ...entry, items }));
+  return moved;
+}
+
+// The same logged row: what it is, how much, and when it was added (for rows
+// with no uuid to tell them apart, #267).
+function _sameRow(a, b) {
+  if (!a || !b) return false;
+  if (a.uuid && b.uuid) return a.uuid === b.uuid;
+  return a.name === b.name && a.addedAt === b.addedAt && Number(a.meal ?? 0) === Number(b.meal ?? 0)
+    && String(a.quantity ?? '') === String(b.quantity ?? '') && String(a.portion ?? '') === String(b.portion ?? '');
+}
+
+/**
+ * #267: move the items at `indices` (rows of the viewed day) to meal `toMeal`
+ * on another day. Safe order: the items are written to the other day first,
+ * and only once that save has gone through (or is queued, offline) are they
+ * removed from this day. If the write fails nothing is removed. If removing
+ * them here fails, the copies on the other day are taken back out; if that
+ * fails too, or it can't be told whether they left here, they are left on
+ * both days (never on neither), and the result says so.
+ * The moved items get new uuids there (the day's merge is per day, so this
+ * is a copy there plus a delete here, the two steps every transport already
+ * has); everything else about them stays.
+ * Returns { moved, status: 'ok' | 'failed' | 'both', error }.
+ */
+export async function moveDiaryItemsToDate(indices, targetDate, toMeal) {
+  let entry = null;
+  currentEntry.subscribe(v => entry = v)();
+  let viewDate = null;
+  currentDate.subscribe(v => viewDate = v)();
+  if (!entry || !targetDate || entry.date !== viewDate) return { moved: 0, status: 'failed', error: null };
+  if (targetDate === viewDate) {
+    const moved = await moveDiaryItemsToMeal(indices, toMeal);
+    return { moved, status: 'ok', error: null };
+  }
+  const pick = new Set(indices);
+  const src = (entry.items || []).filter((_, i) => pick.has(i));
+  if (!src.length) return { moved: 0, status: 'ok', error: null };
+  const now = new Date().toISOString();
+  const placed = src.map(it => ({ ...it, uuid: _newUuid(), meal: Number(toMeal), updatedAt: now }));
+  const placedUuids = new Set(placed.map(it => it.uuid));
+
+  // 1. The other day first. Nothing has been removed if this throws.
+  try {
+    await _refetchAndSave(targetDate, (target) => ({
+      ...target,
+      items: [...(target.items || []), ...placed],
+    }));
+  } catch (error) {
+    return { moved: 0, status: 'failed', error };
+  }
+
+  // 2. Then out of this day, the way Delete takes them out (uuid tombstones).
+  // By uuid on the day as it is now (the rows shown may be older than what
+  // another device saved since), when each uuid names exactly one row there.
+  // Otherwise (an item from before uuids, or two rows sharing one) by row,
+  // then checked: the server keeps a row it isn't told to delete.
+  try {
+    const tomb = src.map(it => it?.uuid).filter(Boolean);
+    let byUuid = tomb.length === src.length;
+    if (byUuid) {
+      const gone = new Set(tomb);
+      const saved = await _refetchAndSave(viewDate, (day) => {
+        const rows = (day.items || []).filter(it => gone.has(it?.uuid));
+        if (rows.length !== gone.size) { byUuid = false; return null; }
+        const prior = day._pendingDeletions || { items: [], water: [] };
+        return {
+          ...day,
+          items: (day.items || []).filter(it => !gone.has(it?.uuid)),
+          _pendingDeletions: { items: [...(prior.items || []), ...tomb], water: prior.water || [] },
+        };
+      });
+      if (byUuid && !saved) byUuid = false;
+    }
+    if (!byUuid) {
+      // A uuid two rows share is not sent: it would delete the one not moved.
+      const count = new Map();
+      for (const it of entry.items || []) if (it?.uuid) count.set(it.uuid, (count.get(it.uuid) || 0) + 1);
+      const own = tomb.filter(u => count.get(u) === 1);
+      const prior = entry._pendingDeletions || { items: [], water: [] };
+      const saved = await _save({
+        ...entry,
+        items: (entry.items || []).filter((_, i) => !pick.has(i)),
+        _pendingDeletions: { items: [...(prior.items || []), ...own], water: prior.water || [] },
+      });
+      currentEntry.set(saved);
+      const left = (saved?.items || []).filter(it => src.some(s => _sameRow(s, it)));
+      if (left.length) return { moved: 0, status: 'both', error: null };
+    }
+    return { moved: src.length, status: 'ok', error: null };
+  } catch (error) {
+    // 3. The save here failed. If it went through after all (the answer was
+    // lost), the move is done. If it can't be told, both days keep them:
+    // a duplicate the user is told about, never a lost item.
+    const srcUuids = src.map(it => it?.uuid).filter(Boolean);
+    let stillHere = null;
+    try {
+      const fresh = _fromApi(await NtApi.getDiaryDate(viewDate));
+      const have = new Set((fresh?.items || []).map(it => it?.uuid));
+      if (srcUuids.length) stillHere = srcUuids.some(u => have.has(u));
+    } catch { /* can't tell */ }
+    if (stillHere === false) {
+      await loadEntry(viewDate).catch(() => {});
+      return { moved: src.length, status: 'ok', error: null };
+    }
+    if (stillHere !== true) return { moved: 0, status: 'both', error };
+    // Still here: take them back out of the other day.
+    try {
+      await _refetchAndSave(targetDate, (target) => {
+        const prior = target._pendingDeletions || { items: [], water: [] };
+        return {
+          ...target,
+          items: (target.items || []).filter(it => !placedUuids.has(it?.uuid)),
+          _pendingDeletions: { items: [...(prior.items || []), ...placedUuids], water: prior.water || [] },
+        };
+      });
+      return { moved: 0, status: 'failed', error };
+    } catch {
+      return { moved: 0, status: 'both', error };
+    }
+  }
 }
 
 export async function addWaterLog(amountMl, date) {

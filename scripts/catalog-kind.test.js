@@ -144,11 +144,11 @@ test('the diary counts the use by the kind its caller logged', () => {
 });
 
 test("the pane's Add to Diary says what it logs, on every path", () => {
-  assert.match(sheet, /dispatch\('addToDiary', \{ food: _displayFood, meal, kind \}\)/);
+  assert.match(sheet, /dispatch\('addToDiary', \{ food: _displayFood, meal, kind, date: /);
   const onAdd = foods.match(/async function onDetailAddToDiary\(e\) \{[\s\S]*?\n  \}/)[0];
   assert.match(onAdd, /const kind = e\.detail\.kind \|\| 'food';/);
   assert.match(onAdd, /promptKind = kind;/);
-  assert.match(onAdd, /addDiaryItem\(item, chosenMeal, undefined, \{ kind: savedKind \}\)/);
+  assert.match(onAdd, /addDiaryItem\(item, chosenMeal, day, \{ kind: savedKind \}\)/);
   const noNav = foods.match(/async function _addFoodToDiaryNoNav\(food, qty, kind = null\) \{[\s\S]*?\n  \}/)[0];
   assert.match(noNav, /addDiaryItem\(item, Number\(pickMeal\) \|\| 0, pickDate \|\| undefined, \{ kind \}\)/);
   assert.match(foods, /_addFoodToDiaryNoNav\(food, qty, kind\)/);

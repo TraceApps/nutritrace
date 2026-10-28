@@ -31,7 +31,8 @@
    *
    * Events:
    *   edit         — user tapped Edit. Parent opens FoodEditor.
-   *   addToDiary   — user tapped + Add to Diary. detail: {food, meal}.
+   *   addToDiary   : user tapped + Add to Diary. detail: {food, meal, kind,
+   *                  date}; date is the day picked with the meal (#267).
    *   deleted      — user tapped Delete and confirmed. Parent refreshes
    *                  the foods list.
    *   close        — user dismissed the sheet without action.
@@ -41,6 +42,9 @@
   import { _ } from 'svelte-i18n';
   import Sheet from './Sheet.svelte';
   import ActionSheet from './ActionSheet.svelte';
+  import DayPicker from './DayPicker.svelte';
+  import { currentDate as diaryDate } from '../../stores/diary.js';
+  import { localDateStr } from '../../lib/db.js';
   import NutritionFactsBox from './NutritionFactsBox.svelte';
   import { resolveAssetUrl } from '../../lib/platform.js';
   import { itemsInBase } from '../../lib/units.js';
@@ -161,8 +165,11 @@
     // the user can still see what they're logging while choosing the meal.
     // Final commit (close detail sheet + dispatch addToDiary) happens in
     // onMealPicked once they tap a meal.
+    // #267: and the day, starting on the one the Diary shows.
+    _addDay = $diaryDate || localDateStr();
     _mealPickerOpen = true;
   }
+  let _addDay = '';
 
   function onMealPicked(e) {
     const meal = Number(e.detail?.value) || 0;
@@ -170,7 +177,7 @@
     _transitioning = true;
     open = false;
     // kind rides along so the right row's usage is counted (#282).
-    dispatch('addToDiary', { food: _displayFood, meal, kind });
+    dispatch('addToDiary', { food: _displayFood, meal, kind, date: _addDay || $diaryDate || localDateStr() });
     setTimeout(() => { _transitioning = false; }, 250);
   }
 
@@ -414,9 +421,12 @@
   bind:open={_mealPickerOpen}
   title={$_('foods.detail.add_to_which_meal')}
   actions={_mealActions}
-  on:select={onMealPicked} />
+  on:select={onMealPicked}>
+  <svelte:fragment slot="header"><div class="add-day"><DayPicker bind:value={_addDay} /></div></svelte:fragment>
+</ActionSheet>
 
 <style>
+  .add-day { padding: 0 0 4px; }
   /* Two-column grid on desktop, single column on mobile. Mirrors CT's
      PantryItemSheet 1:1 — the only deviation is column ratio (CT uses
      1fr / 1.05fr; we match exactly so the FDA card sits where users see

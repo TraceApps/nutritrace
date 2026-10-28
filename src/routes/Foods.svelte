@@ -16,13 +16,14 @@
   import { portal } from '../lib/portal.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { scaleFactor as _unitScaleFactor, unitSystem as _unitSystem, amountAndUnit } from '../lib/units.js';
-  import { diaryPromptQuantity, warnUnitMismatch, showUnitMetadata, forceMobileLayout } from '../stores/settings.js';
+  import { diaryPromptQuantity, warnUnitMismatch, showUnitMetadata, forceMobileLayout, language } from '../stores/settings.js';
   import { showSuccess, showError, showToast } from '../stores/toast.js';
   import { staleIngredientNames } from '../lib/stale-ingredients.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import { noteSharingStatus } from '../stores/sharing.js';
   import { DB, localDateStr } from '../lib/db.js';
-  import { loadEntry } from '../stores/diary.js';
+  import { loadEntry, currentDate as diaryDate } from '../stores/diary.js';
+  import { dayValues } from '../lib/day-label.js';
   import { API, USDA, NtApi } from '../lib/api.js';
   import { Nutrition } from '../lib/nutrition.js';
   import { Mealie } from '../lib/mealieApi.js';
@@ -1077,8 +1078,13 @@
     // existing pickMeal slot so confirmQtyPrompt uses it.
     const chosenMeal = Number(e.detail.meal) || 0;
     const kind = e.detail.kind || 'food';
+    // #267: the day picked on the sheet (it starts on the Diary's day). The
+    // add sheet, a saved meal and the no-prompt add all log to that day; the
+    // quantity sheet and a saved meal used to take today, and the no-prompt
+    // add the Diary's day.
+    const day = e.detail.date || $diaryDate || localDateStr();
     pickMeal = String(chosenMeal);
-    pickDate = localDateStr();
+    pickDate = day;
     // A saved meal logs its ingredients at their saved portions, with no
     // quantity prompt, as it does when added from the Diary (pick mode).
     // A recipe logs as one row, as it does there too (#282).
@@ -1113,10 +1119,17 @@
       quantity: 1,
       nutrition: savedFood.nutrition,
     };
-    await addDiaryItem(item, chosenMeal, undefined, { kind: savedKind });
+    await addDiaryItem(item, chosenMeal, day, { kind: savedKind });
     editorState.lastMealAdded = chosenMeal;
+    showSuccess(_addedToMsg('foods.detail.added_to_day'));
+  }
+
+  // "Added to yesterday's Dinner" / "Adding to Dinner on Thu, Oct 29": the
+  // meal and day the food's own sheet chose (pickMeal, pickDate).
+  function _addedToMsg(key) {
     const names = mealNames.get() || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
-    showSuccess($_('foods.detail.added_to', { values: { meal: names[chosenMeal] || 'meal' } }));
+    const meal = names[Number(pickMeal) || 0] || 'meal';
+    return $_(key, { values: { meal, ...dayValues(pickDate || localDateStr(), { lang: $language }) } });
   }
 
   function openMealEditor(item, isRecipe) {
@@ -1287,8 +1300,7 @@
           values: { names: stale.join(', ') },
         }), 6000, 'info');
       } else if (stay) {
-        const names = mealNames.get() || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
-        showSuccess($_('foods.detail.added_to', { values: { meal: names[Number(pickMeal) || 0] || 'meal' } }));
+        showSuccess(_addedToMsg('foods.detail.added_to_day'));
       } else {
         showSuccess($_('foods.toast.added_to_diary'));
       }
@@ -1327,8 +1339,15 @@
     _addingToDiary = true;
     try {
       await _addFoodToDiaryNoNav(food, qty, kind);
-      import('../stores/toast.js').then(m => m.showSuccess($_('foods.toast.added_to_diary')));
       editorState.lastMealAdded = Number(pickMeal) || 0;
+      if (!pickMode) {
+        // From the food's own sheet (#267): stay on Foods, like its no-prompt
+        // add, and say which day and meal it went to.
+        showQtyPrompt = false;
+        showSuccess(_addedToMsg('foods.detail.added_to_day'));
+        return;
+      }
+      import('../stores/toast.js').then(m => m.showSuccess($_('foods.toast.added_to_diary')));
       history.back();
     } finally {
       _addingToDiary = false;
@@ -2775,6 +2794,13 @@
 <!-- Quantity prompt sheet -->
 <Sheet bind:open={showQtyPrompt} title={promptFood ? promptFood.name : 'Add to Diary'}>
   <div style="display:flex;flex-direction:column;gap:16px;padding-top:8px" on:keydown={_onQtyPromptKey}>
+    {#if !pickMode && showQtyPrompt}
+      <!-- #267: where it goes, as chosen on the food's sheet. -->
+      <div class="qty-destination">
+        <span class="material-symbols-rounded">event</span>
+        <span>{_addedToMsg('foods.detail.adding_to_day')}</span>
+      </div>
+    {/if}
     <!-- Issues #69 + #70: surface the OFF nutrition basis so users know
          whether values are per-100-g or per-100-ml at a glance. Gated on
          the showUnitMetadata opt-in (or the warn-about-conversions toggle
@@ -3197,6 +3223,13 @@
     transition: transform var(--dur-fast) var(--ease-out);
   }
   .meal-section-chevron-collapsed { transform: rotate(-90deg); }
+
+  /* #267: the day and meal the add sheet logs to (outside pick mode) */
+  .qty-destination {
+    display: flex; gap: 8px; align-items: center;
+    font-size: 14px; color: var(--text-2);
+  }
+  .qty-destination .material-symbols-rounded { font-size: 18px; color: var(--accent); }
 
   /* Notes display in quick-add sheets */
   .qty-notes {

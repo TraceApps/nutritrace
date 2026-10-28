@@ -6,7 +6,7 @@
   import { _, locale } from 'svelte-i18n';
   import { tr } from '../lib/i18n-label.js';
   import DatePicker from '../components/ui/DatePicker.svelte';
-  import DateInput  from '../components/ui/DateInput.svelte';
+  import DayPicker  from '../components/ui/DayPicker.svelte';
   import { resolveAssetUrl, isNative, getServerUrl } from '../lib/platform.js';
   import { resolveGoalFor } from '../lib/goal-resolver.js';
   import { fade, slide, fly } from 'svelte/transition';
@@ -30,12 +30,15 @@
   import TimePicker   from '../components/ui/TimePicker.svelte';
   import { scaleFactor as _unitScaleFactor, amountAndUnit } from '../lib/units.js';
   import { showSuccess, showError, showInfo } from '../stores/toast.js';
+  import { REPEAT_MAX_DAYS, clampRepeat, repeatDates, copyToDays, copyOutcome } from '../lib/diary-copy.js';
+  import { dayValues, plainDay, relativeDay } from '../lib/day-label.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import {
     currentDate, currentEntry, diaryTotals, macroPercents,
     prevDay, nextDay, loadEntry, removeDiaryItem, updateDiaryItem, saveBodyStats,
     addWaterLog,
-    copyMealItems, moveMealItems, clearMealItems, copyMealToDate, saveDiaryNote,
+    copyMealItems, moveMealItems, clearMealItems, saveDiaryNote,
+    copyItemsToDates, copyMealToDates, moveDiaryItemsToDate,
     setDayCompletion, setMealCompletion,
     splitRecipeItem, removeSplitChild, updateSplitChild,
     diaryShowNutritionSummary, diaryShowBodyStats, diaryLoadError,
@@ -1113,7 +1116,7 @@
       // Same single-sheet date+meal picker the per-item Copy uses,
       // sharing one component for both flows. copyMode tells the
       // Copy handler whether to addDiaryItem (per-item) or
-      // copyMealToDate (per-meal).
+      // copyMealToDates (per-meal).
       //
       // Default target date = today (not the currently-viewed date).
       // The common copy-from-a-past-day case is "I ate the same lunch
@@ -1122,6 +1125,7 @@
       copyMode = 'meal';
       copyDate = localDateStr();
       copyMeal = Number(actionMealIdx) || 0;
+      copyRepeat = 0;
       _lockAndOpen(() => showCopySheet = true);
     }
     else if (val === 'save_meal') {
@@ -1358,6 +1362,95 @@
     selectMode    = false;
     selectedItems = new Set();
   }
+  // The selection is the viewed day's row numbers, which mean other items
+  // on another day: going to another day ends Select Multiple.
+  // On the same day a reload (a sync, another device) can renumber the rows,
+  // so the selection follows its items by uuid; one that is gone, or has no
+  // uuid to follow, drops out.
+  let _selUuids = [];
+  $: if (selectMode) _selUuids = _uuidsOf(selectedItems, _selEntry);
+  let _selEntry = null;
+  function _uuidsOf(sel, ent) { return (ent?.items || []).map((it, i) => sel.has(i) ? it?.uuid : null).filter(Boolean); }
+  $: _followSelection($currentEntry);
+  function _followSelection(ent) {
+    if (!selectMode || !ent || ent === _selEntry) { _selEntry = ent; return; }
+    const prev = _selEntry;
+    _selEntry = ent;
+    if (!prev || prev.date !== ent.date) return;
+    const want = new Set(_selUuids);
+    const next = new Set();
+    (ent.items || []).forEach((it, i) => { if (it?.uuid && want.has(it.uuid)) next.add(i); });
+    selectedItems = next;
+    if (!next.size) exitSelectMode();
+  }
+  let _selectDate = null;
+  $: if ($currentDate !== _selectDate) { _selectDate = $currentDate; if (selectMode) exitSelectMode(); }
+
+  // #283: the selected items as they are now, in diary order.
+  function _selectedEntryItems() {
+    let ent = null;
+    currentEntry.subscribe(v => ent = v)();
+    return (ent?.items || []).map((it, i) => ({ ...it, _i: i })).filter(it => selectedItems.has(it._i));
+  }
+
+  let showMoveSelected = false;
+  let _selBusy = false;
+  function openCopySelected() {
+    if (!selectedItems.size) return;
+    copyMode = 'selection';
+    copyDate = localDateStr();
+    copyMeal = -1; // Keep Each Item's Meal
+    _copyCount = selectedItems.size;
+    copyRepeat = 0;
+    _lockAndOpen(() => showCopySheet = true);
+  }
+  async function onMoveSelected(e) {
+    const to = e.detail?.value;
+    showMoveSelected = false;
+    if (to == null || !selectedItems.size || _selBusy) return;
+    _selBusy = true;
+    try {
+      // Leaves Select Multiple unless nothing moved and nothing changed.
+      if (await _moveRows([...selectedItems], moveDate || $currentDate, to)) exitSelectMode();
+    } finally {
+      _selBusy = false;
+    }
+  }
+
+  // #267: Move to Meal can change the day too (one item or a selection).
+  // moveDate starts on the viewed day, so a same-day move is one tap.
+  let moveDate = null;
+  function _openMove(setter) {
+    moveDate = $currentDate;
+    _lockAndOpen(setter);
+  }
+  // Moves the viewed day's rows `indices` to meal `to` on day `date` and says
+  // where they went. Returns false when nothing happened (Select Multiple
+  // stays so the user can try again).
+  async function _moveRows(indices, date, to) {
+    const meal = meals[to] || 'meal';
+    const where = { meal, ...dayValues(date, { lang: $language }) };
+    try {
+      const r = await moveDiaryItemsToDate(indices, date, to);
+      if (r.status === 'both') {
+        showError($_('diary.move.both_days', { values: { n: indices.length, ...where } }));
+        return true;
+      }
+      if (r.status === 'failed') {
+        showError(r.error?.message
+          ? $_('diary.move.failed_reason', { values: { error: r.error.message } })
+          : $_('diary.move.failed'));
+        return false;
+      }
+      if (r.moved) showSuccess($_('diary.move.moved', { values: { n: r.moved, ...where } }));
+      else showInfo($_('diary.move.already_there', { values: { meal } }));
+      return true;
+    } catch (err) {
+      showError(err?.message || $_('diary.move.failed'));
+      return false;
+    }
+  }
+
 
   async function doDeleteSelected() {
     const count    = selectedItems.size;
@@ -1401,17 +1494,18 @@
     if (!actionItem) return;
     if (val === 'edit')        { openEditItem(actionItem); }
     if (val === 'replace')     { replaceItem(actionItem); }
-    if (val === 'move')        { _lockAndOpen(() => showMoveToMeal = true); }
+    if (val === 'move')        { _openMove(() => showMoveToMeal = true); }
     if (val === 'copy_to') {
       // Open the shared Copy sheet in 'item' mode. Same single-sheet UX
       // the per-meal Copy uses; copyMode tells the Copy handler which
-      // backend call to fire (addDiaryItem for items, copyMealToDate
+      // backend call to fire (addDiaryItem for items, copyMealToDates
       // for meals). Default target = today so copying a past item to
       // the current day takes one tap. See onMealAction for the same
       // rationale on the per-meal path.
       copyMode = 'item';
       copyDate = localDateStr();
       copyMeal = Number(actionItem.meal) || 0;
+      copyRepeat = 0;
       _lockAndOpen(() => showCopySheet = true);
     }
     if (val === 'select')  { enterSelectMode(actionItem); }
@@ -1421,50 +1515,67 @@
 
   // Shared "Copy" sheet for both per-item AND per-meal copy actions.
   // copyMode === 'item' → uses addDiaryItem to copy actionItem.
-  // copyMode === 'meal' → uses copyMealToDate to copy every item in
+  // copyMode === 'meal' → uses copyMealToDates to copy every item in
   // actionMealIdx. Same single-sheet date+meal picker for both flows
   // so the UX is identical (consolidated from the previous two-step
   // per-meal copy_date flow that the user found redundant).
+  // copyMode === 'selection' (#283) → copyItemsToDates copies the Select
+  // Multiple items; the meal picker adds Keep Each Item's Meal, the default.
+  // Repeat (all three) copies to copyDate and each of the next N days.
   let showCopySheet = false;
-  let copyMode = 'item'; // 'item' | 'meal'
+  let copyMode = 'item'; // 'item' | 'meal' | 'selection'
   let copyDate = null;
-  let copyMeal = 0;
+  let copyMeal = 0;      // -1 = Keep Each Item's Meal (selection only)
+  let copyRepeat = 0;    // #283: also copy to the next N days
   let copyBusy = false;
+  let _copyCount = 0;    // items in a selection copy, for the title
 
   $: copySourceName = copyMode === 'meal'
     ? (meals[actionMealIdx] || 'meal')
     : (actionItem?.name || 'item');
+  $: _copyDays = repeatDates(copyDate, copyRepeat);
 
   async function onConfirmCopy() {
     if (!copyDate || copyBusy) return;
+    const dates = repeatDates(copyDate, copyRepeat);
+    if (!dates.length) return;
     copyBusy = true;
     try {
-      const targetMeal = Number(copyMeal) || 0;
-      const mealLabel  = meals[targetMeal] || 'meal';
-      const sameDay    = copyDate === $currentDate;
+      const keepMeals  = copyMode === 'selection' && Number(copyMeal) === -1;
+      const targetMeal = keepMeals ? null : (Number(copyMeal) || 0);
+      let result;
       if (copyMode === 'meal') {
-        const from = actionMealIdx;
-        if (from == null) return;
-        const n = await copyMealToDate(from, copyDate, targetMeal);
-        if (n) showSuccess(sameDay
-          ? `Copied ${n} item${n === 1 ? '' : 's'} to ${mealLabel}`
-          : `Copied ${n} item${n === 1 ? '' : 's'} to ${mealLabel} on ${copyDate}`);
-        else showInfo('Nothing to copy');
+        if (actionMealIdx == null) return;
+        result = await copyMealToDates(actionMealIdx, dates, targetMeal);
+      } else if (copyMode === 'selection') {
+        result = await copyItemsToDates(_selectedEntryItems(), dates, targetMeal);
       } else {
         if (!actionItem) return;
-        const { addDiaryItem } = await import('../stores/diary.js');
         // Shallow clone + scrub the fields that bind the item to its
         // current row. addDiaryItem generates a new index + id on the
         // destination day. Image references + notes are preserved.
+        // Taken once, so a copy onto this same day isn't copied again.
+        const { addDiaryItem } = await import('../stores/diary.js');
         const { _i, id, ...rest } = actionItem;
-        await addDiaryItem(rest, targetMeal, copyDate);
-        showSuccess(sameDay
-          ? `Copied to ${mealLabel}`
-          : `Copied to ${mealLabel} on ${copyDate}`);
+        result = await copyToDays(dates, d => addDiaryItem(rest, targetMeal, d).then(() => 1));
       }
-      showCopySheet = false;
+      const out = copyOutcome(result, {
+        meal: targetMeal == null ? '' : (meals[targetMeal] || 'meal'),
+        keepMeals,
+        fmt: d => plainDay(d, $language),
+        rel: d => relativeDay(d),
+      });
+      const msg = $_(out.key, { values: out.values });
+      if (out.level === 'success') showSuccess(msg);
+      else if (out.level === 'info') showInfo(msg);
+      else showError(msg);
+      // Nothing copied at all: the sheet (and the selection) stay, to try again.
+      if (result.copied.length || result.nothing) {
+        showCopySheet = false;
+        if (copyMode === 'selection') exitSelectMode();
+      }
     } catch (err) {
-      showError(err?.message || 'Copy failed');
+      showError(err?.message || $_('diary.copy.toast_failed'));
     } finally {
       copyBusy = false;
     }
@@ -1531,11 +1642,26 @@
   }
   async function moveItemToMeal(e) {
     const mealIdx = e.detail?.value;
-    if (!actionItem || mealIdx == null) return;
-    await updateDiaryItem(actionItem._i, { meal: mealIdx });
+    if (!actionItem || mealIdx == null || _selBusy) return;
     showMoveToMeal = false;
-    showSuccess('Moved to ' + (meals[mealIdx] || 'meal'));
+    const date = moveDate || $currentDate;
+    _selBusy = true;
+    try {
+      if (date === $currentDate) {
+        // Same day: the move it has always been.
+        const meal = meals[mealIdx] || 'meal';
+        if (Number(actionItem.meal ?? 0) === Number(mealIdx)) { showInfo($_('diary.move.already_there', { values: { meal } })); return; }
+        await updateDiaryItem(actionItem._i, { meal: mealIdx });
+        showSuccess($_('diary.move.moved', { values: { n: 1, meal, ...dayValues(date, { lang: $language }) } }));
+        return;
+      }
+      await _moveRows([actionItem._i], date, mealIdx);
+    } finally {
+      _selBusy = false;
+    }
   }
+
+
 
   // ── Water ──────────────────────────────────────────────────────────────────
   let _waterGoalMl      = DB.getSetting('waterGoalMl',      2000);
@@ -1934,7 +2060,15 @@
       <button class="btn-icon" on:click={exitSelectMode} aria-label={$_('diary.actions.cancel_selection')} title={$_('diary.actions.cancel_selection')}>
         <span class="material-symbols-rounded">close</span>
       </button>
-      <button class="btn-icon" style="color:var(--danger)" disabled={selectedItems.size === 0}
+      <button class="btn-icon" disabled={selectedItems.size === 0 || _selBusy}
+        on:click={() => _openMove(() => showMoveSelected = true)} aria-label={$_('diary.actions.move_selected')} title={$_('diary.actions.move_selected')}>
+        <span class="material-symbols-rounded">swap_horiz</span>
+      </button>
+      <button class="btn-icon" disabled={selectedItems.size === 0 || _selBusy}
+        on:click={openCopySelected} aria-label={$_('diary.actions.copy_selected')} title={$_('diary.actions.copy_selected')}>
+        <span class="material-symbols-rounded">content_copy</span>
+      </button>
+      <button class="btn-icon" style="color:var(--danger)" disabled={selectedItems.size === 0 || _selBusy}
         on:click={() => showMultiDeleteDialog = true} aria-label={$_('diary.actions.delete_selected')} title={$_('diary.actions.delete_selected')}>
         <span class="material-symbols-rounded">delete</span>
       </button>
@@ -3004,10 +3138,22 @@
 <!-- Move to meal action sheet -->
 <ActionSheet
   bind:open={showMoveToMeal}
-  title="Move to Meal"
+  title={$_('diary.move.title')}
   actions={meals.map((m, i) => ({ label: m, icon: mealIcon(m), value: i }))}
   on:select={moveItemToMeal}
-/>
+>
+  <svelte:fragment slot="header"><div class="move-day"><DayPicker bind:value={moveDate} /></div></svelte:fragment>
+</ActionSheet>
+
+<!-- Move the Select Multiple items to another meal (#283) -->
+<ActionSheet
+  bind:open={showMoveSelected}
+  title={$_('diary.move.title_selection', { values: { n: selectedItems.size } })}
+  actions={meals.map((m, i) => ({ label: m, icon: mealIcon(m), value: i }))}
+  on:select={onMoveSelected}
+>
+  <svelte:fragment slot="header"><div class="move-day"><DayPicker bind:value={moveDate} disabled={_selBusy} /></div></svelte:fragment>
+</ActionSheet>
 
 <!-- Meal-level action sheet (⋮ on meal header) -->
 {#if actionMealIdx != null}
@@ -3041,7 +3187,7 @@
 
 <!-- Shared Copy sheet for both per-ITEM and per-MEAL copy actions.
      copyMode drives the title + the backend call (addDiaryItem for items,
-     copyMealToDate for meals). Single combined date+meal picker —
+     copyMealToDates for meals, copyItemsToDates for a Select Multiple selection). Single combined date+meal picker:
      consolidated from the previous two-step per-meal flow at user
      request, so both surfaces share one identical UX.
 
@@ -3055,19 +3201,39 @@
     on:click={() => { if (!_sheetLock) showCopySheet = false; }} on:keydown={() => {}}>
     <div class="bs-sheet copy-date-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
-      <p class="sheet-title">Copy "{copySourceName}" to…</p>
-      <label class="copy-date-label">
+      <p class="sheet-title">{#if copyMode === 'selection'}{$_('diary.copy.title_selection', { values: { n: _copyCount } })}{:else}Copy "{copySourceName}" to…{/if}</p>
+      <div class="copy-date-label">
         <span>Date</span>
-        <DateInput bind:value={copyDate} />
-      </label>
+        <DayPicker bind:value={copyDate} disabled={copyBusy} />
+      </div>
       <label class="copy-date-label">
         <span>Meal</span>
         <select bind:value={copyMeal} class="select sel-sm" style="width:100%">
+          {#if copyMode === 'selection'}
+            <option value={-1}>{$_('diary.copy.keep_meals')}</option>
+          {/if}
           {#each meals as m, i}
             <option value={i}>{m}</option>
           {/each}
         </select>
       </label>
+      <div class="copy-date-label copy-repeat-row">
+        <span id="copy-repeat-label">{$_('diary.copy.repeat')}</span>
+        <div class="copy-repeat" role="group" aria-labelledby="copy-repeat-label">
+          <button type="button" class="btn-icon copy-repeat-btn" disabled={copyRepeat <= 0 || copyBusy}
+            on:click={() => copyRepeat = clampRepeat(copyRepeat - 1)} aria-label={$_('diary.copy.fewer_days')} title={$_('diary.copy.fewer_days')}>
+            <span class="material-symbols-rounded">remove</span>
+          </button>
+          <span class="copy-repeat-val" aria-live="polite">{copyRepeat > 0 ? $_('diary.copy.repeat_value', { values: { n: copyRepeat } }) : $_('diary.copy.repeat_off')}</span>
+          <button type="button" class="btn-icon copy-repeat-btn" disabled={copyRepeat >= REPEAT_MAX_DAYS || copyBusy}
+            on:click={() => copyRepeat = clampRepeat(copyRepeat + 1)} aria-label={$_('diary.copy.more_days')} title={$_('diary.copy.more_days')}>
+            <span class="material-symbols-rounded">add</span>
+          </button>
+        </div>
+        {#if copyRepeat > 0 && _copyDays.length > 1}
+          <span class="copy-repeat-hint">{$_('diary.copy.repeat_hint', { values: { days: _copyDays.length, from: plainDay(_copyDays[0], $language), to: plainDay(_copyDays[_copyDays.length - 1], $language) } })}</span>
+        {/if}
+      </div>
       <div class="copy-date-actions">
         <button class="btn btn-ghost" on:click={() => showCopySheet = false} disabled={copyBusy}>{$_('diary_deep.cancel')}</button>
         <button class="btn btn-primary" on:click={onConfirmCopy} disabled={!copyDate || copyBusy}>
@@ -4592,6 +4758,17 @@
     color: var(--text-1); font-size: 15px;
   }
   .copy-date-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+  .copy-repeat-row { margin-top: 12px; }
+  .copy-date-sheet .copy-date-label + .copy-date-label { margin-top: 12px; }
+  .move-day { padding: 0 0 4px; }
+  .copy-repeat {
+    display: flex; align-items: center; gap: 4px;
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface-2); padding: 2px;
+  }
+  .copy-repeat-btn { width: 40px; height: 40px; flex: none; }
+  .copy-repeat-val { flex: 1; text-align: center; font-size: 15px; color: var(--text-1); }
+  .copy-repeat-hint { font-size: 12px; color: var(--text-3); }
   .bs-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

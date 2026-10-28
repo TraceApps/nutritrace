@@ -141,7 +141,7 @@ test('every hand-built backdrop and overlay is registered too', () => {
 });
 
 test('the shared components and hand-built sheets are registered', () => {
-  assert.match(read('../src/components/ui/Sheet.svelte'), /class="sheet-backdrop" on:click=\{onBackdropClick\} use:closeOnBack=\{close\}/);
+  assert.match(read('../src/components/ui/Sheet.svelte'), /class="sheet-backdrop" (?:style=\{[^}]*\}[^}]*\} )?on:click=\{onBackdropClick\} use:closeOnBack=\{close\}/);
   assert.match(read('../src/components/ui/Dialog.svelte'), /class="dialog-backdrop"[^>]*use:closeOnBack=/);
   assert.match(read('../src/components/ui/ActionSheet.svelte'), /class="as-backdrop"[^>]*use:closeOnBack=/);
   const diary = read('../src/routes/Diary.svelte');

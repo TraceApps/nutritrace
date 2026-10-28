@@ -280,11 +280,13 @@ html.banner-animation-aurora .page-header.banner-animated::after {
    buttons to body (.diary-topbar-actions / .wl-topbar-actions) which
    sits outside .page-header, so they're caught via the documentElement-
    level .banner-gradient-mode / .banner-animated-mode classes
-   App.svelte toggles. */
+   App.svelte toggles. Diary's Select Multiple bar is left out: select mode
+   drops the banner, so its Cancel, Move, Copy and Delete sit on the plain
+   header and keep their own colors (#283). */
 .page-header.banner-gradient .btn-icon,
 .page-header.banner-animated .btn-icon,
-html.banner-gradient-mode .diary-topbar-actions .btn-icon,
-html.banner-animated-mode .diary-topbar-actions .btn-icon,
+html.banner-gradient-mode .diary-topbar-actions:not(.select-mode-actions) .btn-icon,
+html.banner-animated-mode .diary-topbar-actions:not(.select-mode-actions) .btn-icon,
 html.banner-gradient-mode .wl-topbar-actions .btn-icon,
 html.banner-animated-mode .wl-topbar-actions .btn-icon,
 html.banner-gradient-mode .wl-topbar-actions .wl-sync-icon-btn,
@@ -294,8 +296,8 @@ html.banner-animated-mode .wl-topbar-actions .wl-sync-icon-btn {
 }
 .page-header.banner-gradient .btn-icon:hover,
 .page-header.banner-animated .btn-icon:hover,
-html.banner-gradient-mode .diary-topbar-actions .btn-icon:hover,
-html.banner-animated-mode .diary-topbar-actions .btn-icon:hover,
+html.banner-gradient-mode .diary-topbar-actions:not(.select-mode-actions) .btn-icon:hover,
+html.banner-animated-mode .diary-topbar-actions:not(.select-mode-actions) .btn-icon:hover,
 html.banner-gradient-mode .wl-topbar-actions .btn-icon:hover,
 html.banner-animated-mode .wl-topbar-actions .btn-icon:hover,
 html.banner-gradient-mode .wl-topbar-actions .wl-sync-icon-btn:hover:not(:disabled),
@@ -304,8 +306,8 @@ html.banner-animated-mode .wl-topbar-actions .wl-sync-icon-btn:hover:not(:disabl
 }
 .page-header.banner-gradient .btn-icon .material-symbols-rounded,
 .page-header.banner-animated .btn-icon .material-symbols-rounded,
-html.banner-gradient-mode .diary-topbar-actions .btn-icon .material-symbols-rounded,
-html.banner-animated-mode .diary-topbar-actions .btn-icon .material-symbols-rounded,
+html.banner-gradient-mode .diary-topbar-actions:not(.select-mode-actions) .btn-icon .material-symbols-rounded,
+html.banner-animated-mode .diary-topbar-actions:not(.select-mode-actions) .btn-icon .material-symbols-rounded,
 html.banner-gradient-mode .wl-topbar-actions .btn-icon .material-symbols-rounded,
 html.banner-animated-mode .wl-topbar-actions .btn-icon .material-symbols-rounded,
 html.banner-gradient-mode .wl-topbar-actions .wl-sync-icon-btn .material-symbols-rounded,

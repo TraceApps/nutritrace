@@ -8,6 +8,7 @@
     min              — earliest selectable date as 'YYYY-MM-DD' (optional)
     max              — latest selectable date as 'YYYY-MM-DD' (optional)
     placeholder      — input placeholder; defaults to format hint
+    pickerLayer      : z-index for the calendar sheet (optional)
 -->
 <script>
   import Sheet from './Sheet.svelte';
@@ -18,6 +19,11 @@
   export let min = '';
   export let max = '';
   export let placeholder = '';
+  // z-index for the calendar sheet, when this input sits in something above
+  // ordinary sheets (see DayPicker).
+  export let pickerLayer = null;
+  // Accessible name for the text field when no <label> wraps it.
+  export let ariaLabel = null;
 
   let showPicker = false;
 
@@ -97,6 +103,7 @@
 
 <div class="date-input-wrap">
   <input class="input date-input-text" type="text"
+    aria-label={ariaLabel}
     inputmode="numeric"
     bind:value={textValue}
     placeholder={_placeholder()}
@@ -111,7 +118,7 @@
 </div>
 
 {#if showPicker}
-  <Sheet bind:open={showPicker} title="Pick a date">
+  <Sheet bind:open={showPicker} title="Pick a date" layer={pickerLayer}>
     <div class="date-input-sheet-body">
       <DatePicker bind:value {min} {max} on:select={onPickerSelect} />
     </div>
