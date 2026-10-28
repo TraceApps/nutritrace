@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
+import { isAppPageLoad, treatServerErrorAsOffline, keepNoPageCopy, useCachedAppOnTimeout } from './src/lib/pwa-navigation.js';
 
 export default defineConfig({
   // Use relative asset URLs so the bundle works regardless of the path the
@@ -36,6 +37,10 @@ export default defineConfig({
       // under the user with no warning. See src/lib/pwa-update.js
       // for the Svelte-side bridge.
       registerType: 'prompt',
+      // Browsers fetch the manifest without the sign-in proxy's cookie unless
+      // told otherwise, and the proxy answers with its sign-in page
+      // (TraceApps/notetrace#37).
+      useCredentials: true,
       workbox: {
         // Precache the whole app shell, not just the fallback page. Without
         // this a reload with no connection loaded index.html and then failed
@@ -49,11 +54,14 @@ export default defineConfig({
         globIgnores: ['vendor/**', 'icons/**', '**/*.map'],
         // Chart, zip and emoji chunks are over the 2 MiB default.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-        // Navigation still prefers the network (see the NetworkFirst route
-        // below, 3s timeout) so a deploy is picked up at once; the precached
-        // index.html is what answers when the server can't be reached.
-        navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//],
+        // Deletes caches an older service worker kept (public/sw-retired-caches.js).
+        importScripts: ['sw-retired-caches.js'],
+        // Page loads go to the server first (the first route below), so no
+        // navigateFallback (null, or Vite PWA puts its own back), and '/' isn't
+        // answered from the cache as index.html. The precached index.html is
+        // what answers when the server can't be reached.
+        navigateFallback: null,
+        directoryIndex: null,
         cleanupOutdatedCaches: true,
         // Keep skipWaiting + clientsClaim: once WE call updateSW(true)
         // from the banner's Reload button, workbox activates immediately
@@ -62,15 +70,22 @@ export default defineConfig({
         clientsClaim: true,
         runtimeCaching: [
           {
-            // Navigation: network first (3s timeout), cache index.html for
-            // offline use. Deploys are picked up instantly because the
-            // network response always wins when the server is reachable.
-            urlPattern: ({ request }) => request.mode === 'navigate',
+            // The app page: from the server, the cached copy only offline
+            // (src/lib/pwa-navigation.js).
+            urlPattern: isAppPageLoad,
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'pages-cache',
+              cacheName: 'app-page',
               networkTimeoutSeconds: 3,
+              precacheFallback: { fallbackURL: 'index.html' },
+              plugins: [{ fetchDidSucceed: treatServerErrorAsOffline, cacheWillUpdate: keepNoPageCopy, cachedResponseWillBeUsed: useCachedAppOnTimeout }],
             }
+          },
+          {
+            // The API and uploads opened as a page:
+            // never kept, so an export or a backup can't outlive the session.
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkOnly',
           },
           {
             // Food photos served by your own instance. Cache first: an image

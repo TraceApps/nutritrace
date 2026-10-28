@@ -19,7 +19,7 @@ const diaryScreen = read('../src/routes/Diary.svelte');
 const en = JSON.parse(read('../src/i18n/en.json'));
 
 test('the web API is the HTTP one wrapped for offline, and native is untouched', () => {
-  assert.match(api, /import \{ createOfflineApi \} from '\.\/offline-api\.js'/);
+  assert.match(api, /import \{ createOfflineApi, offlineDeadlineMs \} from '\.\/offline-api\.js'/);
   assert.match(api, /impl = _webApi\(\);\s+implName = 'HTTP'/);
   // Native keeps its own SQLite paths.
   assert.match(api, /impl = NtApiNative;/);

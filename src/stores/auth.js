@@ -3,6 +3,7 @@ import { loadServerSettings } from './settings.js';
 import { isNative, getServerUrl, getAuthToken, apiUrl as _apiUrl } from '../lib/platform.js';
 import { setCoachingFromServer, loadCachedCoaching, clearCoaching } from './coaching.js';
 import { responseJson, webPageError, statusError, serverProblem } from '../lib/server-signin.js';
+import { deadlineSignal, isDeadlineError, noteQuiet, noteAnswered, SIGN_IN_CHECK_MS } from '../lib/request-deadline.js';
 
 function _authHeaders() {
   const h = {};
@@ -158,19 +159,22 @@ export async function loadAuthState() {
     return;
   }
 
-  // PWA: fetch from server (blocking — no cache to fall back on initially)
-  await _fetchAuthFromServer();
+  // PWA: fetch from server (blocking: no cache to fall back on initially).
+  // With an account kept here to open with, a server that doesn't answer
+  // isn't waited on long: the app opens as it does offline
+  // (lib/request-deadline.js).
+  const kept = localStorage.getItem('nt:cachedUser') || _lastMgmt() === '0';
+  await _fetchAuthFromServer({ waitMs: kept ? SIGN_IN_CHECK_MS : 8000 });
 }
 
 /** Fetch auth state from server — used by PWA (blocking) and as background refresh for native */
-async function _fetchAuthFromServer() {
+async function _fetchAuthFromServer({ waitMs = 8000 } = {}) {
   try {
     // redirect 'manual': the server never redirects these, so a redirect is
     // something in front of it sending this browser to its own sign-in.
-    const [statusRes, meRes] = await Promise.all([
-      fetch(_apiUrl('/api/auth/status'), { credentials: 'include', redirect: 'manual', headers: _authHeaders(), signal: AbortSignal.timeout(8000) }),
-      fetch(_apiUrl('/api/auth/me'),     { credentials: 'include', redirect: 'manual', headers: _authHeaders(), signal: AbortSignal.timeout(8000) }),
-    ]);
+    const ask = (path) => fetch(_apiUrl(path), { credentials: 'include', redirect: 'manual', headers: _authHeaders(), signal: deadlineSignal(waitMs) })
+      .then((res) => { noteAnswered(); return res; }, (err) => { if (isDeadlineError(err)) noteQuiet(); throw err; });
+    const [statusRes, meRes] = await Promise.all([ask('/api/auth/status'), ask('/api/auth/me')]);
     if (statusRes.type === 'opaqueredirect' || meRes.type === 'opaqueredirect') throw webPageError();
     // A sign-in proxy's page or a gateway's error page isn't the server's
     // answer (lib/server-signin.js): the catch below says which.
@@ -433,6 +437,9 @@ export async function logout() {
       }
       await clearOffline();
     } catch { /* never block sign-out */ }
+    // Pictures this account opened (service worker cache) go with it too, so
+    // the next account on this browser doesn't see them.
+    try { if (typeof caches !== 'undefined') await caches.delete('uploads-cache'); } catch { /* nothing cached */ }
   }
   // Clear auth state, but keep cached data (foods, images, server URL).
   if (isNative) {

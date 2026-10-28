@@ -336,3 +336,63 @@ test('an upload goes to the server whenever there is a connection, queue or not'
   http.uploadImage = async (file) => { http.sent.push(['uploadImage', file]); return '/uploads/a.jpg'; };
   assert.equal(await api.uploadImage({ name: 'a.jpg' }), '/uploads/a.jpg');
 });
+
+// ── A server that takes the connection and never answers ─────────────
+// Past a deadline it counts as no connection (lib/request-deadline.js): a
+// read answers from the copy, a change goes into the queue, and while the
+// server is quiet a change doesn't wait for it at all.
+const deadline = await import('../src/lib/request-deadline.js');
+const timedOut = () => deadline.noAnswerError(new DOMException('The operation timed out.', 'TimeoutError'));
+
+test('a silent server: the day answers from the copy, and a save goes into the queue', async () => {
+  setOnline(true);
+  deadline.noteAnswered();
+  const { mod, api, http } = await page();
+  await api.getDiaryDate('2026-10-27');
+  let tried = 0;
+  http.getDiaryDate = async () => { throw timedOut(); };
+  http.saveDiaryDate = async () => { tried++; throw timedOut(); };
+  const day = await api.getDiaryDate('2026-10-27');
+  assert.deepEqual(day.items.map(i => i.name), ['Oats'], 'the copy answers');
+  assert.equal(deadline.isQuiet(), true);
+  // Quiet: the save goes straight into the queue, not to the server.
+  await api.saveDiaryDate('2026-10-27', { items: [{ name: 'Tea' }], water: [], body_stats: {} });
+  assert.equal(tried, 0, 'not sent while the server is quiet');
+  assert.equal(await mod.pendingCount(), 1);
+  deadline.noteAnswered();
+});
+
+test('reads stop waiting; a change that is sent, and work that needs the server, wait as long as they take', async () => {
+  deadline.noteAnswered();
+  const { offlineDeadlineMs } = await import('../src/lib/offline-api.js');
+  for (const p of ['/api/diary/2026-10-27', '/api/fasts/active', '/api/app-config', '/api/foods/12', '/api/meals/-3', '/api/ai/history']) {
+    assert.equal(offlineDeadlineMs('GET', p), deadline.READ_MS, p);
+  }
+  // Whole lists, for a small server with years of logging, get longer.
+  for (const p of ['/api/foods', '/api/foods?group=1', '/api/meals?group=1', '/api/diary', '/api/activity?from=2026-10-01&to=2026-10-27', '/api/fasts?limit=10000']) {
+    assert.equal(offlineDeadlineMs('GET', p), deadline.HEAVY_READ_MS, p);
+  }
+  for (const [m, p] of [['PUT', '/api/diary/2026-10-27'], ['PUT', '/api/diary/2026-10-27/completion'], ['DELETE', '/api/diary/2026-10-27'],
+    ['POST', '/api/foods'], ['PUT', '/api/foods/12'], ['DELETE', '/api/meals/-3'], ['POST', '/api/activity'], ['POST', '/api/fasts/start'],
+    ['POST', '/api/fasts/4/end'], ['PATCH', '/api/fasts/4'], ['PUT', '/api/settings'], ['PUT', '/api/settings/bulk'], ['PUT', '/api/auth/profile'], ['POST', '/api/sync/push']]) {
+    // One cut off might have landed, and sent again it could be made twice.
+    assert.equal(offlineDeadlineMs(m, p), null, `${m} ${p}`);
+  }
+  // Asked of another service (food databases, wellness providers, Trace), or a
+  // whole account: as long as it takes, as before.
+  for (const [m, p] of [['GET', '/api/proxy/off/search?q=oats'], ['GET', '/api/wellness/fitbit/data?date=2026-10-27'], ['GET', '/api/wellness/calories-out?date=2026-10-27'],
+    ['GET', '/api/ai/models'], ['GET', '/api/data/export'], ['GET', '/api/full-backup'], ['POST', '/api/ai/chat'], ['POST', '/api/foods/12/copy'],
+    // Worked out over months, or an account's counts before it is deleted.
+    ['GET', '/api/coaching/clients'], ['GET', '/api/coaching/clients/4/overview?today=2026-10-27'], ['GET', '/api/goals/adaptive-tdee'],
+    ['GET', '/api/auth/users/4/data-counts'], ['GET', '/api/off-local/status'],
+    ['POST', '/api/foods/bulk-share'], ['DELETE', '/api/settings'], ['POST', '/api/data/import'], ['POST', '/api/settings/push-test']]) {
+    assert.equal(offlineDeadlineMs(m, p), null, `${m} ${p}`);
+  }
+});
+
+test('the API layer gives the web app\'s requests their deadline, uploads none', async () => {
+  const { readFileSync } = await import('node:fs');
+  const api = readFileSync(new URL('../src/lib/api.js', import.meta.url), 'utf8');
+  assert.match(api, /\}, !isNative && !isUpload \? offlineDeadlineMs\(method, path\) : null\);/);
+  assert.match(api, /const res = await fetchWithDeadline\(/);
+});

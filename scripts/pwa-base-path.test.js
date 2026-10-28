@@ -41,5 +41,5 @@ test('server-injected config wins and an uncontrolled page does not invent one',
 
 test('the offline app shell and its bundled assets remain precached', () => {
   assert.ok(vite.includes("globPatterns: ['**/*.{js,mjs,css,html,woff2,woff,ttf,"));
-  assert.ok(vite.includes("navigateFallback: 'index.html'"));
+  assert.ok(vite.includes("precacheFallback: { fallbackURL: 'index.html' }"));
 });

@@ -20,6 +20,7 @@ import { runInNewContext } from 'node:vm';
 import { writable, get } from 'svelte/store';
 
 const signin = await import('../src/lib/server-signin.js');
+const deadline = await import('../src/lib/request-deadline.js');
 const SRC = readFileSync(new URL('../src/stores/auth.js', import.meta.url), 'utf8');
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
@@ -56,6 +57,7 @@ function load({ native = false, store = {}, fetch }) {
     getAuthToken: () => data.get('nt:authToken') ?? null, _apiUrl: (p) => `https://nt.example${p}`,
     loadServerSettings: async () => {}, setCoachingFromServer: () => {}, loadCachedCoaching: () => {}, clearCoaching: () => {},
     responseJson: signin.responseJson, webPageError: signin.webPageError, statusError: signin.statusError, serverProblem: signin.serverProblem,
+    deadlineSignal: deadline.deadlineSignal, isDeadlineError: deadline.isDeadlineError, noteQuiet: deadline.noteQuiet, noteAnswered: deadline.noteAnswered, SIGN_IN_CHECK_MS: deadline.SIGN_IN_CHECK_MS,
   }, { filename: 'stores/auth.js' });
   return { ...mod, data };
 }
@@ -205,4 +207,29 @@ test('the sign-in page shows one notice with one reason, in the current language
   assert.equal(en.server_signin.unreachable, "Can't reach your server right now. Check that it's running, then Retry.");
   assert.equal(en.server_signin.proxy_web, 'Something in front of your server is asking you to sign in. Sign in there, then reload this page.');
   assert.equal(en.server_signin.server_error, 'Your server answered with an error. Try again in a moment.');
+});
+
+// A server that takes the connection and never answers (a captive portal, a
+// dead link): an account kept here opens in about three seconds rather than
+// eight, and the server counts as quiet so the reads after it wait less
+// (lib/request-deadline.js). Nothing kept: the sign-in page, after the usual wait.
+const silent = async (url, init = {}) => new Promise((_, reject) => init.signal?.addEventListener('abort', () => reject(init.signal.reason)));
+async function timedOpen(o) {
+  const keep = setInterval(() => {}, 1000);
+  const t0 = Date.now();
+  try { const a = await opened(o); return { a, ms: Date.now() - t0 }; } finally { clearInterval(keep); }
+}
+
+test('web, a silent server: a kept account opens in seconds, and nothing kept waits the usual time', async () => {
+  deadline.noteAnswered();
+  const kept = await timedOpen({ fetch: silent, store: { 'nt:cachedUser': JSON.stringify({ id: 7, username: 'ann' }), 'nt:cachedUserMgmt': '1' } });
+  assert.equal(get(kept.a.currentUser)?.username, 'ann');
+  assert.ok(kept.ms >= deadline.SIGN_IN_CHECK_MS - 100 && kept.ms < deadline.SIGN_IN_CHECK_MS + 1500, `opened after ${kept.ms} ms`);
+  assert.equal(deadline.isQuiet(), true, 'the reads after it wait less');
+  deadline.noteAnswered();
+  const none = await timedOpen({ fetch: silent, store: { 'nt:cachedUserMgmt': '1' } });
+  assert.equal(get(none.a.userMgmtActive), true);
+  assert.equal(get(none.a.currentUser), null);
+  assert.ok(none.ms >= 7900, `gave up after ${none.ms} ms`);
+  deadline.noteAnswered();
 });

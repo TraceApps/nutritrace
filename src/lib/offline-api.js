@@ -29,12 +29,15 @@ import {
 // no copy of it. This is what "Failed to fetch dynamically imported module"
 // looked like from the outside.
 import { embeddableDataUrl } from './image-embed.js';
+import { readDeadlineFor, queueUnsent, noteAnswered, sendingChange } from './request-deadline.js';
 
 const RETRY_MIN_MS = 3_000;
 const RETRY_MAX_MS = 30_000;
 let _retryMs = RETRY_MIN_MS;
 const _backoff = () => { const ms = _retryMs; _retryMs = Math.min(RETRY_MAX_MS, _retryMs * 2); return ms; };
-const _resetBackoff = () => { _retryMs = RETRY_MIN_MS; };
+// The server took what was waiting, or the connection came back: not quiet
+// either (request-deadline.js).
+const _resetBackoff = () => { _retryMs = RETRY_MIN_MS; noteAnswered(); };
 
 /** { online, pending, syncing, error } for the header badge and Settings. */
 export const offlineState = writable({
@@ -441,6 +444,25 @@ export async function queueSetting(key, value) {
   return true;
 }
 
+// How long a read waits for a server that doesn't answer before it counts as
+// no connection (request-deadline.js): the kept copy answers, or it says it
+// needs a connection, as with none. Any read the server answers by asking
+// another service (food databases, wellness providers, Trace, Mealie,
+// CookTrace) or works out over months (coaching, the adaptive TDEE) or that
+// carries a whole account (exports, backups, an account's counts before it is
+// deleted) waits as long as it takes. Whole lists (every food, meal, diary
+// day, fast, activity) get longer, for a small server with years of logging.
+// A change that is sent waits as long as it takes.
+const _SLOW_READS = /^\/api\/(proxy|wellness|ai(?!\/history)|updates|mealie|cooktrace|off|off-local|nutrition-import|data|full-backup|coaching|goals|auth\/users\/\d+\/data-counts)(\/|\?|$)/;
+const _HEAVY_READS = /^\/api\/(foods|meals|diary|fasts|activity)(\?|$)/;
+/** How long a request may wait for the server, or null to wait as long as it takes. */
+export function offlineDeadlineMs(method, path) {
+  const p = String(path || '');
+  const m = String(method || 'GET').toUpperCase();
+  if (m !== 'GET') return null;
+  return readDeadlineFor(_SLOW_READS.test(p) ? 'slow' : _HEAVY_READS.test(p) ? 'heavy' : 'read');
+}
+
 // ── Sending ──────────────────────────────────────────────────────────
 let _http = null;
 let _retry = null;
@@ -732,7 +754,7 @@ function _fastLimit(path) {
 
 /** Nothing queued for the fasts table and the browser thinks it's online. */
 async function _canReachServer() {
-  return _online() && !(await _loadOps()).some(_isFastOp);
+  return _online() && !queueUnsent() && !(await _loadOps()).some(_isFastOp);
 }
 
 /** The direct send for a fast, unless it names one the server has never had. */
@@ -820,10 +842,10 @@ export function createOfflineApi(http) {
         return saved;
       };
       // Anything already waiting goes first, so days keep their order.
-      const tried = _online() && !ops.length;
+      const tried = _online() && !queueUnsent() && !ops.length;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });
@@ -842,10 +864,10 @@ export function createOfflineApi(http) {
         await _remember('foods', food);
         return food;
       };
-      const tried = _online() && !ops.length;
+      const tried = _online() && !queueUnsent() && !ops.length;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });
@@ -865,10 +887,10 @@ export function createOfflineApi(http) {
         await _remember('foods', food);
         return food;
       };
-      const tried = _online() && !ops.length && !!direct;
+      const tried = _online() && !queueUnsent() && !ops.length && !!direct;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });
@@ -886,10 +908,10 @@ export function createOfflineApi(http) {
         await _tx('foods', 'readwrite', s => s.delete(Number(id)));
         return r;
       };
-      const tried = _online() && !ops.length && !!direct;
+      const tried = _online() && !queueUnsent() && !ops.length && !!direct;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });
@@ -909,10 +931,10 @@ export function createOfflineApi(http) {
         await _remember(store, meal);
         return meal;
       };
-      const tried = _online() && !ops.length;
+      const tried = _online() && !queueUnsent() && !ops.length;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });
@@ -931,10 +953,10 @@ export function createOfflineApi(http) {
         await _remember(store, meal);
         return meal;
       };
-      const tried = _online() && !ops.length && !!direct;
+      const tried = _online() && !queueUnsent() && !ops.length && !!direct;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });
@@ -952,10 +974,10 @@ export function createOfflineApi(http) {
         for (const store of ['meals', 'recipes']) await _tx(store, 'readwrite', s => s.delete(Number(id)));
         return r;
       };
-      const tried = _online() && !ops.length && !!direct;
+      const tried = _online() && !queueUnsent() && !ops.length && !!direct;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });
@@ -1025,10 +1047,10 @@ export function createOfflineApi(http) {
         await _remember('activity', row);
         return row;
       };
-      const tried = _online() && !ops.length;
+      const tried = _online() && !queueUnsent() && !ops.length;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });
@@ -1046,10 +1068,10 @@ export function createOfflineApi(http) {
         await _remember('activity', row);
         return row;
       };
-      const tried = _online() && !ops.length && !!direct;
+      const tried = _online() && !queueUnsent() && !ops.length && !!direct;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });
@@ -1067,10 +1089,10 @@ export function createOfflineApi(http) {
         await _tx('activity', 'readwrite', s => s.delete(Number(id)));
         return r;
       };
-      const tried = _online() && !ops.length && !!direct;
+      const tried = _online() && !queueUnsent() && !ops.length && !!direct;
       if (tried) {
         try {
-          return await direct();
+          return await sendingChange(direct);
         } catch (err) {
           if (!isOfflineError(err)) throw err;
           _publish({ online: false });

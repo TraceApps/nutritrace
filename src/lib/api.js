@@ -807,13 +807,15 @@ const _NtApiHttp = {
       if (csrf) headers['X-CSRF-Token'] = csrf;
     }
 
-    const res = await fetch(apiUrl(path), {
+    // On the web, a request with an offline answer stops waiting for a server
+    // that doesn't answer, and the answer takes over (request-deadline.js).
+    const res = await fetchWithDeadline((u, i) => fetch(u, i), apiUrl(path), {
       method,
       headers,
       credentials: 'include',
       cache: 'no-store',
       body: isUpload ? body : body != null ? JSON.stringify(body) : undefined,
-    });
+    }, !isNative && !isUpload ? offlineDeadlineMs(method, path) : null);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       const err = new Error(e.error || `API error ${res.status}`);
@@ -934,7 +936,8 @@ import { NtApiNative } from './api-native.js';
 // Dynamic proxy — resolves which implementation to use on EVERY call.
 // Three modes: web (HTTP), native standalone (local SQLite), native server (cached).
 import { NtApiCached } from './api-cached.js';
-import { createOfflineApi } from './offline-api.js';
+import { createOfflineApi, offlineDeadlineMs } from './offline-api.js';
+import { fetchWithDeadline } from './request-deadline.js';
 
 // The browser's API, wrapped so the diary keeps working without a connection
 // (#211). Built on first use, so a page that never calls the API never opens
