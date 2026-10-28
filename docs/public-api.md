@@ -61,7 +61,7 @@ token lacking the required scope returns `403`.
 |---|---|---|
 | GET | `/api/v1/diary/:date` | One day's logged food items. `date` defaults to today. |
 | GET | `/api/v1/diary/:date/totals` | Summed nutrition (calories, macros, any micronutrients present) plus total water for that day. |
-| GET | `/api/v1/goals` | The user's current macro/micronutrient/water goal targets. |
+| GET | `/api/v1/goals` | The user's current macro/micronutrient/water goal targets. A goal with `sharedGoal: false` has one target per weekday in `days`, starting on Sunday, and its `max`/`min` is the week's highest; `goals_by_weekday` gives those by named day and `today.targets` gives today's targets in the user's time zone. |
 | GET | `/api/v1/meals/search?query=&limit=&include_recipes=` | Search the saved meals catalog by name, or list all when `query` is omitted. Recipes excluded by default. |
 | GET | `/api/v1/meals/recent?limit=&include_recipes=&start=&end=` | Most-recently-used saved meals. Optional inclusive `YYYY-MM-DD` `start`/`end` filter by the date each meal was last used; either can be left out. |
 | GET | `/api/v1/meals/:id` | One saved meal's full contents, including every item. |

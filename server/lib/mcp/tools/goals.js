@@ -11,6 +11,19 @@
  */
 import db from '../../../db.js';
 import { safeJson, toolResult } from '../_util.js';
+import { describeGoals } from '../../../../src/lib/goal-resolver.js';
+import { isValidTimeZone, processTimeZone, zonedParts } from '../../zoned-time.js';
+
+// Today in the person's own time zone (Settings), else the server's.
+function _userToday(userId) {
+  let tz = null;
+  try {
+    const row = db.prepare(`SELECT value FROM user_settings WHERE user_id = ? AND key = 'timezone' AND deleted_at IS NULL`).get(userId);
+    tz = row?.value ? safeJson(row.value, null) : null;
+  } catch { /* fall back below */ }
+  const p = zonedParts(Date.now(), typeof tz === 'string' && isValidTimeZone(tz) ? tz : processTimeZone());
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+}
 
 /**
  * Core lookup, shared by the MCP tool below, the public REST API at
@@ -36,7 +49,9 @@ export function getGoalsCore(userId) {
     const parsed = safeJson(water.value, null);
     if (typeof parsed === 'number' && Number.isFinite(parsed)) waterGoalMl = parsed;
   }
-  return { goals, water_goal_ml: waterGoalMl };
+  // #285: weekday goals by name and today's targets, added beside the
+  // stored goals (which stay as they are for existing readers).
+  return { goals, water_goal_ml: waterGoalMl, ...describeGoals(goals, _userToday(userId)) };
 }
 
 export function registerGetGoals(server, { userId }) {
@@ -46,7 +61,10 @@ export function registerGetGoals(server, { userId }) {
       title: 'Get Goals',
       description:
         "Return the user's current macro / micronutrient / water goal targets. " +
-        "Energy is always in kcal. Includes water goal in millilitres.",
+        "Energy is always in kcal. Includes water goal in millilitres. " +
+        "A goal with sharedGoal false has a target per weekday: its `days` list starts on Sunday " +
+        "(index 0 = Sunday ... 6 = Saturday) and its max/min is the week's highest, not a day's target. " +
+        "Read goals_by_weekday for the targets by named day and today.targets for today's.",
       inputSchema: {},
     },
     async () => {

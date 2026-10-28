@@ -19,6 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Trace and MCP read weekday goals on the right days** ([#285](https://github.com/TraceApps/nutritrace/issues/285)). Trace's summary of today used the week's highest target instead of today's, and the goals Trace, MCP and `GET /api/v1/goals` return didn't say their weekday list starts on Sunday, so AI models could put a day's target on the wrong day. They now also give each target by named day and today's targets; the existing fields are unchanged. With energy in kJ, the calories in Trace's summary of today were kcal numbers labeled kJ; they're now converted. Thanks @kgenerozov.
 - **Choosing Light or Dark sticks when your system switches themes.** The app went light or dark with your device until it was reopened, and with System the browser bar lost your accent color.
 - **Trace no longer says nothing is logged when it couldn't read your diary** ([#288](https://github.com/TraceApps/nutritrace/issues/288)). A failed read of today's diary looked like an empty day, so Trace could answer "you haven't logged anything" without checking. It now looks the day up instead, and water shows as unknown. Thanks @jsapede.
 - **Asking Trace to save a review card says which button to tap** ([#292](https://github.com/TraceApps/nutritrace/issues/292)). Only the card's buttons save it, so you can check the estimate first; typing "save it" now gets a plain answer naming the button, never a claim that it was saved. Thanks @jsapede.

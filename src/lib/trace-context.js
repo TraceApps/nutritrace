@@ -9,7 +9,9 @@ export function diaryContextText(entry, { mealNames = [], energyUnit = 'kcal' } 
   if (entry == null) return DIARY_UNREADABLE;
   if (!entry.items?.length) return 'No food logged today yet.';
   const tot = Nutrition.sum(entry.items.map(i => Nutrition.calculate(i)));
-  let text = `Totals: ${Math.round(tot.calories||0)} ${energyUnit}, `
+  // Stored in kcal; shown in the person's unit, as the label says.
+  const e = Nutrition.displayEnergy(tot.calories, energyUnit);
+  let text = `Totals: ${e.value} ${e.unit}, `
            + `${Math.round(tot.proteins||0)}g protein, `
            + `${Math.round(tot.carbohydrates||0)}g carbs, `
            + `${Math.round(tot.fat||0)}g fat.\n`;

@@ -139,7 +139,7 @@ export const TOOLS = [
   },
   {
     name: 'get_goals',
-    description: 'Get the user\'s nutrition and wellness goals. Returns calorie, macro, and other nutrient targets.',
+    description: 'Get the user\'s nutrition and wellness goals. Returns calorie, macro, and other nutrient targets under goals. A goal with sharedGoal false has a target per weekday: its days list starts on Sunday (index 0 = Sunday ... 6 = Saturday) and its max/min is the week\'s highest, not a day\'s target. Read goals_by_weekday for the targets by named day and today.targets for today\'s.',
     parameters: { type: 'object', properties: {} },
   },
   {

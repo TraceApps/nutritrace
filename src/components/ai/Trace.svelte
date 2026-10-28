@@ -12,6 +12,7 @@
   import { DB, localDateStr } from '../../lib/db.js';
   import { Nutrition, NUTRIMENTS } from '../../lib/nutrition.js';
   import { diaryContextText, waterContextText } from '../../lib/trace-context.js';
+  import { describeGoals, dayTargets } from '../../lib/goal-resolver.js';
   // Comma-joined list of every NT-tracked nutriment ID — inlined into the
   // system prompt so the AI knows the full key universe at a glance and
   // doesn't default to "just the four macros".
@@ -352,8 +353,9 @@
           return workouts;
         }
         case 'get_goals': {
-          const g = goals.get();
-          return g || {};
+          // #285: the stored goals plus weekday goals by name and today's targets.
+          const g = goals.get() || {};
+          return { goals: g, ...describeGoals(g, localDateStr()) };
         }
         case 'get_diary_averages': {
           try {
@@ -1442,17 +1444,16 @@
 
     const diaryText = diaryContextText(entry, { mealNames: mNames, energyUnit: eUnit });
 
-    const calGoal  = g.calories?.max        ?? g.calories?.min;
-    const proGoal  = g.proteins?.max        ?? g.proteins?.min;
-    const carbGoal = g.carbohydrates?.max   ?? g.carbohydrates?.min;
-    const fatGoal  = g.fat?.max             ?? g.fat?.min;
+    // Today's targets, not the week's highest (#285); percent macros in grams.
+    const { calories: calGoal, proteins: proGoal, carbohydrates: carbGoal, fat: fatGoal } = dayTargets(g, today);
+    const calGoalE = Nutrition.displayEnergy(calGoal, eUnit); // stored in kcal
     let goalsText  = 'No goals set.';
     if (calGoal || proGoal || carbGoal || fatGoal) {
       goalsText = [
-        calGoal  && `Calories: ${calGoal} ${eUnit}`,
-        proGoal  && `Protein: ${proGoal}g`,
-        carbGoal && `Carbs: ${carbGoal}g`,
-        fatGoal  && `Fat: ${fatGoal}g`,
+        calGoal  && `Calories: ${calGoalE.value} ${calGoalE.unit}`,
+        proGoal  && `Protein: ${Math.round(proGoal)}g`,
+        carbGoal && `Carbs: ${Math.round(carbGoal)}g`,
+        fatGoal  && `Fat: ${Math.round(fatGoal)}g`,
       ].filter(Boolean).join(', ');
     }
 

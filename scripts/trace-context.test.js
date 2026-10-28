@@ -40,3 +40,12 @@ test('Trace builds its prompt lines from these helpers', () => {
   assert.match(src, /const waterText = waterContextText\(entry\);/);
   assert.match(src, /getDiaryDate\(today\)\.catch\(\(\) => null\)/);
 });
+
+test('energy is shown in the unit it is labeled with', () => {
+  const day = { items: [{ name: 'Oats', portion: 50, unit: 'g', meal: 0, nutrition: { calories: 200, proteins: 6, carbohydrates: 33, fat: 3 } }] };
+  assert.match(diaryContextText(day, { energyUnit: 'kJ' }), /^Totals: 837 kJ, /);
+  assert.match(diaryContextText(day, { energyUnit: 'kcal' }), /^Totals: 200 kcal, /);
+  const src = readFileSync(new URL('../src/components/ai/Trace.svelte', import.meta.url), 'utf8');
+  assert.match(src, /const calGoalE = Nutrition\.displayEnergy\(calGoal, eUnit\);/);
+  assert.match(src, /calGoal  && `Calories: \$\{calGoalE\.value\} \$\{calGoalE\.unit\}`/);
+});

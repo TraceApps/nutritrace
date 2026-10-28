@@ -148,3 +148,29 @@ export function dayTargets(goals, dateStr, { calories: caloriesNow } = {}) {
   }
   return out;
 }
+
+/** The order of a goal's `days` list: index 0 is Sunday, whatever the First Day of Week setting shows. */
+export const WEEKDAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+/**
+ * Goals spelled out for an AI or API reader (#285): `days` is a bare list
+ * of seven, which models read as Monday-first, and `max` is the week's
+ * peak, not a day's target. Adds each per-weekday goal by named day and the
+ * targets for `dateStr`, leaving the goals themselves untouched.
+ */
+export function describeGoals(goals, dateStr) {
+  const g = goals || {};
+  const byWeekday = {};
+  for (const [key, e] of Object.entries(g)) {
+    if (!e || typeof e !== 'object' || e.sharedGoal !== false || !Array.isArray(e.days) || e.days.length !== 7) continue;
+    byWeekday[key] = Object.fromEntries(WEEKDAY_ORDER.map((day, i) => [day, e.days[i] ?? null]));
+    if (e.isPercent) byWeekday[key].unit = 'percent_of_calories';
+  }
+  const d = dateStr ? new Date(`${dateStr}T00:00:00`) : null;
+  const weekday = d && !Number.isNaN(d.getTime()) ? WEEKDAY_ORDER[d.getDay()] : null;
+  return {
+    weekday_order: WEEKDAY_ORDER,
+    goals_by_weekday: byWeekday,
+    today: weekday ? { date: dateStr, weekday, targets: dayTargets(g, dateStr) } : null,
+  };
+}
