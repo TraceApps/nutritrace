@@ -1219,9 +1219,7 @@
     const t = Nutrition.sum(items.map(i => Nutrition.calculate(i)));
     const cal = t.calories || 0;
     if (!cal) return null;
-    const p = Math.round((t.proteins || 0) * 4 / cal * 100);
-    const c = Math.round((t.carbohydrates || 0) * 4 / cal * 100);
-    const f = Math.round((t.fat || 0) * 9 / cal * 100);
+    const { protein: p, carbs: c, fat: f } = Nutrition.macroPercents(t);
     // cal stays as a number — the meal-macro-footer passes it through
     // Nutrition.displayEnergy() which does parseFloat() internally. Returning
     // a locale-formatted string like "29,710" used to break that parseFloat
