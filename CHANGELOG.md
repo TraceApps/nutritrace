@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.5.0-dev03] - 2026-10-28 (pre-release)
+
+Third dev pre-release of the 1.5.0 minor. Copy, move and repeat diary items across days, choose the day when adding from the Foods page, app icon shortcuts, Per 100 g on the Nutrition Facts label, Norwegian, more label nutrients, and a round of Trace and diary fixes.
+
 ### Added
 
 - **Norwegian** ([#300](https://github.com/TraceApps/nutritrace/issues/300)). Choose Norsk bokmål in Settings > Regional & Units > Language; a browser or phone set to Norwegian picks it on its own. Translated in full on Weblate by @JohannesKi.
