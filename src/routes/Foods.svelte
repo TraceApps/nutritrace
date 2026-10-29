@@ -31,6 +31,7 @@
   import { CookTrace } from '../lib/cooktraceApi.js';
   import { offlineState } from '../lib/offline-api.js';
   import { offNutritionStatus, needsFullLookup } from '../lib/off-nutrition.js';
+  import { usdaFdcId } from '../lib/usda-map.js';
   import { resolveAssetUrl, isNative } from '../lib/platform.js';
   import { catalogImgFor } from '../lib/item-source.js';
   import { dayBefore, dayName } from '../lib/prev-day.js';
@@ -1211,6 +1212,17 @@
         const hydrated = await API.fetchProductByCode(food.barcode);
         if (hydrated) food = { ...food, ...hydrated };
       } catch { /* fall through with the un-hydrated hit */ }
+    }
+    // #289: SR Legacy and Foundation search hits have no household portions;
+    // fetch them from the food's detail record so "1 large" / "1 cup" show
+    // up as alt_units. Survey hits bring theirs, and Branded details have
+    // none. Saved foods (numeric id) already have whatever units they were
+    // given, and Refresh from USDA adds the rest.
+    if (food && food._source === 'usda' && typeof food.id !== 'number' && !food.alt_units
+        && (food.dataType === 'SR Legacy' || food.dataType === 'Foundation')
+        && usdaFdcId(food.barcode)) {
+      const altUnits = await USDA.fetchAltUnits(usdaFdcId(food.barcode), usdaApiKey.get());
+      if (altUnits) food = { ...food, alt_units: altUnits };
     }
     // #241: in pick mode a tap adds straight to the meal, and an OFF product
     // with no "as sold" values would go in as 0 kcal. The editor says why,
