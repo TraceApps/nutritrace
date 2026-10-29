@@ -469,6 +469,7 @@
         App.getLaunchUrl?.().then(async (r) => {
           if (!/^nutritrace:\/\/new\//i.test(String(r?.url || ''))) return;
           const [{ parseAppLink }, sc] = await Promise.all([import('./lib/app-link.js'), import('./lib/app-shortcut.js')]);
+          if (!sc.firstLaunchRead()) return; // not again after a reload
           const route = sc.shortcutRoute(sc.shortcutFromAppLink(parseAppLink(r.url)));
           if (route) (await import('svelte-spa-router'))[sc.shortcutNav(window.location.hash)](route);
         }).catch(() => {});

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Long-press the app icon (#278): scan a barcode or log a food for the meal
      of this time of day, or log water or weight, all for today. -->
+<!-- Each opens AppShortcutActivity, which hands the link to the running app
+     instead of letting the launcher restart it. Keep the shortcut ids: pinned
+     shortcuts are kept by id. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut
         android:shortcutId="barcode"
@@ -10,7 +13,7 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.nutritrace.app"
-            android:targetClass="com.nutritrace.app.MainActivity"
+            android:targetClass="com.nutritrace.app.AppShortcutActivity"
             android:data="nutritrace://new/barcode" />
     </shortcut>
     <shortcut
@@ -21,7 +24,7 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.nutritrace.app"
-            android:targetClass="com.nutritrace.app.MainActivity"
+            android:targetClass="com.nutritrace.app.AppShortcutActivity"
             android:data="nutritrace://new/food" />
     </shortcut>
     <shortcut
@@ -32,7 +35,7 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.nutritrace.app"
-            android:targetClass="com.nutritrace.app.MainActivity"
+            android:targetClass="com.nutritrace.app.AppShortcutActivity"
             android:data="nutritrace://new/water" />
     </shortcut>
     <shortcut
@@ -43,7 +46,7 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.nutritrace.app"
-            android:targetClass="com.nutritrace.app.MainActivity"
+            android:targetClass="com.nutritrace.app.AppShortcutActivity"
             android:data="nutritrace://new/weight" />
     </shortcut>
 </shortcuts>

@@ -53,6 +53,21 @@
 
         </activity>
 
+        <!-- The app icon's shortcuts open this first (AppShortcutActivity.java).
+             Launchers start a shortcut with a fresh task; aimed at MainActivity,
+             that restarted the running app and reloaded its page. This one has
+             a task of its own, shows nothing, stays out of Recents and hands
+             the nutritrace://new/<kind> link to MainActivity (singleTask, so the
+             running app gets it in onNewIntent). Exported so the launcher can
+             open it; it opens nothing but MainActivity. -->
+        <activity
+            android:name=".AppShortcutActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
+
         <!-- Health Connect: activity-alias for Android 14+ framework integration -->
         <activity-alias
             android:name="ViewPermissionUsageActivity"

@@ -174,7 +174,7 @@ test('Android\'s shortcuts.xml: ids, labels, icons and explicit intents', () => 
     assert.match(vec, /<vector[\s\S]*android:viewportWidth="24"[\s\S]*<path android:fillColor="@android:color\/white" android:pathData="M[^"]+" \/>/);
     assert.equal(attr('action'), 'android.intent.action.VIEW');
     assert.equal(attr('targetPackage'), 'com.nutritrace.app');
-    assert.equal(attr('targetClass'), 'com.nutritrace.app.MainActivity');
+    assert.equal(attr('targetClass'), 'com.nutritrace.app.AppShortcutActivity', 'through the pass-through activity (app-shortcut-activity.test.js)');
     assert.equal(shortcutFromAppLink(parseAppLink(attr('data'))), attr('shortcutId'), 'the link asks for the shortcut\'s own kind');
   }
   assert.deepEqual(ids, SHORTCUT_KINDS);

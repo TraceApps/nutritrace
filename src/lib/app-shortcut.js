@@ -49,6 +49,20 @@ export function shortcutNav(hash) {
   return /^#?\/?$/.test(String(hash || '')) ? 'replace' : 'push';
 }
 
+// The launch URL stays the same for as long as the app runs, through every
+// page reload (signing out, restoring a backup): only the first page that
+// reads it opens it. sessionStorage lasts through a reload and starts empty
+// in a new start of the app; a fresh start brings the link again anyway.
+const LAUNCH_KEY = 'nt:launchShortcutRead';
+/** True the first time this page session reads the launch URL's shortcut. */
+export function firstLaunchRead(store = globalThis.sessionStorage) {
+  try {
+    if (store?.getItem(LAUNCH_KEY)) return false;
+    store?.setItem(LAUNCH_KEY, '1');
+  } catch {}
+  return true;
+}
+
 // A shortcut that starts the app arrives twice on Android: as the launch URL
 // and as appUrlOpen. The second within a few seconds is the same tap.
 let _last = null;
