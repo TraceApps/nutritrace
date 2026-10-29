@@ -2193,3 +2193,140 @@ test("Trace's coaching tools on the phone: a coach's drafts send nothing; a clie
   assert.deepEqual([c.out[0].kind, c.out[0].status, c.out[0].coach_note_text, c.out[0].recommended_goals.calories.max], ['targets', 'pending', 'Slightly less', 2000]);
   assert.doesNotMatch(c.text, /A private word/, 'never the conversation');
 });
+
+// The newer edit of each FIELD stays (lib/field-sync.js): the phone keeps
+// the copy the server has of each row (server_base) and its push says which
+// fields it changed, so a field changed elsewhere meanwhile isn't put back.
+test("a field edited on the web isn't put back by the phone's later offline edit of another field", async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Field Oats', brand: 'Acme', nutrition: { calories: 380 } });
+  phone('fields', A, `await p.sync(); p.done();`);
+  await sleep(1100);
+  await http(A, 'PUT', `/api/foods/${f.id}`, { name: 'Field Oats', brand: 'Acme Co', nutrition: { calories: 380 } });
+  await sleep(1100);
+  // The phone hasn't pulled that, and edits the notes offline, later.
+  const r = phone('fields', A, `
+    await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, notes: 'Soak overnight' }); });
+    await p.sync(); await p.sync();
+    const x = await p.food(${f.id});
+    p.done({ brand: x.brand, notes: x.notes });`);
+  assert.deepEqual(q('SELECT brand, notes FROM foods WHERE id = ?', f.id)[0], { brand: 'Acme Co', notes: 'Soak overnight' });
+  assert.deepEqual(r, { brand: 'Acme Co', notes: 'Soak overnight' }, 'and the phone ends up with both');
+});
+
+test("the phone's online save of a food sends only what it changed", async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Online Milk', brand: 'Farm', nutrition: {} });
+  phone('fields-online', A, `await p.sync(); p.done();`);
+  await sleep(1100);
+  await http(A, 'PUT', `/api/foods/${f.id}`, { name: 'Online Milk', brand: 'Dairy Co', nutrition: {} });
+  await sleep(1100);
+  // Online, before its next pull: the save goes straight to the server.
+  phone('fields-online', A, `const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, notes: 'Skim' }); await p.sleep(1500); p.done();`);
+  assert.deepEqual(q('SELECT brand, notes FROM foods WHERE id = ?', f.id)[0], { brand: 'Dairy Co', notes: 'Skim' });
+});
+
+test("a day's measurements: weight on the phone, body fat on the web, both stay", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-08-25';
+  await http(A, 'PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80 }, water: [] });
+  phone('stats', A, `await p.sync(); p.done();`);
+  await sleep(1100);
+  await http(A, 'PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80, body_fat: 20 }, water: [] });
+  await sleep(1100);
+  const r = phone('stats', A, `
+    await p.offline(async () => { const d = await p.api.getDiaryDate('${D}'); await p.api.saveDiaryDate('${D}', { ...d, body_stats: { ...(d.body_stats || {}), weight: 79 } }); });
+    await p.sync(); await p.sync();
+    p.done((await p.api.getDiaryDate('${D}')).body_stats);`);
+  assert.deepEqual(JSON.parse(q(`SELECT body_stats FROM diary WHERE user_id = (SELECT id FROM users WHERE username = 'alice') AND date = ?`, D)[0].body_stats), { weight: 79, body_fat: 20 });
+  assert.deepEqual(r, { weight: 79, body_fat: 20 });
+});
+
+test('after the update, a row the phone had from before says what its first edit changed', async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Whole Rye', brand: 'Mill', nutrition: {} });
+  // As an app from before left it: synced, no copy of the server's kept.
+  phone('fields-old', A, `await p.sync(); const db = await p.dbn.getDb(); await db.run('UPDATE foods SET server_base = NULL', []); p.done();`);
+  await sleep(1100);
+  await http(A, 'PUT', `/api/foods/${f.id}`, { name: 'Whole Rye', brand: 'Bakery', nutrition: {} });
+  await sleep(1100);
+  phone('fields-old', A, `await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, notes: 'Dense' }); }); await p.sync(); p.done();`);
+  assert.deepEqual(q('SELECT brand, notes FROM foods WHERE id = ?', f.id)[0], { brand: 'Bakery', notes: 'Dense' });
+});
+
+test('a row edited before the update (waiting, no copy kept) goes up whole, as it always did', async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Old Spelt', brand: 'Mill', nutrition: {} });
+  phone('fields-older', A, `await p.sync(); p.done();`);
+  await sleep(1100);
+  await http(A, 'PUT', `/api/foods/${f.id}`, { name: 'Old Spelt', brand: 'Bakery', nutrition: {} });
+  await sleep(1100);
+  phone('fields-older', A, `
+    await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, notes: 'Nutty' }); });
+    const db = await p.dbn.getDb(); await db.run('UPDATE foods SET server_base = NULL', []);
+    await p.sync(); p.done();`);
+  assert.deepEqual(q('SELECT brand, notes FROM foods WHERE id = ?', f.id)[0], { brand: 'Mill', notes: 'Nutty' });
+});
+
+test("a food renamed offline before the web's rename, then noted after it: the web's name stays, the phone's note goes in", async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'P2 Food', brand: 'X', nutrition: {} });
+  phone('fields-times', A, `await p.sync(); p.done();`);
+  phone('fields-times', A, `await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, name: 'P2 phone name' }); }); p.done();`);
+  await sleep(2100);
+  await http(A, 'PUT', `/api/foods/${f.id}`, { name: 'P2 web name', brand: 'X', nutrition: {}, changed_fields: ['name'] });
+  await sleep(2100);
+  const r = phone('fields-times', A, `
+    await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, notes: 'P2 note' }); });
+    await p.sync(); await p.sync();
+    const x = await p.food(${f.id});
+    p.done({ name: x.name, notes: x.notes });`);
+  assert.deepEqual(q('SELECT name, notes FROM foods WHERE id = ?', f.id)[0], { name: 'P2 web name', notes: 'P2 note' });
+  assert.deepEqual(r, { name: 'P2 web name', notes: 'P2 note' });
+});
+
+test("the phone's online diary save sends only the measurements it changed: a newer weight from the web stays", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-08-26';
+  await http(A, 'PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80 }, water: [] });
+  phone('stats-online', A, `await p.sync(); p.done();`);
+  await sleep(1100);
+  await http(A, 'PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 81, body_fat: 20 }, water: [] });
+  await sleep(1100);
+  // Online, before its next pull: logging an apple sends the day at once.
+  phone('stats-online', A, `const d = await p.api.getDiaryDate('${D}'); await p.api.saveDiaryDate('${D}', { ...d, items: [...(d.items || []), { uuid: 'apple-1', name: 'Apple', nutrition: {}, portion: 100, unit: 'g', quantity: 1, meal: 0 }] }); await p.sleep(1500); p.done();`);
+  const row = q(`SELECT body_stats, items FROM diary WHERE user_id = (SELECT id FROM users WHERE username = 'alice') AND date = ?`, D)[0];
+  assert.deepEqual(JSON.parse(row.body_stats), { weight: 81, body_fat: 20 });
+  assert.equal(JSON.parse(row.items).length, 1);
+});
+
+test('a change made online and then changed back offline still goes up', async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Back Food', brand: 'A', nutrition: {} });
+  phone('fields-back', A, `await p.sync(); p.done();`);
+  // Online: brand A to B (sent straight to the server, which takes it).
+  phone('fields-back', A, `const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, brand: 'B' }); await p.sleep(1500); p.done();`);
+  assert.equal(q('SELECT brand FROM foods WHERE id = ?', f.id)[0].brand, 'B');
+  await sleep(1100);
+  // Offline: back to A, then a sync.
+  phone('fields-back', A, `await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, brand: 'A' }); }); await p.sync(); await p.sync(); p.done();`);
+  assert.equal(q('SELECT brand FROM foods WHERE id = ?', f.id)[0].brand, 'A');
+});
+
+test("a save of the day's food from a copy shown before a pull keeps the measurements the pull brought", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-08-27';
+  await http(A, 'PUT', `/api/diary/${D}`, { items: [], body_stats: {}, water: [] });
+  phone('stats-stale', A, `await p.sync(); p.done();`);
+  await http(A, 'PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 70 }, water: [] });
+  // The screen read the day before the pull; the pull brings the weight;
+  // then an item is added from the copy shown, saying no measurement changed.
+  const r = phone('stats-stale', A, `
+    const shown = await p.api.getDiaryDate('${D}');
+    await p.sync();
+    await p.offline(async () => { await p.api.saveDiaryDate('${D}', { ...shown, items: [{ uuid: 'stale-1', name: 'Pear', nutrition: {}, portion: 100, unit: 'g', quantity: 1, meal: 0 }], body_stats_changed: [] }); });
+    await p.sync(); await p.sync();
+    p.done((await p.api.getDiaryDate('${D}')).body_stats);`);
+  assert.deepEqual(r, { weight: 70 });
+  assert.deepEqual(JSON.parse(q(`SELECT body_stats FROM diary WHERE user_id = (SELECT id FROM users WHERE username = 'alice') AND date = ?`, D)[0].body_stats), { weight: 70 });
+});

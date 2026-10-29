@@ -132,9 +132,13 @@ function _uuidFallback() {
   return `${rnd()}${rnd()}-${rnd()}-${rnd()}-${rnd()}-${rnd()}${rnd()}${rnd()}`;
 }
 
-function _toApi(entry) {
+function _toApi(entry, statsChanged = null) {
   const pd = entry._pendingDeletions || {};
   return {
+    // Which measurements this save changed, when the caller knows: the
+    // server leaves the others as they are there (a weight logged on the
+    // phone since this copy was read stays).
+    ...(Array.isArray(statsChanged) ? { body_stats_changed: statsChanged } : {}),
     items:      _toReferenceShape(_stripCachedPaths(entry.items || [])),
     body_stats: entry.bodyStats  || entry.body_stats || {},
     water:      entry.water      || [],
@@ -238,15 +242,24 @@ async function _refetchAndSave(targetDate, mutator) {
   if (!entry) entry = { date: targetDate, items: [], bodyStats: {}, water: [] };
   const updated = mutator(entry);
   if (updated == null) return null;
-  const saved = await _save(updated);
+  const saved = await _save(updated, _statsChanged(entry, updated));
   let viewDate = null;
   currentDate.subscribe(v => viewDate = v)();
   if (targetDate === viewDate) currentEntry.set(saved);
   return saved;
 }
 
-async function _save(entry) {
-  const saved = await NtApi.saveDiaryDate(entry.date, _toApi(entry));
+// The measurements `after` changes in `before` (set, changed, taken away).
+function _statsChanged(before, after) {
+  const a = before?.bodyStats || before?.body_stats || {}, b = after?.bodyStats || after?.body_stats || {};
+  const key = v => JSON.stringify(v ?? null);
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(k => key(a[k]) !== key(b[k]));
+}
+
+// statsChanged: the measurements this save changed ([] for one that only
+// changes the day's food, water or note), or null when it can't say.
+async function _save(entry, statsChanged = null) {
+  const saved = await NtApi.saveDiaryDate(entry.date, _toApi(entry, statsChanged));
   const result = _fromApi(saved);
   // Option C: pending tombstones only exist locally until a successful
   // save. Clear them once the server has acknowledged so a subsequent
@@ -464,7 +477,7 @@ export async function removeDiaryItem(index) {
       water: prior.water || [],
     },
   };
-  currentEntry.set(await _save(updated));
+  currentEntry.set(await _save(updated, []));
 }
 
 export async function updateDiaryItem(index, changes) {
@@ -477,7 +490,7 @@ export async function updateDiaryItem(index, changes) {
       ? { ...item, ...changes, updatedAt: new Date().toISOString() }
       : item),
   };
-  currentEntry.set(await _save(updated));
+  currentEntry.set(await _save(updated, []));
 }
 
 /**
@@ -610,7 +623,7 @@ export async function splitRecipeItem(index) {
     ...entry,
     items: entry.items.map((it, i) => i === index ? { ...item, _splitItems: splitItems, updatedAt: now } : it),
   };
-  currentEntry.set(await _save(updated));
+  currentEntry.set(await _save(updated, []));
   return true;
 }
 
@@ -638,7 +651,7 @@ export async function removeSplitChild(parentIndex, childIndex) {
       i === parentIndex ? { ...parent, _splitItems: remaining, updatedAt: new Date().toISOString() } : it
     );
   }
-  currentEntry.set(await _save({ ...entry, items: newItems }));
+  currentEntry.set(await _save({ ...entry, items: newItems }, []));
 }
 
 /**
@@ -660,7 +673,7 @@ export async function updateSplitChild(parentIndex, childIndex, changes) {
   const newItems = entry.items.map((it, i) =>
     i === parentIndex ? { ...parent, _splitItems: newChildren, updatedAt: new Date().toISOString() } : it
   );
-  currentEntry.set(await _save({ ...entry, items: newItems }));
+  currentEntry.set(await _save({ ...entry, items: newItems }, []));
 }
 
 export async function copyMealItems(fromMealIdx, toMealIdx) {
@@ -818,7 +831,7 @@ export async function moveDiaryItemsToMeal(indices, toMeal) {
   if (!entry) return 0;
   const { items, moved } = moveItemsToMeal(entry.items, indices, toMeal, new Date().toISOString());
   if (!moved) return 0;
-  currentEntry.set(await _save({ ...entry, items }));
+  currentEntry.set(await _save({ ...entry, items }, []));
   return moved;
 }
 
@@ -903,7 +916,7 @@ export async function moveDiaryItemsToDate(indices, targetDate, toMeal) {
         ...entry,
         items: (entry.items || []).filter((_, i) => !pick.has(i)),
         _pendingDeletions: { items: [...(prior.items || []), ...own], water: prior.water || [] },
-      });
+      }, []);
       currentEntry.set(saved);
       const left = (saved?.items || []).filter(it => src.some(s => _sameRow(s, it)));
       if (left.length) return { moved: 0, status: 'both', error: null };

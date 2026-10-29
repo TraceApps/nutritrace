@@ -85,7 +85,7 @@ test("a winning push keeps its edit's time (on the server clock, never ahead of 
 test('a losing push answers with the server copy, and leaves its time alone', () => {
   const src = read('../server/routes/sync.js');
   for (const [name, t] of [['foods', 'foods'], ['meals', 'meals'], ['activity', 'activity_log'], ['fasts', 'fasts']]) {
-    assert.match(src, new RegExp(`\\} else if \\(_ownsRow\\(existing, u\\)\\) \\{\\s*result\\.${name}\\.push\\(\\{ client_id: \\w\\.client_id, server_id: \\w\\.server_id, row: (parse\\()?winner\\('${t}'`), t);
+    assert.match(src, new RegExp(`\\} else if \\(_ownsRow\\(existing, u\\)\\) \\{\\s*result\\.${name}\\.push\\(\\{ client_id: \\w\\.client_id, server_id: \\w\\.server_id, row: (parse\\(|_out\\()?winner\\('${t}'`), t);
   }
   assert.doesNotMatch(src, /restamp/);
   assert.match(src, /const receivedAt = Date\.now\(\);[\s\S]*clientClock\(req\.body\?\.client_now, receivedAt\)/, 'the clock is read on arrival');
@@ -531,7 +531,7 @@ test('a renamed food made again by an upload still lends the items linked to it'
   assert.equal(itemFoodMatches(madeAgain, linked), true, 'with it');
   if (helpers) assert.equal(helpers.itemFoodMatches(madeAgain, linked), true, 'the server too');
   assert.match(read('../src/stores/diary.js'), /'food_name',\s+\/\/ its food's name when linked again/, 'kept when the day is saved');
-  assert.match(read('../src/lib/db-native.js'), /source_url, updated_at, created_at, sync_status\)/, "a pulled food keeps the server's created_at");
+  assert.match(read('../src/lib/db-native.js'), /source_url, updated_at, created_at(, server_base)?, sync_status\)/, "a pulled food keeps the server's created_at");
   if (skip(t)) return;
   const u = user('renamed');
   const id = Number(db.prepare(`INSERT INTO foods (user_id, name, barcode, created_at) VALUES (?, 'Chicken Breast, Raw', 'BC-CHICKEN', '2026-06-01 10:00:00')`).run(u).lastInsertRowid);

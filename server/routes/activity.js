@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { onlyChanged } from '../lib/rest-merge.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
@@ -8,6 +9,8 @@ const router = Router();
 router.use(requireAuth);
 
 const uid = req => userMgmtActive() ? req.user.id : null;
+// A row as it goes out: when each field changed (sync's bookkeeping) stays here.
+const out = r => (r ? { ...r, field_times: undefined } : r);
 
 const ALLOWED_SOURCES = new Set(['manual_form', 'ai_estimated', 'user_stated', 'compendium']);
 
@@ -33,7 +36,7 @@ router.get('/:date', wrap((req, res) => {
   const rows = u == null
     ? db.prepare(`SELECT * FROM activity_log WHERE user_id IS NULL AND date = ? AND deleted_at IS NULL ORDER BY id ASC`).all(req.params.date)
     : db.prepare(`SELECT * FROM activity_log WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY id ASC`).all(u, req.params.date);
-  res.json(rows);
+  res.json(rows.map(out));
 }));
 
 // Sum + effective-calories breakdown for a date.
@@ -59,7 +62,7 @@ router.get('/', wrap((req, res) => {
   const rows = u == null
     ? db.prepare(`SELECT * FROM activity_log WHERE user_id IS NULL AND date BETWEEN ? AND ? AND deleted_at IS NULL ORDER BY date ASC, id ASC`).all(from, to)
     : db.prepare(`SELECT * FROM activity_log WHERE user_id = ? AND date BETWEEN ? AND ? AND deleted_at IS NULL ORDER BY date ASC, id ASC`).all(u, from, to);
-  res.json(rows);
+  res.json(rows.map(out));
 }));
 
 router.post('/', wrap((req, res) => {
@@ -72,7 +75,7 @@ router.post('/', wrap((req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
   `).run(u, date, name, kcal, duration_min, distance, source, met, is_template);
   const row = db.prepare(`SELECT * FROM activity_log WHERE id = ?`).get(r.lastInsertRowid);
-  res.status(201).json(row);
+  res.status(201).json(out(row));
 }));
 
 router.put('/:id', wrap((req, res) => {
@@ -82,12 +85,14 @@ router.put('/:id', wrap((req, res) => {
     ? db.prepare(`SELECT * FROM activity_log WHERE id = ? AND user_id IS NULL AND deleted_at IS NULL`).get(id)
     : db.prepare(`SELECT * FROM activity_log WHERE id = ? AND user_id = ? AND deleted_at IS NULL`).get(id, u);
   if (!existing) return res.status(404).json({ error: 'Not found' });
-  const { name, kcal, duration_min, distance, source, met, is_template } = sanitize({ ...existing, ...req.body });
+  // Only the fields a save says it changed, when it says (lib/rest-merge.js).
+  const { name, kcal, duration_min, distance, source, met, is_template } = onlyChanged('activity_log', existing,
+    sanitize({ ...existing, ...req.body }), req.body?.changed_fields);
   db.prepare(`
     UPDATE activity_log SET name = ?, kcal = ?, duration_min = ?, distance = ?, source = ?, met = ?, is_template = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(name, kcal, duration_min, distance, source, met, is_template, id);
-  res.json(db.prepare(`SELECT * FROM activity_log WHERE id = ?`).get(id));
+  res.json(out(db.prepare(`SELECT * FROM activity_log WHERE id = ?`).get(id)));
 }));
 
 router.delete('/:id', wrap((req, res) => {

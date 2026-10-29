@@ -15,6 +15,9 @@
  * arrived from another device exactly as it merges the phone's (routes/sync.js).
  */
 
+import { sameValue } from './field-sync.js';
+import { SYNC_FIELDS, SYNC_JSON } from './sync-fields.js';
+
 /** Was this error the server being unreachable, rather than a real answer? */
 export function isOfflineError(err) {
   if (!err) return false;
@@ -64,6 +67,9 @@ export function collapseOps(ops) {
   // null when queued ops say it wasn't; absent for ops queued before ops
   // recorded it.
   const noteAt = new Map();
+  // Which measurements the queued saves of a day changed, all of them
+  // together (see statsChanged); null once one of them can't say.
+  const stats = new Map();
   for (const op of ops || []) {
     if (!op || op.type !== 'diary' || !op.date) continue;
     const t = tombs.get(op.date) || { items: new Set(), water: new Set() };
@@ -71,6 +77,11 @@ export function collapseOps(ops) {
     for (const uuid of op.day?.deleted_uuids?.water || []) t.water.add(uuid);
     tombs.set(op.date, t);
     if ('note_at' in op) noteAt.set(op.date, op.note_at || noteAt.get(op.date) || null);
+    const had = stats.has(op.date) ? stats.get(op.date) : new Map();
+    if (had && Array.isArray(op.stats_changed)) {
+      for (const k of op.stats_changed) had.set(k, new Date(op.at || Date.now()).toISOString());
+      stats.set(op.date, had);
+    } else stats.set(op.date, null);
     byDate.set(op.date, op);
   }
   return [...byDate.values()]
@@ -78,6 +89,8 @@ export function collapseOps(ops) {
       const t = tombs.get(op.date);
       const out = { ...op, day: { ...op.day, deleted_uuids: { items: [...t.items], water: [...t.water] } } };
       if (noteAt.has(op.date)) out.note_at = noteAt.get(op.date);
+      const st = stats.get(op.date);
+      if (st) { out.stats_changed = [...st.keys()]; out.stats_at = Object.fromEntries(st); } else { delete out.stats_changed; delete out.stats_at; }
       return out;
     })
     .sort((a, b) => (a.seq || 0) - (b.seq || 0));
@@ -99,6 +112,17 @@ export function noteChangedAt(before, day, at) {
   return _noteOf(day) !== _noteOf(before) ? at : null;
 }
 
+const _stats = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+
+/** The measurements an offline save of a day changed (set, changed or
+ *  taken away), against the day as the person saw it. Kept on the queued
+ *  op, so the server changes only those (body_stats_changed) and keeps a
+ *  measurement made elsewhere meanwhile. */
+export function statsChanged(before, day) {
+  const a = _stats(before?.body_stats ?? before?.bodyStats), b = _stats(day?.body_stats ?? day?.bodyStats);
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(k => !sameValue(a[k], b[k]));
+}
+
 export function buildDiaryPush(ops, days) {
   const mirror = new Map((days || []).filter(d => d && d.date).map(d => [d.date, d]));
   const diary = collapseOps(ops).map(op => {
@@ -118,6 +142,9 @@ export function buildDiaryPush(ops, days) {
         ? { notes: _noteOf(op.day) || '', notes_updated_at: new Date(op.note_at || op.at || Date.now()).toISOString() }
         : {}),
       deleted_uuids: op.day?.deleted_uuids || { items: [], water: [] },
+      // Only the measurements changed offline, when the queue knows them.
+      ...(Array.isArray(op.stats_changed) ? { body_stats_changed: op.stats_changed } : {}),
+      ...(Array.isArray(op.stats_changed) && op.stats_at ? { body_stats_edits: op.stats_at } : {}),
       updated_at: new Date(op.at || Date.now()).toISOString(),
       deleted_at: null,
     };
@@ -183,9 +210,16 @@ export function collapseCatalogOps(ops, table = 'foods') {
       else byId.set(id, { ...op, data: prev?.data });
       continue;
     }
+    // What the edits changed, together, each with the time of the last
+    // edit that changed it; null once one of them can't say.
+    const changed = prev && prev.action !== 'create'
+      ? (Array.isArray(prev.changed) && Array.isArray(op.changed) ? [...new Set([...prev.changed, ...op.changed])] : null)
+      : (Array.isArray(op.changed) ? op.changed : null);
+    const edits = changed ? { ...(prev?.edits || {}) } : null;
+    if (edits) for (const f of op.changed) edits[f] = new Date(op.at || Date.now()).toISOString();
     byId.set(id, prev?.action === 'create'
       ? { ...prev, data: { ...prev.data, ...op.data }, seq: op.seq }
-      : { ...op, data: { ...(prev?.data || {}), ...op.data } });
+      : { ...op, data: { ...(prev?.data || {}), ...op.data }, changed, edits });
   }
   return [...byId.values()].sort((a, b) => (a.seq || 0) - (b.seq || 0));
 }
@@ -193,20 +227,55 @@ export function collapseCatalogOps(ops, table = 'foods') {
 const _catalogRow = (op) => {
   const temp = isTempId(op.id);
   const when = new Date(op.at || Date.now()).toISOString();
-  const row = {
-    client_id: temp ? Number(op.id) : null,
-    server_id: temp ? null : Number(op.id),
-    updated_at: when,
-    deleted_at: op.action === 'delete' ? when : null,
-    ...(op.data || {}),
-  };
-  // The app's own field name for a picture; the server wants img_url.
+  const own = { client_id: temp ? Number(op.id) : null, server_id: temp ? null : Number(op.id), updated_at: when, deleted_at: op.action === 'delete' ? when : null };
+  // When this was done here, and whether it's a delete: never the times of
+  // the copy it was made on, which the queued row carries too. Work queued
+  // by the app before it said what changed (no `v`) goes as it always did.
+  const row = op.v >= 2
+    ? { ...pushShape(op.table || 'foods', op.data || {}), ...own }
+    : { ...own, ...(op.data || {}) };
   if (row.imgUrl && !row.img_url) row.img_url = row.imgUrl;
   delete row.imgUrl;
   delete row._pending;
+  delete row.changed_at;
+  delete row.field_times;
   row.id = undefined;
+  // The fields this edit changed, so the server leaves the rest as they are
+  // there (a change made elsewhere meanwhile stays).
+  if (!temp && op.action === 'update' && Array.isArray(op.changed)) {
+    row.changed_fields = op.changed;
+    if (op.edits && Object.keys(op.edits).length) row.field_edits = op.edits;
+  }
   return row;
 };
+
+const _SYNC_TABLE = { foods: 'foods', meals: 'meals', activity: 'activity_log', fasts: 'fasts' };
+
+/** A row as the sync push sends it: the server's names for a picture
+ *  (img_url) and a food's category. */
+export function pushShape(table, row) {
+  const out = { ...(row || {}) };
+  if ('imgUrl' in out) { if (!out.img_url) out.img_url = out.imgUrl || null; delete out.imgUrl; }
+  if (table === 'foods' && Array.isArray(out.categories)) {
+    out.category = out.categories[0] || out.category || null;
+    delete out.categories;
+  }
+  return out;
+}
+
+/** The synced fields `after` changes in `before` (a row as this browser
+ *  holds it): the fields an edit made on that copy changed. */
+export function changedSince(table, before, after) {
+  const t = _SYNC_TABLE[table] || table;
+  const fields = SYNC_FIELDS[t] || [];
+  const json = SYNC_JSON[t] || [];
+  const a = pushShape(table, before), b = pushShape(table, after);
+  return fields.filter(f => b[f] !== undefined && !sameValue(a[f], b[f], json.includes(f)));
+}
+
+/** The copy of a row a save was made on, as far as this browser can tell:
+ *  the server's time of its last write. */
+export const copyStamp = row => row?.changed_at || row?.updated_at || null;
 
 /** Settings changed offline, one row per key, the last value winning. */
 export function collapseSettingOps(ops) {

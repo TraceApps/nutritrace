@@ -201,6 +201,50 @@ providers, Trace, coaching, the adaptive TDEE, exports and backups
 (`offlineDeadlineMs()` in `offline-api.js`).
 
 
+### Two edits of one row: the newer edit of each field
+
+When the same row is changed in two places (the phone offline, the web, a
+second phone), the server keeps the newer edit of each field, not of the
+whole row (`server/lib/field-sync.js`, the same file in `src/lib` and in
+every Trace app that uses it, pinned by `scripts/field-sync.test.js`). Each
+synced row keeps when each field last changed (`field_times`, server only,
+never sent to an app): triggers stamp every write that changes a field
+(`db.js`), unless the write stamps its own (a merged edit, at the time it
+was made). The fields and the groups that stay together, such as a food's
+nutrients with its serving, are in `server/lib/sync-fields.js` (copied to
+`src/lib`). A day's measurements are fields of their own
+(`body_stats.<key>`, `server/lib/body-stats-merge.js`); its items and water
+merge by uuid and its note by its own time, as before.
+
+- `POST /api/sync/push`: a row is an edit made at its `updated_at` (on the
+  server's clock, `lib/sync-clock.js`), changing the fields it lists in
+  `changed_fields`, or every field it sends when it lists none (apps before
+  this). `field_edits` gives each field's own edit time, so a field changed
+  before a later change of another keeps its time. A day lists the
+  measurements it changed in `body_stats_changed` (times in
+  `body_stats_edits`).
+  A delete made before a later edit doesn't win, an edit made before a
+  delete doesn't bring the row back, and one made after does. When what
+  stays isn't what was sent, the answer carries the row (`row`) and its
+  pull cursor moves. A setting's value is one field: an older change no
+  longer replaces a newer one.
+- `PUT /api/foods/:id`, `/api/meals/:id`, `/api/activity/:id` and
+  `PUT /api/diary/:date` take `changed_fields` (and `body_stats_changed`):
+  the save changes only those, so a form opened before an edit made
+  elsewhere doesn't put it back (`lib/rest-merge.js`). Without them they
+  write what they're sent, as before.
+- The Android app keeps the server's copy of each row as `server_base`
+  (`src/lib/sync-base.js`, set by each pull, each push that lands, and
+  before the first edit of a row from before) and when each field was
+  changed here (`edit_times`), and sends what changed since, each with its
+  time. A row edited before the update (no copy kept) goes up whole. A save
+  sent straight to the server online sends only what that save changed.
+- The browser sends what an offline edit changed (against the row it
+  showed), each field with the time of the queued edit that changed it,
+  and an online save sends what changed against the copy it holds, unless
+  the form was opened on another copy (a different `changed_at`). The diary
+  says which measurements a save changed.
+
 ### Android account protection
 
 One phone can sign in to more than one account or server, and the

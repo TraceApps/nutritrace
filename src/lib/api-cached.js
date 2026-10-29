@@ -88,6 +88,16 @@ function _stripResolvedImgUrl(url) {
 // A row that hasn't been pushed yet has no server id, and its local id
 // means nothing there (it used to be sent anyway, and could edit or delete
 // a different row of the same account): the sync push carries it instead.
+// A save sent straight to the server says which fields it changed (this
+// change, made now: db-native.js _afterEdit), so it leaves the rest as they
+// are there: an edit made elsewhere that hasn't reached this phone yet
+// stays. Changes made here earlier and not sent yet go with the next push,
+// each with its own time. One that can't say goes whole, as before.
+function _withChanges(table, local, body) {
+  const { _changed, ...rest } = body || {};
+  return local && Array.isArray(local._changed) ? { ...rest, changed_fields: local._changed } : rest;
+}
+
 function _sendOrQueue(serverId, method, path, body) {
   if (!serverId) { schedulePush(); return; }
   _serverFetch(method, path(serverId), body).catch(() => schedulePush());
@@ -158,8 +168,9 @@ export const NtApiCached = {
   async updateFood(id, data) {
     const local = await dbUpdateFood(id, _foodToApi(data));
     // Try server in background
-    _sendOrQueue(local?.server_id, 'PUT', sid => `/api/foods/${sid}`, _foodToApi(data));
-    return _foodFromApi(local);
+    _sendOrQueue(local?.server_id, 'PUT', sid => `/api/foods/${sid}`, _withChanges('foods', local, _foodToApi(data)));
+    const { _changed, ...row } = local || {};
+    return local ? _foodFromApi(row) : _foodFromApi(local);
   },
 
   async deleteFood(id) {
@@ -227,8 +238,9 @@ export const NtApiCached = {
 
   async updateMeal(id, data) {
     const local = await dbUpdateMeal(id, _mealToApi(data));
-    _sendOrQueue(local?.server_id, 'PUT', sid => `/api/meals/${sid}`, _mealToApi(data));
-    return _mealFromApi(local);
+    _sendOrQueue(local?.server_id, 'PUT', sid => `/api/meals/${sid}`, _withChanges('meals', local, _mealToApi(data)));
+    const { _changed, ...row } = local || {};
+    return local ? _mealFromApi(row) : _mealFromApi(local);
   },
 
   async deleteMeal(id) {
@@ -269,13 +281,18 @@ export const NtApiCached = {
     // which may be newer than the copy here. A server before sync_version
     // 2 clears a note a save leaves out, so it gets the note every time,
     // as it always did.
-    const { notes: _n, notes_updated_at: _a, ...rest } = data || {};
+    const { notes: _n, notes_updated_at: _a, ...rest0 } = data || {};
+    // The measurements this save changed (the diary store says; else this
+    // change here): the server leaves the others as they are there.
+    const rest = Array.isArray(rest0.body_stats_changed) || !Array.isArray(local?._stats_changed)
+      ? rest0 : { ...rest0, body_stats_changed: local._stats_changed };
     const { serverKeepsNotes } = await import('./local-account.js');
     const keepsNotes = await serverKeepsNotes().catch(() => false);
     const body = (local?.notes_dirty || !keepsNotes)
       ? { ...rest, notes: local?.notes || '', notes_updated_at: local?.notes_updated_at, client_now: new Date().toISOString() }
       : rest;
     _serverFetch('PUT', `/api/diary/${date}`, body).catch(() => schedulePush());
+    if (local) delete local._stats_changed;
     return local || await dbGetDiaryDate(date);
   },
 

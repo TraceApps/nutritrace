@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { mergeBodyStats, changedList } from '../lib/body-stats-merge.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
@@ -96,9 +97,9 @@ function _stripDataUrlImages(items) {
 //                  is preserved by default; entries only leave via explicit
 //                  tombstone (client-sent deleted_uuids or existing
 //                  diary_tombstones row).
-//   body_stats:    still last-writer-wins with the empty-guard (was in
-//                  place for issue #81; body_stats is a single object per
-//                  day so per-key merge is unnecessary).
+//   body_stats:    each measurement on its own, the newer edit of each
+//                  staying (lib/body-stats-merge.js); an empty object
+//                  changes nothing (issue #81).
 //   notes:         the newer edit wins (lib/sync-clock.js resolveNote).
 //                  A request without `notes` keeps the day's note; one
 //                  with the same note leaves its time alone. The Android
@@ -144,15 +145,12 @@ router.put('/:date', wrap((req, res) => {
   const { merged: mergedWater, newTombstoneUuids: newWaterTombstones } =
     mergeEntries(serverWater, water || [], deletedWaterUuids, priorWaterTombstones);
 
-  // body_stats: same empty-guard as before (issue #81).
-  const incomingBsEmpty = !body_stats || (typeof body_stats === 'object' && Object.keys(body_stats).length === 0);
-  let existingBsHasKeys = false;
-  if (existingRow && existingRow.body_stats) {
-    try { existingBsHasKeys = Object.keys(JSON.parse(existingRow.body_stats) || {}).length > 0; } catch {}
-  }
-  const bsJson = (incomingBsEmpty && existingBsHasKeys)
-    ? existingRow.body_stats
-    : JSON.stringify(body_stats || {});
+  // body_stats: each measurement on its own (lib/body-stats-merge.js),
+  // made now; an empty one changes nothing (issue #81). A save that says
+  // which it changed (body_stats_changed) leaves the others alone.
+  const bs = mergeBodyStats(existingRow, body_stats, { at: receivedAt, changed: changedList(req.body.body_stats_changed) });
+  const bsJson = bs ? bs.json : (existingRow?.body_stats ?? '{}');
+  const dayTimes = bs ? JSON.stringify(bs.times) : (existingRow?.field_times ?? null);
 
   const itemsJson = JSON.stringify(mergedItems);
   const waterJson = JSON.stringify(mergedWater);
@@ -175,22 +173,23 @@ router.put('/:date', wrap((req, res) => {
       // #37, "only the first food item added each day saves"). Manual upsert:
       const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(date);
       if (existing) {
-        db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, notes_updated_at=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
-          .run(itemsJson, bsJson, waterJson, notesVal, notesAt, existing.id);
+        db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, notes_updated_at=?, field_times=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
+          .run(itemsJson, bsJson, waterJson, notesVal, notesAt, dayTimes, existing.id);
       } else {
-        db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, notes_updated_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`)
-          .run(date, itemsJson, bsJson, waterJson, notesVal, notesAt);
+        db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, notes_updated_at, field_times, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+          .run(date, itemsJson, bsJson, waterJson, notesVal, notesAt, dayTimes);
       }
     } else {
       db.prepare(
-        `INSERT INTO diary (user_id, date, items, body_stats, water, notes, notes_updated_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `INSERT INTO diary (user_id, date, items, body_stats, water, notes, notes_updated_at, field_times, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(date, user_id) DO UPDATE SET
            items=excluded.items, body_stats=excluded.body_stats,
            water=excluded.water, notes=excluded.notes, notes_updated_at=excluded.notes_updated_at,
+           field_times=excluded.field_times,
            updated_at=excluded.updated_at,
            deleted_at=NULL`
-      ).run(u, date, itemsJson, bsJson, waterJson, notesVal, notesAt);
+      ).run(u, date, itemsJson, bsJson, waterJson, notesVal, notesAt, dayTimes);
     }
     for (const uuid of newItemTombstones) insertTombstone.run(u, date, 'item', uuid);
     for (const uuid of newWaterTombstones) insertTombstone.run(u, date, 'water', uuid);
@@ -449,6 +448,7 @@ function parse(row) {
   }
   return {
     ...row,
+    field_times:      undefined, // sync's bookkeeping stays on the server
     items:            freshenItemImages(hydrateItems(fixCachedPaths(items), row.user_id ?? null), row.user_id ?? null),
     body_stats:       JSON.parse(row.body_stats || '{}'),
     water:            JSON.parse(row.water      || '[]'),

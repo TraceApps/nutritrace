@@ -26,8 +26,9 @@ import {
   dbLinkDiaryItems, dbApplyServerDeletions, dbGetCompletionOps, dbDeleteCompletionOp,
   dbApplyServerWinner, dbSetClockOffset, dbInstallId, createKeyOf,
   dbPendingCoachMessages, dbUpsertCoachMessages, dbFailCoachMessage, dbForgetCoachMessage,
-  dbPendingCoachAnswers, dbUpsertCoachRecommendations,
+  dbPendingCoachAnswers, dbUpsertCoachRecommendations, dbSetServerBase,
 } from './db-native.js';
+import { baseOf, changesOf, statsBase, statsChanges } from './sync-base.js';
 import { localDataIsThisAccount, serverKeepsNotes, accountGeneration } from './local-account.js';
 import { get, writable } from 'svelte/store';
 
@@ -501,6 +502,44 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
     })),
   };
 
+  // Which fields this phone changed in each row since the copy the server
+  // has (sync-base.js): the server keeps the newer edit of each field, and
+  // leaves alone what this phone didn't change. A row with no such copy
+  // says nothing and counts as a whole, as before. A server from before
+  // ignores it.
+  // With when each was changed here (field_edits, from edit_times), so a
+  // field changed before a later change of another keeps its own time.
+  const editTimes = r => { try { const t = JSON.parse(r?.edit_times || '{}'); return t && typeof t === 'object' ? t : {}; } catch { return {}; } };
+  const sentEdits = {};
+  const withChanges = (rows, local, table) => rows.map((row, i) => {
+    const t = editTimes(local[i]);
+    // What differs from the server's copy, and anything changed here and
+    // not sent yet even if it's back to the server's value (changed back
+    // after a save went up).
+    const diff = changesOf(table, row, local[i]?.server_base);
+    const changed = diff && [...new Set([...diff, ...Object.keys(t).filter(f => row[f] !== undefined)])];
+    if (!changed) return row;
+    const edits = Object.fromEntries(changed.filter(f => typeof t[f] === 'string').map(f => [f, t[f]]));
+    if (Object.keys(edits).length) (sentEdits[table] ||= new Map()).set(local[i].id, edits);
+    return { ...row, changed_fields: changed, ...(Object.keys(edits).length ? { field_edits: edits } : {}) };
+  });
+  payload.foods = withChanges(payload.foods, pending.foods, 'foods');
+  payload.meals = withChanges(payload.meals, pending.meals, 'meals');
+  payload.activity = withChanges(payload.activity, activity, 'activity_log');
+  payload.fasts = withChanges(payload.fasts, fasts, 'fasts');
+  for (let i = 0; i < pending.diary.length; i++) {
+    const diff = statsChanges(payload.diary[i].body_stats, pending.diary[i].server_base);
+    if (!diff) continue;
+    const t = editTimes(pending.diary[i]);
+    const changed = [...new Set([...diff, ...Object.keys(t).filter(k => k.startsWith('body_stats.')).map(k => k.slice('body_stats.'.length))])];
+    payload.diary[i].body_stats_changed = changed;
+    const edits = Object.fromEntries(changed.filter(k => typeof t[`body_stats.${k}`] === 'string').map(k => [k, t[`body_stats.${k}`]]));
+    if (Object.keys(edits).length) {
+      payload.diary[i].body_stats_edits = edits;
+      (sentEdits.diary ||= new Map()).set(pending.diary[i].id, Object.fromEntries(Object.entries(edits).map(([k, v]) => [`body_stats.${k}`, v])));
+    }
+  }
+
   _dlog(`[sync] push payload: ${payload.foods.length} foods, ${payload.meals.length} meals, ${payload.diary.length} diary, ${payload.activity.length} activity, ${payload.fasts.length} fasts, ${payload.wellness.length} wellness, ${payload.workouts.length} workouts, ${payload.settings.length} settings`);
 
   // 30s ceiling. Without a signal, a wedged connection (proxy timeout,
@@ -599,6 +638,13 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
   // during the push round-trip and leave them pending for the next sync.
   // Without this guard, mid-flight edits get silently demoted from
   // 'pending' to 'synced' and then overwritten by the subsequent pull.
+  // What went up is now the server's copy of each row (sync-base.js).
+  const sentBase = (table, rows, sent) => dbSetServerBase(table, rows.map((r, i) => ({ id: r.id, base: baseOf(table, sent[i]), sent: sentEdits[table]?.get(r.id) })), live);
+  await sentBase('foods', pending.foods, payload.foods);
+  await sentBase('meals', pending.meals, payload.meals);
+  await sentBase('activity_log', activity, payload.activity);
+  await sentBase('fasts', fasts, payload.fasts);
+  await dbSetServerBase('diary', pending.diary.map((d, i) => ({ id: d.id, base: statsBase(payload.diary[i].body_stats), sent: sentEdits.diary?.get(d.id) })), live);
   await dbMarkSynced('foods',        pending.foods.map(f => ({ id: f.id, updated_at: f.updated_at })), live);
   await dbMarkSynced('meals',        pending.meals.map(m => ({ id: m.id, updated_at: m.updated_at })), live);
   await dbMarkSynced('diary',        pending.diary.map(d => ({ id: d.id, updated_at: d.updated_at })), live);
@@ -917,12 +963,13 @@ export async function pushAllFromDevice() {
 
   // Clear stale server_id refs (server may have lost rows; their old IDs
   // are meaningless) and mark every row pending. user_settings doesn't
-  // carry server_id so just mark pending.
+  // carry server_id so just mark pending. The server's copy of each row
+  // (server_base) goes too: everything goes up whole.
   await db.execute(`
-    UPDATE foods         SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
-    UPDATE meals         SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
-    UPDATE diary         SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
-    UPDATE activity_log  SET sync_status='pending', server_id=NULL WHERE deleted_at IS NULL;
+    UPDATE foods         SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
+    UPDATE meals         SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
+    UPDATE diary         SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
+    UPDATE activity_log  SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
     UPDATE user_settings SET sync_status='pending'                  WHERE deleted_at IS NULL;
   `);
 

@@ -4,7 +4,14 @@
  * GET  /api/sync/pull?since=<ISO_timestamp> — returns all records modified after that timestamp
  * POST /api/sync/push — receives batch of changed records from the client
  *
- * Conflict strategy: last-write-wins by updated_at.
+ * Two edits of one row: the newer edit of each field stays, on the
+ * server's clock (lib/field-sync.js, fields and groups in lib/sync-fields.js).
+ * A pushed row is an edit made at its updated_at, changing the fields it
+ * lists in `changed_fields`, or every field it sends when it lists none
+ * (every app before this). A delete made before a later edit doesn't win,
+ * and an edit made before a delete doesn't bring the row back. When what
+ * stays isn't what the phone sent, the answer carries the row (`row`) and
+ * the row's changed_at moves, so its next pull brings it too.
  * Soft-deleted records (deleted_at IS NOT NULL) are included in pull responses
  * so the client can remove them locally.
  */
@@ -19,7 +26,10 @@ import { fillIfSetupAnswers } from '../lib/profile-fields.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
 import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
-import { clientClock, parseUtc, pushWins as clockPushWins, editStamp, resolveNote } from '../lib/sync-clock.js';
+import { clientClock, parseUtc, editMs, resolveNote, sqlTime } from '../lib/sync-clock.js';
+import { mergeEdit, deleteLoses, editRevives, rowTimes, stampTimes, createdTimes, isoTime } from '../lib/field-sync.js';
+import { SYNC_FIELDS, SYNC_GROUPS, SYNC_JSON } from '../lib/sync-fields.js';
+import { mergeBodyStats, changedList } from '../lib/body-stats-merge.js';
 import { readablePairingIds, createMessage, deleteMessage, messageOut, notifyMessage, pairingById } from '../lib/coaching-messages.js';
 import { answerRecommendation, recommendationOut } from '../lib/coaching-recommendations.js';
 import { linkBase } from '../lib/public-url.js';
@@ -212,6 +222,9 @@ router.get('/pull', wrap((req, res) => {
     coachingOut.coaching = { pairings };
   }
 
+  // When each field changed (field_times) stays here: apps write what
+  // they're sent.
+  for (const rows of [foods, meals, diary, activity, fasts, settings]) for (const r of rows) delete r.field_times;
   res.json({ foods, meals, diary, diary_tombstones, activity, fasts, settings, wellness, workouts, chat_history, deletions, ...coachingOut, server_time: serverTime, clock_time: new Date().toISOString() });
 }));
 
@@ -261,6 +274,97 @@ function _keepIfEmpty(row, existing, cols) {
   return cols.map(c => row[c] || existing?.[c] || null);
 }
 
+// A pushed row's values as the table stores them, for the fields it sends
+// (a field it leaves out stays as it is here). The same forms the inserts
+// below write.
+const _has = (row, k) => Object.prototype.hasOwnProperty.call(row, k) && row[k] !== undefined;
+const _metOf = v => (v != null && Number.isFinite(Number(v))) ? Math.max(0, Math.min(25, Number(v))) : null;
+const PUSH_VALUES = {
+  foods: {
+    name: f => f.name, brand: f => f.brand ?? null, nutrition: f => JSON.stringify(f.nutrition || {}),
+    portion: f => f.portion ?? 100, unit: f => f.unit || 'g', img_url: f => f.img_url || null,
+    notes: f => f.notes || null, category: f => f.category || null, barcode: f => f.barcode || null,
+    favorite: f => (f.favorite ? 1 : 0), nutrition_basis: f => f.nutrition_basis || null,
+    alt_units: f => _serializeAltUnitsForServer(f.alt_units),
+    density_g_ml: f => (f.density_g_ml != null && Number.isFinite(Number(f.density_g_ml)) ? Number(f.density_g_ml) : null),
+  },
+  meals: {
+    name: m => m.name, nutrition: m => JSON.stringify(m.nutrition || {}), items: m => JSON.stringify(m.items || []),
+    img_url: m => m.img_url || null, notes: m => m.notes || null, is_recipe: m => (m.is_recipe ? 1 : 0),
+    portion: m => m.portion ?? 100, unit: m => m.unit || 'g',
+    servings: m => (m.servings != null ? Math.max(1, parseInt(m.servings) || 1) : null), favorite: m => (m.favorite ? 1 : 0),
+  },
+  activity_log: {
+    date: a => a.date, name: a => a.name, kcal: a => Math.max(0, Math.round(Number(a.kcal) || 0)),
+    duration_min: a => (a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null),
+    distance: a => (a.distance != null ? String(a.distance).slice(0, 40) : null), source: a => a.source || 'manual_form',
+    met: a => _metOf(a.met), is_template: a => (a.is_template ? 1 : 0),
+  },
+  fasts: {
+    start_at: f => f.start_at, end_at: f => f.end_at || null, goal_hours: f => Number(f.goal_hours) || 16,
+    notes: f => (f.notes != null ? String(f.notes).slice(0, 500) : null),
+  },
+};
+export function _pushValues(table, row) {
+  const out = {};
+  for (const [k, fn] of Object.entries(PUSH_VALUES[table])) if (_has(row, k)) out[k] = fn(row);
+  return out;
+}
+
+// A row as it goes back to a phone: field_times stays here.
+function _out(row) {
+  if (!row) return row;
+  const { field_times: _t, ...rest } = row;
+  return parse(rest);
+}
+
+/**
+ * One pushed row meeting this account's row here (lib/field-sync.js).
+ * `at`: when the edit was made (ms, server clock). `extra`: columns that
+ * merge their own way ({ sql: ', col = ...', args }), written with it.
+ * `fieldAt`: when each field was edited, where the phone says (ms).
+ * Returns { back }: true when what stays isn't what the phone sent, so the
+ * answer hands it the row. The row is always written (or touched), so its
+ * changed_at moves and every device's next pull brings what stays.
+ */
+export function _pushEdit(table, incoming, existing, at, extra = { sql: '', args: [] }, fieldAt = null) {
+  const fields = SYNC_FIELDS[table];
+  const touch = () => { db.prepare(`UPDATE ${table} SET changed_at = datetime('now') WHERE id = ?`).run(existing.id); return { back: true }; };
+  const edit = sqlTime(at);
+  if (incoming.deleted_at) {
+    if (existing.deleted_at) return { back: false };
+    // Kept when anything in it changed after the delete was made.
+    if (deleteLoses({ existing, fields, at }) != null) return touch();
+    db.prepare(`UPDATE ${table} SET deleted_at = datetime('now'), updated_at = ?, field_times = ? WHERE id = ?`)
+      .run(_later(existing.updated_at, edit), JSON.stringify(stampTimes(rowTimes(existing), ['deleted_at'], at)), existing.id);
+    return { back: false };
+  }
+  const changed = Array.isArray(incoming.changed_fields) ? incoming.changed_fields.filter(f => fields.includes(f)) : null;
+  const m = mergeEdit({ existing, values: _pushValues(table, incoming), fields, groups: SYNC_GROUPS[table], json: SYNC_JSON[table], changed, at, fieldAt });
+  let revive = false;
+  if (existing.deleted_at) {
+    // Deleted here: an edit made after the delete brings it back; one made
+    // before it (or one that changes nothing) doesn't, and the phone gets
+    // the delete.
+    if (!m.write || !editRevives({ existing, at })) return touch();
+    revive = true;
+    m.times.deleted_at = isoTime(at);
+  }
+  db.prepare(
+    `UPDATE ${table} SET ${fields.map(f => `${f} = ?`).join(', ')}, field_times = ?, updated_at = ?${revive ? ', deleted_at = NULL' : ''}${extra.sql} WHERE id = ?`
+  ).run(...fields.map(f => m.row[f] ?? null), JSON.stringify(m.times), m.write ? _later(existing.updated_at, edit) : existing.updated_at, ...extra.args, existing.id);
+  return { back: m.differs || m.lost.length > 0 };
+}
+
+// The later of two times as stored ('YYYY-MM-DD HH:MM:SS'): a row's edit
+// time never goes back.
+function _later(a, b) {
+  const x = parseUtc(a), y = parseUtc(b);
+  if (!Number.isFinite(x)) return b;
+  if (!Number.isFinite(y)) return a;
+  return y > x ? b : a;
+}
+
 // ── POST /push ───────────────────────────────────────────────────────────────
 // Receives batch of changed records from the client.
 // Each record has: client_id, server_id (if previously synced), and the data fields.
@@ -288,16 +392,26 @@ router.post('/push', wrap(async (req, res) => {
     if (m.img_url) m.img_url = await _localizeIfNeeded(m.img_url, ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS'));
   }
 
-  // Last write wins, on the server's clock. A row's updated_at is the
-  // phone's clock at the edit; the phone also sends its clock at the push
-  // (client_now), so a phone running minutes slow or fast is put right
-  // before the times are compared. Apps that don't send it, or a value
-  // that can't be right, compare as before.
+  // The newer edit of each field wins, on the server's clock. A row's
+  // updated_at is the phone's clock at the edit; the phone also sends its
+  // clock at the push (client_now), so a phone running minutes slow or fast
+  // is put right before the times are compared. Apps that don't send it,
+  // or a value that can't be right, compare as before. `row`: the server's
+  // row, for the sanity bound (an edit can't be from before the row was made).
   const clock = clientClock(req.body?.client_now, receivedAt);
-  // `row`: the server's row, for the sanity bound (an edit can't be from
-  // before the row was made).
-  const pushWins = (incoming, existing, row) => clockPushWins(incoming, existing, clock.offsetMs, { serverNow: receivedAt, createdAt: row?.created_at });
-  const stamp = (incoming, row) => editStamp(incoming, clock, receivedAt, { createdAt: row?.created_at });
+  // When a pushed row's edit was made (ms, server clock); NaN when it doesn't say.
+  const editAt = (incoming, row) => editMs(incoming, clock, receivedAt, { createdAt: row?.created_at });
+  // When each field was edited, where the app says (`field_edits`, `{ field:
+  // time }` on its clock): one edited before a later edit of another field
+  // keeps its own time. ms, on the server's clock.
+  const editsAt = (map, row) => {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return null;
+    const out = {};
+    for (const [k, v] of Object.entries(map)) { const ms = editAt(v, row); if (Number.isFinite(ms)) out[k] = ms; }
+    return out;
+  };
+  // A new row made from a push counts from when it was made there.
+  const madeTimes = incoming => { const at = editAt(incoming); return Number.isFinite(at) ? JSON.stringify(createdTimes(at)) : null; };
   // When the server's copy wins, it goes back in the answer for the phone
   // to keep. The phone used to mark its losing copy synced and keep it for
   // good. The row itself is left alone, so its time stays the real one.
@@ -310,36 +424,22 @@ router.post('/push', wrap(async (req, res) => {
       // (e.g. after a disaster-recovery push from a device whose cached IDs
       // are now stale), fall through to INSERT instead of silently no-op-ing.
       const existing = f.server_id
-        ? db.prepare('SELECT updated_at, created_at, user_id, source_app, source_external_id, source_url FROM foods WHERE id = ?').get(f.server_id)
+        ? db.prepare('SELECT * FROM foods WHERE id = ?').get(f.server_id)
         : null;
       if (f.server_id && existing) {
         // Only this account's own row changes (as PUT /api/... does); anyone
-        // else's is answered as if the push lost the time check.
-        if (_ownsRow(existing, u) && pushWins(f.updated_at, existing.updated_at, existing)) {
-          if (f.deleted_at) {
-            db.prepare(`UPDATE foods SET deleted_at = datetime('now'), updated_at = ? WHERE id = ?`).run(stamp(f.updated_at, existing), f.server_id);
-          } else {
-            db.prepare(
-              `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, source_app=?, source_external_id=?, source_url=?, updated_at=? WHERE id=?`
-            ).run(f.name, f.brand, JSON.stringify(f.nutrition || {}), f.portion ?? 100, f.unit || 'g',
-              f.img_url || null, f.notes || null, f.category || null, f.barcode || null,
-              f.favorite ? 1 : 0, f.usage_count || 0, f.last_used_at || null,
-              // Issues #69 + #70: OFF unit metadata. Clients that don't send
-              // these keys yet get null, which preserves existing behavior.
-              f.nutrition_basis || null,
-              _serializeAltUnitsForServer(f.alt_units),
-              f.density_g_ml != null && Number.isFinite(Number(f.density_g_ml))
-                ? Number(f.density_g_ml)
-                : null,
-              // Federation columns carry the CT pantry provenance across
-              // cross-device pulls. Apps that don't send them, or send
-              // them empty, keep what the row has instead of wiping it.
-              ..._keepIfEmpty(f, existing, ['source_app', 'source_external_id', 'source_url']),
-              stamp(f.updated_at, existing), f.server_id);
-          }
-          result.foods.push({ client_id: f.client_id, server_id: f.server_id });
+        // else's is answered as if the push lost.
+        const at = editAt(f.updated_at, existing);
+        if (_ownsRow(existing, u) && Number.isFinite(at)) {
+          // The newer edit of each field stays. How often and when it was
+          // used: the larger. Where it came from: kept unless sent.
+          const { back } = _pushEdit('foods', f, existing, at, {
+            sql: `, usage_count = MAX(usage_count, ?), last_used_at = MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), source_app = ?, source_external_id = ?, source_url = ?`,
+            args: [f.usage_count || 0, f.last_used_at || null, ..._keepIfEmpty(f, existing, ['source_app', 'source_external_id', 'source_url'])],
+          }, editsAt(f.field_edits, existing));
+          result.foods.push({ client_id: f.client_id, server_id: f.server_id, ...(back ? { row: _out(winner('foods', f.server_id)) } : {}) });
         } else if (_ownsRow(existing, u)) {
-          result.foods.push({ client_id: f.client_id, server_id: f.server_id, row: parse(winner('foods', f.server_id)) });
+          result.foods.push({ client_id: f.client_id, server_id: f.server_id, row: _out(winner('foods', f.server_id)) });
         } else {
           result.foods.push({ client_id: f.client_id, server_id: f.server_id });
         }
@@ -364,8 +464,8 @@ router.post('/push', wrap(async (req, res) => {
         }
         const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
-          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, visibility, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, visibility, field_times, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, f.name, f.brand || null, JSON.stringify(f.nutrition || {}), f.portion ?? 100, f.unit || 'g',
           f.img_url || null, f.notes || null, f.category || null, f.barcode || null,
           f.favorite ? 1 : 0, f.usage_count || 0, f.last_used_at || null,
@@ -375,7 +475,7 @@ router.post('/push', wrap(async (req, res) => {
             ? Number(f.density_g_ml)
             : null,
           f.source_app || null, f.source_external_id || null, f.source_url || null,
-          vis);
+          vis, madeTimes(f.updated_at));
         setCreateKey('foods', r.lastInsertRowid, fKey);
         result.foods.push({ client_id: f.client_id, server_id: r.lastInsertRowid });
       }
@@ -384,25 +484,20 @@ router.post('/push', wrap(async (req, res) => {
     // ── Meals ────────────────────────────────────────────────────────────
     for (const m of meals) {
       const existing = m.server_id
-        ? db.prepare('SELECT updated_at, created_at, user_id FROM meals WHERE id = ?').get(m.server_id)
+        ? db.prepare('SELECT * FROM meals WHERE id = ?').get(m.server_id)
         : null;
       if (m.server_id && existing) {
         // Only this account's own row changes (as PUT /api/... does); anyone
-        // else's is answered as if the push lost the time check.
-        if (_ownsRow(existing, u) && pushWins(m.updated_at, existing.updated_at, existing)) {
-          if (m.deleted_at) {
-            db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = ? WHERE id = ?`).run(stamp(m.updated_at, existing), m.server_id);
-          } else {
-            db.prepare(
-              `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), updated_at=? WHERE id=?`
-            ).run(m.name, JSON.stringify(m.nutrition || {}), JSON.stringify(m.items || []),
-              m.img_url || null, m.notes || null, m.is_recipe ? 1 : 0, m.portion ?? 100, m.unit || 'g',
-              m.servings != null ? Math.max(1, parseInt(m.servings) || 1) : null,
-              m.favorite ? 1 : 0, m.usage_count || 0, m.last_used_at || null, stamp(m.updated_at, existing), m.server_id);
-          }
-          result.meals.push({ client_id: m.client_id, server_id: m.server_id });
+        // else's is answered as if the push lost.
+        const at = editAt(m.updated_at, existing);
+        if (_ownsRow(existing, u) && Number.isFinite(at)) {
+          const { back } = _pushEdit('meals', m, existing, at, {
+            sql: `, usage_count = MAX(usage_count, ?), last_used_at = MAX(COALESCE(last_used_at, ''), COALESCE(?, ''))`,
+            args: [m.usage_count || 0, m.last_used_at || null],
+          }, editsAt(m.field_edits, existing));
+          result.meals.push({ client_id: m.client_id, server_id: m.server_id, ...(back ? { row: _out(winner('meals', m.server_id)) } : {}) });
         } else if (_ownsRow(existing, u)) {
-          result.meals.push({ client_id: m.client_id, server_id: m.server_id, row: parse(winner('meals', m.server_id)) });
+          result.meals.push({ client_id: m.client_id, server_id: m.server_id, row: _out(winner('meals', m.server_id)) });
         } else {
           result.meals.push({ client_id: m.client_id, server_id: m.server_id });
         }
@@ -415,13 +510,13 @@ router.post('/push', wrap(async (req, res) => {
         if (mMade) { result.meals.push({ client_id: m.client_id, server_id: mMade.id }); continue; }
         const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
-          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, visibility, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, visibility, field_times, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, m.name, JSON.stringify(m.nutrition || {}), JSON.stringify(m.items || []),
           m.img_url || null, m.notes || null, m.is_recipe ? 1 : 0, m.portion ?? 100, m.unit || 'g',
           Math.max(1, parseInt(m.servings) || 1),
           m.favorite ? 1 : 0, m.usage_count || 0, m.last_used_at || null,
-          vis);
+          vis, madeTimes(m.updated_at));
         setCreateKey('meals', r.lastInsertRowid, mKey);
         result.meals.push({ client_id: m.client_id, server_id: r.lastInsertRowid });
       }
@@ -465,15 +560,17 @@ router.post('/push', wrap(async (req, res) => {
         const { merged: mergedWater, newTombstoneUuids: newWaterTombstones } =
           mergeEntries(serverWater, d.water || [], deletedWaterUuids, priorWaterTombstones);
 
-        // body_stats: last-writer-wins with the issue-#81 empty guard.
-        const incomingBsEmpty = !d.body_stats || (typeof d.body_stats === 'object' && Object.keys(d.body_stats).length === 0);
-        let existingBsHasKeys = false;
-        if (existingRow && existingRow.body_stats) {
-          try { existingBsHasKeys = Object.keys(JSON.parse(existingRow.body_stats) || {}).length > 0; } catch {}
-        }
-        const bsJson = (incomingBsEmpty && existingBsHasKeys)
-          ? existingRow.body_stats
-          : JSON.stringify(d.body_stats || {});
+        // body_stats: each measurement on its own, the newer edit of each
+        // staying (lib/body-stats-merge.js), at the day's edit time. An
+        // empty one changes nothing (#81). The phone says which it changed
+        // (body_stats_changed); an app before that changed all it sends.
+        const dayAt = editAt(d.updated_at);
+        const bs = mergeBodyStats(existingRow, d.body_stats, {
+          at: Number.isFinite(dayAt) ? dayAt : receivedAt, changed: changedList(d.body_stats_changed),
+          fieldAt: editsAt(d.body_stats_edits),
+        });
+        const bsJson = bs ? bs.json : (existingRow?.body_stats ?? '{}');
+        const dayTimes = bs ? JSON.stringify(bs.times) : (existingRow?.field_times ?? null);
 
         const itemsJson = JSON.stringify(mergedItems);
         const waterJson = JSON.stringify(mergedWater);
@@ -528,23 +625,24 @@ router.post('/push', wrap(async (req, res) => {
           // (see diary.js PUT for the same workaround, issue #37).
           const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(d.date);
           if (existing) {
-            db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, notes_updated_at=?, completed_at=?, completed_meals=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
-              .run(itemsJson, bsJson, waterJson, dNotes, dNotesAt, completedAt, completedMealsJson, existing.id);
+            db.prepare(`UPDATE diary SET items=?, body_stats=?, water=?, notes=?, notes_updated_at=?, completed_at=?, completed_meals=?, field_times=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`)
+              .run(itemsJson, bsJson, waterJson, dNotes, dNotesAt, completedAt, completedMealsJson, dayTimes, existing.id);
           } else {
-            db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, notes_updated_at, completed_at, completed_meals, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-              .run(d.date, itemsJson, bsJson, waterJson, dNotes, dNotesAt, completedAt, completedMealsJson);
+            db.prepare(`INSERT INTO diary (date, items, body_stats, water, notes, notes_updated_at, completed_at, completed_meals, field_times, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+              .run(d.date, itemsJson, bsJson, waterJson, dNotes, dNotesAt, completedAt, completedMealsJson, dayTimes);
           }
         } else {
           db.prepare(
-            `INSERT INTO diary (user_id, date, items, body_stats, water, notes, notes_updated_at, completed_at, completed_meals, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            `INSERT INTO diary (user_id, date, items, body_stats, water, notes, notes_updated_at, completed_at, completed_meals, field_times, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
              ON CONFLICT(date, user_id) DO UPDATE SET
                items = excluded.items, body_stats = excluded.body_stats, water = excluded.water,
                notes = excluded.notes, notes_updated_at = excluded.notes_updated_at,
                completed_at = excluded.completed_at,
                completed_meals = excluded.completed_meals,
+               field_times = excluded.field_times,
                updated_at = datetime('now'), deleted_at = NULL`
-          ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes, dNotesAt, completedAt, completedMealsJson);
+          ).run(u, d.date, itemsJson, bsJson, waterJson, dNotes, dNotesAt, completedAt, completedMealsJson, dayTimes);
         }
 
         // Persist new tombstones idempotently.
@@ -568,25 +666,17 @@ router.post('/push', wrap(async (req, res) => {
         ? Math.max(0, Math.min(25, Number(a.met))) : null;
       const isTplVal = a.is_template ? 1 : 0;
       const existing = a.server_id
-        ? db.prepare('SELECT updated_at, created_at, user_id FROM activity_log WHERE id = ?').get(a.server_id)
+        ? db.prepare('SELECT * FROM activity_log WHERE id = ?').get(a.server_id)
         : null;
       if (a.server_id && existing) {
         // Only this account's own row changes (as PUT /api/... does); anyone
-        // else's is answered as if the push lost the time check.
-        if (_ownsRow(existing, u) && pushWins(a.updated_at, existing.updated_at, existing)) {
-          if (a.deleted_at) {
-            db.prepare(`UPDATE activity_log SET deleted_at = datetime('now'), updated_at = ? WHERE id = ?`).run(stamp(a.updated_at, existing), a.server_id);
-          } else {
-            db.prepare(
-              `UPDATE activity_log SET name=?, kcal=?, duration_min=?, distance=?, source=?, met=?, is_template=?, date=?, updated_at=? WHERE id=?`
-            ).run(a.name, Math.max(0, Math.round(Number(a.kcal) || 0)),
-              a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null,
-              a.distance != null ? String(a.distance).slice(0, 40) : null,
-              a.source || 'manual_form', metVal, isTplVal, a.date, stamp(a.updated_at, existing), a.server_id);
-          }
-          result.activity.push({ client_id: a.client_id, server_id: a.server_id });
+        // else's is answered as if the push lost.
+        const at = editAt(a.updated_at, existing);
+        if (_ownsRow(existing, u) && Number.isFinite(at)) {
+          const { back } = _pushEdit('activity_log', a, existing, at, undefined, editsAt(a.field_edits, existing));
+          result.activity.push({ client_id: a.client_id, server_id: a.server_id, ...(back ? { row: _out(winner('activity_log', a.server_id)) } : {}) });
         } else if (_ownsRow(existing, u)) {
-          result.activity.push({ client_id: a.client_id, server_id: a.server_id, row: winner('activity_log', a.server_id) });
+          result.activity.push({ client_id: a.client_id, server_id: a.server_id, row: _out(winner('activity_log', a.server_id)) });
         } else {
           result.activity.push({ client_id: a.client_id, server_id: a.server_id });
         }
@@ -595,13 +685,13 @@ router.post('/push', wrap(async (req, res) => {
         const aMade = findByCreateKey('activity_log', u, aKey);
         if (aMade) { result.activity.push({ client_id: a.client_id, server_id: aMade.id }); continue; }
         const r = db.prepare(
-          `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, met, is_template, field_times, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
         ).run(u, a.date, String(a.name || '').slice(0, 80),
           Math.max(0, Math.round(Number(a.kcal) || 0)),
           a.duration_min != null ? Math.max(0, Math.round(Number(a.duration_min))) : null,
           a.distance != null ? String(a.distance).slice(0, 40) : null,
-          a.source || 'manual_form', metVal, isTplVal);
+          a.source || 'manual_form', metVal, isTplVal, madeTimes(a.updated_at));
         setCreateKey('activity_log', r.lastInsertRowid, aKey);
         result.activity.push({ client_id: a.client_id, server_id: r.lastInsertRowid });
       }
@@ -610,23 +700,17 @@ router.post('/push', wrap(async (req, res) => {
     // ── Fasts (intermittent fasting tracker) ─────────────────────────────
     for (const f of fasts) {
       const existing = f.server_id
-        ? db.prepare('SELECT updated_at, created_at, user_id FROM fasts WHERE id = ?').get(f.server_id)
+        ? db.prepare('SELECT * FROM fasts WHERE id = ?').get(f.server_id)
         : null;
       if (f.server_id && existing) {
         // Only this account's own row changes (as PUT /api/... does); anyone
-        // else's is answered as if the push lost the time check.
-        if (_ownsRow(existing, u) && pushWins(f.updated_at, existing.updated_at, existing)) {
-          if (f.deleted_at) {
-            db.prepare(`UPDATE fasts SET deleted_at = datetime('now'), updated_at = ? WHERE id = ?`).run(stamp(f.updated_at, existing), f.server_id);
-          } else {
-            db.prepare(
-              `UPDATE fasts SET start_at=?, end_at=?, goal_hours=?, notes=?, updated_at=? WHERE id=?`
-            ).run(f.start_at, f.end_at || null, Number(f.goal_hours) || 16,
-              f.notes != null ? String(f.notes).slice(0, 500) : null, stamp(f.updated_at, existing), f.server_id);
-          }
-          result.fasts.push({ client_id: f.client_id, server_id: f.server_id });
+        // else's is answered as if the push lost.
+        const at = editAt(f.updated_at, existing);
+        if (_ownsRow(existing, u) && Number.isFinite(at)) {
+          const { back } = _pushEdit('fasts', f, existing, at, undefined, editsAt(f.field_edits, existing));
+          result.fasts.push({ client_id: f.client_id, server_id: f.server_id, ...(back ? { row: _out(winner('fasts', f.server_id)) } : {}) });
         } else if (_ownsRow(existing, u)) {
-          result.fasts.push({ client_id: f.client_id, server_id: f.server_id, row: winner('fasts', f.server_id) });
+          result.fasts.push({ client_id: f.client_id, server_id: f.server_id, row: _out(winner('fasts', f.server_id)) });
         } else {
           result.fasts.push({ client_id: f.client_id, server_id: f.server_id });
         }
@@ -635,10 +719,10 @@ router.post('/push', wrap(async (req, res) => {
         const fsMade = findByCreateKey('fasts', u, fsKey);
         if (fsMade) { result.fasts.push({ client_id: f.client_id, server_id: fsMade.id }); continue; }
         const r = db.prepare(
-          `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes, field_times, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
         ).run(u, f.start_at, f.end_at || null, Number(f.goal_hours) || 16,
-          f.notes != null ? String(f.notes).slice(0, 500) : null);
+          f.notes != null ? String(f.notes).slice(0, 500) : null, madeTimes(f.updated_at));
         setCreateKey('fasts', r.lastInsertRowid, fsKey);
         result.fasts.push({ client_id: f.client_id, server_id: r.lastInsertRowid });
       }
@@ -726,22 +810,46 @@ router.post('/push', wrap(async (req, res) => {
     // ── Settings (keyed by key, not ID) ──────────────────────────────────
     // SECURITY: server-only keys are rejected — clients can't overwrite admin config.
     if (u != null) {
+      // The newer edit of a setting stays (its value is its one field): an
+      // older change made offline no longer replaces a newer one. A setting
+      // whose pushed change lost is written anyway (updated_at, the pull's
+      // cursor), so the phone's next pull puts the newer one back.
+      const taken = [];
       for (const s of settings) {
+        if (!s || typeof s.key !== 'string' || !s.key) continue;
         if (isServerOnlyKey(s.key)) continue; // silently skip; don't tell client what's protected
+        const existing = db.prepare('SELECT * FROM user_settings WHERE user_id = ? AND key = ?').get(u, s.key);
+        const sAt = editAt(s.updated_at);
+        const at = Number.isFinite(sAt) ? sAt : receivedAt;
+        const touch = () => db.prepare(`UPDATE user_settings SET updated_at = datetime('now') WHERE user_id = ? AND key = ?`).run(u, s.key);
         if (s.deleted_at) {
-          db.prepare(`UPDATE user_settings SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ? AND key = ?`)
-            .run(u, s.key);
+          if (existing && !existing.deleted_at) {
+            if (deleteLoses({ existing, fields: ['value'], at }) != null) touch();
+            else {
+              db.prepare(`UPDATE user_settings SET deleted_at = datetime('now'), field_times = ?, updated_at = datetime('now') WHERE user_id = ? AND key = ?`)
+                .run(JSON.stringify(stampTimes(rowTimes(existing), ['deleted_at'], at)), u, s.key);
+            }
+          }
+        } else if (!existing) {
+          db.prepare(`INSERT INTO user_settings (user_id, key, value, field_times, updated_at) VALUES (?, ?, ?, ?, datetime('now'))`)
+            .run(u, s.key, JSON.stringify(s.value), JSON.stringify(createdTimes(at)));
+          taken.push(s.key);
         } else {
-          db.prepare(
-            `INSERT INTO user_settings (user_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
-             ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now'), deleted_at = NULL`
-          ).run(u, s.key, JSON.stringify(s.value));
+          const m = mergeEdit({ existing, values: { value: JSON.stringify(s.value) }, fields: ['value'], at });
+          const revive = existing.deleted_at && editRevives({ existing, at });
+          if (existing.deleted_at && !revive) touch();
+          else {
+            if (revive) m.times.deleted_at = isoTime(at);
+            db.prepare(`UPDATE user_settings SET value = ?, field_times = ?, updated_at = datetime('now'), deleted_at = NULL WHERE user_id = ? AND key = ?`)
+              .run(m.row.value, JSON.stringify(m.times), u, s.key);
+            if (!m.lost.length) taken.push(s.key);
+          }
         }
         result.settings.push({ key: s.key });
       }
       // Setup's birthday and gender belong on the account too (#269): an
       // app moving its local data to this account sends them this way.
-      fillIfSetupAnswers(db, u, settings.filter(s => !s.deleted_at && !isServerOnlyKey(s.key)).map(s => s.key));
+      fillIfSetupAnswers(db, u, taken);
     }
   });
 

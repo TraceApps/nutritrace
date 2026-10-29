@@ -64,6 +64,14 @@ function _onServer(incoming, offsetMs, { serverNow, createdAt } = {}) {
   return a;
 }
 
+// When an edit was made, in ms on the server's clock, as pushWins compares
+// it: never later than now, nor before the row was made (`createdAt`).
+// NaN when it doesn't say.
+export function editMs(incoming, clock, serverNow = Date.now(), { createdAt } = {}) {
+  const a = _onServer(incoming, clock?.offsetMs || 0, { serverNow, createdAt });
+  return Number.isFinite(a) ? Math.min(a, serverNow) : NaN;
+}
+
 // Whether an edit is at least as new as the server's. Whole seconds, as
 // the server stamps rows (datetime('now')), the way the old string compare
 // worked. `opts` ({ serverNow, createdAt }) turns on the sanity bound.

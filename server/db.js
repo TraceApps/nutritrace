@@ -4,6 +4,8 @@ import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { foldText } from './lib/search-text.js';
 import { fillProfileFromSetup } from './lib/profile-fields.js';
+import { fieldTimesSql } from './lib/field-sync.js';
+import { SYNC_FIELDS } from './lib/sync-fields.js';
 
 const dbPath = process.env.DB_PATH || './nutritrace.db';
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -712,6 +714,50 @@ for (const t of ['foods', 'meals', 'activity_log', 'fasts']) {
 for (const t of ['foods', 'meals', 'activity_log', 'fasts']) {
   if (!columnExists(t, 'client_key')) db.exec(`ALTER TABLE ${t} ADD COLUMN client_key TEXT DEFAULT NULL`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_client_key ON ${t}(user_id, client_key)`);
+}
+
+// ── When each field of a synced row last changed ──────────────────────────
+// field_times: { field: time, _base: time } (lib/field-sync.js). Two edits
+// of one row meet field by field, and the newer edit of each field stays
+// (routes/sync.js, and the routes a save sends what it changed to).
+// Triggers stamp every write that changes a field (the web, Trace, MCP,
+// imports, restores), unless the write stamps its own (a merged edit, at
+// the time it was made). A delete, or a row brought back, stamps
+// deleted_at: a delete made before a later edit doesn't win. Rows from
+// before count from their updated_at until their first write. A day's
+// measurements are fields of their own (body_stats.<key>,
+// lib/body-stats-merge.js): every write that changes one stamps it, set,
+// changed or taken away, and a day made with them stamps them from its own
+// time. A day's own updated_at moves with every food logged, so it stands
+// for none of them. Server only: never sent to an app.
+{
+  const stamped = { ...SYNC_FIELDS, user_settings: ['value'] };
+  for (const [t, fields] of Object.entries(stamped)) {
+    if (!columnExists(t, 'field_times')) db.exec(`ALTER TABLE ${t} ADD COLUMN field_times TEXT`);
+    db.exec(fieldTimesSql(t, [...fields, 'deleted_at']));
+  }
+  if (!columnExists('diary', 'field_times')) db.exec(`ALTER TABLE diary ADD COLUMN field_times TEXT`);
+  const now = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
+  const obj = c => `(CASE WHEN json_valid(${c}) AND json_type(${c}) = 'object' THEN ${c} ELSE '{}' END)`;
+  // The keys whose value differs between two body_stats (or that only one has).
+  // (20 and 20.0 are the same number.)
+  const changed = (o, n) => `SELECT n.key FROM json_each(${obj(n)}) n WHERE NOT EXISTS (
+      SELECT 1 FROM json_each(${obj(o)}) o WHERE o.key = n.key
+        AND (o.type = n.type OR (o.type IN ('integer', 'real') AND n.type IN ('integer', 'real')))
+        AND o.atom IS n.atom AND (o.atom IS NOT NULL OR o.type = 'null' OR o.value = n.value))
+    UNION SELECT o.key FROM json_each(${obj(o)}) o WHERE NOT EXISTS (SELECT 1 FROM json_each(${obj(n)}) n WHERE n.key = o.key)`;
+  const stamp = (o, n, at) => `(SELECT json_group_object(k, v) FROM (
+      SELECT key AS k, value AS v FROM json_each(CASE WHEN json_valid(field_times) THEN field_times ELSE '{}' END) WHERE key NOT IN (SELECT 'body_stats.' || key FROM (${changed(o, n)}))
+      UNION ALL SELECT 'body_stats.' || key, ${at} FROM (${changed(o, n)})))`;
+  db.exec(`
+    DROP TRIGGER IF EXISTS fs_diary_stats;
+    CREATE TRIGGER fs_diary_stats AFTER UPDATE OF body_stats ON diary FOR EACH ROW
+      WHEN OLD.body_stats IS NOT NEW.body_stats AND NEW.field_times IS OLD.field_times
+      BEGIN UPDATE diary SET field_times = ${stamp('OLD.body_stats', 'NEW.body_stats', now)} WHERE rowid = NEW.rowid; END;
+    DROP TRIGGER IF EXISTS fs_diary_stats_ins;
+    CREATE TRIGGER fs_diary_stats_ins AFTER INSERT ON diary FOR EACH ROW WHEN NEW.field_times IS NULL
+      BEGIN UPDATE diary SET field_times = ${stamp(`'{}'`, 'NEW.body_stats', `COALESCE(NEW.updated_at, ${now})`)} WHERE rowid = NEW.rowid; END;
+  `);
 }
 
 // ── When a day's note was last edited ─────────────────────────────────────

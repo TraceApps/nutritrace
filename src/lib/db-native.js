@@ -11,6 +11,7 @@ import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { hydrateWithoutFoods } from './diary-hydration.js';
 import { parseAltUnits } from './units.js';
 import { itemSourceRef, relinkItems, relinkIngredients, itemFoodMatches, relinkedAt } from './item-source.js';
+import { baseOf, statsBase, changesOf, statsChanges } from './sync-base.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -433,6 +434,27 @@ async function _applySchema(db) {
     console.debug('[db-native] activity_log MET/template migration skipped:', e?.message);
   }
 
+  // The copy the server has of each synced row (src/lib/sync-base.js), so a
+  // push can say which fields this phone changed. Rows from before have
+  // none and go up whole, as they always did, until the server's copy
+  // comes down or their next push lands.
+  // And when each field was last changed here and not sent yet
+  // (edit_times), so a field changed before a later change of another one
+  // keeps its own time.
+  for (const tbl of ['foods', 'meals', 'activity_log', 'fasts', 'diary']) {
+    try {
+      const info = await db.query(`PRAGMA table_info(${tbl})`);
+      if (!(info?.values || []).some(r => r.name === 'server_base')) {
+        await db.execute(`ALTER TABLE ${tbl} ADD COLUMN server_base TEXT DEFAULT NULL`);
+      }
+      if (!(info?.values || []).some(r => r.name === 'edit_times')) {
+        await db.execute(`ALTER TABLE ${tbl} ADD COLUMN edit_times TEXT DEFAULT NULL`);
+      }
+    } catch (e) {
+      console.debug(`[db-native] ${tbl}.server_base migration skipped:`, e?.message);
+    }
+  }
+
   // wellness_data.sync_status: tracks which Health Connect rows need to be
   // pushed up to the server. Pre-existing rows default to 'pending' so the
   // first sync after this migration backfills any Health Connect data the
@@ -788,6 +810,7 @@ export async function dbCreateFood(data) {
 
 export async function dbUpdateFood(id, data) {
   const db = await getDb();
+  const before = await _beforeEdit(db, 'foods', id);
   await db.run(
     `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=?, sync_status='pending'
      WHERE id=? AND user_id=?`,
@@ -811,7 +834,10 @@ export async function dbUpdateFood(id, data) {
       LOCAL_USER_ID,
     ]
   );
-  return dbGetFood(id);
+  // What this change changed, for a save sent straight to the server.
+  const changed = await _afterEdit(db, 'foods', id, before);
+  const row = await dbGetFood(id);
+  return row && changed ? { ...row, _changed: changed } : row;
 }
 
 export async function dbDeleteFood(id) {
@@ -901,6 +927,7 @@ export async function dbCreateMeal(data) {
 
 export async function dbUpdateMeal(id, data) {
   const db = await getDb();
+  const before = await _beforeEdit(db, 'meals', id);
   await db.run(
     `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, updated_at=?, sync_status='pending'
      WHERE id=? AND user_id=?`,
@@ -919,7 +946,9 @@ export async function dbUpdateMeal(id, data) {
       LOCAL_USER_ID,
     ]
   );
-  return dbGetMeal(id);
+  const changed = await _afterEdit(db, 'meals', id, before);
+  const row = await dbGetMeal(id);
+  return row && changed ? { ...row, _changed: changed } : row;
 }
 
 export async function dbDeleteMeal(id) {
@@ -1228,8 +1257,21 @@ export async function dbGetDiaryDate(date) {
 
 export async function dbSaveDiaryDate(date, data) {
   const db = await getDb();
+  const before = await _beforeDayEdit(db, date);
   const items      = JSON.stringify(data.items || []);
-  const body_stats = JSON.stringify(data.body_stats || {});
+  // A save that says which measurements it changed (the diary store) changes
+  // only those here too: the others stay as this phone has them, which may
+  // be newer than the copy the screen held (a pull since).
+  let stats = data.body_stats || {};
+  if (Array.isArray(data.body_stats_changed) && before) {
+    const had = _parseJson(before.body_stats, {}) || {};
+    stats = { ...had };
+    for (const k of data.body_stats_changed) {
+      if (data.body_stats && k in data.body_stats && data.body_stats[k] != null) stats[k] = data.body_stats[k];
+      else delete stats[k];
+    }
+  }
+  const body_stats = JSON.stringify(stats);
   const water      = JSON.stringify(data.water || []);
   const notes      = (typeof data.notes === 'string' && data.notes.trim()) ? data.notes : null;
   // #207: preserve completed_at and completed_meals if the caller
@@ -1287,7 +1329,9 @@ export async function dbSaveDiaryDate(date, data) {
       }
     }
   }
-  return dbGetDiaryDate(date);
+  const changed = await _afterEdit(db, 'diary', before?.id, before);
+  const day = await dbGetDiaryDate(date);
+  return day && changed ? { ...day, _stats_changed: changed } : day;
 }
 
 /**
@@ -1310,6 +1354,7 @@ export async function dbSetDiaryCompletion(date, completed) {
     const nextCompletedAt = completed
       ? (existing.completed_at || completedAt)
       : null;
+    await _beforeEdit(db, 'diary', existing.id);
     await db.run(
       `UPDATE diary SET completed_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
       [nextCompletedAt, nowTs, existing.id]
@@ -1344,6 +1389,7 @@ export async function dbSetMealCompletion(date, slot, completed) {
   const next = Array.from(set).sort((a, b) => a - b);
   const nextJson = next.length ? JSON.stringify(next) : null;
   if (existing) {
+    await _beforeEdit(db, 'diary', existing.id);
     await db.run(
       `UPDATE diary SET completed_meals = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
       [nextJson, nowTs, existing.id]
@@ -1577,6 +1623,73 @@ export async function dbMarkSynced(table, rows, live = () => true) {
 }
 
 /**
+ * The copy the server now has of rows a push sent ([{ id, base }]): what
+ * went up, whether or not the row was changed here again meanwhile (that
+ * change is still to go, and is now told apart from what went up). The
+ * server's answer, when it kept something else, comes after
+ * (dbApplyServerWinner) and replaces it.
+ */
+export async function dbSetServerBase(table, rows, live = () => true) {
+  if (!rows || !rows.length) return;
+  const db = await getDb();
+  for (const r of rows) {
+    if (!live()) return;
+    if (r?.id == null || r.base == null) continue;
+    // The edit times that went up (`sent`) are done; one changed again
+    // meanwhile stays for the next push.
+    let times = null;
+    if (r.sent && typeof r.sent === 'object') {
+      const cur = _row(await db.query(`SELECT edit_times FROM ${table} WHERE id = ?`, [r.id]));
+      const t = _parseJson(cur?.edit_times, {}) || {};
+      for (const [k, v] of Object.entries(r.sent)) if (t[k] === v) delete t[k];
+      times = Object.keys(t).length ? JSON.stringify(t) : null;
+      await db.run(`UPDATE ${table} SET server_base = ?, edit_times = ? WHERE id = ?`, [r.base, times, r.id]);
+    } else {
+      await db.run(`UPDATE ${table} SET server_base = ? WHERE id = ?`, [r.base, r.id]);
+    }
+  }
+}
+
+// A row about to be changed here (`before`, returned): kept as the server's
+// copy (server_base) if it has none yet and nothing changed it here since it
+// came from the server (a row from before the app kept one), so its next
+// push says what this change changed instead of going up whole.
+async function _beforeEdit(db, table, id) {
+  if (id == null) return null;
+  try {
+    const r = _row(await db.query(`SELECT * FROM ${table} WHERE id = ?`, [id]));
+    if (r && r.server_id != null && r.server_base == null && r.sync_status === 'synced' && !r.deleted_at) {
+      await db.run(`UPDATE ${table} SET server_base = ? WHERE id = ?`, [table === 'diary' ? statsBase(r.body_stats) : baseOf(table, r), id]);
+    }
+    return r;
+  } catch (e) { console.debug(`[db-native] ${table} ${id} before an edit:`, e?.message); return null; }
+}
+async function _beforeDayEdit(db, date) {
+  const r = _row(await db.query(`SELECT id FROM diary WHERE date = ? AND user_id = ?`, [date, LOCAL_USER_ID]));
+  return r ? _beforeEdit(db, 'diary', r.id) : null;
+}
+// The fields a change here changed, each with when (edit_times: the row's
+// updated_at as the change wrote it), for the push to send as that field's
+// own time. A day's measurements as body_stats.<key>. Rows the server
+// hasn't had yet go up whole. Returns what this change changed (a day: the
+// measurement keys), or null when it can't say.
+async function _afterEdit(db, table, id, before) {
+  if (!before || before.server_id == null || id == null) return null;
+  try {
+    const after = _row(await db.query(`SELECT * FROM ${table} WHERE id = ?`, [id]));
+    if (!after || !after.updated_at) return null;
+    const changed = table === 'diary'
+      ? (statsChanges(after.body_stats, statsBase(before.body_stats)) || [])
+      : (changesOf(table, after, baseOf(table, before)) || []);
+    if (!changed.length) return changed;
+    const t = _parseJson(after.edit_times, {}) || {};
+    for (const f of changed) t[table === 'diary' ? `body_stats.${f}` : f] = after.updated_at;
+    await db.run(`UPDATE ${table} SET edit_times = ? WHERE id = ?`, [JSON.stringify(t), id]);
+    return changed;
+  } catch (e) { console.debug(`[db-native] ${table} ${id} edit times:`, e?.message); return null; }
+}
+
+/**
  * Mark wellness_data rows synced by id alone.
  *
  * wellness_data is not a user-edit table — the only writers are the
@@ -1784,6 +1897,7 @@ export async function dbLinkDiaryItems(created = [], live = () => true) {
     const { out, hit } = fix(items);
     if (!hit) continue;
     if (!live()) return changed;
+    await _beforeEdit(db, 'diary', row.id);
     await db.run(`UPDATE diary SET items = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
       [JSON.stringify(out), _now(), row.id]);
     changed++;
@@ -1794,8 +1908,10 @@ export async function dbLinkDiaryItems(created = [], live = () => true) {
     const { out, hit } = fixIngredients(items);
     if (!hit) continue;
     if (!live()) return changed;
+    const before = await _beforeEdit(db, 'meals', meal.id);
     await db.run(`UPDATE meals SET items = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
       [JSON.stringify(out), _now(), meal.id]);
+    await _afterEdit(db, 'meals', meal.id, before);
   }
   return changed;
 }
@@ -1984,7 +2100,7 @@ export async function dbKeepForNewServer(uploaded = {}) {
     }
   }
   await _runEach(db, [
-    ...['foods', 'meals', 'diary', 'activity_log', 'fasts'].map(t => `UPDATE ${t} SET server_id = NULL, sync_status = 'pending' WHERE deleted_at IS NULL`),
+    ...['foods', 'meals', 'diary', 'activity_log', 'fasts'].map(t => `UPDATE ${t} SET server_id = NULL, server_base = NULL, edit_times = NULL, sync_status = 'pending' WHERE deleted_at IS NULL`),
     ...['foods', 'meals', 'diary', 'activity_log', 'fasts'].map(t => `DELETE FROM ${t} WHERE deleted_at IS NOT NULL`),
     `UPDATE wellness_data SET sync_status = 'pending'`,
     `UPDATE workouts SET server_id = NULL`,
@@ -2025,7 +2141,7 @@ export async function dbUpsertFromServer(table, serverRecord) {
       // Federation source columns carry the CT-pantry provenance across
       // cross-device pulls, mirroring the meals path below.
       await db.run(
-        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, source_app=?, source_external_id=?, source_url=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
+        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, source_app=?, source_external_id=?, source_url=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced' WHERE server_id=?`,
         [data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
@@ -2035,7 +2151,7 @@ export async function dbUpsertFromServer(table, serverRecord) {
            ? Number(data.density_g_ml)
            : null,
          data.source_app || null, data.source_external_id || null, data.source_url || null,
-         data.updated_at, serverId]
+         data.updated_at, baseOf('foods', data), serverId]
       );
     } else if (table === 'meals') {
       // Federation source columns preserve the "From CookTrace" badge
@@ -2046,14 +2162,14 @@ export async function dbUpsertFromServer(table, serverRecord) {
         ? JSON.stringify(importWarnings)
         : (typeof importWarnings === 'string' && importWarnings ? importWarnings : null);
       await db.run(
-        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), source_app=?, source_external_id=?, source_url=?, import_warnings=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
+        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), source_app=?, source_external_id=?, source_url=?, import_warnings=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced' WHERE server_id=?`,
         [data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
          data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
          data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
          data.source_app || null, data.source_external_id || null, data.source_url || null, importWarningsJson,
-         data.updated_at, serverId]
+         data.updated_at, baseOf('meals', data), serverId]
       );
     }
   } else {
@@ -2064,8 +2180,8 @@ export async function dbUpsertFromServer(table, serverRecord) {
         // an item logged before then still takes its units after a rename
         // (item-source.js itemFoodMatches). Only on insert: a row's own
         // created_at stays as it was (create keys use it).
-        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, created_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), 'synced')`,
+        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, created_at, server_base, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
@@ -2075,7 +2191,7 @@ export async function dbUpsertFromServer(table, serverRecord) {
            ? Number(data.density_g_ml)
            : null,
          data.source_app || null, data.source_external_id || null, data.source_url || null,
-         data.updated_at, data.created_at || null]
+         data.updated_at, data.created_at || null, baseOf('foods', data)]
       );
     } else if (table === 'meals') {
       const importWarnings = data.import_warnings;
@@ -2083,15 +2199,15 @@ export async function dbUpsertFromServer(table, serverRecord) {
         ? JSON.stringify(importWarnings)
         : (typeof importWarnings === 'string' && importWarnings ? importWarnings : null);
       await db.run(
-        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, updated_at, server_base, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
          data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
          data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
          data.source_app || null, data.source_external_id || null, data.source_url || null, importWarningsJson,
-         data.updated_at]
+         data.updated_at, baseOf('meals', data)]
       );
     }
   }
@@ -2128,13 +2244,13 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
     : (typeof completed_meals === 'string' && completed_meals ? completed_meals : null);
 
   await db.run(
-    `INSERT INTO diary (server_id, user_id, date, items, body_stats, water, notes, notes_updated_at, completed_at, completed_meals, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+    `INSERT INTO diary (server_id, user_id, date, items, body_stats, water, notes, notes_updated_at, completed_at, completed_meals, updated_at, server_base, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
      ON CONFLICT(date, user_id) DO UPDATE SET
        server_id=excluded.server_id, items=excluded.items, body_stats=excluded.body_stats,
        water=excluded.water, notes=excluded.notes, notes_updated_at=excluded.notes_updated_at, notes_dirty=0,
        completed_at=excluded.completed_at, completed_meals=excluded.completed_meals,
-       updated_at=excluded.updated_at, sync_status='synced'`,
+       updated_at=excluded.updated_at, server_base=excluded.server_base, edit_times=NULL, sync_status='synced'`,
     [serverId, LOCAL_USER_ID, date,
      typeof items === 'string' ? items : JSON.stringify(items || []),
      typeof body_stats === 'string' ? body_stats : JSON.stringify(body_stats || {}),
@@ -2143,7 +2259,7 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
      notes_updated_at || null,
      completed_at || null,
      completedMealsJson,
-     updated_at]
+     updated_at, statsBase(body_stats)]
   );
 }
 
@@ -2422,19 +2538,19 @@ export async function dbUpsertActivityFromServer(record) {
   const row = _row(existing);
   if (row) {
     await db.run(
-      `UPDATE activity_log SET date=?, name=?, kcal=?, duration_min=?, distance=?, source=?, met=?, is_template=?, updated_at=?, sync_status='synced'
+      `UPDATE activity_log SET date=?, name=?, kcal=?, duration_min=?, distance=?, source=?, met=?, is_template=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced'
         WHERE id=?`,
       [record.date, record.name, record.kcal, record.duration_min, record.distance, record.source,
-       record.met ?? null, record.is_template ? 1 : 0, record.updated_at, row.id]
+       record.met ?? null, record.is_template ? 1 : 0, record.updated_at, baseOf('activity_log', record), row.id]
     );
   } else {
     await db.run(
-      `INSERT INTO activity_log (server_id, user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at, sync_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+      `INSERT INTO activity_log (server_id, user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at, server_base, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
       [serverId, LOCAL_USER_ID, record.date, record.name, record.kcal,
        record.duration_min, record.distance, record.source,
        record.met ?? null, record.is_template ? 1 : 0,
-       record.created_at || record.updated_at, record.updated_at]
+       record.created_at || record.updated_at, record.updated_at, baseOf('activity_log', record)]
     );
   }
 }
@@ -2513,6 +2629,7 @@ export async function dbCreateActivity(data) {
 
 export async function dbUpdateActivity(id, data) {
   const db = await getDb();
+  const before = await _beforeEdit(db, 'activity_log', id);
   const existing = await db.query(`SELECT * FROM activity_log WHERE id = ? AND user_id = ?`, [id, LOCAL_USER_ID]);
   const row = _row(existing);
   if (!row) return null;
@@ -2534,6 +2651,7 @@ export async function dbUpdateActivity(id, data) {
       id,
     ]
   );
+  await _afterEdit(db, 'activity_log', id, before);
   const r = await db.query(`SELECT * FROM activity_log WHERE id = ?`, [id]);
   return _row(r);
 }
@@ -2558,16 +2676,16 @@ export async function dbUpsertFastFromServer(record) {
   const row = _row(existing);
   if (row) {
     await db.run(
-      `UPDATE fasts SET start_at=?, end_at=?, goal_hours=?, notes=?, updated_at=?, sync_status='synced' WHERE id=?`,
-      [record.start_at, record.end_at || null, record.goal_hours, record.notes || null, record.updated_at, row.id]
+      `UPDATE fasts SET start_at=?, end_at=?, goal_hours=?, notes=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced' WHERE id=?`,
+      [record.start_at, record.end_at || null, record.goal_hours, record.notes || null, record.updated_at, baseOf('fasts', record), row.id]
     );
   } else {
     await db.run(
-      `INSERT INTO fasts (server_id, user_id, start_at, end_at, goal_hours, notes, created_at, updated_at, sync_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+      `INSERT INTO fasts (server_id, user_id, start_at, end_at, goal_hours, notes, created_at, updated_at, server_base, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
       [serverId, LOCAL_USER_ID, record.start_at, record.end_at || null,
        record.goal_hours, record.notes || null,
-       record.created_at || record.updated_at, record.updated_at]
+       record.created_at || record.updated_at, record.updated_at, baseOf('fasts', record)]
     );
   }
 }
@@ -2621,11 +2739,13 @@ export async function dbStartFast({ goal_hours = 16, start_at = null } = {}) {
 
 export async function dbEndFast(id) {
   const db = await getDb();
+  const before = await _beforeEdit(db, 'fasts', id);
   const now = new Date().toISOString();
   await db.run(
     `UPDATE fasts SET end_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ? AND user_id = ? AND end_at IS NULL`,
     [now, _editNow(), id, LOCAL_USER_ID]
   );
+  await _afterEdit(db, 'fasts', id, before);
   const r = await db.query(`SELECT * FROM fasts WHERE id = ?`, [id]);
   return _fastRow((r?.values || [])[0]);
 }
@@ -2645,7 +2765,9 @@ export async function dbUpdateFast(id, changes = {}) {
   fields.push(`updated_at = ?`); values.push(_editNow());
   fields.push(`sync_status = 'pending'`);
   values.push(id, LOCAL_USER_ID);
+  const before = await _beforeEdit(db, 'fasts', id);
   await db.run(`UPDATE fasts SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`, values);
+  await _afterEdit(db, 'fasts', id, before);
   const r = await db.query(`SELECT * FROM fasts WHERE id = ?`, [id]);
   return _fastRow((r?.values || [])[0]);
 }

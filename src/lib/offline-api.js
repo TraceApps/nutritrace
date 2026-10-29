@@ -22,6 +22,7 @@ import {
   applyDiaryOps, dayWithOps, buildDiaryPush, sentSeqs, pushError, isOfflineError, emptyDay, noteChangedAt,
   applyCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId,
   activeFastRow, fastList, newFastRow, fastWith, staleReadKeys,
+  statsChanged, changedSince, copyStamp,
 } from './offline-edits.js';
 // Loaded with everything else, never fetched on demand: a picture is kept
 // exactly when there is no connection to fetch a separate file with, and a
@@ -296,6 +297,22 @@ async function _rememberRead(key, body) {
 }
 
 /**
+ * A save sent straight to the server, with the fields it changes against
+ * the copy this browser shows (the same server stamp, when the save carries
+ * one; every read keeps the copy current, so it's never older than a form's):
+ * a form opened before an edit made elsewhere then puts back none of it. One
+ * made on another copy, or on a row this browser doesn't hold, goes as it
+ * always did.
+ */
+async function _saying(store, table, id, data) {
+  if (!data || typeof data !== 'object') return data;
+  const shown = (await _all(store)).find(r => Number(r?.id) === Number(id));
+  // Another copy than the one shown (a form opened on an older one): as before.
+  if (!shown || (copyStamp(data) && copyStamp(shown) !== copyStamp(data))) return data;
+  return { ...data, changed_fields: changedSince(table, shown, data) };
+}
+
+/**
  * Add to the outbox, making room if the database is full: what you have
  * logged matters more than a copy of something you can read again.
  */
@@ -315,7 +332,9 @@ async function _queueDay(date, day) {
   const at = Date.now();
   // Whether this save changed the note, against the day as it was shown.
   const before = dayWithOps(await _all('diary'), ops, date);
-  const op = { type: 'diary', date, day, at, note_at: noteChangedAt(before, day, at) };
+  // The measurements it changed: as the diary says, else against the day shown.
+  const stats = Array.isArray(day?.body_stats_changed) ? day.body_stats_changed : statsChanged(before, day);
+  const op = { type: 'diary', date, day, at, note_at: noteChangedAt(before, day, at), stats_changed: stats };
   const seq = await _addOp(op);
   // No database to queue into (private mode, no space): say so rather than
   // pretending the day was saved.
@@ -331,9 +350,18 @@ async function _queueDay(date, day) {
 // store: which mirror the row lives in ('foods', 'meals', 'recipes').
 // table: which side of the sync push carries it ('foods' or 'meals'); the
 // server keeps recipes in the meals table with a flag.
-async function _queueCatalog(store, table, action, id, data) {
+async function _queueCatalog(store, table, action, id, data, changed = undefined) {
   const ops = await _loadOps();
-  const op = { type: 'catalog', table, action, id: Number(id), data, at: Date.now() };
+  // v 2: queued by an app that says what an edit changed (offline-edits.js).
+  const op = { type: 'catalog', table, action, id: Number(id), data, at: Date.now(), v: 2 };
+  // An edit says which fields it changed, against the row as this browser
+  // shows it (or as the caller knows), so the server keeps what was changed
+  // elsewhere meanwhile.
+  if (action === 'update') {
+    const shown = applyCatalogOps(await _all(store), ops, table).get(Number(id));
+    const said = Array.isArray(changed) ? changed : (shown ? changedSince(table, shown, data) : null);
+    if (said) op.changed = said;
+  }
   const seq = await _addOp(op);
   if (seq == null) throw _storageError();
   op.seq = seq;
@@ -765,7 +793,8 @@ async function _queueFast(id, change) {
   const merged = fastWith(await _all('fasts'), await _loadOps(), id, change);
   // A fast this browser has never seen can't be changed from here.
   if (!merged) throw _offlineError();
-  return _queueCatalog('fasts', 'fasts', isTempId(id) ? 'create' : 'update', id, merged);
+  // What changed is what this change sets (the rest is the fast as shown).
+  return _queueCatalog('fasts', 'fasts', isTempId(id) ? 'create' : 'update', id, merged, Object.keys(change || {}));
 }
 
 /**
@@ -883,7 +912,7 @@ export function createOfflineApi(http) {
       id = _realId(id);
       const ops = await _loadOps();
       const direct = isTempId(id) ? null : async () => {
-        const food = await http.updateFood(id, data);
+        const food = await http.updateFood(id, await _saying('foods', 'foods', id, data));
         await _remember('foods', food);
         return food;
       };
@@ -949,7 +978,7 @@ export function createOfflineApi(http) {
       const ops = await _loadOps();
       const store = data?.is_recipe ? 'recipes' : 'meals';
       const direct = isTempId(id) ? null : async () => {
-        const meal = await http.updateMeal(id, data);
+        const meal = await http.updateMeal(id, await _saying(store, 'meals', id, data));
         await _remember(store, meal);
         return meal;
       };
@@ -1064,7 +1093,7 @@ export function createOfflineApi(http) {
       id = _realId(id);
       const ops = await _loadOps();
       const direct = isTempId(id) ? null : async () => {
-        const row = await http.updateActivity(id, data);
+        const row = await http.updateActivity(id, await _saying('activity', 'activity', id, data));
         await _remember('activity', row);
         return row;
       };

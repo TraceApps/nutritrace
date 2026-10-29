@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { once } from 'node:events';
 import test, { after } from 'node:test';
+import { baseOf, changesOf, statsBase, statsChanges } from '../src/lib/sync-base.js';
 
 const temp = mkdtempSync(join(tmpdir(), 'nutritrace-recipe-sync-'));
 process.env.DB_PATH = join(temp, 'test.db');
@@ -77,7 +78,8 @@ function fixture({ offline = false, useCache = true } = {}) {
     dbDeleteCompletionOp: async () => {}, dbQueueCompletionOp: async () => null,
     dbLinkDiaryItems: async () => 0, dbApplyServerWinner: async () => {}, dbSetClockOffset: async () => {}, serverKeepsNotes: async () => true, dbInstallId: async () => 'test-install', accountGeneration: () => 0,
     dbGetPendingDiaryTombstones: async () => ({}),
-    dbSetServerId: async () => {}, dbMarkSynced: async () => {},
+    dbSetServerId: async () => {}, dbMarkSynced: async () => {}, dbSetServerBase: async () => {},
+    baseOf, changesOf, statsBase, statsChanges,
     dbMarkWellnessSynced: async () => {}, dbPurgeSoftDeleted: async () => {},
     writable: value => ({ update: fn => { value = fn(value); } }),
     fetch: (url, options) => {

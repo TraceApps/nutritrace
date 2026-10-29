@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { onlyChanged } from '../lib/rest-merge.js';
 import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
@@ -224,13 +225,21 @@ router.put('/:id', wrap(async (req, res) => {
   const nb = nutrition_basis === undefined ? existing.nutrition_basis : (nutrition_basis || null);
   const au = alt_units === undefined ? existing.alt_units : _serializeAltUnitsForFood(alt_units);
   const dg = density_g_ml === undefined ? existing.density_g_ml : _normalizeDensity(density_g_ml);
+  // A save that says which fields it changed (changed_fields) changes only
+  // those: a form opened before an edit made elsewhere doesn't put that
+  // edit's fields back (lib/rest-merge.js).
+  const next = onlyChanged('foods', existing, {
+    name: name ?? existing.name, brand: brand ?? existing.brand,
+    nutrition: JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
+    portion: portion ?? existing.portion, unit: unit ?? existing.unit, img_url: localImg,
+    notes: notes ?? existing.notes, category: category ?? existing.category, barcode: barcode ?? existing.barcode,
+    favorite: fav, nutrition_basis: nb, alt_units: au, density_g_ml: dg,
+  }, req.body.changed_fields);
   db.prepare(
     `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, visibility=?, favorite=?, nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=datetime('now') WHERE id=?`
-  ).run(name ?? existing.name, brand ?? existing.brand,
-    JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
-    portion ?? existing.portion, unit ?? existing.unit, localImg,
-    notes ?? existing.notes, category ?? existing.category, barcode ?? existing.barcode,
-    visibility ?? existing.visibility, fav, nb, au, dg, req.params.id);
+  ).run(next.name, next.brand, next.nutrition, next.portion, next.unit, next.img_url,
+    next.notes, next.category, next.barcode,
+    visibility ?? existing.visibility, next.favorite, next.nutrition_basis, next.alt_units, next.density_g_ml, req.params.id);
   res.json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id)));
 }));
 
@@ -402,6 +411,8 @@ function parse(row) {
   }
   return {
     ...row,
+    // When each field changed (sync's bookkeeping) stays on the server.
+    field_times: undefined,
     nutrition: JSON.parse(row.nutrition || '{}'),
     alt_units: altUnits,
     _specific_users: row._specific_users || undefined,
