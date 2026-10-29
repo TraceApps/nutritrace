@@ -2330,3 +2330,114 @@ test("a save of the day's food from a copy shown before a pull keeps the measure
   assert.deepEqual(r, { weight: 70 });
   assert.deepEqual(JSON.parse(q(`SELECT body_stats FROM diary WHERE user_id = (SELECT id FROM users WHERE username = 'alice') AND date = ?`, D)[0].body_stats), { weight: 70 });
 });
+
+// A pull used to write over a fast or an activity changed here and not sent
+// yet (its push on the way when the change was made): the change was lost,
+// on the phone and for good, as the row then counted as synced.
+for (const kind of ['fast', 'activity']) {
+  test(`a${kind === 'activity' ? 'n' : ''} ${kind} changed again while its push is on the way keeps that change`, async (t) => {
+    if (skip(t)) return;
+    const who = await account(`pend${kind}`, A);
+    let sid;
+    if (kind === 'fast') sid = (await http(who, 'POST', '/api/fasts/start', { goal_hours: 16 })).id;
+    else sid = (await http(who, 'POST', '/api/activity', { date: '2026-09-01', name: 'Walk', kcal: 100, duration_min: 30 })).id;
+    // Every push takes a while to arrive.
+    const px = await proxy(req => (req.url === '/api/sync/push' ? { delayMs: 2500 } : null));
+    try {
+      const r = await phoneAsync(`pend-${kind}`, who, `
+        await p.sync();
+        const db = await p.dbn.getDb();
+        const local = (await db.query('SELECT * FROM ${kind === 'fast' ? 'fasts' : 'activity_log'} WHERE server_id = ?', [${sid}])).values[0];
+        const change = async (data) => ${kind === 'fast'
+          ? `p.offline(async () => { await p.api.patch('/api/fasts/' + local.id, data); })`
+          : `p.dbn.dbUpdateActivity(local.id, data)`};
+        await change(${kind === 'fast' ? `{ notes: 'first' }` : `{ distance: '2 km' }`});
+        await p.sleep(1100);
+        const s = p.sync();
+        await p.sleep(900);
+        await change(${kind === 'fast' ? `{ goal_hours: 20 }` : `{ kcal: 150 }`});
+        await s;
+        const mid = (await db.query('SELECT * FROM ${kind === 'fast' ? 'fasts' : 'activity_log'} WHERE id = ?', [local.id])).values[0];
+        await p.sync();
+        p.done({ mid: ${kind === 'fast' ? 'mid.goal_hours' : 'mid.kcal'}, status: mid.sync_status });`, { NT_SERVER: px.url });
+      const row = kind === 'fast' ? q('SELECT notes, goal_hours FROM fasts WHERE id = ?', sid)[0] : q('SELECT distance, kcal FROM activity_log WHERE id = ?', sid)[0];
+      assert.deepEqual(r, { mid: kind === 'fast' ? 20 : 150, status: 'pending' }, 'the pull left the later change waiting');
+      assert.deepEqual(row, kind === 'fast' ? { notes: 'first', goal_hours: 20 } : { distance: '2 km', kcal: 150 });
+    } finally { await px.close(); }
+  });
+}
+
+// Push all from this device sends every row again, as new, for a server
+// that lost them. Fasts were left out: still marked as on the server, they
+// never went up, and the server's loss then took them off the phone too.
+test('Push all from this device sends the fasts again too', async (t) => {
+  if (skip(t)) return;
+  const who = await account('pushallfast', A);
+  const W = (await http(who, 'GET', '/api/auth/me')).user;
+  const f = await http(who, 'POST', '/api/fasts/start', { goal_hours: 18, start_at: '2026-09-02T20:00:00.000Z' });
+  await http(who, 'POST', `/api/fasts/${f.id}/end`, {});
+  await http(who, 'PATCH', `/api/fasts/${f.id}`, { notes: 'kept on the phone' });
+  phone('pushall-fast', who, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(W)}, { confirm: async () => true });
+    await p.sync(); p.done();`);
+  // The server loses it.
+  await http(who, 'DELETE', `/api/fasts/${f.id}`);
+  const r = phone('pushall-fast', who, `
+    const { pushAllFromDevice } = await import(p.src + 'lib/sync.js');
+    const out = await pushAllFromDevice();
+    const db = await p.dbn.getDb();
+    p.done({ counts: out.pushed, rows: (await db.query('SELECT goal_hours, notes, server_id FROM fasts WHERE deleted_at IS NULL', [])).values });`);
+  const live = q(`SELECT goal_hours, notes FROM fasts WHERE user_id = ? AND deleted_at IS NULL`, W.id);
+  assert.deepEqual(live, [{ goal_hours: 18, notes: 'kept on the phone' }], 'the server has it again');
+  assert.equal(r.rows.length, 1, 'and the phone still has it');
+  assert.ok(r.rows[0].server_id && r.rows[0].server_id !== f.id);
+  assert.equal(r.counts.fasts, 1);
+});
+
+// A row changed before the update and still waiting (no copy of the
+// server's kept) went up whole at the time of the next change made after
+// the update: the earlier change's copy then put back a change made
+// elsewhere in between. Each field now goes with its own time.
+test("a day changed before the update and again after leaves a measurement added elsewhere since", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-09-23';
+  await http(A, 'PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80 }, water: [] });
+  phone('stats-mixed', A, `await p.sync(); p.done();`);
+  // Changed offline by the app before the update: waiting, nothing kept.
+  phone('stats-mixed', A, `
+    await p.offline(async () => { const d = await p.api.getDiaryDate('${D}'); await p.api.saveDiaryDate('${D}', { ...d, body_stats: { weight: 79 } }); });
+    const db = await p.dbn.getDb(); await db.run('UPDATE diary SET server_base = NULL, edit_times = NULL', []);
+    p.done();`);
+  await sleep(2100);
+  await http(A, 'PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80, waist: 88 }, water: [], body_stats_changed: ['waist'] });
+  await sleep(2100);
+  phone('stats-mixed', A, `
+    await p.offline(async () => { const d = await p.api.getDiaryDate('${D}'); await p.api.saveDiaryDate('${D}', { ...d, body_stats: { ...(d.body_stats || {}), body_fat: 20 } }); });
+    await p.sync(); await p.sync();
+    p.done();`);
+  const got = JSON.parse(q('SELECT body_stats FROM diary WHERE date = ?', D)[0].body_stats);
+  assert.deepEqual(got, { weight: 79, waist: 88, body_fat: 20 });
+});
+
+test("a row changed before the update and again after keeps each change's time", async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Mixed Spelt', brand: 'Mill', nutrition: {} });
+  phone('fields-mixed', A, `await p.sync(); p.done();`);
+  // Changed offline by the app before the update: waiting, nothing kept.
+  phone('fields-mixed', A, `
+    await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, notes: 'Nutty' }); });
+    const db = await p.dbn.getDb(); await db.run('UPDATE foods SET server_base = NULL, edit_times = NULL', []);
+    p.done();`);
+  await sleep(2100);
+  await http(A, 'PUT', `/api/foods/${f.id}`, { name: 'Mixed Spelt', brand: 'Bakery', nutrition: {}, changed_fields: ['brand'] });
+  await sleep(2100);
+  const r = phone('fields-mixed', A, `
+    await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, name: 'Mixed Spelt Flour' }); });
+    await p.sync(); await p.sync();
+    const x = await p.food(${f.id});
+    p.done({ name: x.name, brand: x.brand, notes: x.notes });`);
+  const want = { name: 'Mixed Spelt Flour', brand: 'Bakery', notes: 'Nutty' };
+  assert.deepEqual(q('SELECT name, brand, notes FROM foods WHERE id = ?', f.id)[0], want);
+  assert.deepEqual(r, want, 'and the phone ends up with all three');
+});

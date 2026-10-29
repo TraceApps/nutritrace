@@ -735,6 +735,15 @@ for (const t of ['foods', 'meals', 'activity_log', 'fasts']) {
   for (const [t, fields] of Object.entries(stamped)) {
     if (!columnExists(t, 'field_times')) db.exec(`ALTER TABLE ${t} ADD COLUMN field_times TEXT`);
     db.exec(fieldTimesSql(t, [...fields, 'deleted_at']));
+    // A row from before the times counts from its last write (updated_at)
+    // until its first edit. A write that moves updated_at without changing
+    // any of these (logging a food bumps how often it was used) isn't an
+    // edit of them: their times start first, from the write before.
+    db.exec(`DROP TRIGGER IF EXISTS fs_${t}_base;
+      CREATE TRIGGER fs_${t}_base AFTER UPDATE OF updated_at ON ${t} FOR EACH ROW
+      WHEN OLD.updated_at IS NOT NULL AND NEW.updated_at IS NOT OLD.updated_at AND NEW.field_times IS OLD.field_times
+        AND (OLD.field_times IS NULL OR NOT json_valid(OLD.field_times) OR OLD.field_times = '{}')
+      BEGIN UPDATE ${t} SET field_times = CASE WHEN json_valid(field_times) AND field_times != '{}' THEN field_times ELSE json_object('_base', OLD.updated_at) END WHERE rowid = NEW.rowid; END;`);
   }
   if (!columnExists('diary', 'field_times')) db.exec(`ALTER TABLE diary ADD COLUMN field_times TEXT`);
   const now = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;

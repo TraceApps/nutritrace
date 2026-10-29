@@ -77,11 +77,17 @@ export function collapseOps(ops) {
     for (const uuid of op.day?.deleted_uuids?.water || []) t.water.add(uuid);
     tombs.set(op.date, t);
     if ('note_at' in op) noteAt.set(op.date, op.note_at || noteAt.get(op.date) || null);
-    const had = stats.has(op.date) ? stats.get(op.date) : new Map();
-    if (had && Array.isArray(op.stats_changed)) {
-      for (const k of op.stats_changed) had.set(k, new Date(op.at || Date.now()).toISOString());
-      stats.set(op.date, had);
-    } else stats.set(op.date, null);
+    // Each measurement with the time of the last queued save that changed
+    // it. A save from before the queue said which it changed counts as all
+    // it holds, at its own time: queued with saves that say, the day then
+    // goes up whole, but each measurement keeps its time (body_stats_edits).
+    const had = stats.get(op.date) || { said: true, mixed: false, at: new Map() };
+    const opAt = new Date(op.at || Date.now()).toISOString();
+    const says = Array.isArray(op.stats_changed);
+    if (stats.has(op.date) && says !== had.said) had.mixed = true;
+    if (!says) had.said = false;
+    for (const k of says ? op.stats_changed : Object.keys(_stats(op.day?.body_stats ?? op.day?.bodyStats))) had.at.set(k, opAt);
+    stats.set(op.date, had);
     byDate.set(op.date, op);
   }
   return [...byDate.values()]
@@ -90,7 +96,13 @@ export function collapseOps(ops) {
       const out = { ...op, day: { ...op.day, deleted_uuids: { items: [...t.items], water: [...t.water] } } };
       if (noteAt.has(op.date)) out.note_at = noteAt.get(op.date);
       const st = stats.get(op.date);
-      if (st) { out.stats_changed = [...st.keys()]; out.stats_at = Object.fromEntries(st); } else { delete out.stats_changed; delete out.stats_at; }
+      delete out.stats_changed; delete out.stats_at;
+      if (st.said) { out.stats_changed = [...st.at.keys()]; out.stats_at = Object.fromEntries(st.at); }
+      // Mixed: the day goes up as the measurements its saves hold or say,
+      // each at its own time. One added elsewhere since, never seen here,
+      // stays (a measurement the older save took away comes back: it can't
+      // say so, and keeping one is the smaller loss).
+      else if (st.mixed) { out.stats_changed = [...st.at.keys()]; out.stats_at = Object.fromEntries(st.at); }
       return out;
     })
     .sort((a, b) => (a.seq || 0) - (b.seq || 0));
@@ -144,7 +156,7 @@ export function buildDiaryPush(ops, days) {
       deleted_uuids: op.day?.deleted_uuids || { items: [], water: [] },
       // Only the measurements changed offline, when the queue knows them.
       ...(Array.isArray(op.stats_changed) ? { body_stats_changed: op.stats_changed } : {}),
-      ...(Array.isArray(op.stats_changed) && op.stats_at ? { body_stats_edits: op.stats_at } : {}),
+      ...(op.stats_at && Object.keys(op.stats_at).length ? { body_stats_edits: op.stats_at } : {}),
       updated_at: new Date(op.at || Date.now()).toISOString(),
       deleted_at: null,
     };
@@ -211,17 +223,38 @@ export function collapseCatalogOps(ops, table = 'foods') {
       continue;
     }
     // What the edits changed, together, each with the time of the last
-    // edit that changed it; null once one of them can't say.
-    const changed = prev && prev.action !== 'create'
+    // edit that changed it; null once one of them can't say. An edit queued
+    // before the app said (no list) changed every field it sends, at its own
+    // time: queued with ones that say, the row then goes up whole, but each
+    // field keeps the time of the edit that last changed it, not the
+    // latest edit's.
+    const edit = prev && prev.action !== 'create';
+    const changed = edit
       ? (Array.isArray(prev.changed) && Array.isArray(op.changed) ? [...new Set([...prev.changed, ...op.changed])] : null)
       : (Array.isArray(op.changed) ? op.changed : null);
-    const edits = changed ? { ...(prev?.edits || {}) } : null;
-    if (edits) for (const f of op.changed) edits[f] = new Date(op.at || Date.now()).toISOString();
+    let edits = null;
+    if (changed) {
+      edits = { ...(prev?.edits || {}) };
+      for (const f of op.changed) edits[f] = new Date(op.at || Date.now()).toISOString();
+    } else if (edit && (Array.isArray(prev.changed) || Array.isArray(op.changed) || prev.edits)) {
+      edits = { ...(prev.edits || _sentAt(prev, table)) };
+      Object.assign(edits, Array.isArray(op.changed)
+        ? Object.fromEntries(op.changed.map(f => [f, new Date(op.at || Date.now()).toISOString()]))
+        : _sentAt(op, table));
+    }
     byId.set(id, prev?.action === 'create'
       ? { ...prev, data: { ...prev.data, ...op.data }, seq: op.seq }
       : { ...op, data: { ...(prev?.data || {}), ...op.data }, changed, edits });
   }
   return [...byId.values()].sort((a, b) => (a.seq || 0) - (b.seq || 0));
+}
+
+// Every synced field a queued edit sends, at the edit's time.
+function _sentAt(op, table) {
+  const fields = SYNC_FIELDS[_SYNC_TABLE[table] || table] || [];
+  const at = new Date(op.at || Date.now()).toISOString();
+  const said = Array.isArray(op.changed) ? op.changed : Object.keys(pushShape(table, op.data || {}));
+  return Object.fromEntries(said.filter(f => fields.includes(f)).map(f => [f, at]));
 }
 
 const _catalogRow = (op) => {
@@ -242,8 +275,10 @@ const _catalogRow = (op) => {
   row.id = undefined;
   // The fields this edit changed, so the server leaves the rest as they are
   // there (a change made elsewhere meanwhile stays).
-  if (!temp && op.action === 'update' && Array.isArray(op.changed)) {
-    row.changed_fields = op.changed;
+  // Without the list (an edit queued before the app said, with later ones),
+  // the row goes whole, each field with its own edit's time.
+  if (!temp && op.action === 'update') {
+    if (Array.isArray(op.changed)) row.changed_fields = op.changed;
     if (op.edits && Object.keys(op.edits).length) row.field_edits = op.edits;
   }
   return row;

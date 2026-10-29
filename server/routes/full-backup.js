@@ -250,24 +250,27 @@ function restoreFromZip(zip) {
     // parameters, so a SELECT * dump plus a partial INSERT column list would
     // round-trip these values as NULL, silently losing every user's serving
     // units (slice / cookie / bottle) + per-ml-vs-per-g basis + density.
+    // field_times: when each synced field last changed (lib/field-sync.js),
+    // so a restored row's fields keep their own times (a backup from before
+    // has none: the row counts from its own updated_at, as then).
     const insFood = db.prepare(`
-      INSERT OR IGNORE INTO foods (id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @nutrition_basis, @alt_units, @density_g_ml, @source_app, @source_external_id, @source_url, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at)
+      INSERT OR IGNORE INTO foods (id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, created_at, updated_at, deleted_at, field_times)
+      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @nutrition_basis, @alt_units, @density_g_ml, @source_app, @source_external_id, @source_url, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
     `);
-    for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, nutrition_basis: null, alt_units: null, density_g_ml: null, source_app: null, source_external_id: null, source_url: null, updated_at: null, deleted_at: null, ...f });
+    for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, nutrition_basis: null, alt_units: null, density_g_ml: null, source_app: null, source_external_id: null, source_url: null, updated_at: null, deleted_at: null, field_times: null, ...f });
 
     // Federation source columns (source_app / source_external_id / source_url /
     // import_warnings, added for the CookTrace pull flow) are part of the
     // meals row now. Restoring without them silently drops the "From
     // CookTrace" badge and the deep-link back to the source on restore.
     const insMeal = db.prepare(`
-      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @source_app, @source_external_id, @source_url, @import_warnings, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at)
+      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, created_at, updated_at, deleted_at, field_times)
+      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @source_app, @source_external_id, @source_url, @import_warnings, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
     `);
     for (const m of data.meals || []) insMeal.run({
       visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null,
       source_app: null, source_external_id: null, source_url: null, import_warnings: null,
-      updated_at: null, deleted_at: null, servings: null, ...m,
+      updated_at: null, deleted_at: null, servings: null, field_times: null, ...m,
     });
 
     const insFoodShare = db.prepare(`INSERT OR IGNORE INTO food_shares (food_id, user_id) VALUES (@food_id, @user_id)`);
@@ -282,18 +285,18 @@ function restoreFromZip(zip) {
     // #207: completed_at + completed_meals ride along so day-completion
     // state survives a full-backup restore.
     const insDiary = db.prepare(`
-      INSERT OR IGNORE INTO diary (id, user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at, deleted_at)
-      VALUES (@id, @user_id, @date, @items, @body_stats, @water, @notes, @completed_at, @completed_meals, COALESCE(@updated_at, datetime('now')), @deleted_at)
+      INSERT OR IGNORE INTO diary (id, user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at, deleted_at, field_times)
+      VALUES (@id, @user_id, @date, @items, @body_stats, @water, @notes, @completed_at, @completed_meals, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
     `);
     for (const d of data.diary || []) insDiary.run({
       notes: null, completed_at: null, completed_meals: null,
-      updated_at: null, deleted_at: null, ...d,
+      updated_at: null, deleted_at: null, field_times: null, ...d,
     });
 
     const insSettings = db.prepare(`
-      INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at, deleted_at) VALUES (@user_id, @key, @value, COALESCE(@updated_at, datetime('now')), @deleted_at)
+      INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at, deleted_at, field_times) VALUES (@user_id, @key, @value, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
     `);
-    for (const s of data.user_settings || []) insSettings.run({ updated_at: null, deleted_at: null, ...s });
+    for (const s of data.user_settings || []) insSettings.run({ updated_at: null, deleted_at: null, field_times: null, ...s });
 
     const insConfig = db.prepare(`
       INSERT OR REPLACE INTO app_config (key, value) VALUES (@key, @value)
@@ -323,18 +326,18 @@ function restoreFromZip(zip) {
 
     db.prepare('DELETE FROM activity_log').run();
     const insActivity = db.prepare(`
-      INSERT OR IGNORE INTO activity_log (id, user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @date, @name, @kcal, @duration_min, @distance, @source, @met, @is_template, @created_at, @updated_at, @deleted_at)
+      INSERT OR IGNORE INTO activity_log (id, user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at, deleted_at, field_times)
+      VALUES (@id, @user_id, @date, @name, @kcal, @duration_min, @distance, @source, @met, @is_template, @created_at, @updated_at, @deleted_at, @field_times)
     `);
-    for (const a of data.activity_log || []) insActivity.run({ met: null, is_template: 0, deleted_at: null, ...a });
+    for (const a of data.activity_log || []) insActivity.run({ met: null, is_template: 0, deleted_at: null, field_times: null, ...a });
 
     // Intermittent fasting log
     db.prepare('DELETE FROM fasts').run();
     const insFast = db.prepare(`
-      INSERT OR IGNORE INTO fasts (id, user_id, start_at, end_at, goal_hours, notes, created_at, updated_at, deleted_at)
-      VALUES (@id, @user_id, @start_at, @end_at, @goal_hours, @notes, @created_at, @updated_at, @deleted_at)
+      INSERT OR IGNORE INTO fasts (id, user_id, start_at, end_at, goal_hours, notes, created_at, updated_at, deleted_at, field_times)
+      VALUES (@id, @user_id, @start_at, @end_at, @goal_hours, @notes, @created_at, @updated_at, @deleted_at, @field_times)
     `);
-    for (const f of data.fasts || []) insFast.run({ end_at: null, notes: null, deleted_at: null, ...f });
+    for (const f of data.fasts || []) insFast.run({ end_at: null, notes: null, deleted_at: null, field_times: null, ...f });
 
     // OIDC providers — admin config; client_secret is encrypted with the
     // deploy's JWT_SECRET, so cross-deploy restores will need the secret

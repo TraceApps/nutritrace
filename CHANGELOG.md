@@ -10,6 +10,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **Sync keeps the newer edit of each field, not of the whole row.** A change made in the Android app or in the browser while offline could undo a newer change made on another device to a different field of the same food, meal, recipe, activity, fast or day's measurements, or be dropped because the other device's copy was newer. Now each field keeps its newest edit: a brand changed on the web and a note added on the phone both stay. Fields that belong together, such as a food's nutrients and its serving size, stay together. A food deleted on one device and edited later on another is kept, and an edit made before a delete no longer brings it back. A setting changed offline no longer replaces a newer change. Saving a food, meal or activity on the web or in the Android app now changes only what you edited, so an edit made elsewhere since the form opened stays. Android apps from before this update still sync, and their changes count as a whole row, as before.
+- **An activity or fast changed in the Android app while it syncs is no longer undone.** A change made while the app was sending an earlier one was written over by what came back from the server, and never sent. It now stays and goes with the next sync, as foods and meals already did.
+- **Offline changes made before this update and after it keep their own times.** In the Android app or in the browser, a change waiting from before the update and one made after went up as one change made at the later time, so the earlier one could undo a change made elsewhere in between.
+- **Logging a food no longer makes it look newer than an offline edit of it.** On a food or meal from before the update, logging it counted as a change of every field, so an edit made offline before you logged it was dropped. Restoring a full backup now keeps when each field was last changed.
 
 ---
 

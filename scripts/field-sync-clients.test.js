@@ -62,7 +62,10 @@ test("a day's measurements changed offline: set, changed or taken away", () => {
   assert.deepEqual(statsChanged({ body_stats: { weight: 80 } }, { bodyStats: { weight: '80' } }), []);
   const op = (seq, stats) => ({ seq, type: 'diary', date: '2026-09-01', day: { items: [], water: [], body_stats: {} }, at: seq, ...(stats ? { stats_changed: stats } : {}) });
   assert.deepEqual(collapseOps([op(1, ['weight']), op(2, ['waist'])])[0].stats_changed.sort(), ['waist', 'weight']);
-  assert.equal(collapseOps([op(1, ['weight']), op(2)])[0].stats_changed, undefined, 'an op from before says nothing');
+  // Mixed with an op from before (which says nothing): the measurements they
+  // hold or say, so one added elsewhere since stays.
+  assert.deepEqual(collapseOps([op(1, ['weight']), op(2)])[0].stats_changed, ['weight']);
+  assert.equal(collapseOps([op(1), op(2)])[0].stats_changed, undefined, 'ops from before say nothing');
   assert.deepEqual(buildDiaryPush([op(1, ['weight'])], []).diary[0].body_stats_changed, ['weight']);
   assert.equal(buildDiaryPush([op(1)], []).diary[0].body_stats_changed, undefined);
 });

@@ -29,6 +29,7 @@ import {
   dbPendingCoachAnswers, dbUpsertCoachRecommendations, dbSetServerBase,
 } from './db-native.js';
 import { baseOf, changesOf, statsBase, statsChanges } from './sync-base.js';
+import { SYNC_FIELDS } from './sync-fields.js';
 import { localDataIsThisAccount, serverKeepsNotes, accountGeneration } from './local-account.js';
 import { get, writable } from 'svelte/store';
 
@@ -517,7 +518,14 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
     // not sent yet even if it's back to the server's value (changed back
     // after a save went up).
     const diff = changesOf(table, row, local[i]?.server_base);
-    const changed = diff && [...new Set([...diff, ...Object.keys(t).filter(f => row[f] !== undefined)])];
+    // No copy kept, but changed here before the update (_rest) and since:
+    // the row goes whole, each field with its own time.
+    if (!diff && typeof t._rest === 'string') {
+      const edits = Object.fromEntries(SYNC_FIELDS[table].filter(f => row[f] !== undefined).map(f => [f, typeof t[f] === 'string' ? t[f] : t._rest]));
+      (sentEdits[table] ||= new Map()).set(local[i].id, { ...edits, _rest: t._rest });
+      return { ...row, field_edits: edits };
+    }
+    const changed = diff && [...new Set([...diff, ...Object.keys(t).filter(f => row[f] !== undefined && f !== '_rest')])];
     if (!changed) return row;
     const edits = Object.fromEntries(changed.filter(f => typeof t[f] === 'string').map(f => [f, t[f]]));
     if (Object.keys(edits).length) (sentEdits[table] ||= new Map()).set(local[i].id, edits);
@@ -529,8 +537,20 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
   payload.fasts = withChanges(payload.fasts, fasts, 'fasts');
   for (let i = 0; i < pending.diary.length; i++) {
     const diff = statsChanges(payload.diary[i].body_stats, pending.diary[i].server_base);
-    if (!diff) continue;
     const t = editTimes(pending.diary[i]);
+    if (!diff && typeof t._rest === 'string') {
+      let stats = payload.diary[i].body_stats;
+      if (typeof stats === 'string') { try { stats = JSON.parse(stats); } catch { stats = null; } }
+      if (!stats || typeof stats !== 'object' || Array.isArray(stats)) stats = {};
+      const edits = Object.fromEntries(Object.keys(stats).map(k => [k, typeof t[`body_stats.${k}`] === 'string' ? t[`body_stats.${k}`] : t._rest]));
+      if (Object.keys(edits).length) payload.diary[i].body_stats_edits = edits;
+      // Only the measurements it holds: one added elsewhere since, never
+      // seen here, stays (as for the browser's mixed day, offline-edits.js).
+      payload.diary[i].body_stats_changed = Object.keys(stats);
+      (sentEdits.diary ||= new Map()).set(pending.diary[i].id, { ...Object.fromEntries(Object.entries(edits).map(([k, v]) => [`body_stats.${k}`, v])), _rest: t._rest });
+      continue;
+    }
+    if (!diff) continue;
     const changed = [...new Set([...diff, ...Object.keys(t).filter(k => k.startsWith('body_stats.')).map(k => k.slice('body_stats.'.length))])];
     payload.diary[i].body_stats_changed = changed;
     const edits = Object.fromEntries(changed.filter(k => typeof t[`body_stats.${k}`] === 'string').map(k => [k, t[`body_stats.${k}`]]));
@@ -944,7 +964,7 @@ async function pullChanges({ signal = null, gen = accountGeneration() } = {}) {
  * Native server-mode only. PWA has no local mirror; native standalone
  * has no server to push to.
  *
- * Returns { pushed: { foods, meals, diary, activity, settings } } counts
+ * Returns { pushed: { foods, meals, diary, activity_log, fasts, user_settings } } counts
  * of rows that were marked pending (i.e. rows that should now be on the
  * server after the sync completes).
  */
@@ -970,12 +990,13 @@ export async function pushAllFromDevice() {
     UPDATE meals         SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
     UPDATE diary         SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
     UPDATE activity_log  SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
+    UPDATE fasts         SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
     UPDATE user_settings SET sync_status='pending'                  WHERE deleted_at IS NULL;
   `);
 
   // Count what we just queued so the UI can confirm afterwards.
   const counts = {};
-  for (const t of ['foods', 'meals', 'diary', 'activity_log', 'user_settings']) {
+  for (const t of ['foods', 'meals', 'diary', 'activity_log', 'fasts', 'user_settings']) {
     const r = await db.query(`SELECT COUNT(*) AS n FROM ${t} WHERE sync_status='pending' AND deleted_at IS NULL`);
     counts[t] = r?.values?.[0]?.n || 0;
   }

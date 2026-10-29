@@ -360,3 +360,117 @@ test('a day saved without saying which measurements it changed, with none of its
   await push({ diary: [{ client_id: 1, server_id: null, date, items: [], water: [], body_stats: { weight: 77 }, deleted_uuids: { items: [], water: [] }, updated_at: iso(Date.now()), deleted_at: null, body_stats_changed: [] }] });
   assert.deepEqual((await pull()).diary.find(d => d.date === date).body_stats, { weight: 77 });
 });
+
+// The browser's queue with an edit queued before the app said what an edit
+// changed (no list: every field it sends, at its own time) and one queued
+// after (a list). Collapsed, the row went up whole at the later edit's
+// time, so the earlier edit's copy put back a change made elsewhere in
+// between. Now each field goes with the time of the edit that changed it.
+test("the browser's queue mixing an edit from before the update with one from after keeps each edit's time", async (t) => {
+  if (skip(t)) return;
+  const f = await api('POST', '/api/foods', { name: 'Mix Oats', brand: 'Mill', nutrition: { calories: 380 }, portion: 100, unit: 'g' });
+  const copy = await pulled('foods', f.id);
+  await sleep(1100);
+  // Queued by the app before (no v, no list): the notes, on its copy.
+  const old = { seq: 1, type: 'catalog', table: 'foods', action: 'update', id: f.id, data: { ...copy, notes: 'soak' }, at: Date.now() };
+  await sleep(2100);
+  // The web changes the brand.
+  await api('PUT', `/api/foods/${f.id}`, { ...copy, brand: 'Bakery', changed_fields: ['brand'] });
+  await sleep(2100);
+  // Queued after the update: the name.
+  const now = { seq: 2, type: 'catalog', v: 2, table: 'foods', action: 'update', id: f.id, data: { ...copy, notes: 'soak', name: 'Mix Rolled Oats' }, at: Date.now(), changed: ['name'] };
+  const body = buildCatalogPush([old, now]);
+  await push({ foods: body.foods });
+  const got = await pulled('foods', f.id);
+  assert.deepEqual({ name: got.name, brand: got.brand, notes: got.notes }, { name: 'Mix Rolled Oats', brand: 'Bakery', notes: 'soak' });
+});
+
+test("the browser's offline day mixing a save from before the update with one from after keeps each measurement's time", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-09-11';
+  await api('PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80, waist: 90 }, water: [] });
+  await sleep(1100);
+  const day = s => ({ items: [], water: [], body_stats: s });
+  const old = { seq: 1, type: 'diary', date: D, day: day({ weight: 79, waist: 90 }), at: Date.now() };
+  await sleep(2100);
+  await api('PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80, waist: 88 }, water: [], body_stats_changed: ['waist'] });
+  await sleep(2100);
+  const now = { seq: 2, type: 'diary', date: D, day: day({ weight: 79, waist: 90, body_fat: 20 }), at: Date.now(), stats_changed: ['body_fat'] };
+  await push({ diary: buildDiaryPush([old, now], []).diary });
+  const got = await api('GET', `/api/diary/${D}`);
+  assert.deepEqual(got.body_stats, { weight: 79, waist: 88, body_fat: 20 });
+});
+
+test("the browser's mixed offline day leaves a measurement added elsewhere since the older save", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-09-21';
+  await api('PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80 }, water: [] });
+  await sleep(1100);
+  const day = s => ({ items: [], water: [], body_stats: s });
+  const old = { seq: 1, type: 'diary', date: D, day: day({ weight: 79 }), at: Date.now() };
+  await sleep(2100);
+  await api('PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80, waist: 88 }, water: [], body_stats_changed: ['waist'] });
+  await sleep(2100);
+  const now = { seq: 2, type: 'diary', date: D, day: day({ weight: 79, body_fat: 20 }), at: Date.now(), stats_changed: ['body_fat'] };
+  await push({ diary: buildDiaryPush([old, now], []).diary });
+  const got = await api('GET', `/api/diary/${D}`);
+  assert.deepEqual(got.body_stats, { weight: 79, waist: 88, body_fat: 20 });
+});
+
+// Logging a food from before the times bumps how often it was used, which
+// moves its updated_at: that stood in for when every field was last edited,
+// so an edit made offline before the bump but after the row's last real
+// edit lost every field. A bump isn't an edit: the row's times start from
+// its last write before it.
+for (const kind of ['foods', 'meals']) {
+  test(`a ${kind === 'foods' ? 'food' : 'meal'} from before the times, used after an offline edit was made, still takes that edit`, async (t) => {
+    if (skip(t)) return;
+    const row = kind === 'foods'
+      ? await api('POST', '/api/foods', { name: 'Bumped', brand: 'Old', nutrition: {} })
+      : await api('POST', '/api/meals', { name: 'Bumped meal', nutrition: {}, items: [] });
+    sqlite.prepare(`UPDATE ${kind} SET field_times = NULL, created_at = datetime('now', '-3 hours'), updated_at = datetime('now', '-2 hours') WHERE id = ?`).run(row.id);
+    const copy = await pulled(kind, row.id);
+    const offlineAt = Date.now() - 3600_000;
+    await api('POST', `/api/${kind}/${row.id}/used`, { date: '2026-10-01' });
+    await push({ [kind]: [phoneRow(kind, copy, { notes: 'made an hour ago', updated_at: iso(offlineAt), changed_fields: ['notes'] })] });
+    assert.equal((await pulled(kind, row.id)).notes, 'made an hour ago');
+  });
+}
+
+test('logging a food from before the times through MCP is not an edit of it either', async (t) => {
+  if (skip(t)) return;
+  const f = await api('POST', '/api/foods', { name: 'Mcp Bumped', brand: 'Old', nutrition: {} });
+  sqlite.prepare(`UPDATE foods SET field_times = NULL, updated_at = datetime('now', '-2 hours') WHERE id = ?`).run(f.id);
+  const before = sqlite.prepare('SELECT updated_at FROM foods WHERE id = ?').get(f.id).updated_at;
+  // As log-food.js bumps it.
+  sqlite.prepare(`UPDATE foods SET usage_count = usage_count + 1, last_used_at = MAX(COALESCE(last_used_at, ''), ?), updated_at = datetime('now') WHERE id = ?`).run('2026-10-01', f.id);
+  const times = JSON.parse(sqlite.prepare('SELECT field_times FROM foods WHERE id = ?').get(f.id).field_times || '{}');
+  assert.equal(Date.parse(times._base.replace(' ', 'T') + (times._base.endsWith('Z') ? '' : 'Z')), Date.parse(before.replace(' ', 'T') + 'Z'));
+});
+
+// A full backup holds when each field last changed (field_times); restoring
+// it dropped them, so every field of a restored row counted as changed at
+// the row's last write, and an offline edit made before that write, of a
+// field changed long before, was lost.
+test('a restored backup keeps when each field last changed', async (t) => {
+  if (skip(t)) return;
+  const f = await api('POST', '/api/foods', { name: 'Restored Oats', brand: 'Mill', nutrition: {} });
+  const D = '2026-09-12';
+  await api('PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80, waist: 90 }, water: [] });
+  const copy = await pulled('foods', f.id);
+  await sleep(1100);
+  const offlineAt = Date.now();
+  await sleep(2100);
+  await api('PUT', `/api/foods/${f.id}`, { ...copy, brand: 'Bakery', changed_fields: ['brand'] });
+  await api('PUT', `/api/diary/${D}`, { items: [], body_stats: { weight: 80, waist: 88 }, water: [], body_stats_changed: ['waist'] });
+  const timesBefore = sqlite.prepare('SELECT field_times FROM foods WHERE id = ?').get(f.id).field_times;
+  const made = await api('POST', '/api/full-backup');
+  await api('POST', `/api/full-backup/${encodeURIComponent(made.filename)}/restore`);
+  assert.equal(sqlite.prepare('SELECT field_times FROM foods WHERE id = ?').get(f.id).field_times, timesBefore);
+  // Made offline after the food and the day were made, before the web's change.
+  await push({ foods: [phoneRow('foods', copy, { notes: 'offline note', updated_at: iso(offlineAt), changed_fields: ['notes'] })] });
+  await push({ diary: [{ client_id: 1, date: D, items: [], water: [], body_stats: { weight: 79, waist: 90 }, body_stats_changed: ['weight'], updated_at: iso(offlineAt), deleted_at: null }] });
+  const got = await pulled('foods', f.id);
+  assert.deepEqual({ brand: got.brand, notes: got.notes }, { brand: 'Bakery', notes: 'offline note' });
+  assert.deepEqual((await api('GET', `/api/diary/${D}`)).body_stats, { weight: 79, waist: 88 });
+});

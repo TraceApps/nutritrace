@@ -1681,8 +1681,14 @@ async function _afterEdit(db, table, id, before) {
     const changed = table === 'diary'
       ? (statsChanges(after.body_stats, statsBase(before.body_stats)) || [])
       : (changesOf(table, after, baseOf(table, before)) || []);
-    if (!changed.length) return changed;
     const t = _parseJson(after.edit_times, {}) || {};
+    // Changed here before the update and not sent yet (waiting, no copy of
+    // the server's kept): that change goes up whole, as before, but at its
+    // own time (_rest: every field this phone has no time of its own for),
+    // not this later change's.
+    const rest = before.sync_status === 'pending' && before.server_base == null && !t._rest && before.updated_at ? before.updated_at : null;
+    if (!changed.length && !rest) return changed;
+    if (rest) t._rest = rest;
     for (const f of changed) t[table === 'diary' ? `body_stats.${f}` : f] = after.updated_at;
     await db.run(`UPDATE ${table} SET edit_times = ? WHERE id = ?`, [JSON.stringify(t), id]);
     return changed;
@@ -2534,8 +2540,11 @@ export async function dbUpsertActivityFromServer(record) {
     return;
   }
   // Match by server_id; if absent (first-pull), insert new
-  const existing = await db.query(`SELECT id FROM activity_log WHERE server_id = ? AND user_id = ?`, [serverId, LOCAL_USER_ID]);
+  const existing = await db.query(`SELECT id, sync_status FROM activity_log WHERE server_id = ? AND user_id = ?`, [serverId, LOCAL_USER_ID]);
   const row = _row(existing);
+  // Changed here and not sent yet: that change stays, and goes up with the
+  // next push (as for foods and meals).
+  if (row?.sync_status === 'pending') return;
   if (row) {
     await db.run(
       `UPDATE activity_log SET date=?, name=?, kcal=?, duration_min=?, distance=?, source=?, met=?, is_template=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced'
@@ -2672,8 +2681,11 @@ export async function dbUpsertFastFromServer(record) {
     await db.run(`DELETE FROM fasts WHERE server_id = ?`, [serverId]);
     return;
   }
-  const existing = await db.query(`SELECT id FROM fasts WHERE server_id = ? AND user_id = ?`, [serverId, LOCAL_USER_ID]);
+  const existing = await db.query(`SELECT id, sync_status FROM fasts WHERE server_id = ? AND user_id = ?`, [serverId, LOCAL_USER_ID]);
   const row = _row(existing);
+  // Changed here and not sent yet: that change stays, and goes up with the
+  // next push (as for foods and meals).
+  if (row?.sync_status === 'pending') return;
   if (row) {
     await db.run(
       `UPDATE fasts SET start_at=?, end_at=?, goal_hours=?, notes=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced' WHERE id=?`,

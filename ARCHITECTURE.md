@@ -237,13 +237,25 @@ merge by uuid and its note by its own time, as before.
   (`src/lib/sync-base.js`, set by each pull, each push that lands, and
   before the first edit of a row from before) and when each field was
   changed here (`edit_times`), and sends what changed since, each with its
-  time. A row edited before the update (no copy kept) goes up whole. A save
-  sent straight to the server online sends only what that save changed.
+  time. A row edited before the update (no copy kept) goes up whole; edited
+  again after it, each field goes with its own time (`_rest` in
+  `edit_times`: the earlier edit's). A save sent straight to the server
+  online sends only what that save changed. A pull leaves a row changed
+  here and not sent yet as it is (activity and fasts too); it goes with
+  the next push.
 - The browser sends what an offline edit changed (against the row it
   showed), each field with the time of the queued edit that changed it,
   and an online save sends what changed against the copy it holds, unless
   the form was opened on another copy (a different `changed_at`). The diary
-  says which measurements a save changed.
+  says which measurements a save changed. An edit queued by the app before
+  it said what changed, queued with ones after, makes the row go whole, but
+  each field keeps the time of the edit that last changed it; a day goes
+  as the measurements its saves hold or say (`body_stats_changed`), so one
+  added elsewhere since stays (the phone's `_rest` day too).
+- A write that moves a row's `updated_at` without changing a field (logging
+  a food bumps how often it was used) isn't an edit: a row from before the
+  times starts them from the write before (`fs_<table>_base` in `db.js`).
+  A full backup restores `field_times`.
 
 ### Android account protection
 
