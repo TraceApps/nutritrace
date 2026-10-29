@@ -13,6 +13,7 @@
 import { get, writable } from 'svelte/store';
 import { _ } from 'svelte-i18n';
 import { healthNeedsSetup } from './platform.js';
+import { twoStepChallenge } from './two-step.js';
 
 const WEB_PAGE = "Something other than NutriTrace answered with a web page: often a sign-in proxy (Authentik, Authelia, Cloudflare Access), or this isn't your server's address. Let the app reach /api on your server.";
 const OPTIONS_FAILED = "Couldn't load this server's sign-in options. Retry, or sign in with your password if the server allows it.";
@@ -159,7 +160,11 @@ export function optionsErrorText(e) {
   return e?.webPage ? e.message : _say('server_signin.options_failed', OPTIONS_FAILED);
 }
 
-/** Username and password sign-in: the server's { token, user }. */
+/**
+ * Username and password sign-in: the server's { token, user }. When the
+ * account uses two-step sign-in (#222), the error carries `twoStep`
+ * ({ kind, pendingToken }) for components/two-step/TwoStepChallenge.svelte.
+ */
 export async function passwordSignIn(url, username, password) {
   const http = await _http();
   const res = await http.post({
@@ -168,7 +173,12 @@ export async function passwordSignIn(url, username, password) {
     data: { username, password },
   });
   const body = serverJson(res);
-  if (!_ok(res) || !body.token) throw new Error(body.error || _say('native_setup.errors.login_failed', 'Login failed'));
+  if (!_ok(res) || !body.token) {
+    const err = new Error(body.error || _say('native_setup.errors.login_failed', 'Login failed'));
+    const twoStep = twoStepChallenge(body);
+    if (twoStep) err.twoStep = twoStep;
+    throw err;
+  }
   return body;
 }
 

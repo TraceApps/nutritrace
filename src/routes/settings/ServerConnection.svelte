@@ -18,6 +18,7 @@
   import { serverAddressCheck, confirmPlainHttp } from '../../lib/plain-http.js';
   import { classifyServerAddress } from '../../lib/local-address.js';
   import { askPlainHttp } from '../../stores/plainHttp.js';
+  import TwoStepChallenge from '../../components/two-step/TwoStepChallenge.svelte';
 
   // ── Sync state + manual trigger ────────────────────────────────────────
   // Native server mode only. lastSyncAt comes from sync_meta on mount and is
@@ -129,6 +130,29 @@
 
   // With a password: the server checked (a fresh install, or a web page in
   // its place, is said), then signed in.
+  // Two-step sign-in's second step (#222): { kind, pendingToken, url } while open.
+  let twoStepChallengeOpen = null;
+  async function twoStepDone(e) {
+    const { url } = twoStepChallengeOpen;
+    const loginData = e.detail || {};
+    twoStepChallengeOpen = null;
+    serverConnecting = true;
+    try {
+      _pendingLogoutHint = null;
+      forgetSsoConnect();
+      await _afterSignIn(url, { token: loginData.token, user: loginData.user });
+    } catch (err) {
+      showError(explainConnectError(err, url, $_));
+    } finally {
+      serverConnecting = false;
+    }
+  }
+  function twoStepRestart(e) {
+    twoStepChallengeOpen = null;
+    serverPassword = '';
+    if (e.detail?.message) showError(e.detail.message);
+  }
+
   async function connectServer() {
     if (!serverUrlInput.trim()) { showError('Enter a server URL'); return; }
     if (!serverUsername.trim() || !serverPassword.trim()) { showError('Enter credentials'); return; }
@@ -142,6 +166,8 @@
       forgetSsoConnect(); // an SSO sign-in left open in the browser is over
       await _afterSignIn(url, { token: loginData.token, user: loginData.user });
     } catch (e) {
+      // Two-step sign-in (#222): the code, or its setup, comes next.
+      if (e?.twoStep) { twoStepChallengeOpen = { ...e.twoStep, url }; return; }
       showError(explainConnectError(e, url, $_));
     } finally {
       serverConnecting = false;
@@ -489,6 +515,15 @@
     {/if}
   </div>
 </div>
+
+{#if twoStepChallengeOpen}
+  <div class="merge-overlay" use:portal transition:fade={{ duration: 150 }} use:closeOnBack={() => { twoStepChallengeOpen = null; }}>
+    <div class="merge-dialog">
+      <TwoStepChallenge challenge={twoStepChallengeOpen} serverUrl={twoStepChallengeOpen.url} account={serverUsername.trim()}
+        on:done={twoStepDone} on:restart={twoStepRestart} />
+    </div>
+  </div>
+{/if}
 
 <!-- Merge dialog (shown when connecting to server with existing local data) -->
 {#if mergeStep === 'ask-settings'}

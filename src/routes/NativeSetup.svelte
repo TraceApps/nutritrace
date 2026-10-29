@@ -6,6 +6,7 @@
   import { DB } from '../lib/db.js';
   import { serverAddressCheck, confirmPlainHttp } from '../lib/plain-http.js';
   import { askPlainHttp } from '../stores/plainHttp.js';
+  import TwoStepChallenge from '../components/two-step/TwoStepChallenge.svelte';
 
   // State machine:
   //   'choose'      → pick local vs server
@@ -82,19 +83,33 @@
     connecting = true;
     try {
       const loginData = await passwordSignIn(validatedUrl, username.trim(), password);
-      keepSsoLogoutHint(null); // signed in by password: no SSO session to end
-
-      setServerUrl(validatedUrl);
-      setAuthToken(loginData.token);
-      setNativeMode('server');
-      DB.setSetting('setupComplete', true);
-      showSuccess($_('native_setup.errors.connected'));
-      window.location.reload();
+      passwordSignedIn(loginData);
     } catch (e) {
+      // Two-step sign-in (#222): the code, or its setup, comes next.
+      if (e?.twoStep) { challenge = e.twoStep; return; }
       showError(explainConnectError(e, validatedUrl, $_));
     } finally {
       connecting = false;
     }
+  }
+
+  // The password (and the code, when asked) was right: connected.
+  function passwordSignedIn(loginData) {
+    keepSsoLogoutHint(null); // signed in by password: no SSO session to end
+    setServerUrl(validatedUrl);
+    setAuthToken(loginData.token);
+    setNativeMode('server');
+    DB.setSetting('setupComplete', true);
+    showSuccess($_('native_setup.errors.connected'));
+    window.location.reload();
+  }
+
+  // Two-step sign-in's second step, while it's open.
+  let challenge = null;
+  function twoStepRestart(e) {
+    challenge = null;
+    password = '';
+    if (e.detail?.message) showError(e.detail.message);
   }
 
   // Which ways the server offers to sign in (/api/auth/status). When they
@@ -216,6 +231,12 @@
             {connecting ? $_('native_setup.checking') : $_('native_setup.next')}
           </button>
         </div>
+      </div>
+
+    {:else if step === 'server-auth' && challenge}
+      <div class="setup-form">
+        <TwoStepChallenge {challenge} serverUrl={validatedUrl} account={username.trim()}
+          on:done={(e) => passwordSignedIn(e.detail)} on:restart={twoStepRestart} />
       </div>
 
     {:else if step === 'server-auth'}

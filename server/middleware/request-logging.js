@@ -4,6 +4,8 @@ import { logger } from '../logger.js';
 
 const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const REDACTED_KEY = /(authorization|cookie|password|passwd|secret|token|api[_-]?key|recovery|credential|session|csrf)/i;
+// A one-time code (two-step sign-in, #222). Exact, so barcode and the like still show.
+const REDACTED_EXACT_KEY = /^(code|otp|totp)$/i;
 const DEFAULT_TRACE_BODY_MAX_BYTES = 32 * 1024;
 const DEFAULT_TRACE_PATHS = ['/api/diary', '/api/sync/push'];
 const REQUEST_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -52,7 +54,7 @@ function boundedRedactedBody(value, state, keyName = '', depth = 0) {
 
   if (typeof value === 'string') {
     if (/^data:/i.test(value)) return `[data URL: ${byteCount(value)} bytes]`;
-    if (REDACTED_KEY.test(keyName)) return '[REDACTED]';
+    if (REDACTED_KEY.test(keyName) || REDACTED_EXACT_KEY.test(keyName)) return '[REDACTED]';
     if (URL_RE.test(value)) return summarizeUrl(value);
     const remaining = TRACE_LIMITS.maxTotalStringBytes - state.stringBytes;
     if (remaining <= 0) return '[truncated: string budget]';
@@ -87,7 +89,7 @@ function boundedRedactedBody(value, state, keyName = '', depth = 0) {
       break;
     }
     keyCount += 1;
-    if (REDACTED_KEY.test(key) || (settingObject && key === 'value')) {
+    if (REDACTED_KEY.test(key) || REDACTED_EXACT_KEY.test(key) || (settingObject && key === 'value')) {
       output[key] = '[REDACTED]';
     } else {
       output[key] = boundedRedactedBody(value[key], state, key, depth + 1);

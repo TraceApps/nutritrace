@@ -128,7 +128,8 @@ services:
 | `TRACE_REQUEST_BODIES` | No | unset | Set to `1` with `LOG_LEVEL=trace` to log redacted request bodies temporarily. |
 | `TRACE_REQUEST_PATHS` | No | `/api/diary,/api/sync/push` | Comma-separated body-trace path prefixes; `*` traces all and `none` traces no request bodies. |
 | `TRACE_BODY_MAX_BYTES` | No | `32768` | Maximum serialized bytes emitted for one traced request body. |
-| `RECOVERY_TOKEN` | No | — | Lockout-recovery token. Required to use the "Disable user management" recovery option on the login page. Without this, the recovery endpoint is disabled for safety. |
+| `RECOVERY_TOKEN` | No | (none) | Lockout-recovery token for Locked Out? on the login page. It can reset two-step sign-in for one account (the token must be 16 characters or more for this) or disable user management. Without it, both are off. |
+| `TWO_STEP_KEY` | No | generated | Key that locks two-step sign-in secrets, kept apart from `JWT_SECRET`. Unset, NutriTrace makes `two-step.key` next to the database (the `/data/db` volume) the first time someone sets up two-step sign-in, and keeps it across restarts. Set it (or `TWO_STEP_KEY_FILE`, 32 characters or more) only to keep it outside the data folder. If it changes or is lost, codes from authenticator apps stop working until reset: recovery codes still sign in. See [Two-step sign-in](#two-step-sign-in). |
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on JWT + cookie lifetime. The per-user setting in app_config can be lower than this but cannot exceed it. |
 | `PUBLIC_URL` | No | unset | The full address people open the app at, subpath included (e.g. `https://nutrition.example.com` or `https://example.com/nt`). Links in password reset, invite and sharing emails use it. Unset, they use an address an admin has opened the app at; until an admin has opened it once, only an admin's own request sends an email. Never taken from request headers. The server also takes it as the app's own address when it refuses changes sent from other sites' pages: set it if your reverse proxy passes neither the public `Host` nor `X-Forwarded-Host`; otherwise changes from a browser are refused (403, `cross_site`) over plain http, and over https from older browsers without `Sec-Fetch-Site` (such as Safari before 16.4). |
 | `INSECURE_COOKIES` | No | `0` | Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/). |
@@ -157,6 +158,26 @@ services:
 | `FRAME_ANCESTORS` | No |  | Addresses allowed to show NutriTrace inside a frame, such as a dashboard (`https://home.example.com`; several separated by spaces or commas). By default only NutriTrace itself may. If you show NutriTrace inside a dashboard (Homarr, Organizr, Home Assistant), it shows blank after this update until you set `FRAME_ANCESTORS` to the dashboard's address, for example `FRAME_ANCESTORS=https://home.example.com`. Origins only; a path is ignored. A proxy that already sets its own frame-ancestors for the dashboard needs `FRAME_ANCESTORS` too. |
 
 > **Note:** SMTP and AI settings can also be configured in **Settings → Email** / **Settings → AI Assistant** (admin only). Environment variables take priority over the UI and lock the corresponding fields when set.
+
+---
+
+## Two-step sign-in
+
+People who sign in with a password can turn on two-step sign-in in Settings > Profile. Their secrets are locked with `two-step.key` in the database folder (or `TWO_STEP_KEY`), never stored in the clear; recovery codes are kept only as hashes. Back up the key file with the database: a backup restored on a server with another key keeps everyone's recovery codes working, but codes from authenticator apps can't be checked until two-step sign-in is reset.
+
+Getting back in, always for one account and never with SQL:
+
+1. **A recovery code**, on the sign-in page (Use a Recovery Code).
+2. **An admin**: Settings > Users, the person's Reset Two-Step Sign-In button. The admin gives their own password (and their own code when they use two-step sign-in), and can't reset their own this way.
+3. **The owner**: Locked Out? on the sign-in page, with `RECOVERY_TOKEN` (16 characters or more) and the username. Or on the server:
+
+   ```bash
+   docker exec -it nutritrace npm run reset-2fa -- <username>
+   ```
+
+   Run it with no username to list the accounts that have two-step sign-in on.
+
+Every reset is logged, and the person is emailed when the server sends email. Single sign-on never links itself by email (Auto-Link) to an account that uses two-step sign-in, or that must set it up; a provider linked to an account before is trusted to do its own two-step sign-in. Admins can require two-step sign-in for everyone in Settings > Users: anyone who signs in with a password sets it up right after their password. Single sign-on accounts aren't affected.
 
 ---
 

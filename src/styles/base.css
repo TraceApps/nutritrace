@@ -48,6 +48,8 @@ html.ios .qc-kcal-input,
 html.ios .qce-kcal-input { font-size: 28px !important; }
 html.ios .qc-macro-input,
 html.ios .qce-macro-input { font-size: 20px !important; }
+html.ios .ts-code { font-size: 20px !important; }
+html.ios .tsc-code { font-size: 22px !important; }
 
 a { color: var(--accent); text-decoration: none; }
 button { font-family: inherit; cursor: pointer; border: none; background: none; }

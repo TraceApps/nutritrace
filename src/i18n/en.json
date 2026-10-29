@@ -3076,5 +3076,98 @@
       "empty": "Nothing logged on this day.",
       "meal_n": "Meal {n}"
     }
+  },
+  "two_step": {
+    "errors": {
+      "generic": "Something went wrong. Try again.",
+      "copy_failed": "Couldn't copy. Select the text and copy it yourself."
+    },
+    "setup": {
+      "loading": "Loading…",
+      "scan": "Scan this QR code with an authenticator app, such as Aegis, 2FAS, Google Authenticator or 1Password.",
+      "qr_alt": "QR code for your authenticator app",
+      "open_app": "Open in Authenticator App",
+      "key_intro": "Can't scan it? Enter this key in the app instead:",
+      "copy_key": "Copy Key",
+      "key_copied": "Key copied",
+      "key_details": "Time-based, 6 digits, every 30 seconds.",
+      "code_label": "6-Digit Code From the App",
+      "turn_on": "Turn On",
+      "turning_on": "Turning On…"
+    },
+    "codes": {
+      "title": "Save Your Recovery Codes",
+      "explain": "If you lose your phone, each of these codes signs you in once. Keep them somewhere safe, like a password manager. They won't be shown again.",
+      "copy": "Copy Codes",
+      "download": "Download",
+      "copied": "Recovery codes copied",
+      "saved": "I Saved My Codes"
+    },
+    "signin": {
+      "title": "Two-Step Sign-In",
+      "setup_title": "Set Up Two-Step Sign-In",
+      "setup_intro": "Your admin requires two-step sign-in. Set it up now to finish signing in.",
+      "intro": "Enter the 6-digit code from your authenticator app.",
+      "recovery_intro": "Enter one of the recovery codes you saved when you set up two-step sign-in.",
+      "code_label": "Code",
+      "recovery_label": "Recovery Code",
+      "verify": "Verify",
+      "verifying": "Verifying…",
+      "use_recovery": "Use a Recovery Code",
+      "use_app": "Use a Code From Your App",
+      "back": "Back to Sign In",
+      "lost_phone": "Lost your phone and your recovery codes? Ask an admin to reset two-step sign-in for you.",
+      "recovery_used": "Signed in with a recovery code. {count, plural, =0 {You have none left: make new ones in Settings, Profile.} one {# left.} other {# left.}}"
+    },
+    "settings": {
+      "title": "Two-Step Sign-In",
+      "on": "On",
+      "off": "Off",
+      "desc": "After your password, ask for a code from an authenticator app on your phone.",
+      "sso": "You sign in with single sign-on, so your sign-in provider handles two-step sign-in.",
+      "load_failed": "Couldn't load your two-step sign-in settings.",
+      "required_note": "Your admin requires two-step sign-in, so you'll be asked to set it up the next time you sign in.",
+      "key_problem": "Codes from your authenticator app can't be checked on this server right now (its two-step key changed or is missing). Sign in with a recovery code, or ask an admin to reset two-step sign-in, then set it up again.",
+      "cant_set_up": "Two-step sign-in can't be set up on this server right now: it couldn't save its key. Ask your admin.",
+      "set_up": "Set Up Two-Step Sign-In",
+      "password_label": "Your Password",
+      "continue": "Continue",
+      "on_since": "On since {date}",
+      "codes_left": "{count, plural, one {# recovery code left} other {# recovery codes left}}",
+      "codes_low": "Running low on recovery codes. Make new ones so you can still sign in if you lose your phone.",
+      "new_codes": "New Recovery Codes",
+      "codes_explain": "New codes replace the ones you have now. Enter your password and a code from your app (or a recovery code).",
+      "turn_off": "Turn Off",
+      "off_explain": "You'll sign in with your password alone. Enter your password and a code from your app (or a recovery code).",
+      "code_label": "Code From Your App or a Recovery Code",
+      "turned_on": "Two-step sign-in is on",
+      "turned_off": "Two-step sign-in is off"
+    },
+    "admin": {
+      "require": "Require Two-Step Sign-In for Everyone",
+      "require_desc": "Anyone who signs in with a password and hasn't set it up does so right after their password, the next time they sign in. Single sign-on accounts aren't affected.",
+      "required_on": "Two-step sign-in is now required",
+      "required_off": "Two-step sign-in is no longer required",
+      "required_failed": "Couldn't save: {msg}",
+      "reset": "Reset Two-Step Sign-In",
+      "reset_title": "Reset Two-Step Sign-In for {name}?",
+      "reset_message": "Their authenticator app and recovery codes stop working, and they sign in with their password alone until they set it up again. They're emailed if the server sends email.",
+      "your_password": "Your Password",
+      "your_code": "Your Two-Step Code",
+      "reset_confirm": "Reset",
+      "resetting": "Resetting…",
+      "reset_done": "Two-step sign-in reset for {name}"
+    },
+    "locked_out": {
+      "title": "Reset Two-Step Sign-In for One Account",
+      "explain": "For someone who lost their phone and their recovery codes. Only that account changes: it signs in with its password alone until two-step sign-in is set up again.",
+      "username_placeholder": "Username",
+      "action": "Reset Two-Step Sign-In",
+      "resetting": "Resetting…",
+      "failed": "Couldn't reset two-step sign-in",
+      "done": "Two-step sign-in is off for {name}. Sign in with the password.",
+      "disable_title": "Disable User Management"
+    },
+    "reset_password_done": "Your password was changed. Two-step sign-in is on for this account, so sign in with your new password and your code."
   }
 }

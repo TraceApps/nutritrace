@@ -308,6 +308,33 @@ export async function sendInvite(email, inviteUrl, inviterName) {
   });
 }
 
+// ── Two-step sign-in changed (#222) ────────────────────────────────────────
+// Turned on or off, reset, new recovery codes, a recovery code used: said so
+// the person notices a change they didn't make. Never a code or a secret.
+export async function sendTwoStepNotice(email, { title, message, appUrl }) {
+  if (!email) return;
+  let origin = '';
+  try { origin = appUrl ? new URL(appUrl).origin : ''; } catch { origin = ''; }
+  const body = `
+    ${greeting(null)}
+    <p class="nt-heading" style="margin:0 0 10px;font-size:20px;font-weight:700;color:#FFFFFF;line-height:1.3;">
+      ${_escapeHtml(title)}
+    </p>
+    <p class="nt-body-txt" style="margin:0 0 16px;font-size:15px;color:#8A93A8;line-height:1.7;">
+      ${_escapeHtml(message)}
+    </p>
+    <p class="nt-body-txt" style="margin:0 0 28px;font-size:15px;color:#8A93A8;line-height:1.7;">
+      If this wasn&rsquo;t you, change your password and tell your NutriTrace admin.
+    </p>
+    ${appUrl ? ctaButton(appUrl, 'Open NutriTrace') : ''}`;
+  await sendMail({
+    to: email,
+    subject: `NutriTrace: ${title}`,
+    html: emailWrapper(origin, body, null, message),
+    text: `${message}\n\nIf this wasn't you, change your password and tell your NutriTrace admin.${appUrl ? `\n\n${appUrl}` : ''}`,
+  });
+}
+
 // ── Coaching: a new message ────────────────────────────────────────────────
 // Only that there is one and who sent it: the message itself stays in the app.
 // At most once per 30 minutes per conversation (lib/coaching-messages.js).

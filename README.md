@@ -144,7 +144,8 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `INSECURE_COOKIES` | If on plain HTTP | `0` | Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `TZ` | No | `UTC` | The server's time zone, such as `America/New_York` (needs no tzdata). Names backups and runs a backup schedule that has no time zone of its own, `BACKUP_TIME` included. Set it in the container's environment and restart. |
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on the auth cookie lifetime. |
-| `RECOVERY_TOKEN` | No |  | Passphrase to disable user management from the login page (lockout recovery). |
+| `RECOVERY_TOKEN` | No |  | Passphrase for Locked Out? on the login page: reset two-step sign-in for one account (16 characters or more), or disable user management (lockout recovery). |
+| `TWO_STEP_KEY` | No | a generated `two-step.key` next to the database | Key that locks two-step sign-in secrets. Leave it unset unless you keep secrets outside the data folder. |
 | `OFF_LOCAL_DB` | No |  | Path to an Open Food Facts Parquet snapshot (or legacy DuckDB file) for an air-gap mirror. |
 | `USDA_API_KEY` | No |  | Optional server-side USDA FoodData Central key (users can also enter their own in Settings). |
 | `MEALIE_URL` | No |  | Base URL of a Mealie instance for recipe import. |

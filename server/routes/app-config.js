@@ -22,6 +22,8 @@ const ALLOWED_KEYS = new Set([
   'bulk_vis_foods', 'bulk_vis_meals', 'bulk_vis_recipes',
   'bulk_users_foods', 'bulk_users_meals', 'bulk_users_recipes',
   'password_policy',
+  // Require Two-Step Sign-In for Everyone (#222): 'true' or off.
+  'two_step_required',
 ]);
 
 // ── GET /api/app-config/env-locks — which sections are locked by env vars ──

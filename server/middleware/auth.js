@@ -56,13 +56,20 @@ export function sessionMaxAge() {
   return hours * 60 * 60 * 1000;
 }
 
+// A session is a token signToken() made. Anything else signed with our
+// secret that carries a `typ` (a two-step sign-in pending token is signed
+// with a key of its own, so this is a second lock) is no session.
+function _session(payload) {
+  return payload && typeof payload === 'object' && payload.typ == null ? payload : null;
+}
+
 // A bearer token is ours when its signature verifies with our secret,
 // expired or not: { user } (null once expired). Anything else (an API
 // token, a reverse proxy's or identity provider's token) isn't: null.
 // jsonwebtoken checks the signature before the times, so an expiry error
 // means the signature held.
 function _ourBearer(token) {
-  try { return { user: jwt.verify(token, JWT_SECRET) }; } catch (e) {
+  try { return { user: _session(jwt.verify(token, JWT_SECRET)) }; } catch (e) {
     return e?.name === 'TokenExpiredError' || e?.name === 'NotBeforeError' ? { user: null } : null;
   }
 }
@@ -81,7 +88,7 @@ export function authenticate(req, res, next) {
   if (ours) { req.user = ours.user; req.authVia = 'bearer'; return next(); }
   const cookie = req.cookies?.nt_token;
   req.user = null;
-  if (cookie) { try { req.user = jwt.verify(cookie, JWT_SECRET); } catch { /* no session */ } }
+  if (cookie) { try { req.user = _session(jwt.verify(cookie, JWT_SECRET)); } catch { /* no session */ } }
   req.authVia = req.user ? 'cookie' : null;
   next();
 }

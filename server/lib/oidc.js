@@ -10,6 +10,7 @@
  * secrets are stored encrypted via server/lib/token-crypto.js.
  */
 import { Issuer, generators, custom } from 'openid-client';
+import { isEnabled as twoStepEnabled, isRequired as twoStepRequired } from './two-step.js';
 import crypto from 'crypto';
 import db from '../db.js';
 import { encrypt, decrypt } from './token-crypto.js';
@@ -245,6 +246,14 @@ export function resolveUser(provider, claims) {
   // 2. Verified-email auto-link to existing local user
   if (email && emailVerified && autoLink) {
     const localByEmail = db.prepare(`SELECT * FROM users WHERE email = ?`).get(email);
+    // An account with two-step sign-in on is never linked by email alone:
+    // whoever holds that email at the identity provider would skip the
+    // password and the code (#222). The person links it themselves.
+    // Required for everyone and not set up yet counts too: the password
+    // path would make them set it up first.
+    if (localByEmail && (twoStepEnabled(localByEmail.id) || (twoStepRequired() && localByEmail.password_hash))) {
+      throw new Error(`Your ${provider.display_name || 'OIDC'} account matches a NutriTrace account that uses two-step sign-in. Sign in with your password and code once, then link this provider from Profile, Linked Accounts.`);
+    }
     if (localByEmail) {
       db.prepare(
         `INSERT INTO user_oidc_links (user_id, oidc_provider_id, oidc_sub, email_verified, last_login_at)

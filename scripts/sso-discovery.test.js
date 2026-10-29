@@ -328,7 +328,9 @@ test('wiring: every connect screen uses the shared discovery and says what it co
   assert.match(setup, /await checkServer\(url\);\s*validatedUrl = url;\s*await loadSignInOptions\(\);/);
   assert.match(setup, /optionsError = optionsErrorText\(e\);/);
   assert.match(setup, /\{#if optionsError\}[\s\S]*?\{optionsError\}[\s\S]*?on:click=\{retryOptions\}/);
-  assert.match(setup, /await passwordSignIn\(validatedUrl, username\.trim\(\), password\);\s*keepSsoLogoutHint\(null\);/);
+  assert.match(setup, /await passwordSignIn\(validatedUrl, username\.trim\(\), password\);\s*passwordSignedIn\(loginData\);/);
+  // After the password, or the password and the two-step code (#222).
+  assert.match(setup, /function passwordSignedIn\(loginData\) \{\s*keepSsoLogoutHint\(null\);/);
 
   const sc = read('../src/routes/settings/ServerConnection.svelte');
   assert.match(sc, /\{:else if optionsState === 'failed'\}[\s\S]*?\{optionsError\}[\s\S]*?signInOptions\.retry\(\)/);

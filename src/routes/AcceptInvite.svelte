@@ -6,6 +6,9 @@
   import { loadServerSettings } from '../stores/settings.js';
   import { validatePassword, passwordStrength } from '../lib/validation.js';
   import { apiUrl, resolveAssetUrl, iconUrl } from '../lib/platform.js';
+  import { loadAuthState } from '../stores/auth.js';
+  import { twoStepChallenge } from '../lib/two-step.js';
+  import TwoStepChallenge from '../components/two-step/TwoStepChallenge.svelte';
 
   $: pwScore = passwordStrength(password);
 
@@ -20,6 +23,8 @@
   let tokenValid = false;
   let error      = '';
   let done       = false;
+  // The admin requires two-step sign-in (#222): set up before the first session.
+  let challenge  = null;
 
   onMount(async () => {
     const params = new URLSearchParams($querystring);
@@ -49,17 +54,30 @@
         body: JSON.stringify({ token, username: username.trim(), password, full_name: fullName.trim() || undefined }),
       });
       const data = await res.json();
+      const ch = twoStepChallenge(data);
+      if (ch) { challenge = ch; return; }
       if (!res.ok) { error = data.error || $_('accept_invite.errors.failed'); return; }
-      localStorage.setItem('wl:userId', String(data.user.id));
-      currentUser.set(data.user);
-      await loadServerSettings();
-      done = true;
-      setTimeout(() => push('/'), 2000);
+      await accountReady(data);
     } catch {
       error = $_('common.errors.cant_reach_server');
     } finally {
       loading = false;
     }
+  }
+
+  async function accountReady(data) {
+    localStorage.setItem('wl:userId', String(data.user.id));
+    currentUser.set(data.user);
+    await loadServerSettings();
+    done = true;
+    setTimeout(() => push('/'), 2000);
+  }
+
+  async function twoStepDone(e) {
+    challenge = null;
+    // The session cookie came with setup; read it back like a sign-in (CSRF token too).
+    await loadAuthState();
+    await accountReady(e.detail);
   }
 </script>
 
@@ -79,6 +97,10 @@
         <p style="color:var(--text-2);font-size:14px">{$_('accept_invite.invalid_link')}</p>
         <button class="btn btn-secondary w-full" on:click={() => push('/login')}>{$_('forgot_password.back_to_signin')}</button>
       </div>
+
+    {:else if challenge}
+      <TwoStepChallenge {challenge} account={username.trim()} on:done={twoStepDone}
+        on:restart={() => { challenge = null; push('/login'); }} />
 
     {:else if done}
       <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px">

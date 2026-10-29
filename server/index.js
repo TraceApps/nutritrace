@@ -17,6 +17,7 @@ import { fileURLToPath } from 'url';
 
 import proxyRoutes  from './routes/proxy.js';
 import authRoutes   from './routes/auth.js';
+import twoStepRoutes from './routes/two-step.js';
 import dataRoutes   from './routes/data.js';
 import foodsRoutes  from './routes/foods.js';
 import mealsRoutes  from './routes/meals.js';
@@ -245,6 +246,8 @@ router.use('/api', (req, res, next) => {
 // above (it allows anything under /auth) so OIDC can bootstrap a fresh
 // install.
 router.use('/api/auth/oidc', oidcRoutes);
+// Two-step sign-in (#222): before authRoutes, under /api/auth like sign-in.
+router.use('/api/auth/two-step', twoStepRoutes);
 router.use('/api/auth',   authRoutes);
 // OIDC admin (provider CRUD) — gated by requireAuth + requireAdmin inside
 // the router; setup-required gate blocks it until a user exists, which is

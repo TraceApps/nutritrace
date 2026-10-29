@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "reset-2fa": "node scripts/reset-2fa.js"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.4.0-r.1",
@@ -22,6 +23,7 @@
     "multer": "^2.2.0",
     "nodemailer": "^10.0.12",
     "openid-client": "^5.7.1",
+    "qrcode-generator": "2.0.4",
     "undici": "^6.29.0",
     "zod": "^4.4.3"
   }

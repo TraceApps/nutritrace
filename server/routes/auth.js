@@ -14,6 +14,7 @@ import { claimAnonymousData, purgeUnreferencedUserData, purgeUserRows } from '..
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
 import { deletePhotosForUser, deleteAllPhotos } from '../lib/coaching-messages.js';
 import { COACHING_VERSION, coachingState, endCoachingIfNotCoach, requestFromInvite, canCoach, roleOf, personName } from '../lib/coaching.js';
+import { challengeFor, issuePending, isEnabled as twoStepEnabled, checkRecoveryToken } from '../lib/two-step.js';
 
 // The roles an admin can give. A Coach is a User everywhere except coaching.
 const ROLES = ['user', 'coach', 'admin'];
@@ -64,7 +65,7 @@ function _bumpBucket(map, key, max) {
   return true;
 }
 
-function rateLimitLogin(req, res, next) {
+export function rateLimitLogin(req, res, next) {
   const ip = req.ip || req.connection.remoteAddress;
   const username = (req.body?.username || '').trim().toLowerCase();
   if (!_bumpBucket(_ipAttempts, ip, IP_MAX)) {
@@ -115,7 +116,31 @@ function safeUser(u) {
   // can render badges and the Unlink/Link UI without an extra round-trip.
   let linked_providers = [];
   try { linked_providers = listUserLinks(u.id); } catch {}
-  return { ...rest, has_password: !!password_hash, linked_providers };
+  // Whether two-step sign-in is on (#222): Settings, Users offers its reset.
+  let two_step_enabled = false;
+  try { two_step_enabled = twoStepEnabled(u.id); } catch {}
+  return { ...rest, has_password: !!password_hash, linked_providers, two_step_enabled };
+}
+
+/** Signs someone in: the session cookie, and { user, token } for the app. */
+export function finishSignIn(req, res, user, extra = {}) {
+  const token = signToken(user);
+  warnIfPlainHttp(req);
+  res.cookie('nt_token', token, { ...COOKIE_OPTS, maxAge: sessionMaxAge() });
+  res.json({ ...extra, user: safeUser(user), token });
+}
+
+// Two-step sign-in (#222): the password was right, but a code is due
+// ('verify') or must be set up first ('setup'). No session, no token: a
+// pending token that opens only /api/auth/two-step. The answer is a 401
+// with a plain error, so an app or a cached web page from before two-step
+// sign-in says so instead of signing in without the code.
+export const TWO_STEP_OLD_CLIENT = {
+  verify: 'This account uses two-step sign-in. Update NutriTrace (or reload this page) to enter your code.',
+  setup: 'Your admin requires two-step sign-in. Update NutriTrace (or reload this page) to set it up.',
+};
+function sendTwoStepChallenge(res, user, kind, extra = {}) {
+  res.status(401).json({ error: TWO_STEP_OLD_CLIENT[kind], two_step: kind, pending_token: issuePending(user, kind), ...extra });
 }
 
 // ── Status: is user management active? ────────────────────────────────────
@@ -208,11 +233,9 @@ router.post('/login', rateLimitLogin, wrap((req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
-  const token = signToken(user);
-  const cookieOpts = { ...COOKIE_OPTS, maxAge: sessionMaxAge() };
-  warnIfPlainHttp(req);
-  res.cookie('nt_token', token, cookieOpts);
-  res.json({ user: safeUser(user), token });
+  const kind = challengeFor(user);
+  if (kind) return sendTwoStepChallenge(res, user, kind);
+  finishSignIn(req, res, user);
 }));
 
 // ── Logout ─────────────────────────────────────────────────────────────────
@@ -448,15 +471,12 @@ router.delete('/management', requireAuth, requireAdmin, wrap((req, res) => {
 // Requires RECOVERY_TOKEN env var to prevent unauthenticated account wipes.
 router.post('/recover', rateLimitLogin, wrap((req, res) => {
   if (req.user) return res.status(400).json({ error: 'You are already signed in. Use Settings to disable user management.' });
-  const token = process.env.RECOVERY_TOKEN;
-  if (!token) return res.status(503).json({ error: 'Recovery not available. Set RECOVERY_TOKEN environment variable.' });
-  // Constant-time comparison to defeat timing-attack guesses against the token.
-  const provided = req.body?.token || '';
-  const a = Buffer.from(token, 'utf8');
-  const b = Buffer.from(provided, 'utf8');
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    return res.status(403).json({ error: 'Invalid recovery token.' });
-  }
+  // Constant time, with wrong tokens from every address counted together,
+  // shared with Locked Out?'s two-step reset (lib/two-step.js).
+  const check = checkRecoveryToken(req.body?.token, { ip: req.ip });
+  if (check === 'limited') return res.status(429).json({ error: 'Too many wrong recovery tokens. Try again later, or use npm run reset-2fa on the server.' });
+  if (check === 'unset') return res.status(503).json({ error: 'Recovery not available. Set RECOVERY_TOKEN environment variable.' });
+  if (check !== 'ok') return res.status(403).json({ error: 'Invalid recovery token.' });
   db.prepare('DELETE FROM users').run();
   // Tables without an FK to users(id) survive the cascade — clear them too.
   purgeUnreferencedUserData();
@@ -520,6 +540,17 @@ router.post('/reset-password', wrap((req, res) => {
   db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token = ?').run(token);
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);
+  // An emailed link proves the inbox, not the second step: with two-step
+  // sign-in on (or required), the new password signs in on the sign-in
+  // page, which asks for the code. A 401 so a page from before this says
+  // the message instead of signing in.
+  const due = challengeFor(user);
+  if (due) {
+    const error = due === 'setup'
+      ? 'Your password was changed. Sign in with it to set up two-step sign-in, which your admin requires.'
+      : 'Your password was changed. Sign in with it and your two-step sign-in code.';
+    return res.status(401).json({ error, password_changed: true });
+  }
   res.cookie('nt_token', signToken(user), COOKIE_OPTS);
   res.json({ user: safeUser(user) });
 }));
@@ -621,6 +652,9 @@ router.post('/accept-invite', wrap((req, res) => {
   requestFromInvite(invite.coach_id ?? null, Number(result.lastInsertRowid));
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+  // The admin requires two-step sign-in: it's set up before the first session.
+  const kind = challengeFor(user);
+  if (kind) return sendTwoStepChallenge(res, user, kind, { account_created: true });
   res.cookie('nt_token', signToken(user), COOKIE_OPTS);
   res.json({ user: safeUser(user) });
 }));

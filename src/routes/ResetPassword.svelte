@@ -18,6 +18,9 @@
   let tokenValid = false;
   let error    = '';
   let done     = false;
+  // Two-step sign-in is on (#222): the link changed the password but
+  // doesn't sign in; the sign-in page asks for the code.
+  let signInNext = false;
 
   onMount(async () => {
     const params = new URLSearchParams($querystring);
@@ -46,6 +49,7 @@
         body: JSON.stringify({ token, password }),
       });
       const data = await res.json();
+      if (data?.password_changed) { signInNext = true; return; }
       if (!res.ok) { error = data.error || $_('reset_password.errors.failed'); return; }
       localStorage.setItem('wl:userId', String(data.user.id));
       currentUser.set(data.user);
@@ -81,6 +85,13 @@
       <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px">
         <span class="material-symbols-rounded" style="font-size:48px;color:var(--accent)">check_circle</span>
         <p style="color:var(--text-2);font-size:14px">{$_('reset_password.success')}</p>
+      </div>
+
+    {:else if signInNext}
+      <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px">
+        <span class="material-symbols-rounded" style="font-size:48px;color:var(--accent)">check_circle</span>
+        <p style="color:var(--text-2);font-size:14px">{$_('two_step.reset_password_done')}</p>
+        <button class="btn btn-primary w-full" on:click={() => push('/login')}>{$_('login.sign_in')}</button>
       </div>
 
     {:else}

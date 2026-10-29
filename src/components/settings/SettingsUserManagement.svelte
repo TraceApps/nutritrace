@@ -15,6 +15,7 @@
   import RequestSheet from '../coaching/RequestSheet.svelte';
   import { coachingSupported, refreshCoaching } from '../../stores/coaching.js';
   import { localDay, coachingErrorText } from '../../lib/coaching-view.js';
+  import { twoStepCall, callError } from '../../lib/two-step.js';
 
   // ── User Management state ────────────────────────────────────────────────────
   let umUsers        = [];
@@ -46,6 +47,54 @@
   // Password Policy (admin-only) — 'standard' | 'strong'
   let passwordPolicy = 'standard';
   let passwordPolicySaved = false;
+
+  // Require Two-Step Sign-In for Everyone (admin-only, #222).
+  let twoStepRequired = false;
+
+  // Reset Two-Step Sign-In for someone (#222): the admin's own password,
+  // and own code when they have it on.
+  let _tsTarget = null;
+  let _tsOpen = false;
+  let _tsPassword = '';
+  let _tsCode = '';
+  let _tsBusy = false;
+  let _tsError = '';
+  function openTwoStepReset(u) {
+    _tsTarget = u; _tsPassword = ''; _tsCode = ''; _tsError = ''; _tsOpen = true;
+  }
+  async function confirmTwoStepReset() {
+    if (_tsBusy || !_tsTarget || !_tsPassword) return;
+    _tsBusy = true;
+    _tsError = '';
+    try {
+      const r = await twoStepCall(`/users/${_tsTarget.id}/reset`, { body: { password: _tsPassword, code: _tsCode.trim() || undefined } });
+      if (r.status !== 200) { _tsError = callError(r, $_('two_step.errors.generic')).message; return; }
+      showSuccess($_('two_step.admin.reset_done', { values: { name: _tsTarget.full_name || _tsTarget.username } }));
+      _tsOpen = false;
+      await loadUsers();
+    } catch {
+      _tsError = $_('settings.users.err_could_not_reach_server');
+    } finally {
+      _tsBusy = false;
+    }
+  }
+
+  async function saveTwoStepRequired(value) {
+    const prev = twoStepRequired;
+    twoStepRequired = value;
+    try {
+      const res = await fetch(apiUrl('/api/app-config'), {
+        method: 'PUT', credentials: 'include',
+        headers: _csrfHeaders(),
+        body: JSON.stringify({ key: 'two_step_required', value: value ? 'true' : '' }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || String(res.status));
+      showSuccess(value ? $_('two_step.admin.required_on') : $_('two_step.admin.required_off'));
+    } catch (e) {
+      twoStepRequired = prev;
+      showError($_('two_step.admin.required_failed', { values: { msg: e?.message || '' } }));
+    }
+  }
 
   // OIDC providers + password-login toggle live in SettingsAuth.svelte
   // (its own top-level Settings section).
@@ -144,6 +193,7 @@
       const cfg = await res.json();
       sessionHours = cfg.session_hours ?? '8760';
       passwordPolicy = cfg.password_policy || 'standard';
+      twoStepRequired = cfg.two_step_required === 'true' || cfg.two_step_required === '1';
     } catch (e) {
       console.warn('[user-mgmt] loadSessionConfig threw', e);
     }
@@ -521,6 +571,12 @@
                     {/if}
                   </div>
                 </div>
+                {#if u.id !== $currentUser?.id && u.two_step_enabled}
+                  <button class="btn btn-ghost um-del-btn" title={$_('two_step.admin.reset')} aria-label={$_('two_step.admin.reset')}
+                    on:click={() => openTwoStepReset(u)}>
+                    <span class="material-symbols-rounded" style="font-size:18px;color:var(--text-3)">phonelink_erase</span>
+                  </button>
+                {/if}
                 {#if u.id !== $currentUser?.id}
                   <button class="btn btn-ghost um-del-btn" title={$_('settings.users.reset_password')}
                     on:click={() => resetUserPassword(u)}>
@@ -697,6 +753,15 @@
         <div class="setting-divider"></div>
         <div class="setting-row">
           <div>
+            <span class="setting-label">{$_('two_step.admin.require')}</span>
+            <div class="setting-desc">{$_('two_step.admin.require_desc')}</div>
+          </div>
+          <Toggle checked={twoStepRequired} on:change={e => saveTwoStepRequired(e.detail)} />
+        </div>
+
+        <div class="setting-divider"></div>
+        <div class="setting-row">
+          <div>
             <span class="setting-label">{$_('settings.users.strong_passwords')}</span>
             <div class="setting-desc">{$_('settings.users.strong_passwords_desc')}</div>
           </div>
@@ -810,6 +875,28 @@
 </div>
 
 <!-- Type-username-to-confirm delete-user dialog with cascade preview -->
+<Dialog
+  bind:open={_tsOpen}
+  title={_tsTarget ? $_('two_step.admin.reset_title', { values: { name: _tsTarget.full_name || _tsTarget.username } }) : ''}
+  message={$_('two_step.admin.reset_message')}
+  confirmText={_tsBusy ? $_('two_step.admin.resetting') : $_('two_step.admin.reset_confirm')}
+  cancelText={$_('common.cancel')}
+  dangerous={true}
+  manualClose={true}
+  confirmDisabled={!_tsPassword || _tsBusy || ($currentUser?.two_step_enabled && !_tsCode.trim())}
+  on:cancel={() => { _tsOpen = false; }}
+  on:confirm={confirmTwoStepReset}>
+  <div class="ts-reset-form">
+    <label class="form-label" for="ts-admin-pw">{$_('two_step.admin.your_password')}</label>
+    <input id="ts-admin-pw" class="input" type="password" autocomplete="current-password" bind:value={_tsPassword} />
+    {#if $currentUser?.two_step_enabled}
+      <label class="form-label" for="ts-admin-code">{$_('two_step.admin.your_code')}</label>
+      <input id="ts-admin-code" class="input" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" bind:value={_tsCode} />
+    {/if}
+    {#if _tsError}<p class="ts-reset-error" role="alert">{_tsError}</p>{/if}
+  </div>
+</Dialog>
+
 <Dialog
   bind:open={_delOpen}
   title={_delTarget ? `Delete ${_delTarget.full_name || _delTarget.username}?` : 'Delete user?'}
@@ -1085,4 +1172,6 @@
   .pending-invite-revoke:hover { color: var(--danger, #ef4444); }
   :global(.um-form-block .input.invalid) { border-color: var(--danger, #ef4444); }
 
+  .ts-reset-form { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 8px; }
+  .ts-reset-error { margin: 0; color: var(--danger); font-size: 13px; }
 </style>
