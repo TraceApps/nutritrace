@@ -1699,12 +1699,19 @@
     border-radius: var(--radius-lg);
     cursor: pointer;
     text-align: left;
-    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+    transition: background 120ms ease, border-color 120ms ease;
   }
   .settings-onboarding-card:hover {
     background: var(--surface-2);
     border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-    transform: translateY(-1px);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .settings-onboarding-card {
+      transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+    }
+    .settings-onboarding-card:hover {
+      transform: translateY(-1px);
+    }
   }
   .settings-onboarding-card:focus-visible {
     outline: 2px solid var(--accent);
