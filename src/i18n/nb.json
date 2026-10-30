@@ -485,8 +485,6 @@
       "fix_link": "Slik løser du det"
     },
     "recovery": {
-      "confirm": "Dette vil slette alle brukerkontoer. Mat- og dagbokdataene dine beholdes. Vil du fortsette?",
-      "explainer": "Hvis du aldri satte opp brukerkontoer med vilje, kan du deaktivere brukeradministrasjon. <strong>Dette vil slette alle brukerkontoer.</strong> Mat- og dagbokdataene dine beholdes.",
       "token_prompt": "Skriv inn <code>RECOVERY_TOKEN</code> fra servermiljøet ditt:",
       "token_placeholder": "Gjenopprettingstoken",
       "action": "Deaktiver brukeradministrasjon og tilbakestill",
