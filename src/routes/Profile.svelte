@@ -34,6 +34,7 @@
   import EmailConfirm from '../components/two-step/EmailConfirm.svelte';
   import { biometricLoginEnabled } from '../stores/settings.js';
   import * as biometric from '../lib/biometric.js';
+  import { adoptSession } from '../lib/fresh-session.js';
 
   // Probe biometric on mount. Render the row when biometric is fully working
   // OR when hardware exists but no fingerprint is enrolled (so the user knows
@@ -234,6 +235,9 @@
   // OIDC: provider list + linked accounts for the current user
   let oidcProviders = [];
   let linkedProviders = [];
+  // Back from linking in the phone's browser, the account is read again
+  // with its links: the list shows the new one without reopening Profile.
+  $: if (Array.isArray($currentUser?.linked_providers)) linkedProviders = $currentUser.linked_providers;
   let unlinking = null;
   async function loadOidc() {
     try {
@@ -260,10 +264,20 @@
     linkProvider = oidcProviders.find((p) => p.id === providerId) || { id: providerId };
     linkConfirmOpen = true;
   }
-  function linkGranted(e) {
+  async function linkGranted(e) {
     const { provider, grant } = e.detail;
     const ret = encodeURIComponent('#/profile');
-    window.location.href = apiUrl(`/api/auth/oidc/login/${provider.id}?link=1&link_grant=${encodeURIComponent(grant)}&return=${ret}`);
+    const url = apiUrl(`/api/auth/oidc/login/${provider.id}?link=1&link_grant=${encodeURIComponent(grant)}&return=${ret}`);
+    if (isNative) {
+      // The Android app links in the phone's browser and comes back through
+      // its oidc-callback link (?linked=1), as its sign-in does. Before, the
+      // app's page itself went to the provider and the link ended on the
+      // web app in the browser (#222).
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({ url: `${url}&mobile=1`, presentationStyle: 'popover' });
+      return;
+    }
+    window.location.href = url;
   }
   async function unlink(linkId) {
     if (!confirm('Unlink this provider? You won\'t be able to sign in with it again until you re-link.')) return;
@@ -289,6 +303,37 @@
   $: canChangePassword = hasPassword;
   $: canSetPassword = !hasPassword;
 
+  // Sign Out Everywhere (#222): every session this account has ends, and
+  // this device is given a new one (server/lib/session-version.js).
+  let signingOutEverywhere = false;
+  async function signOutEverywhere() {
+    if (signingOutEverywhere) return;
+    const ok = await confirmDialog({
+      title: $_('profile.sign_out_everywhere_title'),
+      message: $_('profile.sign_out_everywhere_message'),
+      confirmText: $_('profile.sign_out_everywhere'),
+      dangerous: true,
+    });
+    if (!ok) return;
+    signingOutEverywhere = true;
+    try {
+      const csrf = isNative ? null : localStorage.getItem('nt:csrf');
+      const res = await fetch(apiUrl('/api/auth/sign-out-everywhere'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: _headers(csrf ? { 'X-CSRF-Token': csrf } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showError(data.error || $_('common.errors.failed')); return; }
+      await adoptSession(data.session);
+      showSuccess($_('profile.signed_out_everywhere'));
+    } catch {
+      showError($_('common.errors.cant_reach_server'));
+    } finally {
+      signingOutEverywhere = false;
+    }
+  }
+
   async function changePassword() {
     if (new_password !== new_password2) { showError($_('reset_password.errors.mismatch')); return; }
     const pwErr = validatePassword(new_password);
@@ -306,6 +351,8 @@
       });
       const data = await res.json();
       if (!res.ok) { showError(data.error || $_('common.errors.failed')); return; }
+      // Every other device is signed out; this one keeps going on a new session.
+      await adoptSession(data.session);
       showSuccess($_('profile.password_changed'));
       changingPassword = false;
       cur_password = new_password = new_password2 = '';
@@ -451,6 +498,16 @@
           <span class="security-label">{hasPassword ? $_('profile.change_password') : $_('profile.set_password')}</span>
           <span class="material-symbols-rounded security-chev">chevron_right</span>
         </button>
+        {#if $userMgmtActive}
+          <button class="security-row" on:click={signOutEverywhere} disabled={signingOutEverywhere}>
+            <span class="material-symbols-rounded security-icon">devices</span>
+            <span class="security-label">
+              {$_('profile.sign_out_everywhere')}
+              <span class="security-hint">{$_('profile.sign_out_everywhere_hint')}</span>
+            </span>
+            <span class="material-symbols-rounded security-chev">chevron_right</span>
+          </button>
+        {/if}
       {:else}
         {#if hasPassword}
           <div class="form-group">
@@ -652,6 +709,7 @@
   .security-row:hover { background: var(--surface-2); }
   .security-icon { font-size: 20px; color: var(--accent); flex-shrink: 0; }
   .security-label { flex: 1; font-weight: 500; }
+  .security-hint { display: block; font-size: 12px; font-weight: 400; color: var(--text-3); margin-top: 2px; }
   .security-chev { font-size: 20px; color: var(--text-3); flex-shrink: 0; }
 
   /* Danger zone button — full width, danger-tinted, icon + label centered. */

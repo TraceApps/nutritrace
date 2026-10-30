@@ -12,6 +12,10 @@
 import { apiUrl } from './platform.js';
 
 const KEY = 'nt:oidc_app_verifier';
+// When this app last opened a single sign-on page, so a deep link that
+// arrives with no sign-in under way is known for what it is.
+const STARTED = 'nt:oidc_app_started';
+const STARTED_FOR_MS = 15 * 60 * 1000;
 
 function _b64url(bytes) {
   let s = '';
@@ -19,13 +23,23 @@ function _b64url(bytes) {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** The app asked for a code (a sign-in is under way that a bare token mustn't finish). */
+/**
+ * A sign-in this app started in the last 15 minutes, taken by the deep link
+ * that answers it: true once, then false until the next one starts. A bare
+ * token arriving without one is another app's, never this phone's sign-in
+ * (lib/server-signin.js ssoCallbackAction). The secret stays for the code.
+ */
 export function challengeSent() {
-  try { return !!localStorage.getItem(KEY); } catch { return false; }
+  try {
+    const at = Number(localStorage.getItem(STARTED));
+    localStorage.removeItem(STARTED);
+    return Number.isFinite(at) && at > 0 && Date.now() - at < STARTED_FOR_MS;
+  } catch { return false; }
 }
 
 /** Query-string fragment to append to the native login URL. */
 export async function appChallengeParam() {
+  try { localStorage.setItem(STARTED, String(Date.now())); } catch {}
   // Without WebCrypto (not a secure context) fall back to the old link that
   // carries the token, rather than not signing in at all.
   if (!globalThis.crypto?.subtle) return '';
@@ -44,7 +58,7 @@ export async function appChallengeParam() {
  */
 export async function redeemHandoff(code, serverUrl = null) {
   let verifier = null;
-  try { verifier = localStorage.getItem(KEY); localStorage.removeItem(KEY); } catch {}
+  try { verifier = localStorage.getItem(KEY); localStorage.removeItem(KEY); localStorage.removeItem(STARTED); } catch {}
   const res = await fetch(serverUrl ? `${serverUrl}/api/auth/oidc/handoff` : apiUrl('/api/auth/oidc/handoff'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

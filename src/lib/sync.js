@@ -76,7 +76,21 @@ function _headers(token = getAuthToken()) {
  * Mirrors the 401 handling already present in
  * stores/auth.js#_refreshAuthFromServer for the /api/auth/me endpoint.
  */
-async function _handleSyncAuthError() {
+async function _handleSyncAuthError(said = null, sentWith = null) {
+  // Refused for a token this phone has since replaced (it changed the
+  // password or chose Sign Out Everywhere while this was out, #222): the
+  // new one stands, and nothing is cleared.
+  if (sentWith && sentWith !== getAuthToken()) return;
+  // The server says this device was signed out (a password change, Sign
+  // Out Everywhere): the sign-in page says so (lib/fresh-session.js). The
+  // unsent changes stay on the phone for the account's next sign-in.
+  try {
+    const body = typeof said === 'string' ? JSON.parse(said) : said ? await said.clone().json() : null;
+    if (body?.session_ended) {
+      const { sessionEnded } = await import('../stores/auth.js');
+      sessionEnded.set(true);
+    }
+  } catch { /* not JSON */ }
   console.warn('[sync] received 401 — clearing local auth so the user can re-sign-in');
   try {
     const { setAuthToken } = await import('./platform.js');
@@ -280,7 +294,7 @@ async function _sendCompletionOps(token, signal, gen) {
       body: JSON.stringify(body),
       signal: _deadline(signal),
     });
-    if (res.status === 401) { await _handleSyncAuthError(); throw new Error('Push failed: 401'); }
+    if (res.status === 401) { await _handleSyncAuthError(res, token); throw new Error('Push failed: 401'); }
     if (!res.ok && (res.status >= 500 || _RETRY_STATUS.has(res.status))) throw new Error(`Push failed: ${res.status}`);
     if (!live()) return true;
     await dbDeleteCompletionOp(op.id);
@@ -590,7 +604,7 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
     console.error(`[sync] push failed: ${res.status} ${errText}`);
-    if (res.status === 401) await _handleSyncAuthError();
+    if (res.status === 401) await _handleSyncAuthError(errText, token);
     throw new Error(`Push failed: ${res.status}`);
   }
   const result = await res.json();
@@ -792,7 +806,7 @@ async function pullChanges({ signal = null, gen = accountGeneration() } = {}) {
   });
 
   if (!res.ok) {
-    if (res.status === 401) await _handleSyncAuthError();
+    if (res.status === 401) await _handleSyncAuthError(res, token);
     throw new Error(`Pull failed: ${res.status}`);
   }
   const data = await res.json();

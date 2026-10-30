@@ -288,7 +288,7 @@ test('logging parity: a plan\'s items logged as the app logs them match the same
   assert.equal(Math.round(sum(await dayOf(TODAY)).calories), 190 + 405 + 420 + 120);
   const all = await ok('client', 'GET', '/api/diary');
   assert.deepEqual(sum(all.find((d) => d.date === TODAY).items), sum(all.find((d) => d.date === OTHER).items));
-  const { raw: token } = await ok('client', 'POST', '/api/admin/api-tokens', { name: 'reader', scopes: ['mcp:read'] });
+  const { raw: token } = await ok('client', 'POST', '/api/admin/api-tokens', { name: 'reader', scopes: ['mcp:read'], password: PW });
   const t1 = await ok(token, 'GET', `/api/v1/diary/${TODAY}/totals`), t2 = await ok(token, 'GET', `/api/v1/diary/${OTHER}/totals`);
   assert.deepEqual(t1.totals, t2.totals);
   // Sync: what a phone pulls is the same.

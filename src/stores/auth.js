@@ -25,8 +25,12 @@ export const userMgmtActive = writable(false);
  *  'proxy' (something in front of it asked to sign in).
  *  The sign-in page says it with Retry, never the app with nobody signed in. */
 export const authUnreachable = writable(null);
+/** True when the server said this device's session was signed out (a
+ *  password change, two-step sign-in changed, Sign Out Everywhere): the
+ *  sign-in page says so (lib/fresh-session.js). */
+export const sessionEnded = writable(false);
 // Whoever signs in (any path) is past it: a later sign-out never shows it again.
-currentUser.subscribe((u) => { if (u) authUnreachable.set(null); });
+currentUser.subscribe((u) => { if (u) { authUnreachable.set(null); sessionEnded.set(false); } });
 
 // Whether the server has accounts, as it last said: '1' yes, '0' single-user,
 // none when never heard from. Decides the first screen when it can't be asked.
@@ -193,6 +197,12 @@ async function _fetchAuthFromServer({ waitMs = 8000 } = {}) {
     authUnreachable.set(null);
     localStorage.setItem(MGMT_KEY, active ? '1' : '0');
     if (meData.features) _setFeatures(meData.features);
+    // Signed out on this device since: the sign-in page says why, and the
+    // account kept for opening offline goes (its queue stays, lib/offline-api.js).
+    if (!user && meData.session_ended) {
+      sessionEnded.set(true);
+      localStorage.removeItem('nt:cachedUser');
+    }
 
     // PWA single-user mode (server reachable, user mgmt off): hydrate the
     // synthetic LOCAL_USER from local settings so $currentUser is never
@@ -283,6 +293,16 @@ async function _refreshAuthFromServer() {
       }
       // 401 from /me means logged-out (after a logout call, or token expired).
       // Clear local user state so needsLogin in App.svelte fires the Login route.
+      let meData = null;
+      if (meRes.ok) { try { meData = await meRes.json(); } catch {} }
+      // Signed out on this device (a password change, Sign Out Everywhere):
+      // the sign-in page, saying why. The phone's copy and its unsent
+      // changes stay for the account's next sign-in.
+      if (meData?.session_ended && !meData.user) {
+        const { endSessionHere } = await import('../lib/fresh-session.js');
+        await endSessionHere();
+        return;
+      }
       if (meRes.status === 401) {
         currentUser.set(null);
         clearCoaching();
@@ -295,8 +315,7 @@ async function _refreshAuthFromServer() {
         } catch {}
         return;
       }
-      if (!meRes.ok) return; // actual server error — keep cached auth
-      const meData     = await meRes.json();
+      if (!meRes.ok || !meData) return; // actual server error: keep cached auth
       const user       = meData.user || null;
       if (meData.features) _setFeatures(meData.features);
       if (!user) return; // don't clear auth on native — keep cached user

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import db from '../db.js';
+import { sessionVersion, checkSession } from '../lib/session-version.js';
 
 // In production, refuse to start without an explicit JWT_SECRET — silently falling
 // back to a known default would mean every deploy ships forgeable tokens.
@@ -35,16 +36,19 @@ export function setupRequired() {
 // want shorter sessions still set Settings, Users, Session Duration.
 const DEFAULT_SESSION_HOURS = 8760;
 
-/** Sign a JWT for a user row */
-export function signToken(user) {
+/**
+ * Sign a JWT for a user row. `sv` is the account's session number
+ * (lib/session-version.js). `authTime`: when the person last signed in, for
+ * a session given again without a sign-in (a password change, Sign Out
+ * Everywhere), so it never counts as a fresh sign-in (lib/link-grant.js).
+ */
+export function signToken(user, { authTime = null } = {}) {
   const cfg = db.prepare("SELECT value FROM app_config WHERE key = 'session_hours'").get();
   const hours = cfg?.value != null && cfg.value !== '' ? parseInt(cfg.value) : DEFAULT_SESSION_HOURS;
   const opts = hours > 0 ? { expiresIn: `${hours}h` } : {};
-  return jwt.sign(
-    { id: user.id, username: user.username, role: user.role, csrf: crypto.randomBytes(16).toString('hex') },
-    JWT_SECRET,
-    opts
-  );
+  const claims = { id: user.id, username: user.username, role: user.role, csrf: crypto.randomBytes(16).toString('hex'), sv: sessionVersion(user.id) };
+  if (Number.isFinite(authTime)) claims.auth_time = authTime;
+  return jwt.sign(claims, JWT_SECRET, opts);
 }
 
 /** Read session maxAge for cookies (in ms). 0 = max-allowed (default 1 year). */
@@ -58,9 +62,15 @@ export function sessionMaxAge() {
 
 // A session is a token signToken() made. Anything else signed with our
 // secret that carries a `typ` (a two-step sign-in pending token is signed
-// with a key of its own, so this is a second lock) is no session.
+// with a key of its own, so this is a second lock) is no session. Nor is
+// one whose account signed every session out since it was made
+// (lib/session-version.js): `_ended` notes that, so the answer can say so.
+let _ended = false;
 function _session(payload) {
-  return payload && typeof payload === 'object' && payload.typ == null ? payload : null;
+  if (!(payload && typeof payload === 'object' && payload.typ == null)) return null;
+  const { session, ended } = checkSession(payload);
+  if (ended) _ended = true;
+  return session;
 }
 
 // A bearer token is ours when its signature verifies with our secret,
@@ -83,20 +93,30 @@ export function authenticate(req, res, next) {
   // session, never the cookie's. A bearer that isn't ours (a reverse proxy
   // in front of the web app can add its own) is left alone, and the web
   // signs in with its cookie as before.
+  // req.sessionEnded: the session was ours and good, but the account signed
+  // it out since (a password change, Sign Out Everywhere).
+  _ended = false;
   const auth = req.headers.authorization;
   const ours = auth?.startsWith('Bearer ') ? _ourBearer(auth.slice(7)) : null;
-  if (ours) { req.user = ours.user; req.authVia = 'bearer'; return next(); }
+  if (ours) { req.user = ours.user; req.authVia = 'bearer'; req.sessionEnded = _ended; return next(); }
   const cookie = req.cookies?.nt_token;
   req.user = null;
   if (cookie) { try { req.user = _session(jwt.verify(cookie, JWT_SECRET)); } catch { /* no session */ } }
   req.authVia = req.user ? 'cookie' : null;
+  req.sessionEnded = _ended;
   next();
 }
+
+/** What a request whose session was signed out is told, beside the 401. */
+export const SESSION_ENDED = {
+  error: 'You were signed out on this device. Sign in again.',
+  session_ended: true,
+};
 
 /** Require a logged-in user when user management is active; pass through otherwise */
 export function requireAuth(req, res, next) {
   if (!userMgmtActive()) return next();           // single-user mode — always allow
-  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (!req.user) return res.status(401).json(req.sessionEnded ? SESSION_ENDED : { error: 'Not authenticated' });
   next();
 }
 

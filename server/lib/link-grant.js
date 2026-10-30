@@ -14,7 +14,8 @@
  *   - is random, kept only as a hash, for one account;
  *   - lasts LINK_GRANT_MINUTES and works once (taken when the link starts,
  *     so a copied link address can't start a second one);
- *   - stops working when the account's password changes.
+ *   - stops working when the account's password changes, or its sessions
+ *     are signed out (lib/session-version.js).
  *
  * The link is also tied to the browser that started it: routes/oidc.js sets
  * a cookie holding a random value and keeps only its hash with the sign-in
@@ -55,7 +56,8 @@ db.exec(`
 `);
 
 const _hash = (token) => crypto.createHash('sha256').update(`traceapps.link-grant:${token}`).digest('hex');
-const _pwv = (user) => crypto.createHash('sha256').update(String(user.password_hash || '')).digest('hex').slice(0, 16);
+// The password and the session number: either changing ends a grant.
+const _pwv = (user) => crypto.createHash('sha256').update(`${user.password_hash || ''}|${user.session_version ?? 0}`).digest('hex').slice(0, 16);
 
 /** A new grant for this account: the token, shown once. */
 export function issueLinkGrant(user) {
@@ -84,9 +86,13 @@ export function consumeLinkGrant(token) {
   return user;
 }
 
-/** Whether a session was signed in recently enough to count as a fresh check. */
+/**
+ * Whether a session was signed in recently enough to count as a fresh
+ * check. A session given again without a sign-in (a password change, Sign
+ * Out Everywhere) carries the time of the sign-in it came from (auth_time).
+ */
 export function freshSignIn(session, nowMs = Date.now()) {
-  const iat = Number(session?.iat);
+  const iat = Number(session?.auth_time ?? session?.iat);
   return Number.isFinite(iat) && nowMs / 1000 - iat <= FRESH_SIGN_IN_MINUTES * 60 && nowMs / 1000 - iat >= -60;
 }
 

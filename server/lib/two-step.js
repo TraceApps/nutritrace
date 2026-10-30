@@ -12,6 +12,9 @@
  * - A code works once: the newest step used is kept, and it and anything
  *   older is refused. One step either side of now is accepted.
  * - Wrong codes are limited per account, per address, and per pending token.
+ * - Turning it on or off, or any reset, signs the account's sessions out
+ *   everywhere (lib/session-version.js); the route that did it from a
+ *   session gives that device a new one.
  * - Getting back in never takes SQL, and always means one account: a
  *   recovery code, an admin's reset, or the owner's RECOVERY_TOKEN or
  *   `npm run reset-2fa -- <username>`. Each is logged (never a secret or a
@@ -32,6 +35,7 @@ import { linkBase } from './public-url.js';
 import { base32Encode, newSecret, otpauthUri, verifyTotp, cleanCode } from './totp.js';
 import { sealSecret, openSecret, keyAvailable } from './two-step-key.js';
 import { emailUnconfirmed } from './link-grant.js';
+import { sessionVersion, bumpSessionVersion } from './session-version.js';
 
 export const APP_NAME = 'NutriTrace';
 export const RECOVERY_CODE_COUNT = 10;
@@ -127,7 +131,7 @@ const _pwv = (user) => crypto.createHash('sha256').update(String(user.password_h
 
 export function issuePending(user, kind) {
   return jwt.sign(
-    { typ: PENDING_TYP, sub: String(user.id), kind, pwv: _pwv(user), jti: crypto.randomBytes(12).toString('hex') },
+    { typ: PENDING_TYP, sub: String(user.id), kind, pwv: _pwv(user), sv: sessionVersion(user.id), jti: crypto.randomBytes(12).toString('hex') },
     _pendingKey,
     { expiresIn: `${PENDING_MINUTES[kind]}m`, algorithm: 'HS256' },
   );
@@ -136,7 +140,8 @@ export function issuePending(user, kind) {
 /**
  * The account a pending token is for: { user, kind, jti } or { error }.
  * Refused when expired, of the wrong kind, used up by wrong codes, or when
- * the password or two-step state changed since it was given.
+ * the password, two-step state or sessions (Sign Out Everywhere) changed
+ * since it was given.
  */
 export function readPending(token, kind) {
   const expired = { error: 'Your sign-in timed out. Enter your password again.', status: 401, restart: true };
@@ -147,6 +152,7 @@ export function readPending(token, kind) {
   if (_spent.has(p.jti)) return expired;
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(p.sub));
   if (!user || _pwv(user) !== p.pwv) return expired;
+  if ((Number.isInteger(p.sv) ? p.sv : 0) !== sessionVersion(user.id)) return expired;
   // Still due? Reset since (verify), or set up elsewhere since (setup).
   if (challengeFor(user) !== p.kind) return expired;
   return { user, kind: p.kind, jti: p.jti, exp: p.exp };
@@ -318,6 +324,7 @@ export function confirmSetup(user, code, { ip = null, jti = null, req = null } =
   }
   db.prepare(`UPDATE user_two_step SET enabled = 1, last_step = ?, enabled_at = datetime('now') WHERE user_id = ?`).run(step, user.id);
   const codes = _newRecoveryCodes(user.id);
+  bumpSessionVersion(user.id, 'two-step sign-in turned on', { req });
   audit('enabled', user, { req });
   return { recovery_codes: codes };
 }
@@ -339,7 +346,10 @@ export function turnOff(user, how, { req = null, by = null } = {}) {
     db.prepare('DELETE FROM user_two_step WHERE user_id = ?').run(user.id);
     db.prepare('DELETE FROM user_two_step_recovery WHERE user_id = ?').run(user.id);
   })();
-  if (wasOn) audit(how, user, { req, by });
+  if (wasOn) {
+    bumpSessionVersion(user.id, `two-step sign-in ${NOTICES[how]?.log || how}`, { by, req });
+    audit(how, user, { req, by });
+  }
   return wasOn;
 }
 

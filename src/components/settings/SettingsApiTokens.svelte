@@ -20,6 +20,7 @@
   import { showSuccess, showError } from '../../stores/toast.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import Spinner from '../ui/Spinner.svelte';
+  import FreshCheck from '../two-step/FreshCheck.svelte';
 
   // NT sub-components are body-only — the section-toggle button is
   // rendered externally in Settings.svelte. This component only renders
@@ -39,7 +40,17 @@
   let showCreateForm = false;
   let newName = '';
   let newScopes = new Set(['read:foods']);
-  let newExpiresDays = '';   // '' = never
+  // Days until it stops working, or 'never'. 90 days unless chosen otherwise.
+  const EXPIRY_CHOICES = [
+    ['30', 'settings_api_tokens.form.expiry_30'],
+    ['90', 'settings_api_tokens.form.expiry_90'],
+    ['365', 'settings_api_tokens.form.expiry_365'],
+    ['never', 'settings_api_tokens.form.expiry_never'],
+  ];
+  let newExpiry = '90';
+  // Creating one takes a fresh check (#222): the password, and the code when
+  // two-step sign-in is on (components/two-step/FreshCheck.svelte).
+  let freshOpen = false;
 
   // The just-created raw token, shown to the user once
   let justCreatedRaw = '';
@@ -84,40 +95,40 @@
     newScopes = newScopes; // trigger reactivity
   }
 
-  async function createNewToken() {
+  function createNewToken() {
     if (creating) return;
     if (!newName.trim()) { showError($_('common.errors.name_required')); return; }
     if (newScopes.size === 0) { showError($_('settings_api_tokens.toast.scope_required')); return; }
+    freshOpen = true;
+  }
 
+  // Sent with the fresh check: null when the token was made, else the error
+  // for the dialog to show.
+  async function sendCreate({ password, code }) {
     creating = true;
     try {
-      let expiresAt = null;
-      const days = Number(newExpiresDays);
-      if (Number.isFinite(days) && days > 0) {
-        expiresAt = new Date(Date.now() + days * 24 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ');
-      }
-
       const r = await fetch(apiUrl('/api/admin/api-tokens'), {
         method: 'POST', credentials: 'include',
         headers: _csrfHeaders(),
         body: JSON.stringify({
           name: newName.trim(),
           scopes: Array.from(newScopes),
-          expires_at: expiresAt,
+          expires_in_days: newExpiry === 'never' ? null : Number(newExpiry),
+          password,
+          code,
         }),
       });
-      const data = await r.json();
-      if (!r.ok) { showError(data.error || $_('settings_api_tokens.toast.create_failed')); return; }
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) return data.error || $_('settings_api_tokens.toast.create_failed');
 
       justCreatedRaw = data.raw;
       justCreatedName = data.token.name;
       showCreateForm = false;
       newName = '';
       newScopes = new Set(['read:foods']);
-      newExpiresDays = '';
+      newExpiry = '90';
       await load();
-    } catch (e) {
-      showError(e.message);
+      return null;
     } finally {
       creating = false;
     }
@@ -157,6 +168,13 @@
   function dismissJustCreated() {
     justCreatedRaw = '';
     justCreatedName = '';
+  }
+
+  // When a token stops working: a day to come, so the date itself (the
+  // relative words above only count back).
+  function _fmtDate(iso) {
+    const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
+    return isNaN(d) ? iso : d.toLocaleDateString();
   }
 
   function _fmtRelative(iso) {
@@ -219,7 +237,7 @@
                 <span class="token-meta text-3 text-sm">
                   {$_('settings_api_tokens.row.scopes_label')} {t.scopes.join(', ') || $_('settings_api_tokens.row.scopes_none')}
                   · {$_('settings_api_tokens.row.last_used', { values: { when: _fmtRelative(t.last_used_at) } })}
-                  {#if t.expires_at} · {$_('settings_api_tokens.row.expires', { values: { when: _fmtRelative(t.expires_at) } })}{/if}
+                  {#if t.expires_at} · {$_('settings_api_tokens.row.expires', { values: { when: _fmtDate(t.expires_at) } })}{/if}
                 </span>
               </div>
               <button class="btn-icon" title={$_('settings_api_tokens.row.revoke_title')} on:click={() => revokeOne(t)}>
@@ -266,8 +284,12 @@
                 </div>
               </div>
               <div class="form-group">
-                <label class="form-label">{$_('settings_api_tokens.form.expires_label')}</label>
-                <input class="input" type="number" min="1" placeholder={$_('settings_api_tokens.form.expires_ph')} bind:value={newExpiresDays} />
+                <label class="form-label" for="api-token-expiry">{$_('settings_api_tokens.form.expiry')}</label>
+                <select id="api-token-expiry" class="input" bind:value={newExpiry}>
+                  {#each EXPIRY_CHOICES as [value, label] (value)}
+                    <option {value}>{$_(label)}</option>
+                  {/each}
+                </select>
               </div>
               <div style="display:flex;gap:8px;margin-top:8px">
                 <button class="btn btn-ghost" style="flex:1" on:click={() => { showCreateForm = false; newName = ''; }}>{$_('settings_api_tokens.form.cancel')}</button>
@@ -280,6 +302,13 @@
         </div>
       </div>
     </div>
+
+<FreshCheck bind:open={freshOpen}
+  title={$_('settings_api_tokens.form.check_title')}
+  message={$_('settings_api_tokens.form.check_message')}
+  messageSso={$_('settings_api_tokens.form.check_message_sso')}
+  confirmText={$_('settings_api_tokens.form.create')}
+  run={sendCreate} />
 
 <style>
   .just-created {

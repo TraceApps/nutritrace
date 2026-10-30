@@ -115,6 +115,8 @@ test('1. a Settings sign-in takes only the code it asked for: a bare token from 
   // The pending Settings sign-in counts only in local mode.
   signin.rememberSsoConnect(SERVER);
   assert.equal((await signin.routeSsoCallback({ token: 't' }, { nativeMode: 'server', challengeSent: true, redeem })).to, 'app');
+  // A bare token with no sign-in under way is another app's: refused (#222).
+  assert.deepEqual(await signin.routeSsoCallback({ token: 'unasked' }, { nativeMode: 'server', challengeSent: false, redeem }), { to: 'refused' });
   localStorage.clear();
 });
 

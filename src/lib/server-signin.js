@@ -298,7 +298,7 @@ export const ssoConnectResult = writable(null);
  *   { do: 'error' }                  the server said why sign-in failed
  *   { do: 'redeem', server }         swap the single-use code (server: null = the app's own)
  *   { do: 'token' }                  a bare token (a server from before the code hand-off)
- *   { do: 'refuse' }                 a bare token for a Settings sign-in that asked for a code
+ *   { do: 'refuse' }                 a bare token nobody here asked for, or for a Settings sign-in
  *   { do: 'none' }
  * `connecting`: the pending Settings sign-in, if any; `challengeSent`: the
  * app asked for a code (lib/oidc-app-handoff.js). A bare token is taken
@@ -309,7 +309,11 @@ export const ssoConnectResult = writable(null);
 export function ssoCallbackAction({ code, token, error, connecting, challengeSent }) {
   if (error) return { do: 'error' };
   if (code) return { do: 'redeem', server: connecting?.url || null };
-  if (token) return connecting && challengeSent ? { do: 'refuse' } : { do: 'token' };
+  // A bare token (a server from before the code) only answers a sign-in
+  // this app started from its own sign-in page: never one nobody started
+  // (any app can send this link, with its own account's token), and never
+  // a Settings sign-in, which takes only the code it asked for.
+  if (token) return !connecting && challengeSent ? { do: 'token' } : { do: 'refuse' };
   return { do: 'none' };
 }
 

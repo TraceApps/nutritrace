@@ -183,7 +183,7 @@ test('Accept then Undo brings per-weekday, percent and Adaptive targets back exa
   await ok('client', 'PUT', '/api/settings', { key: 'calorieGoalMode', value: mode });
 
   // /api/v1/goals and MCP get_goals read the new targets.
-  const { raw: token } = await ok('client', 'POST', '/api/admin/api-tokens', { name: 'reader', scopes: ['mcp:read'] });
+  const { raw: token } = await ok('client', 'POST', '/api/admin/api-tokens', { name: 'reader', scopes: ['mcp:read'], password: PW });
   const v1 = await ok(token, 'GET', '/api/v1/goals');
   assert.deepEqual(v1.goals.calories, goals.calories);
   assert.deepEqual(v1.goals.proteins, goals.proteins);

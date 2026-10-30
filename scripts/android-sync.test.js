@@ -442,7 +442,7 @@ test("a diary item shows its own food's units and barcode on the phone", async (
 test('#277: after a reinstall the phone shows the photo of the food or recipe an item came from', async (t) => {
   if (skip(t)) return;
   const D = '2026-09-27';
-  const { raw: key } = await http(A, 'POST', '/api/admin/api-tokens', { name: 'nt-277', scopes: ['mcp:read', 'mcp:write'] });
+  const { raw: key } = await http(A, 'POST', '/api/admin/api-tokens', { name: 'nt-277', scopes: ['mcp:read', 'mcp:write'], password: 'Str0ng-Pass-77!x' });
   // Another account's first, so Alice's server ids run ahead of the phone's.
   for (let i = 0; i < 10; i++) {
     await http(B, 'POST', '/api/foods', { name: `Bob Filler 277 ${i}`, visibility: 'private' });

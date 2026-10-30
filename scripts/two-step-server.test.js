@@ -92,6 +92,10 @@ function send(srv, { method = 'POST', path, body, bearer, cookie, csrf, headers:
       res.on('data', (d) => { text += d; });
       res.on('end', () => {
         let data; try { data = JSON.parse(text); } catch { data = text; }
+        // A change that signs the account out everywhere hands this device a
+        // new session (server/lib/session-version.js): the test's copy follows,
+        // as the app's does.
+        if (bearer && data?.session?.token) for (const k of Object.keys(tok)) if (tok[k] === bearer) tok[k] = data.session.token;
         const set = [].concat(res.headers['set-cookie'] || []).find((c) => c.startsWith('nt_token=') && !c.startsWith('nt_token=;'));
         resolve({ status: res.statusCode, data, location: res.headers.location, setCookie: [].concat(res.headers['set-cookie'] || []), cookie: set ? decodeURIComponent(set.split(';')[0].slice('nt_token='.length)) : null });
       });
@@ -596,11 +600,15 @@ test('backup keeps two-step sign-in; a backup from before it restores with it of
   const oldName = 'nutritrace-backup-2026-01-01T00-00-00.zip';
   old.writeZip(join(S.dir, 'backups', oldName));
   assert.equal((await send(S, { path: `/api/full-backup/${oldName}/restore`, bearer: tok.admin, ip })).status, 200);
-  assert.equal((await login('bob', ip)).status, 200, 'off after an old backup');
+  const bobIn = await login('bob', ip);
+  assert.equal(bobIn.status, 200, 'off after an old backup');
+  // An admin's reset earlier signed bob out everywhere: this sign-in is his session now.
+  tok.bob = bobIn.data.token;
 
   // Deleting accounts takes their rows.
   await enable('bob');
   assert.equal((await send(S, { method: 'DELETE', path: `/api/auth/users/${ids.bob}`, bearer: tok.admin, ip })).status, 200);
+  tok.kim = (await login('kim', ip)).data.token; // signed out by an earlier reset
   await enable('kim');
   assert.equal((await send(S, { method: 'DELETE', path: '/api/auth/me', bearer: tok.kim, ip })).status, 200);
   const db = openDb(S);
@@ -629,7 +637,9 @@ test('a changed key: a plain message, recovery codes and resets still work; a sh
     assert.equal(r.status, 409);
     assert.equal(r.data.key_problem, 'key_changed');
     assert.match(r.data.error, /recovery code/);
-    const st = await send(s, { method: 'GET', path: '/api/auth/two-step/status', bearer: t });
+    // Turning it on signed out every session but the one that did it, which got a new one.
+    assert.equal((await send(s, { method: 'GET', path: '/api/auth/two-step/status', bearer: t })).status, 401);
+    const st = await send(s, { method: 'GET', path: '/api/auth/two-step/status', bearer: done.data.session.token });
     assert.equal(st.data.key_problem, 'key_changed');
     const ok = await send(s, { path: '/api/auth/two-step/verify', body: { pending_token: p, code: done.data.recovery_codes[0] } });
     assert.equal(ok.status, 200);

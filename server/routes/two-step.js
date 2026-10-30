@@ -12,6 +12,10 @@
  *   POST /link-grant              a fresh check before linking a sign-in provider (lib/link-grant.js)
  *   POST /confirm-email           the same check confirms an email changed in Profile
  *
+ * Turning it on or off signs the account out everywhere else
+ * (lib/session-version.js): the answer carries `session`, a new one for
+ * this device. freshCheck is the same check for other routes (API tokens).
+ *
  * Everything under /api/auth skips the CSRF middleware (it's where sessions
  * start), so the routes a session uses check the CSRF token themselves.
  */
@@ -21,7 +25,7 @@ import db from '../db.js';
 import { wrap, logger } from '../logger.js';
 import { userMgmtActive } from '../middleware/auth.js';
 import { isPasswordLoginEnabled } from '../lib/oidc.js';
-import { finishSignIn, rateLimitLogin } from './auth.js';
+import { finishSignIn, rateLimitLogin, reissueSession } from './auth.js';
 import {
   statusFor, readPending, spendPending, codeLimit, noteWrongCode, checkCode,
   startSetup, confirmSetup, newRecoveryCodes, turnOff, isEnabled, checkRecoveryToken,
@@ -136,7 +140,7 @@ router.post('/setup/confirm', wrap((req, res) => {
     spendPending(jti, exp);
     return finishSignIn(req, res, user, { recovery_codes: r.recovery_codes });
   }
-  res.json({ recovery_codes: r.recovery_codes });
+  res.json({ recovery_codes: r.recovery_codes, session: reissueSession(req, res, user) });
 }));
 
 router.post('/disable', wrap((req, res) => {
@@ -145,7 +149,7 @@ router.post('/disable', wrap((req, res) => {
   if (!isEnabled(user.id)) return res.status(400).json({ error: 'Two-step sign-in is already off.' });
   if (!_passwordAndCode(req, res, user)) return;
   turnOff(user, 'disabled', { req });
-  res.json({ ok: true });
+  res.json({ ok: true, session: reissueSession(req, res, user) });
 }));
 
 router.post('/recovery-codes', wrap((req, res) => {
@@ -265,6 +269,9 @@ function _freshCheck(req, res, what) {
   }
   return user;
 }
+
+// The same check, for another route that takes one (creating an API token).
+export { _freshCheck as freshCheck };
 
 // Profile > Linked Accounts > Link: a grant that starts one link
 // (lib/link-grant.js, routes/oidc.js).

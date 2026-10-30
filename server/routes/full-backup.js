@@ -14,6 +14,7 @@ import { isValidTimeZone, processTimeZone } from '../lib/zoned-time.js';
 import { effectiveTimeZone, nextBackupAt, backupFileStamp, newestFirst } from '../lib/backup-schedule.js';
 // Makes the two-step sign-in tables a backup reads and restores (#222).
 import { logAfterRestore as logTwoStepAfterRestore } from '../lib/two-step.js';
+import { keepSessionVersions } from '../lib/session-version.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -225,7 +226,8 @@ const upload = multer({
 function restoreFromZip(zip) {
   const data = JSON.parse(zip.readAsText('database.json'));
 
-  db.transaction(() => {
+  // Signed-out sessions stay signed out (lib/session-version.js).
+  keepSessionVersions(() => db.transaction(() => {
     db.prepare('DELETE FROM password_reset_tokens').run();
     db.prepare('DELETE FROM invite_tokens').run();
     db.prepare('DELETE FROM food_shares').run();
@@ -451,7 +453,7 @@ function restoreFromZip(zip) {
     for (const m of (data.coach_messages || []).filter(x => pairingIds.has(x.pairing_id))) insMessage.run({
       body: null, image_url: null, recommendation_id: null, read_at: null, created_at: null, updated_at: null, deleted_at: null, ...m,
     });
-  })();
+  })(), data.users);
 
   // Restore images — guard against zip-slip and zip-bomb attacks
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });

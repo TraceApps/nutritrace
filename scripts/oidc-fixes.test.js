@@ -55,7 +55,7 @@ test('the Android deep link carries a single-use code bound to the app secret', 
   assert.match(routes, /oidc-callback\/\?code=\$\{encodeURIComponent\(code\)\}/);
   assert.match(routes, /router\.post\('\/handoff'/);
   assert.match(lib, /createHash\('sha256'\)\.update\(verifier\)\.digest\('base64url'\)/);
-  assert.match(lib, /DELETE FROM oauth_state WHERE state = \?`\)\.run\(code\)/);
+  assert.match(lib, /DELETE FROM oauth_state WHERE state = \? AND provider = 'oidc-handoff' RETURNING \*`\)\.get\(code\)/);
   assert.match(handoff, /crypto\.subtle\.digest\('SHA-256'/);
   // App.svelte routes the link through lib/server-signin.js, which swaps the code (#36).
   assert.match(app, /redeem: redeemHandoff \}\);/);

@@ -16,6 +16,7 @@ import { deletePhotosForUser, deleteAllPhotos } from '../lib/coaching-messages.j
 import { COACHING_VERSION, coachingState, endCoachingIfNotCoach, requestFromInvite, canCoach, roleOf, personName } from '../lib/coaching.js';
 import { challengeFor, issuePending, isEnabled as twoStepEnabled, checkRecoveryToken } from '../lib/two-step.js';
 import { freshSignIn, FRESH_SIGN_IN_MINUTES, noteEmailChange, resetRecipient } from '../lib/link-grant.js';
+import { bumpSessionVersion } from '../lib/session-version.js';
 
 // The roles an admin can give. A Coach is a User everywhere except coaching.
 const ROLES = ['user', 'coach', 'admin'];
@@ -131,6 +132,28 @@ export function finishSignIn(req, res, user, extra = {}) {
   res.json({ ...extra, user: safeUser(user), token });
 }
 
+/**
+ * A new session for the device that just signed every other one out (a
+ * password change, two-step sign-in turned on or off, Sign Out Everywhere):
+ * the cookie, and { token, csrf } for the answer's `session`, so the app
+ * keeps going.
+ * It keeps the time of the last real sign-in (signToken's authTime).
+ */
+export function reissueSession(req, res, user) {
+  const token = signToken(user, { authTime: Number(req.user?.auth_time ?? req.user?.iat) });
+  res.cookie('nt_token', token, { ...COOKIE_OPTS, maxAge: sessionMaxAge() });
+  let csrf = null;
+  try { csrf = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')).csrf || null; } catch { /* none */ }
+  return { token, csrf };
+}
+
+// A browser session (cookie) sends its CSRF token: everything under
+// /api/auth skips the CSRF middleware, so the routes a session uses check it.
+function csrfOk(req) {
+  if (req.authVia !== 'cookie' || !req.user?.csrf) return true;
+  return req.headers['x-csrf-token'] === req.user.csrf;
+}
+
 // Two-step sign-in (#222): the password was right, but a code is due
 // ('verify') or must be set up first ('setup'). No session, no token: a
 // pending token that opens only /api/auth/two-step. The answer is a 401
@@ -203,7 +226,9 @@ router.get('/status', wrap((req, res) => {
 // can be added back to this object as needed.
 router.get('/me', wrap((req, res) => {
   const features = {};
-  if (!req.user) return res.json({ user: null, csrf: null, features });
+  // session_ended: this device was signed out (lib/session-version.js), for
+  // the sign-in page to say so.
+  if (!req.user) return res.json({ user: null, csrf: null, features, ...(req.sessionEnded ? { session_ended: true } : {}) });
   // Whether this server sends email: signed-in people only (the weekly
   // summary toggle shows for someone with no push service when it can go
   // by email). Never told to anyone signed out.
@@ -340,10 +365,24 @@ router.put('/password', requireAuth, wrap((req, res) => {
   }
 
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 12), req.user.id);
-  // Rotate JWT (and its CSRF token) so existing sessions on other devices stop working.
+  // Every other device signs out (lib/session-version.js); this one is
+  // given a new session in the answer, and keeps going.
+  bumpSessionVersion(req.user.id, user.password_hash ? 'password changed' : 'password set', { req });
   const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  res.cookie('nt_token', signToken(updated), { ...COOKIE_OPTS, maxAge: sessionMaxAge() });
-  res.json({ ok: true });
+  res.json({ ok: true, session: reissueSession(req, res, updated) });
+}));
+
+// ── Sign Out Everywhere ────────────────────────────────────────────────────
+// Every session this account has ends, on every device; this one is given
+// a new session in the answer. API tokens and MCP tokens are separate, with
+// their own Revoke, and keep working.
+router.post('/sign-out-everywhere', requireAuth, wrap((req, res) => {
+  if (!req.user) return res.status(400).json({ error: 'Sign Out Everywhere needs an account.' });
+  if (!csrfOk(req)) return res.status(403).json({ error: 'Invalid CSRF token' });
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  bumpSessionVersion(user.id, 'Sign Out Everywhere', { req });
+  res.json({ ok: true, session: reissueSession(req, res, user) });
 }));
 
 // ── List peers for the sharing picker ─────────────────────────────────────
@@ -432,7 +471,14 @@ router.put('/users/:id/password', requireAuth, requireAdmin, wrap((req, res) => 
   const id = parseInt(req.params.id);
   const { new_password } = req.body;
   { const pwErr = validatePassword(new_password); if (pwErr) return res.status(400).json({ error: pwErr }); }
+  const target = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  // Your own goes through Profile, which asks for the current password: a
+  // session alone never sets it, or a stolen one could take the account (#222).
+  if (req.user && id === req.user.id) return res.status(400).json({ error: 'Change your own password in Settings > Profile.' });
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 12), id);
+  // Their sessions end everywhere.
+  bumpSessionVersion(id, 'password set by an admin', { by: req.user, req });
   res.json({ ok: true });
 }));
 
@@ -549,6 +595,8 @@ router.post('/reset-password', wrap((req, res) => {
 
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(password, 12), row.user_id);
   db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token = ?').run(token);
+  // Whoever had a session, a stolen one included, is signed out.
+  bumpSessionVersion(row.user_id, 'password reset by email link', { req });
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);
   // An emailed link proves the inbox, not the second step: with two-step

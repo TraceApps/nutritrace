@@ -57,6 +57,12 @@ export async function twoStepCall(path, { method = 'POST', body, serverUrl = nul
   });
   let data = {};
   try { data = await res.json(); } catch { data = {}; }
+  // Turned on or off from a session: every other device signed out, and the
+  // answer carries this one's new session (lib/fresh-session.js).
+  if (res.ok && data?.session && !body?.pending_token) {
+    const { adoptSession } = await import('./fresh-session.js');
+    await adoptSession(data.session);
+  }
   return { status: res.status, data };
 }
 

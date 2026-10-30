@@ -146,6 +146,7 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `MAX_SESSION_HOURS` | No | `8760` (1 year) | Cap on the auth cookie lifetime. |
 | `RECOVERY_TOKEN` | No |  | Passphrase for Locked Out? on the login page: reset two-step sign-in for one account (16 characters or more), or disable user management (lockout recovery). |
 | `TWO_STEP_KEY` | No | a generated `two-step.key` next to the database | Key that locks two-step sign-in secrets. Leave it unset unless you keep secrets outside the data folder. |
+| `OIDC_APP_LINK_TOKEN` | No | on | `off` refuses single sign-on from older Android builds that take their sign-in in the deep link. On by default. See [DEPLOY.md](DEPLOY.md#sessions). |
 | `OFF_LOCAL_DB` | No |  | Path to an Open Food Facts Parquet snapshot (or legacy DuckDB file) for an air-gap mirror. |
 | `USDA_API_KEY` | No |  | Optional server-side USDA FoodData Central key (users can also enter their own in Settings). |
 | `MEALIE_URL` | No |  | Base URL of a Mealie instance for recipe import. |

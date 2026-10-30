@@ -17,6 +17,7 @@
 import { Router } from 'express';
 import { wrap } from '../logger.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { freshCheck } from './two-step.js';
 import { createToken, listTokens, revokeToken, KNOWN_SCOPES, SCOPE_DESCRIPTIONS } from '../lib/api-tokens.js';
 
 const router = Router();
@@ -54,14 +55,40 @@ router.get('/', wrap((req, res) => {
   });
 }));
 
+// How long a new token lasts: `expires_in_days` (1 to 3650), or none for
+// no expiry. `expires_at` from an older page is taken when it is a time to
+// come. Throws a plain error otherwise.
+const MAX_TOKEN_DAYS = 3650;
+function _expiresAt(body) {
+  const sql = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+  const days = body?.expires_in_days;
+  if (days != null && days !== '') {
+    const n = Number(days);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_TOKEN_DAYS) throw new Error(`Expiry must be 1 to ${MAX_TOKEN_DAYS} days, or none.`);
+    return sql(Date.now() + n * 24 * 3600 * 1000);
+  }
+  const at = body?.expires_at;
+  if (at == null || at === '') return null;
+  const ms = Date.parse(`${String(at).trim().replace(' ', 'T').replace(/Z$/, '')}Z`);
+  if (!Number.isFinite(ms) || ms <= Date.now() || ms > Date.now() + MAX_TOKEN_DAYS * 24 * 3600 * 1000) throw new Error(`Expiry must be a time to come, within ${MAX_TOKEN_DAYS} days, or none.`);
+  return sql(ms);
+}
+
 router.post('/', wrap((req, res) => {
-  const { name, scopes, expires_at } = req.body || {};
+  // A session alone can't make one (#222): the password, and the
+  // two-step code when it's on; an account with no password, a sign-in in
+  // the last 15 minutes (routes/two-step.js freshCheck, the same check as
+  // linking a sign-in provider). Tokens made before this keep working.
+  let expiresAt;
+  try { expiresAt = _expiresAt(req.body); } catch (e) { return res.status(400).json({ error: e.message }); }
+  if (!freshCheck(req, res, 'create an API token')) return;
+  const { name, scopes } = req.body || {};
   try {
     const { row, raw } = createToken({
       userId: req.user.id,
       name,
       scopes,
-      expiresAt: expires_at || null,
+      expiresAt,
     });
     // raw is the only place the plaintext token appears. Returned
     // exactly once — the client UI is responsible for displaying it

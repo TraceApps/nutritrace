@@ -820,6 +820,9 @@ const _NtApiHttp = {
       const e = await res.json().catch(() => ({}));
       const err = new Error(e.error || `API error ${res.status}`);
       err.status = res.status;
+      // Signed out on this device (a password change elsewhere, Sign Out
+      // Everywhere): to the sign-in page, saying why (lib/fresh-session.js).
+      if (res.status === 401 && e.session_ended) import('./fresh-session.js').then((m) => m.endSessionHere()).catch(() => {});
       // A code (and its values) names the error, for the app to say in the person's language.
       if (typeof e.code === 'string') { err.code = e.code; if (e.params && typeof e.params === 'object') err.params = e.params; }
       throw err;

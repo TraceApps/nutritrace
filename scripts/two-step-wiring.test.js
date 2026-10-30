@@ -19,9 +19,11 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 test('the server signs sessions in known places only, each past the two-step check', () => {
   const files = ['../server/routes/auth.js', '../server/routes/oidc.js', '../server/routes/two-step.js'];
   const found = files.flatMap((f) => [...read(f).matchAll(/signToken\(/g)].map(() => f.split('/').pop()));
-  // auth.js: finishSignIn, the first account, an own password change (a
-  // session already), a reset link, an invite. oidc.js: single sign-on.
-  assert.deepEqual(found, ['auth.js', 'auth.js', 'auth.js', 'auth.js', 'auth.js', 'oidc.js']);
+  // auth.js: finishSignIn, a new session for the device that signed the
+  // others out (reissueSession: a session already), the first account, a
+  // reset link, an invite. oidc.js: single sign-on (an older app's link,
+  // the browser's cookie, the app's code swapped at /handoff).
+  assert.deepEqual(found, ['auth.js', 'auth.js', 'auth.js', 'auth.js', 'auth.js', 'oidc.js', 'oidc.js', 'oidc.js']);
   const auth = read('../server/routes/auth.js');
   const login = auth.slice(auth.indexOf("router.post('/login'"), auth.indexOf("router.post('/logout'"));
   assert.match(login, /const kind = challengeFor\(user\);\s*if \(kind\) return sendTwoStepChallenge\(res, user, kind\);\s*finishSignIn\(req, res, user\);/);
@@ -39,7 +41,8 @@ test('a pending token is never a session: its own key, and typed tokens refused'
   assert.match(lib, /hkdfSync\('sha256', Buffer\.from\(JWT_SECRET, 'utf8'\), Buffer\.from\('traceapps\.two-step\.pending\.v1'\)/);
   assert.match(lib, /jwt\.sign\(\s*\{ typ: PENDING_TYP,[\s\S]*?_pendingKey,/);
   const mw = read('../server/middleware/auth.js');
-  assert.match(mw, /payload\.typ == null \? payload : null/);
+  assert.match(mw, /if \(!\(payload && typeof payload === 'object' && payload\.typ == null\)\) return null;/);
+  assert.match(mw, /const \{ session, ended \} = checkSession\(payload\);/);
   assert.match(mw, /req\.user = _session\(jwt\.verify\(cookie, JWT_SECRET\)\)/);
   assert.match(mw, /return \{ user: _session\(jwt\.verify\(token, JWT_SECRET\)\) \}/);
 });
@@ -91,16 +94,18 @@ test('twoStepChallenge reads a server answer', async () => {
 
 // The files every Trace app shares for two-step sign-in. NutriTrace,
 // LiftTrace, CookTrace and NoteTrace pin the same hashes: change all four
-// copies together, then the hashes in every app. The first eight are the
+// copies together, then the hashes in every app. The first ten are the
 // same bytes everywhere; the rest differ only by the app's name.
 test('the shared two-step files match the hashes every Trace app pins', () => {
   const sha = (text) => createHash('sha256').update(text).digest('hex');
   for (const [f, hash] of [
     ['../server/lib/totp.js', '7565c13ec8c6b2f8fb8aeb815a42f4c26886f59163631a1ec875c6d337cf93ba'],
-    ['../server/routes/two-step.js', '3f2a5609e8b0b0ad0a64f31e1738712719086639fb74c48244beaacd16614e00'],
-    ['../server/lib/link-grant.js', '133c524a8ff9d0e83a298ffc33a4f19d7d30944d4614ac4ba6024e0b39a9205c'],
+    ['../server/routes/two-step.js', '6b05f0bb9dd16371a995a8b4a043473037c1376c97a475565e2f8e0d3df85fd5'],
+    ['../server/lib/link-grant.js', 'b33e14b1c4bb7726c4773c26fae810471ea440437cc4f91bd4f4737057fcd986'],
+    ['../server/lib/session-version.js', '09f0b15aff11da19cf5fdd3765ed87ae05437fd3137860d2872068145959f270'],
     ['../src/components/two-step/EmailConfirm.svelte', '530420b52e3e9be6e551bb64a8a15154545573eb94343f4ce8bbedcf7233d2b2'],
     ['../src/components/two-step/LinkConfirm.svelte', '4ea6c0ee13b3c89bdb375d1575a24397f542f85d791ad2ee70e8bca549707f2b'],
+    ['../src/components/two-step/FreshCheck.svelte', '1faf8eb4e24bddc70bb220da17f73a136dc0665c0fdb9958caf53a984703cbb8'],
     ['../src/components/two-step/TwoStepChallenge.svelte', '8a8d46ed4962ec41542b4f3a76b212094c0deeb68f203ed40cfcf479f556e77e'],
     ['../src/components/two-step/TwoStepSetup.svelte', 'b25627738912cc29c02b80b94577ca854c9e8e90cf1e2089a2c95fe119e28af7'],
     ['../src/components/two-step/TwoStepSettings.svelte', '568d7431866b0e1eca3ecf49b503fe08b22550ae2ec8385ad0fcc12f458c2d69'],
@@ -108,7 +113,7 @@ test('the shared two-step files match the hashes every Trace app pins', () => {
   // The rest differ by name only in the other apps; NutriTrace is the reference.
   const asNutriTrace = (text) => text;
   for (const [f, hash] of [
-    ['../server/lib/two-step.js', 'a445f3d729396fda9736abb1cc9948b08c28e86323e204d243014179d59d28f0'],
+    ['../server/lib/two-step.js', 'cd610317cd253a8b8e6ce6fc26b19e25cb42aecfa33ecf90b9cb11274dfe90ed'],
     ['../server/lib/two-step-key.js', 'ccc31ba25a22f235b2bbbc58ae88e6abc12717a3f1ca1594a023d3c3c6f3071f'],
     // NutriTrace's copy before it read the server's .env had 4ce44b47...
     ['../server/scripts/reset-2fa.js', '24bb0ec5ba0af9431645a15f6bba785e4892963ca3517c25aa7ec8d778a890ae'],

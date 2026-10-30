@@ -159,6 +159,7 @@ export function consumeState(state) {
 // sign-in can swap it for the token: it sent the SHA-256 of a secret
 // (app_challenge) when it opened the login URL, and must present the secret
 // itself (verifier) with the code. Same idea as PKCE, one hop further.
+// The session is made when the code is swapped, never kept with it.
 
 const HANDOFF_TTL_MS = 2 * 60 * 1000;
 const APP_CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;   // base64url SHA-256
@@ -167,28 +168,45 @@ export function isValidAppChallenge(v) {
   return typeof v === 'string' && APP_CHALLENGE_RE.test(v);
 }
 
-export function persistHandoff({ appChallenge, token, idTokenHint, providerId }) {
+export function persistHandoff({ appChallenge, userId, sv = 0, idTokenHint, providerId }) {
   const code = crypto.randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + HANDOFF_TTL_MS).toISOString();
+  db.prepare(`DELETE FROM oauth_state WHERE provider = 'oidc-handoff' AND expires_at < ?`).run(new Date().toISOString());
   db.prepare(
-    `INSERT INTO oauth_state (state, user_id, provider, data, expires_at) VALUES (?, NULL, 'oidc-handoff', ?, ?)`
-  ).run(code, JSON.stringify({ appChallenge, token, idTokenHint: idTokenHint || null, providerId }), expiresAt);
+    `INSERT INTO oauth_state (state, user_id, provider, data, expires_at) VALUES (?, ?, 'oidc-handoff', ?, ?)`
+  ).run(code, userId, JSON.stringify({ appChallenge, sv, idTokenHint: idTokenHint || null, providerId }), expiresAt);
   return code;
 }
 
-/** Single use: the row is deleted whether or not the verifier matches. */
+/**
+ * { userId, sv, idTokenHint, providerId } for a code and its verifier, or
+ * null. `sv`: the account's session number when the code was made.
+ * Single use: the row is taken in one statement whether or not the verifier
+ * matches, so two requests racing with one code can't both have it.
+ */
 export function consumeHandoff(code, verifier) {
-  if (typeof code !== 'string' || typeof verifier !== 'string' || !code || !verifier) return null;
-  const row = db.prepare(`SELECT * FROM oauth_state WHERE state = ? AND provider = 'oidc-handoff'`).get(code);
+  if (typeof code !== 'string' || typeof verifier !== 'string' || !code || !verifier || code.length > 200) return null;
+  const row = db.prepare(`DELETE FROM oauth_state WHERE state = ? AND provider = 'oidc-handoff' RETURNING *`).get(code);
   if (!row) return null;
-  db.prepare(`DELETE FROM oauth_state WHERE state = ?`).run(code);
   if (new Date(row.expires_at).getTime() < Date.now()) return null;
   let data;
   try { data = JSON.parse(row.data); } catch { return null; }
   const expected = Buffer.from(String(data.appChallenge || ''), 'utf8');
   const actual = Buffer.from(crypto.createHash('sha256').update(verifier).digest('base64url'), 'utf8');
   if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return null;
-  return data;
+  if (!row.user_id) return null;
+  return { userId: row.user_id, sv: Number(data.sv) || 0, idTokenHint: data.idTokenHint || null, providerId: data.providerId };
+}
+
+/**
+ * Older Android builds (from before the code above) don't send
+ * app_challenge, and are handed the session in the deep link itself, which
+ * another app registered for the link could catch. Kept so they can still
+ * sign in until they update; OIDC_APP_LINK_TOKEN=off refuses it.
+ */
+export function appLinkTokenAllowed() {
+  const v = String(process.env.OIDC_APP_LINK_TOKEN ?? '').trim().toLowerCase();
+  return !['0', 'off', 'false', 'no'].includes(v);
 }
 
 // ── Auth flow helpers ─────────────────────────────────────────────────────
