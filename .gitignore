@@ -45,3 +45,6 @@ android/.idea/
 *.aab
 *.keystore
 android/keystore.properties
+
+# Two-step sign-in key, next to the database (#222)
+two-step.key

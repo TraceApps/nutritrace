@@ -10,6 +10,9 @@
  * when the server sends email. Nothing else changes. With no username, it
  * lists the accounts that have two-step sign-in on.
  */
+// The server's own .env (DB_PATH, JWT_SECRET, TWO_STEP_KEY), as index.js
+// reads it: outside Docker they often live there.
+import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 
 const username = String(process.argv[2] || '').trim().toLowerCase();
