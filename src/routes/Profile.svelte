@@ -30,6 +30,8 @@
   import DateInput from '../components/ui/DateInput.svelte';
   import Toggle from '../components/settings/Toggle.svelte';
   import TwoStepSettings from '../components/two-step/TwoStepSettings.svelte';
+  import LinkConfirm from '../components/two-step/LinkConfirm.svelte';
+  import EmailConfirm from '../components/two-step/EmailConfirm.svelte';
   import { biometricLoginEnabled } from '../stores/settings.js';
   import * as biometric from '../lib/biometric.js';
 
@@ -249,9 +251,19 @@
       }
     } catch {}
   }
+  // Linking takes a fresh check first (password, and the two-step code when
+  // it's on): the server gives a one-time grant the link starts with
+  // (components/two-step/LinkConfirm.svelte, #222).
+  let linkProvider = null;
+  let linkConfirmOpen = false;
   function startLink(providerId) {
+    linkProvider = oidcProviders.find((p) => p.id === providerId) || { id: providerId };
+    linkConfirmOpen = true;
+  }
+  function linkGranted(e) {
+    const { provider, grant } = e.detail;
     const ret = encodeURIComponent('#/profile');
-    window.location.href = apiUrl(`/api/auth/oidc/login/${providerId}?link=1&return=${ret}`);
+    window.location.href = apiUrl(`/api/auth/oidc/login/${provider.id}?link=1&link_grant=${encodeURIComponent(grant)}&return=${ret}`);
   }
   async function unlink(linkId) {
     if (!confirm('Unlink this provider? You won\'t be able to sign in with it again until you re-link.')) return;
@@ -474,6 +486,12 @@
       {/if}
     </div>
     {/if}
+
+    <!-- An email changed here waits to be confirmed (#222). -->
+    {#if !_isLocal}
+      <EmailConfirm email={$currentUser?.email || ''} />
+    {/if}
+    <LinkConfirm bind:open={linkConfirmOpen} provider={linkProvider} on:grant={linkGranted} />
 
     <!-- Two-step sign-in (#222): accounts on a server only. -->
     {#if !_isLocal}

@@ -177,7 +177,7 @@ Getting back in, always for one account and never with SQL:
 
    Run it with no username to list the accounts that have two-step sign-in on.
 
-Every reset is logged, and the person is emailed when the server sends email. Single sign-on never links itself by email (Auto-Link) to an account that uses two-step sign-in, or that must set it up; a provider linked to an account before is trusted to do its own two-step sign-in. Admins can require two-step sign-in for everyone in Settings > Users: anyone who signs in with a password sets it up right after their password. Single sign-on accounts aren't affected.
+Every reset is logged, and the person is emailed when the server sends email. Single sign-on never links itself by email (Auto-Link) to an account that uses two-step sign-in, or that must set it up; a provider linked to an account before is trusted to do its own two-step sign-in. Linking a provider from Profile asks for the password (and code) first, and finishes only in the browser it started in; an email changed in Profile waits for the same check before single sign-on links by it or a password reset goes to it. Admins can require two-step sign-in for everyone in Settings > Users: anyone who signs in with a password sets it up right after their password. Single sign-on accounts aren't affected.
 
 ---
 

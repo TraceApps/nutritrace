@@ -9,6 +9,8 @@
  *   POST /recovery-codes          new recovery codes (password and a code)
  *   POST /users/:id/reset         an admin resets it for someone else (own password)
  *   POST /recover                 the owner resets it for one account with RECOVERY_TOKEN
+ *   POST /link-grant              a fresh check before linking a sign-in provider (lib/link-grant.js)
+ *   POST /confirm-email           the same check confirms an email changed in Profile
  *
  * Everything under /api/auth skips the CSRF middleware (it's where sessions
  * start), so the routes a session uses check the CSRF token themselves.
@@ -24,6 +26,7 @@ import {
   statusFor, readPending, spendPending, codeLimit, noteWrongCode, checkCode,
   startSetup, confirmSetup, newRecoveryCodes, turnOff, isEnabled, checkRecoveryToken,
 } from '../lib/two-step.js';
+import { issueLinkGrant, freshSignIn, confirmEmail, LINK_GRANT_MINUTES, FRESH_SIGN_IN_MINUTES } from '../lib/link-grant.js';
 
 const router = Router();
 
@@ -225,6 +228,59 @@ router.post('/recover', rateLimitLogin, wrap((req, res) => {
   if (!turnOff(user, 'reset_by_owner', { req })) {
     return res.status(400).json({ error: 'Two-step sign-in is already off for that account.' });
   }
+  res.json({ ok: true });
+}));
+
+// ── A fresh check: linking a sign-in provider, confirming an email ───────
+// A session alone isn't enough for either: whoever held a stolen one could
+// link their own provider, or set their own email for single sign-on to
+// link by, and sign in with it from then on. The password (and the code, or
+// a recovery code, when two-step sign-in is on) is the check. An account
+// with no password has nothing to type: a sign-in in the last
+// FRESH_SIGN_IN_MINUTES is its check. Only a session counts, never another
+// token a request can carry (an image address's, say). Null when it passed,
+// else the answer was sent.
+function _freshCheck(req, res, what) {
+  const user = _session(req, res);
+  if (!user) return null;
+  if (req.authVia !== 'cookie' && req.authVia !== 'bearer') { res.status(401).json({ error: 'Not authenticated' }); return null; }
+  if (user.password_hash) {
+    const limited = codeLimit({ userId: user.id });
+    if (limited) { res.status(429).json({ error: limited }); return null; }
+    if (!_passwordOk(user, req.body?.password)) {
+      noteWrongCode({ userId: user.id });
+      res.status(401).json({ error: 'Your password is incorrect.' });
+      return null;
+    }
+    if (isEnabled(user.id)) {
+      const r = checkCode(user, req.body?.code, { req });
+      if (!r.ok) { res.status(r.keyProblem ? 409 : 401).json({ error: r.error, key_problem: r.keyProblem || null, code_required: true }); return null; }
+    }
+  } else if (!freshSignIn(req.user)) {
+    res.status(401).json({
+      error: `To ${what}, sign out and sign in again with the provider you use, then do it within ${FRESH_SIGN_IN_MINUTES} minutes.`,
+      reauth: true,
+    });
+    return null;
+  }
+  return user;
+}
+
+// Profile > Linked Accounts > Link: a grant that starts one link
+// (lib/link-grant.js, routes/oidc.js).
+router.post('/link-grant', wrap((req, res) => {
+  const user = _freshCheck(req, res, 'link another provider');
+  if (!user) return;
+  logger.info(`[link] ${user.username} (id ${user.id}) may link a sign-in provider for ${LINK_GRANT_MINUTES} minutes${req.ip ? ` (from ${req.ip})` : ''}`);
+  res.json({ grant: issueLinkGrant(user), expires_in: LINK_GRANT_MINUTES * 60 });
+}));
+
+// Profile: an email changed with a session alone, confirmed.
+router.post('/confirm-email', wrap((req, res) => {
+  const user = _freshCheck(req, res, 'confirm your email');
+  if (!user) return;
+  confirmEmail(user.id);
+  logger.info(`[link] ${user.username} (id ${user.id}) confirmed their email`);
   res.json({ ok: true });
 }));
 

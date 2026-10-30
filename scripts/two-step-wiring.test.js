@@ -91,13 +91,16 @@ test('twoStepChallenge reads a server answer', async () => {
 
 // The files every Trace app shares for two-step sign-in. NutriTrace,
 // LiftTrace, CookTrace and NoteTrace pin the same hashes: change all four
-// copies together, then the hashes in every app. The first five are the
+// copies together, then the hashes in every app. The first eight are the
 // same bytes everywhere; the rest differ only by the app's name.
 test('the shared two-step files match the hashes every Trace app pins', () => {
   const sha = (text) => createHash('sha256').update(text).digest('hex');
   for (const [f, hash] of [
     ['../server/lib/totp.js', '7565c13ec8c6b2f8fb8aeb815a42f4c26886f59163631a1ec875c6d337cf93ba'],
-    ['../server/routes/two-step.js', '55f96c12c455e7747ffe396bd8a65e091b2fac22d6e2bd074fbadfe458ff12b8'],
+    ['../server/routes/two-step.js', '3f2a5609e8b0b0ad0a64f31e1738712719086639fb74c48244beaacd16614e00'],
+    ['../server/lib/link-grant.js', '133c524a8ff9d0e83a298ffc33a4f19d7d30944d4614ac4ba6024e0b39a9205c'],
+    ['../src/components/two-step/EmailConfirm.svelte', '530420b52e3e9be6e551bb64a8a15154545573eb94343f4ce8bbedcf7233d2b2'],
+    ['../src/components/two-step/LinkConfirm.svelte', '4ea6c0ee13b3c89bdb375d1575a24397f542f85d791ad2ee70e8bca549707f2b'],
     ['../src/components/two-step/TwoStepChallenge.svelte', '8a8d46ed4962ec41542b4f3a76b212094c0deeb68f203ed40cfcf479f556e77e'],
     ['../src/components/two-step/TwoStepSetup.svelte', 'b25627738912cc29c02b80b94577ca854c9e8e90cf1e2089a2c95fe119e28af7'],
     ['../src/components/two-step/TwoStepSettings.svelte', '568d7431866b0e1eca3ecf49b503fe08b22550ae2ec8385ad0fcc12f458c2d69'],
@@ -105,11 +108,24 @@ test('the shared two-step files match the hashes every Trace app pins', () => {
   // The rest differ by name only in the other apps; NutriTrace is the reference.
   const asNutriTrace = (text) => text;
   for (const [f, hash] of [
-    ['../server/lib/two-step.js', '0e6d38d1cabc9ac46af7ae5b7e9ecb034e17539c27f35542fca3cee65d43d168'],
+    ['../server/lib/two-step.js', 'a445f3d729396fda9736abb1cc9948b08c28e86323e204d243014179d59d28f0'],
     ['../server/lib/two-step-key.js', 'ccc31ba25a22f235b2bbbc58ae88e6abc12717a3f1ca1594a023d3c3c6f3071f'],
     // NutriTrace's copy before it read the server's .env had 4ce44b47...
     ['../server/scripts/reset-2fa.js', '24bb0ec5ba0af9431645a15f6bba785e4892963ca3517c25aa7ec8d778a890ae'],
     ['./reset-2fa.js', 'db824f7e9afecf5269a150271a2a13e0f667e4c3c1c9e0906854bf4108ea1665'],
     ['../src/components/two-step/RecoveryCodes.svelte', '70a0c80ee7e9552586f9154c0838933b276dedcf9c91b3223da1810df0325128'],
   ]) assert.equal(sha(asNutriTrace(read(f))), hash, f);
+});
+
+test('linking a provider starts only with a grant from a fresh check, and Profile asks for it', () => {
+  const oidc = read('../server/routes/oidc.js');
+  assert.match(oidc, /linkTo = consumeLinkGrant\(req\.query\.link_grant\);/);
+  assert.match(oidc, /linkUserId: linkMode \? linkTo\.id : null,/);
+  assert.doesNotMatch(oidc, /req\.query\.link === '1' && !!req\.user/, 'a session alone never links');
+  const profile = read('../src/routes/Profile.svelte');
+  assert.match(profile, /<LinkConfirm bind:open=\{linkConfirmOpen\} provider=\{linkProvider\} on:grant=\{linkGranted\} \/>/);
+  assert.match(profile, /\?link=1&link_grant=\$\{encodeURIComponent\(grant\)\}/);
+  // A first password for a single sign-on account takes a recent sign-in too.
+  const auth = read('../server/routes/auth.js');
+  assert.match(auth, /\} else if \(!freshSignIn\(req\.user\)\) \{/);
 });

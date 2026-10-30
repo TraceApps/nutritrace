@@ -15,6 +15,7 @@ import { ownerOrOptIn } from '../lib/outbound-policy.js';
 import { deletePhotosForUser, deleteAllPhotos } from '../lib/coaching-messages.js';
 import { COACHING_VERSION, coachingState, endCoachingIfNotCoach, requestFromInvite, canCoach, roleOf, personName } from '../lib/coaching.js';
 import { challengeFor, issuePending, isEnabled as twoStepEnabled, checkRecoveryToken } from '../lib/two-step.js';
+import { freshSignIn, FRESH_SIGN_IN_MINUTES, noteEmailChange, resetRecipient } from '../lib/link-grant.js';
 
 // The roles an admin can give. A Coach is a User everywhere except coaching.
 const ROLES = ['user', 'coach', 'admin'];
@@ -309,6 +310,9 @@ router.put('/profile', requireAuth, wrap(async (req, res) => {
     `UPDATE users SET full_name=?, nickname=?, birthday=?, gender=?, avatar_url=?, email=? WHERE id=?`
   ).run(full_name || null, nickname || null, birthday || null, normalizeGender(gender), avatar_url || null,
         email ? String(email).trim().toLowerCase() : null, req.user.id);
+  // Unconfirmed until the account confirms it (#222): no single sign-on
+  // link by it, and a reset goes to the address before it.
+  noteEmailChange(req.user.id, before.email, email);
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: safeUser(user) });
@@ -329,6 +333,10 @@ router.put('/password', requireAuth, wrap((req, res) => {
     if (!bcrypt.compareSync(current_password, user.password_hash)) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
+  } else if (!freshSignIn(req.user)) {
+    // A first password for a single sign-on account: a sign-in this recent,
+    // or a stolen session could give itself a password (#222).
+    return res.status(401).json({ error: `To set a password, sign out and sign in again with your provider, then set it within ${FRESH_SIGN_IN_MINUTES} minutes.`, reauth: true });
   }
 
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 12), req.user.id);
@@ -506,7 +514,10 @@ router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
   if (!email) return respondOk();
   if (!isEmailConfigured()) return respondOk();
 
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.trim().toLowerCase());
+  // An email changed without confirming it gets no reset: the address before
+  // it does (lib/link-grant.js, #222).
+  const found = resetRecipient(email);
+  const user = found?.user;
   if (!user) return respondOk();
 
   // Invalidate any existing tokens for this user
@@ -518,7 +529,7 @@ router.post('/forgot-password', rateLimitLogin, wrap(async (req, res) => {
 
   const baseUrl = linkBase(req);
   try {
-    if (baseUrl) await sendPasswordReset(user.email, `${baseUrl}/#/reset-password?token=${token}`);
+    if (baseUrl) await sendPasswordReset(found.to, `${baseUrl}/#/reset-password?token=${token}`);
   } catch (e) {
     // Don't surface email-send errors to the client — it would leak existence.
     // The token is still issued; the admin can investigate the email backend.

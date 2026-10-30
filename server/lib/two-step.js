@@ -31,6 +31,7 @@ import { isEmailConfigured, sendTwoStepNotice } from '../email.js';
 import { linkBase } from './public-url.js';
 import { base32Encode, newSecret, otpauthUri, verifyTotp, cleanCode } from './totp.js';
 import { sealSecret, openSecret, keyAvailable } from './two-step-key.js';
+import { emailUnconfirmed } from './link-grant.js';
 
 export const APP_NAME = 'NutriTrace';
 export const RECOVERY_CODE_COUNT = 10;
@@ -94,6 +95,8 @@ export function statusFor(user) {
     required: isRequired(),
     can_set_up: keyAvailable(),
     key_problem: keyProblem,
+    // An email changed in Profile and not confirmed yet (lib/link-grant.js).
+    email_unconfirmed: emailUnconfirmed(user),
   };
 }
 

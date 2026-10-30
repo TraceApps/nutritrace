@@ -3168,6 +3168,22 @@
       "done": "Two-step sign-in is off for {name}. Sign in with the password.",
       "disable_title": "Disable User Management"
     },
+    "link": {
+      "title": "Link {provider}?",
+      "message": "Enter your password to link {provider}. From then on you can sign in with it.",
+      "message_sso": "You sign in with single sign-on, so linking {provider} needs a sign-in in the last 15 minutes. If it's been longer, sign out and sign in again first.",
+      "password_label": "Your Password",
+      "code_label": "Code From Your App or a Recovery Code",
+      "continue": "Continue",
+      "checking": "Checking…"
+    },
+    "email": {
+      "title": "Confirm Your New Email",
+      "explain": "Enter your password to confirm it. Until then, password resets go to your previous email, and single sign-on doesn't link to your account by this one.",
+      "explain_sso": "Confirm it within 15 minutes of signing in. Until then, password resets go to your previous email, and single sign-on doesn't link to your account by this one. If it's been longer, sign out and sign in again first.",
+      "confirm": "Confirm Email",
+      "confirmed": "Email confirmed"
+    },
     "reset_password_done": "Your password was changed. Two-step sign-in is on for this account, so sign in with your new password and your code."
   }
 }

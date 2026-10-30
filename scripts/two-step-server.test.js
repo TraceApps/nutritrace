@@ -46,6 +46,7 @@ const cleanEnv = () => {
 };
 
 const PW = 'Str0ng-Pass-77!x';
+const ROLE = 'user'; // an account's everyday role here
 const JWT_SECRET = 'two-step-test-0123456789abcdef0123456789';
 const RECOVERY_TOKEN = 'owner-recovery-token-0123456789abcdef';
 
@@ -79,9 +80,9 @@ async function stop(srv) {
 }
 
 /** One request: { status, data, cookie } (cookie: the nt_token it set, if any). */
-function send(srv, { method = 'POST', path, body, bearer, cookie, csrf, ip = '127.0.0.1' }) {
+function send(srv, { method = 'POST', path, body, bearer, cookie, csrf, headers: extraHeaders, ip = '127.0.0.1' }) {
   return new Promise((resolve, reject) => {
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = { 'Content-Type': 'application/json', ...(extraHeaders || {}) };
     if (bearer) headers.Authorization = `Bearer ${bearer}`;
     if (cookie) headers.Cookie = `nt_token=${cookie}`;
     if (csrf) headers['X-CSRF-Token'] = csrf;
@@ -92,7 +93,7 @@ function send(srv, { method = 'POST', path, body, bearer, cookie, csrf, ip = '12
       res.on('end', () => {
         let data; try { data = JSON.parse(text); } catch { data = text; }
         const set = [].concat(res.headers['set-cookie'] || []).find((c) => c.startsWith('nt_token=') && !c.startsWith('nt_token=;'));
-        resolve({ status: res.statusCode, data, cookie: set ? decodeURIComponent(set.split(';')[0].slice('nt_token='.length)) : null });
+        resolve({ status: res.statusCode, data, location: res.headers.location, setCookie: [].concat(res.headers['set-cookie'] || []), cookie: set ? decodeURIComponent(set.split(';')[0].slice('nt_token='.length)) : null });
       });
     });
     req.on('error', reject);
@@ -160,7 +161,7 @@ test.before(async () => {
   assert.equal(l.status, 200);
   tok.admin = l.data.token;
   ids.admin = l.data.user.id;
-  for (const n of ['alice', 'bob', 'carol', 'dave', 'erin', 'frank', 'gina', 'hal', 'ivy', 'jo', 'kim', 'lee', 'max', 'ned']) await makeUser(n);
+  for (const n of ['alice', 'bob', 'carol', 'dave', 'erin', 'frank', 'gina', 'hal', 'ivy', 'jo', 'kim', 'lee', 'max', 'ned', 'pat', 'quinn', 'rae']) await makeUser(n);
   await makeUser('admin2', 'admin');
 });
 test.after(async () => { await stop(S); if (S?.dir) rmSync(S.dir, { recursive: true, force: true }); });
@@ -665,6 +666,185 @@ test('a changed key: a plain message, recovery codes and resets still work; a sh
   } finally {
     await stop(s);
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── Linking a sign-in provider takes a fresh check ───────────────────────
+// A stand-in identity provider on 127.0.0.1: discovery, /auth (signs in
+// whoever `idpUser` says, at once), /token (an RS256 ID token), /jwks.
+async function standInIdp() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256', use: 'sig' };
+  const codes = new Map();
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const idp = { user: null };
+  const server = http.createServer((rq, rs) => {
+    const u = new URL(rq.url, 'http://x');
+    const ib = `http://127.0.0.1:${server.address().port}`;
+    const json = (o) => { rs.setHeader('content-type', 'application/json'); rs.end(JSON.stringify(o)); };
+    if (u.pathname.endsWith('openid-configuration')) return json({ issuer: ib, authorization_endpoint: `${ib}/auth`, token_endpoint: `${ib}/token`, jwks_uri: `${ib}/jwks`, response_types_supported: ['code'], subject_types_supported: ['public'], id_token_signing_alg_values_supported: ['RS256'] });
+    if (u.pathname === '/jwks') return json({ keys: [jwk] });
+    if (u.pathname === '/auth') {
+      const c = crypto.randomUUID();
+      codes.set(c, { ...idp.user, nonce: u.searchParams.get('nonce') });
+      rs.writeHead(302, { location: `${u.searchParams.get('redirect_uri')}?code=${c}&state=${u.searchParams.get('state')}` });
+      return rs.end();
+    }
+    if (u.pathname === '/token') {
+      let b = '';
+      rq.on('data', (d) => { b += d; });
+      rq.on('end', () => {
+        const who = codes.get(new URLSearchParams(b).get('code'));
+        const now = Math.floor(Date.now() / 1000);
+        const h = b64({ alg: 'RS256', kid: 'k1', typ: 'JWT' });
+        const p = b64({ iss: ib, aud: 'trace', sub: who.sub, email: who.email, email_verified: true, nonce: who.nonce, iat: now, exp: now + 300 });
+        json({ access_token: 'at', token_type: 'Bearer', id_token: `${h}.${p}.${crypto.sign('RSA-SHA256', Buffer.from(`${h}.${p}`), privateKey).toString('base64url')}` });
+      });
+      return;
+    }
+    rs.statusCode = 404; rs.end();
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  idp.base = `http://127.0.0.1:${server.address().port}`;
+  idp.close = () => new Promise((r) => server.close(r));
+  return idp;
+}
+const plainGet = (url, headers = {}) => new Promise((res, rej) => http.get(url, { headers }, (rs) => { rs.resume(); res({ status: rs.statusCode, location: rs.headers.location, setCookie: [].concat(rs.headers['set-cookie'] || []) }); }).on('error', rej));
+
+test('linking a provider: a session alone never links; password and code buy a single-use, short grant for one account and one browser', { skip: !ready }, async () => {
+  const idp = await standInIdp();
+  try {
+    let db = openDb(S);
+    const pid = Number(db.prepare(`INSERT INTO oidc_providers (issuer_url, client_id, redirect_uris, token_endpoint_auth_method, display_name, is_active) VALUES (?, 'trace', ?, 'none', 'Test IdP', 1)`)
+      .run(idp.base, JSON.stringify([`http://127.0.0.1:${S.port}/api/auth/oidc/callback`])).lastInsertRowid);
+    db.close();
+    const ip = newIp();
+    const start = (q, extra = {}) => send(S, { method: 'GET', path: `/api/auth/oidc/login/${pid}?${q}`, ip, ...extra });
+    const grant = (who, body) => send(S, { path: '/api/auth/two-step/link-grant', body, bearer: tok[who], ip });
+    const links = (id) => { const d = openDb(S); const rows = d.prepare('SELECT oidc_sub FROM user_oidc_links WHERE user_id = ?').all(id).map((r) => r.oidc_sub); d.close(); return rows; };
+    const linkStates = () => { const d = openDb(S); const rows = d.prepare('SELECT data FROM oauth_state WHERE provider = ?').all(`oidc:${pid}`).map((r) => JSON.parse(r.data)); d.close(); return rows; };
+    // Finish at the provider and come back, as the browser holding `cookies` would.
+    const finish = async (location, cookies = '') => {
+      const back = await plainGet(location);
+      return plainGet(back.location, cookies ? { cookie: cookies } : {});
+    };
+    await enable('pat');
+
+    // No grant: refused, whatever session comes with it (bearer, cookie, an image address's token).
+    assert.equal((await start('link=1')).status, 403);
+    assert.equal((await start('link=1', { bearer: tok.pat })).status, 403);
+    const quinnCookie = (await login('quinn', ip)).cookie;
+    assert.equal((await start('link=1', { cookie: quinnCookie })).status, 403);
+    assert.equal((await start(`link=1&_lt_t=${encodeURIComponent(tok.quinn)}`)).status, 403);
+    assert.equal(linkStates().length, 0, 'nothing started');
+
+    // The grant takes the password, and the code since two-step sign-in is on.
+    assert.equal((await send(S, { path: '/api/auth/two-step/link-grant', body: { password: PW }, ip })).status, 401, 'no session');
+    assert.equal((await grant('pat', {})).status, 401);
+    assert.equal((await grant('pat', { password: 'nope' })).status, 401);
+    const noCode = await grant('pat', { password: PW });
+    assert.equal(noCode.status, 401);
+    assert.equal(noCode.data.code_required, true);
+    rewind('pat');
+    const g1 = await grant('pat', { password: PW, code: codeFor(secrets.pat) });
+    assert.equal(g1.status, 200, JSON.stringify(g1.data));
+    assert.match(S.log, /\[link\] pat \(id \d+\) may link a sign-in provider/);
+    assert.equal(S.log.includes(g1.data.grant), false, 'the log never has the grant');
+
+    // A browser signed in as someone else can't take it (and it's used up).
+    assert.equal((await start(`link=1&link_grant=${encodeURIComponent(g1.data.grant)}`, { bearer: tok.quinn })).status, 403);
+    assert.equal((await start(`link=1&link_grant=${encodeURIComponent(g1.data.grant)}`, { bearer: tok.pat })).status, 403, 'used up');
+
+    // A page on another site can't start it in this browser.
+    rewind('pat');
+    const g2 = (await grant('pat', { password: PW, code: codeFor(secrets.pat) })).data.grant;
+    assert.equal((await start(`link=1&link_grant=${encodeURIComponent(g2)}`, { bearer: tok.pat, headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
+
+    // The grant starts one link, in this browser only: off to the provider,
+    // the state says whom to link, and a cookie says which browser.
+    const ok = await start(`link=1&link_grant=${encodeURIComponent(g2)}`, { bearer: tok.pat, headers: { 'Sec-Fetch-Site': 'same-origin' } });
+    assert.equal(ok.status, 302);
+    assert.ok(ok.location.startsWith(`${idp.base}/auth?`), ok.location);
+    assert.deepEqual(linkStates().map((d) => d.linkUserId), [ids.pat]);
+    assert.equal((await start(`link=1&link_grant=${encodeURIComponent(g2)}`, { bearer: tok.pat })).status, 403, 'once');
+    const bindCookie = ok.setCookie.map((c) => c.split(';')[0]).filter((c) => /_oidc_link=/.test(c)).join('; ');
+    assert.ok(bindCookie, 'the browser binding cookie');
+    // Someone else's browser finishing it (the provider's address sent to
+    // them) links nothing: their identity never lands on this account.
+    rewind('pat');
+    const g2b = (await grant('pat', { password: PW, code: codeFor(secrets.pat) })).data.grant;
+    const forwarded = await start(`link=1&link_grant=${encodeURIComponent(g2b)}`);
+    idp.user = { sub: 'victim-sub', email: 'victim@idp.example' };
+    const elsewhere = await finish(forwarded.location);
+    assert.equal(elsewhere.status, 302);
+    assert.match(elsewhere.location, /error=/);
+    assert.deepEqual(links(ids.pat), [], 'nothing linked');
+    // The browser that started it finishes it.
+    idp.user = { sub: 'pat-sub', email: 'pat@idp.example' };
+    const done = await finish(ok.location, bindCookie);
+    assert.equal(done.status, 302);
+    assert.match(done.location, /linked/);
+    assert.deepEqual(links(ids.pat), ['pat-sub']);
+
+    // Without two-step sign-in, the password alone. A grant expires, and a
+    // password change since ends it. The app's browser (no session) can use one.
+    const g3 = await grant('quinn', { password: PW });
+    assert.equal(g3.status, 200);
+    db = openDb(S);
+    db.prepare('UPDATE oidc_link_grants SET expires_at = 1 WHERE used_at IS NULL').run();
+    db.close();
+    assert.equal((await start(`link=1&link_grant=${encodeURIComponent(g3.data.grant)}`)).status, 403, 'expired');
+    const g4 = (await grant('quinn', { password: PW })).data.grant;
+    const NEW = 'Quinn-New-Pass-55!q';
+    assert.equal((await send(S, { method: 'PUT', path: '/api/auth/password', body: { current_password: PW, new_password: NEW }, bearer: tok.quinn, ip })).status, 200);
+    assert.equal((await start(`link=1&link_grant=${encodeURIComponent(g4)}`)).status, 403, 'the password changed');
+    const g5 = (await grant('quinn', { password: NEW })).data.grant;
+    assert.equal((await start(`link=1&link_grant=${encodeURIComponent(g5)}`)).status, 302, 'no session: the app opens the link in the browser');
+
+    // A single sign-on account (no password): a sign-in in the last 15 minutes.
+    db = openDb(S);
+    const sso = Number(db.prepare(`INSERT INTO users (username, password_hash, role) VALUES ('ssolinker', NULL, ?)`).run(ROLE).lastInsertRowid);
+    db.close();
+    const now = Math.floor(Date.now() / 1000);
+    const ssoTok = (ageSec) => jwt().sign({ id: sso, username: 'ssolinker', role: ROLE, csrf: 'x', iat: now - ageSec }, JWT_SECRET, { expiresIn: '2h' });
+    const stale = await send(S, { path: '/api/auth/two-step/link-grant', body: {}, bearer: ssoTok(20 * 60), ip });
+    assert.equal(stale.status, 401);
+    assert.equal(stale.data.reauth, true);
+    assert.equal((await send(S, { path: '/api/auth/two-step/link-grant', body: {}, bearer: ssoTok(60), ip })).status, 200);
+    // The same rule for giving it a first password: a stolen session can't.
+    const setPw = (ageSec) => send(S, { method: 'PUT', path: '/api/auth/password', body: { new_password: 'Sso-First-Pass-66!s' }, bearer: ssoTok(ageSec), ip });
+    const late = await setPw(20 * 60);
+    assert.equal(late.status, 401);
+    assert.equal(late.data.reauth, true);
+    assert.equal((await setPw(60)).status, 200);
+
+    // An email changed with a session alone: single sign-on doesn't link by
+    // it, and a reset goes to the address before it, until it's confirmed.
+    db = openDb(S);
+    db.prepare(`UPDATE users SET email = 'rae@home.example' WHERE id = ?`).run(ids.rae);
+    db.close();
+    const swap = await send(S, { method: 'PUT', path: '/api/auth/profile', body: { email: 'mallory@idp.example' }, bearer: tok.rae, ip });
+    assert.equal(swap.status, 200);
+    assert.equal((await send(S, { method: 'GET', path: '/api/auth/two-step/status', bearer: tok.rae, ip })).data.email_unconfirmed, true);
+    idp.user = { sub: 'mallory-sub', email: 'mallory@idp.example' };
+    const ssoIn = await finish((await start('')).location);
+    assert.match(ssoIn.location, /error=/, 'refused');
+    assert.equal(ssoIn.setCookie.some((c) => /_token=[^;]/.test(c)), false, 'no session');
+    assert.deepEqual(links(ids.rae), []);
+    const probe = `
+      const { resetRecipient } = await import('./lib/link-grant.js');
+      console.log(JSON.stringify([resetRecipient('mallory@idp.example')?.to ?? null, resetRecipient('rae@home.example')?.to ?? null]));`;
+    const recipients = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', probe], { cwd: SERVER_DIR, env: serverEnv(S.dir, 0, { LOG_LEVEL: 'error' }), encoding: 'utf8' }).trim().split('\n').pop());
+    assert.deepEqual(recipients, ['rae@home.example', 'rae@home.example'], 'a reset goes to the address before');
+    // Confirming takes the password (no code: two-step sign-in is off for rae).
+    assert.equal((await send(S, { path: '/api/auth/two-step/confirm-email', body: {}, bearer: tok.rae, ip })).status, 401);
+    assert.equal((await send(S, { path: '/api/auth/two-step/confirm-email', body: { password: PW }, bearer: tok.rae, ip })).status, 200);
+    assert.equal((await send(S, { method: 'GET', path: '/api/auth/two-step/status', bearer: tok.rae, ip })).data.email_unconfirmed, false);
+    const ssoAfter = await finish((await start('')).location);
+    assert.doesNotMatch(ssoAfter.location, /error=/, 'confirmed: auto-link as before');
+    assert.deepEqual(links(ids.rae), ['mallory-sub']);
+  } finally {
+    await idp.close();
   }
 });
 
