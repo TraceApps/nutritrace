@@ -298,8 +298,6 @@
       "failed": "Échec de la connexion"
     },
     "recovery": {
-      "confirm": "Cela supprimera tous les comptes utilisateurs. Vos données alimentaires et de journal seront conservées. Continuer ?",
-      "explainer": "Si vous n'avez jamais configuré intentionnellement de comptes utilisateurs, vous pouvez désactiver la gestion des utilisateurs. <strong>Cela supprimera tous les comptes utilisateurs.</strong> Vos données alimentaires et de journal seront conservées.",
       "token_prompt": "Entrez le <code>RECOVERY_TOKEN</code> de l'environnement de votre serveur :",
       "token_placeholder": "Jeton de récupération",
       "action": "Désactiver la gestion des utilisateurs & Réinitialiser",
