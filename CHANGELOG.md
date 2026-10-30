@@ -17,6 +17,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Cards throughout the app, diary sidebar widgets, and the Settings onboarding card no longer move upward on hover.
+
 - **Locked Out? says what Disable User Management deletes.** It said your food and diary data would be kept, but it deletes every account and everything saved in them.
 - **Sync keeps the newer edit of each field, not of the whole row.** A change made in the Android app or in the browser while offline could undo a newer change made on another device to a different field of the same food, meal, recipe, activity, fast or day's measurements, or be dropped because the other device's copy was newer. Now each field keeps its newest edit: a brand changed on the web and a note added on the phone both stay. Fields that belong together, such as a food's nutrients and its serving size, stay together. A food deleted on one device and edited later on another is kept, and an edit made before a delete no longer brings it back. A setting changed offline no longer replaces a newer change. Saving a food, meal or activity on the web or in the Android app now changes only what you edited, so an edit made elsewhere since the form opened stays. Android apps from before this update still sync, and their changes count as a whole row, as before.
 - **An activity or fast changed in the Android app while it syncs is no longer undone.** A change made while the app was sending an earlier one was written over by what came back from the server, and never sent. It now stays and goes with the next sync, as foods and meals already did.

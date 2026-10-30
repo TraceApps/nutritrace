@@ -344,12 +344,10 @@ html.banner-animated-mode .wl-topbar-actions .wl-sync-icon-btn .material-symbols
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  transition: transform var(--dur-fast) var(--ease-out),
-              box-shadow var(--dur-fast) var(--ease-out);
+  transition: box-shadow var(--dur-fast) var(--ease-out);
 }
 @media (hover: hover) {
   .card:hover {
-    transform: translateY(-2px);
     box-shadow: var(--shadow-glow);
   }
 }
