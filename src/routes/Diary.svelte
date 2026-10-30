@@ -4015,15 +4015,12 @@
       outline-offset: -2px;
       background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
     }
-    /* Polish: hover elevation on desktop with hover-capable input.
-       Subtle 2px lift + slightly stronger shadow signals card is
-       interactive without being noisy. Skipped on touch (:hover fires
-       oddly on tap-and-hold). */
+    /* Hover shadows on desktop with hover-capable input.
+       Skipped on touch (:hover fires oddly on tap-and-hold). */
     @media (hover: hover) {
       :global(html:not(.force-mobile-layout)) .meal-col > .meal-group:not(.dragging):hover {
-        transform: translateY(-1px);
         box-shadow: 0 6px 20px -8px rgba(0,0,0,0.14);
-        transition: transform 160ms ease, box-shadow 160ms ease;
+        transition: box-shadow 160ms ease;
       }
       :global(html:not(.force-mobile-layout) [data-theme="dark"]) .meal-col > .meal-group:not(.dragging):hover,
     :global(html:not(.force-mobile-layout) :root:not([data-theme="light"])) .meal-col > .meal-group:not(.dragging):hover {
@@ -4031,8 +4028,14 @@
       }
       /* Right rail widgets get the same treatment. */
       :global(html:not(.force-mobile-layout)) .diary-right-col > :hover {
-        transform: translateY(-1px);
         box-shadow: 0 6px 20px -8px rgba(0,0,0,0.14);
+        transition: box-shadow 160ms ease;
+      }
+    }
+    @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+      :global(html:not(.force-mobile-layout):not(.no-animations)) .meal-col > .meal-group:not(.dragging):hover,
+      :global(html:not(.force-mobile-layout):not(.no-animations)) .diary-right-col > :hover {
+        transform: translateY(-1px);
         transition: transform 160ms ease, box-shadow 160ms ease;
       }
     }
