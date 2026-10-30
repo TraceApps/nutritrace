@@ -298,7 +298,7 @@
   }
 
   async function recover() {
-    if (!confirm($_('login.recovery.confirm'))) return;
+    if (!confirm($_('login.recovery.confirm_delete'))) return;
     recovering = true;
     try {
       const res = await fetch(apiUrl('/api/auth/recover'), {
@@ -423,7 +423,7 @@
               <span class="material-symbols-rounded" style="font-size:18px;color:var(--warning,#f59e0b)">warning</span>
               {$_('two_step.locked_out.disable_title')}
             </strong>
-            <p style="margin:0">{@html $_('login.recovery.explainer')}</p>
+            <p style="margin:0">{@html $_('login.recovery.explainer_delete')}</p>
           </div>
           <button class="btn btn-secondary" style="width:100%;border-color:var(--danger);color:var(--danger)"
             on:click={recover} disabled={recovering || !recoveryToken.trim()}>
