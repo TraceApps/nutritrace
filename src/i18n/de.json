@@ -469,8 +469,6 @@
       "failed": "Anmeldung fehlgeschlagen"
     },
     "recovery": {
-      "confirm": "Dadurch werden alle Benutzerkonten gelöscht. Deine Lebensmittel- und Tagebuchdaten bleiben erhalten. Fortfahren?",
-      "explainer": "Wenn du Benutzerkonten nie bewusst eingerichtet hast, kannst du die Benutzerverwaltung deaktivieren. <strong>Dadurch werden alle Benutzerkonten gelöscht.</strong> Deine Lebensmittel- und Tagebuchdaten bleiben erhalten.",
       "token_prompt": "Gib das <code>RECOVERY_TOKEN</code> aus deiner Server-Umgebung ein:",
       "token_placeholder": "Wiederherstellungs-Token",
       "action": "Benutzerverwaltung deaktivieren & zurücksetzen",
