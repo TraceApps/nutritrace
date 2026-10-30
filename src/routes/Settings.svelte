@@ -1706,10 +1706,10 @@
     border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   }
   @media (prefers-reduced-motion: no-preference) {
-    .settings-onboarding-card {
+    :global(html:not(.no-animations)) .settings-onboarding-card {
       transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
     }
-    .settings-onboarding-card:hover {
+    :global(html:not(.no-animations)) .settings-onboarding-card:hover {
       transform: translateY(-1px);
     }
   }

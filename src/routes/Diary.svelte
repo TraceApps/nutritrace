@@ -4033,8 +4033,8 @@
       }
     }
     @media (hover: hover) and (prefers-reduced-motion: no-preference) {
-      :global(html:not(.force-mobile-layout)) .meal-col > .meal-group:not(.dragging):hover,
-      :global(html:not(.force-mobile-layout)) .diary-right-col > :hover {
+      :global(html:not(.force-mobile-layout):not(.no-animations)) .meal-col > .meal-group:not(.dragging):hover,
+      :global(html:not(.force-mobile-layout):not(.no-animations)) .diary-right-col > :hover {
         transform: translateY(-1px);
         transition: transform 160ms ease, box-shadow 160ms ease;
       }
