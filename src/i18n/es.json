@@ -466,8 +466,6 @@
       "failed": "Falló el inicio de sesión"
     },
     "recovery": {
-      "confirm": "Esto eliminará todas las cuentas de usuario. Tus alimentos y tu diario se conservan. ¿Continuar?",
-      "explainer": "Si nunca quisiste configurar cuentas de usuario, puedes desactivar la gestión de usuarios. <strong>Esto eliminará todas las cuentas de usuario.</strong> Tus alimentos y tu diario se conservan.",
       "token_prompt": "Ingresa el <code>RECOVERY_TOKEN</code> del entorno de tu servidor:",
       "token_placeholder": "Token de recuperación",
       "action": "Desactivar gestión de usuarios y reiniciar",
