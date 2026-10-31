@@ -1875,8 +1875,6 @@
       "name": "Nombre *",
       "name_ph": "p. ej. CookTrace, mi panel del homelab",
       "scopes": "Permisos *",
-      "expires_label": "Vence después de (días, opcional)",
-      "expires_ph": "Déjalo vacío para que no venza",
       "cancel": "Cancelar",
       "creating": "Creando…",
       "create": "Crear token"
