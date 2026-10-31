@@ -2011,8 +2011,6 @@
       "name": "Navn *",
       "name_ph": "f.eks. CookTrace, mitt dashbord for hjemmeserver",
       "scopes": "Omfang *",
-      "expires_label": "Utløper etter (dager, valgfritt)",
-      "expires_ph": "La stå tomt for å aldri utløpe",
       "cancel": "Avbryt",
       "creating": "Oppretter…",
       "create": "Opprett token"
