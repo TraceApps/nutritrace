@@ -13,6 +13,7 @@ import { parseAltUnits } from './units.js';
 import { itemSourceRef, relinkItems, relinkIngredients, itemFoodMatches, relinkedAt } from './item-source.js';
 import { baseOf, statsBase, changesOf, statsChanges } from './sync-base.js';
 import { editRevives, instantMs } from './field-sync.js';
+import { relinkStamp } from './relink-stamp.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -1662,6 +1663,26 @@ export async function dbMarkSynced(table, rows, live = () => true) {
 }
 
 /**
+ * Rows a push made on the server and that are done (marked synced) take the
+ * server's time for the push as their updated_at, which is what a pull would
+ * give them: the time they were made there. Their own time is from before
+ * (the phone's, when the row was made here), and the server counts an edit
+ * from before its row existed as made when it arrives, so a link filled in
+ * on such a row later would go up as a change made then (relink-stamp.js).
+ * A row changed meanwhile (pending) keeps its own time.
+ * `at`: ms on the server's clock.
+ */
+export async function dbStampMade(table, ids, at, live = () => true) {
+  if (!ids || !ids.length || !Number.isFinite(at)) return;
+  const db = await getDb();
+  const stamp = new Date(at).toISOString().replace(/Z$/, '+00:00');
+  for (const id of ids) {
+    if (!live()) return;
+    await db.run(`UPDATE ${table} SET updated_at = ? WHERE id = ? AND sync_status = 'synced'`, [stamp, id]);
+  }
+}
+
+/**
  * The copy the server now has of rows a push sent ([{ id, base }]): what
  * went up, whether or not the row was changed here again meanwhile (that
  * change is still to go, and is now told apart from what went up). The
@@ -1712,7 +1733,7 @@ async function _beforeDayEdit(db, date) {
 // own time. A day's measurements as body_stats.<key>. Rows the server
 // hasn't had yet go up whole. Returns what this change changed (a day: the
 // measurement keys), or null when it can't say.
-async function _afterEdit(db, table, id, before) {
+async function _afterEdit(db, table, id, before, stampOf = null) {
   if (!before || before.server_id == null || id == null) return null;
   try {
     const after = _row(await db.query(`SELECT * FROM ${table} WHERE id = ?`, [id]));
@@ -1728,7 +1749,11 @@ async function _afterEdit(db, table, id, before) {
     const rest = before.sync_status === 'pending' && before.server_base == null && !t._rest && before.updated_at ? before.updated_at : null;
     if (!changed.length && !rest) return changed;
     if (rest) t._rest = rest;
-    for (const f of changed) t[table === 'diary' ? `body_stats.${f}` : f] = after.updated_at;
+    // `stampOf(field, time it had)`: a change that isn't an edit made now (a link filled in) says its own time.
+    for (const f of changed) {
+      const k = table === 'diary' ? `body_stats.${f}` : f;
+      t[k] = stampOf ? stampOf(f, t[k]) : after.updated_at;
+    }
     await db.run(`UPDATE ${table} SET edit_times = ? WHERE id = ?`, [JSON.stringify(t), id]);
     return changed;
   } catch (e) { console.debug(`[db-native] ${table} ${id} edit times:`, e?.message); return null; }
@@ -1855,11 +1880,18 @@ export async function dbOwnInstallIds() {
 // from before the tag existed link only to a row created in this push
 // (`created`, from the push answer) with the same name.
 // Changed days go up on the next push. Returns how many days changed.
+// A link filled in is not a change anyone made, so it is never stamped as
+// one made now: the row keeps the time it had, a millisecond on
+// (relink-stamp.js), and a push of it can't bring back a row deleted
+// elsewhere, nor undo a newer edit made there. It does leave the row
+// pending, so the link goes up with the next push.
 // `skipMeals`: ids here of meals not to link (deleted on the server).
-export async function dbLinkDiaryItems(created = [], live = () => true, skipMeals = null) {
+// `serverAt`: ms, the server's clock at the push these `created` rows came
+// back from. A row made in that push is no older than that to the server.
+export async function dbLinkDiaryItems(created = [], live = () => true, skipMeals = null, serverAt = NaN) {
   const db = await getDb();
   const r = await db.query(
-    `SELECT id, items FROM diary WHERE user_id = ? AND deleted_at IS NULL AND items LIKE '%"food_server_id":null%'`,
+    `SELECT id, items, updated_at FROM diary WHERE user_id = ? AND deleted_at IS NULL AND items LIKE '%"food_server_id":null%'`,
     [LOCAL_USER_ID]
   );
   const rows = _rows(r);
@@ -1867,7 +1899,7 @@ export async function dbLinkDiaryItems(created = [], live = () => true, skipMeal
   // ingredient keeps the phone's id with server_id null until its food
   // goes up.
   const meals = _rows(await db.query(
-    `SELECT id, items FROM meals WHERE user_id = ? AND deleted_at IS NULL AND (items LIKE '%"server_id":null%' OR items LIKE '%"food_server_id":null%')`,
+    `SELECT id, items, updated_at FROM meals WHERE user_id = ? AND deleted_at IS NULL AND (items LIKE '%"server_id":null%' OR items LIKE '%"food_server_id":null%')`,
     [LOCAL_USER_ID]
   ));
   if (!rows.length && !meals.length) return 0;
@@ -1943,11 +1975,13 @@ export async function dbLinkDiaryItems(created = [], live = () => true, skipMeal
     const { out, hit } = fix(items);
     if (!hit) continue;
     if (!live()) return changed;
-    await _beforeEdit(db, 'diary', row.id);
+    const before = await _beforeEdit(db, 'diary', row.id);
     await db.run(`UPDATE diary SET items = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
-      [JSON.stringify(out), _now(), row.id]);
+      [JSON.stringify(out), relinkStamp(before?.updated_at ?? row.updated_at, { offsetMs: _clockOffsetMs ?? 0 }), row.id]);
     changed++;
   }
+  // Meals and recipes made in the push these `created` came back from.
+  const madeNow = new Set((created || []).filter(c => c?.table === 'meals' && c.localId != null).map(c => c.localId));
   for (const meal of meals) {
     if (skipMeals?.has(meal.id)) continue;
     const items = _parseJson(meal.items, []);
@@ -1956,9 +1990,17 @@ export async function dbLinkDiaryItems(created = [], live = () => true, skipMeal
     if (!hit) continue;
     if (!live()) return changed;
     const before = await _beforeEdit(db, 'meals', meal.id);
+    // The server counts an edit from before its row existed as made now, so
+    // a row made in that push is linked at the push's time at the earliest.
+    const opts = { offsetMs: _clockOffsetMs ?? 0, notBefore: madeNow.has(meal.id) ? serverAt : NaN };
+    const at = relinkStamp(before?.updated_at ?? meal.updated_at, opts);
     await db.run(`UPDATE meals SET items = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`,
-      [JSON.stringify(out), _now(), meal.id]);
-    await _afterEdit(db, 'meals', meal.id, before);
+      [JSON.stringify(out), at, meal.id]);
+    // The ingredients' edit time keeps the time the items last changed here,
+    // a millisecond on, when it has one (a later edit of another field, say
+    // the name, doesn't make the items newer).
+    await _afterEdit(db, 'meals', meal.id, before, (f, was) => (f === 'items' && typeof was === 'string' && !Number.isFinite(opts.notBefore)
+      ? relinkStamp(was, opts) : at));
   }
   return changed;
 }
@@ -2042,11 +2084,66 @@ export async function dbApplyServerDeletions(deletions, live = () => true) {
 export async function dbApplyServerWinner(table, row) {
   if (!row || row.id == null) return;
   const db = await getDb();
-  const local = _row(await db.query(`SELECT sync_status FROM ${table} WHERE server_id = ? AND user_id = ?`, [row.id, LOCAL_USER_ID]));
+  const local = _row(await db.query(`SELECT sync_status${table === 'meals' ? ', items' : ''} FROM ${table} WHERE server_id = ? AND user_id = ?`, [row.id, LOCAL_USER_ID]));
   if (local?.sync_status === 'pending') return;
-  if (table === 'foods' || table === 'meals') return dbUpsertFromServer(table, row);
+  if (table === 'meals') {
+    // This phone's links to its ingredients' foods that the server's copy
+    // (a newer edit made elsewhere that its push lost to) doesn't have:
+    // kept on the copy it takes, and sent with the next push.
+    const links = _ingredientLinks(_parseJson(local?.items, []));
+    await dbUpsertFromServer(table, row);
+    if (links.size) await _keepIngredientLinks(db, row.id, links);
+    return;
+  }
+  if (table === 'foods') return dbUpsertFromServer(table, row);
   if (table === 'activity_log') return dbUpsertActivityFromServer(row);
   if (table === 'fasts') return dbUpsertFastFromServer(row);
+}
+
+// A recipe's ingredient made here before its food went up names the food by
+// this phone's id with a server id of null; once the food has gone up the
+// phone fills the server id in (dbLinkDiaryItems).
+const _unsentIngredient = ing => !!ing && typeof ing === 'object' && typeof ing.id === 'number'
+  && (('server_id' in ing && ing.server_id == null) || ing.food_server_id === null);
+const _ingredientKey = ing => `${ing.id}\u0000${_norm(ing.name)}`;
+// The links this phone has made among `items`: its id and name for the
+// server id of each.
+function _ingredientLinks(items) {
+  const out = new Map();
+  if (!Array.isArray(items)) return out;
+  for (const ing of items) {
+    if (!ing || typeof ing !== 'object' || typeof ing.id !== 'number') continue;
+    const sid = typeof ing.server_id === 'number' ? ing.server_id : (typeof ing.food_server_id === 'number' ? ing.food_server_id : null);
+    if (sid != null) out.set(_ingredientKey(ing), sid);
+  }
+  return out;
+}
+// The recipe the server sent back (by its server id) gets `links` filled in
+// wherever it still names the same ingredient by this phone's id alone. Not a
+// change made now (relink-stamp.js): it goes up as the time the copy had.
+async function _keepIngredientLinks(db, serverId, links) {
+  const row = _row(await db.query(`SELECT id, items FROM meals WHERE server_id = ? AND user_id = ?`, [serverId, LOCAL_USER_ID]));
+  if (!row) return;
+  const items = _parseJson(row.items, []);
+  if (!Array.isArray(items)) return;
+  const mine = await dbOwnInstallIds();
+  let hit = false;
+  const out = items.map(ing => {
+    if (!_unsentIngredient(ing)) return ing;
+    // Another phone's own id means nothing here (as in dbLinkDiaryItems).
+    if (ing.food_device && !mine.has(ing.food_device)) return ing;
+    const sid = links.get(_ingredientKey(ing));
+    if (sid == null) return ing;
+    hit = true;
+    const { food_device: _d, ...rest } = ing;
+    return { ...rest, server_id: sid, ...('food_server_id' in ing ? { food_server_id: sid } : {}) };
+  });
+  if (!hit) return;
+  const before = await _beforeEdit(db, 'meals', row.id);
+  const opts = { offsetMs: _clockOffsetMs ?? 0 };
+  const at = relinkStamp(before?.updated_at, opts);
+  await db.run(`UPDATE meals SET items = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`, [JSON.stringify(out), at, row.id]);
+  await _afterEdit(db, 'meals', row.id, before, (f, was) => (f === 'items' && typeof was === 'string' ? relinkStamp(was, opts) : at));
 }
 
 // This phone's id for a row it knows by its server id, or null.

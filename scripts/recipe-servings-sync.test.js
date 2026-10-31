@@ -76,7 +76,7 @@ function fixture({ offline = false, useCache = true } = {}) {
     // Account check, completion marks and diary ids: nothing to do here.
     localDataIsThisAccount: async () => true, dbGetCompletionOps: async () => [],
     dbDeleteCompletionOp: async () => {}, dbQueueCompletionOp: async () => null,
-    dbLinkDiaryItems: async () => 0, dbApplyServerWinner: async () => {}, dbSetClockOffset: async () => {}, serverKeepsNotes: async () => true, dbInstallId: async () => 'test-install', accountGeneration: () => 0,
+    dbLinkDiaryItems: async () => 0, dbStampMade: async () => {}, dbApplyServerWinner: async () => {}, dbSetClockOffset: async () => {}, serverKeepsNotes: async () => true, dbInstallId: async () => 'test-install', accountGeneration: () => 0,
     dbGetPendingDiaryTombstones: async () => ({}),
     dbSetServerId: async () => {}, dbMarkSynced: async () => {}, dbSetServerBase: async () => {},
     baseOf, changesOf, statsBase, statsChanges,

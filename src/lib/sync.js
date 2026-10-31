@@ -23,7 +23,7 @@ import {
   dbUpsertWorkoutFromServer, dbUpsertActivityFromServer,
   dbGetPendingWorkouts, dbSetWorkoutServerId,
   dbGetPendingDiaryTombstones, dbMarkTombstonesSynced, dbApplyServerTombstones,
-  dbLinkDiaryItems, dbApplyServerDeletions, dbGetCompletionOps, dbDeleteCompletionOp,
+  dbLinkDiaryItems, dbStampMade, dbApplyServerDeletions, dbGetCompletionOps, dbDeleteCompletionOp,
   dbApplyServerWinner, dbSetClockOffset, dbInstallId, createKeyOf,
   dbPendingCoachMessages, dbUpsertCoachMessages, dbFailCoachMessage, dbForgetCoachMessage,
   dbPendingCoachAnswers, dbUpsertCoachRecommendations, dbSetServerBase,
@@ -638,7 +638,7 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
   // change was older) isn't linked: that would be a change made now, and
   // would bring it back (db-native.js _changeOutlivesDelete). It goes below.
   const deletedThere = new Set((result.meals || []).filter(m => m?.row?.deleted_at).map(m => m.client_id));
-  try { if (live()) await dbLinkDiaryItems(created, live, deletedThere); }
+  try { if (live()) await dbLinkDiaryItems(created, live, deletedThere, Date.parse(result.server_time)); }
   catch (e) { console.warn('[sync] linking diary items waits for the next push:', e?.message || e); }
   for (const d of (result.diary || [])) {
     if (d.client_id && d.server_id) {
@@ -685,6 +685,8 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
   await dbSetServerBase('diary', pending.diary.map((d, i) => ({ id: d.id, base: statsBase(payload.diary[i].body_stats), sent: sentEdits.diary?.get(d.id) })), live);
   await dbMarkSynced('foods',        pending.foods.map(f => ({ id: f.id, updated_at: f.updated_at })), live);
   await dbMarkSynced('meals',        pending.meals.map(m => ({ id: m.id, updated_at: m.updated_at })), live);
+  // Recipes this push made are the server's from this moment (see dbStampMade).
+  await dbStampMade('meals', created.filter(c => c.table === 'meals').map(c => c.localId), Date.parse(result.server_time), live);
   await dbMarkSynced('diary',        pending.diary.map(d => ({ id: d.id, updated_at: d.updated_at })), live);
   // Option C: mark all pending tombstones we just pushed as synced so
   // they don't get resent on the next push cycle.

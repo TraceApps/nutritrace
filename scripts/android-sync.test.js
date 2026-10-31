@@ -249,8 +249,9 @@ const q = (sql, ...a) => sqlite.prepare(sql).all(...a);
 // request ({ delayMs }) first. Records each request's method, path and
 // token.
 // Also keeps each request's body (`body`), and can answer with the real
-// answer rewritten ({ rewrite(text) }) or never answer after the server
-// has it ({ dropReply }).
+// answer rewritten ({ rewrite(text) }), never answer after the server
+// has it ({ dropReply }), or run something once the server has it and
+// before the phone hears ({ beforeReply }).
 async function proxy(rule = () => null) {
   const seen = [];
   const target = new URL(base);
@@ -270,6 +271,16 @@ async function proxy(rule = () => null) {
         delete headers['accept-encoding'];
         const up = httpRequest({ host: target.hostname, port: target.port, method: req.method, path: req.url, headers }, r => {
           if (act.dropReply) { r.resume(); r.on('end', () => res.destroy()); return; }
+          if (act.beforeReply) {
+            // The server has the request; something happens before the phone hears (a slow link).
+            const held = [];
+            r.on('data', c => held.push(c));
+            r.on('end', async () => {
+              try { await act.beforeReply(); } catch (e) { console.error('beforeReply', e); }
+              res.writeHead(r.statusCode, { ...r.headers }); res.end(Buffer.concat(held));
+            });
+            return;
+          }
           if (act.rewrite) {
             const out = [];
             r.on('data', c => out.push(c));
@@ -2698,6 +2709,266 @@ test('a recipe saved on the phone, online, after it was deleted on the web comes
   assert.deepEqual(q('SELECT deleted_at, notes FROM meals WHERE id = ?', m.id)[0], { deleted_at: null, notes: 'Saved while online' }, 'and the server has the recipe back with it');
 });
 
+// Filling in a link (an ingredient's food, a diary item's food, now it has a
+// server id) is not a change anyone makes, so it can't be stamped as one made
+// now. The server judges a pushed row by its edit time: a link made now
+// beat a delete made on the web since the phone last heard (the recipe came
+// back) and a newer edit of the same field made there (it was written over).
+// Each case here is one way the phone links, with the web acting between
+// the phone's push and its next one (the proxy's beforeReply: the server has
+// the push and the phone has not heard yet, as on a slow link).
+const kaleBowl = async (tag, tagged = false) => {
+  const oats = await http(A, 'POST', '/api/foods', { name: `${tag} Oats`, nutrition: { calories: 50 }, portion: 100, unit: 'g' });
+  const bowl = await http(A, 'POST', '/api/meals', { name: `${tag} Bowl`, is_recipe: 1, portion: 100, unit: 'g', items: [{ id: oats.id, name: oats.name, portion: 100, unit: 'g', quantity: 1, nutrition: { calories: 50 } }] });
+  phone(`relink-${tag}`, A, `await p.sync(); p.done();`);
+  // Offline: a food made on the phone, added to the recipe (no server id yet).
+  phone(`relink-${tag}`, A, `
+    await p.offline(async () => {
+      const kale = await p.api.createFood({ name: '${tag} Kale', nutrition: { calories: 30 }, portion: 100, unit: 'g' });
+      const r = (await p.api.getRecipes()).find(x => x.server_id === ${bowl.id});
+      // ${tagged ? 'Tagged with this install, as an ingredient is after Connect > Upload' : 'Untagged, as the recipe editor leaves it'}.
+      await p.api.updateMeal(r.id, { ...r, items: [...(r.items || []), { ...kale, quantity: 1${tagged ? ', food_device: await p.dbn.dbInstallId()' : ''} }] });
+    });
+    p.done();`);
+  await sleep(1100);
+  return { oats, bowl };
+};
+const onceOn = (prefix, what) => {
+  let held = false;
+  return proxy(req => (req.url.startsWith(prefix) && !held
+    ? { beforeReply: async () => { held = true; await what(); await sleep(1300); } }
+    : null));
+};
+const onceOnPush = what => onceOn('/api/sync/push', what);
+const serverItems = id => JSON.parse(q('SELECT items FROM meals WHERE id = ?', id)[0].items);
+
+test('a recipe deleted on the web while the phone\'s push was on its way back stays deleted after the phone links its new ingredient', async (t) => {
+  if (skip(t)) return;
+  const { bowl } = await kaleBowl('Slow');
+  const px = await onceOnPush(() => http(A, 'DELETE', `/api/meals/${bowl.id}`));
+  let r;
+  try {
+    r = await phoneAsync('relink-Slow', A, `
+      await p.sync(); await p.sync(); await p.sync();
+      p.done({ bowl: !!(await p.api.getRecipes()).find(x => x.server_id === ${bowl.id}) });`, { NT_SERVER: px.url });
+  } finally { await px.close(); }
+  assert.equal(q('SELECT deleted_at IS NOT NULL AS d FROM meals WHERE id = ?', bowl.id)[0].d, 1, 'the recipe stays deleted on the server');
+  assert.equal(r.bowl, false, 'and on the phone');
+});
+
+test('a recipe made on the phone with a new food and deleted on the web before the phone\'s next push stays deleted', async (t) => {
+  if (skip(t)) return;
+  phone('relink-New', A, `await p.sync(); p.done();`);
+  phone('relink-New', A, `
+    await p.offline(async () => {
+      const kale = await p.api.createFood({ name: 'New Kale', nutrition: { calories: 30 }, portion: 100, unit: 'g' });
+      await p.api.createMeal({ name: 'New Bowl', is_recipe: 1, portion: 100, unit: 'g', nutrition: {}, items: [{ ...kale, quantity: 1 }] });
+    });
+    p.done();`);
+  await sleep(1100);
+  // The server made the recipe (and the food) in this push; the phone's own
+  // edit times for it are from before that.
+  const px = await onceOnPush(() => http(A, 'DELETE', `/api/meals/${q(`SELECT id FROM meals WHERE name = 'New Bowl'`)[0].id}`));
+  let r;
+  try {
+    r = await phoneAsync('relink-New', A, `
+      await p.sync(); await p.sync(); await p.sync();
+      p.done({ bowl: !!(await p.api.getRecipes()).find(x => x.name === 'New Bowl') });`, { NT_SERVER: px.url });
+  } finally { await px.close(); }
+  assert.equal(q(`SELECT deleted_at IS NOT NULL AS d FROM meals WHERE name = 'New Bowl'`)[0].d, 1, 'the recipe stays deleted on the server');
+  assert.equal(r.bowl, false, 'and on the phone');
+  assert.equal(q(`SELECT COUNT(*) AS n FROM foods WHERE name = 'New Kale' AND deleted_at IS NULL`)[0].n, 1, 'the food it made is there once');
+});
+
+test('a recipe made on the phone with a new food and deleted on the web after the phone\'s pull stays deleted when the phone sends its link', async (t) => {
+  if (skip(t)) return;
+  phone('relink-NewPull', A, `await p.sync(); p.done();`);
+  phone('relink-NewPull', A, `
+    await p.offline(async () => {
+      const kale = await p.api.createFood({ name: 'NewPull Kale', nutrition: { calories: 30 }, portion: 100, unit: 'g' });
+      await p.api.createMeal({ name: 'NewPull Bowl', is_recipe: 1, portion: 100, unit: 'g', nutrition: {}, items: [{ ...kale, quantity: 1 }] });
+    });
+    p.done();`);
+  await sleep(1100);
+  // The phone's pull has been answered when the recipe is deleted: the phone
+  // has the recipe (made in its push) and its link waiting, and no word of
+  // the delete. The server made the recipe in the push, after the phone's
+  // own time for it, which the server counts as made when the link arrives
+  // unless the link is dated no earlier than that push.
+  const px = await onceOn('/api/sync/pull', () => http(A, 'DELETE', `/api/meals/${q(`SELECT id FROM meals WHERE name = 'NewPull Bowl'`)[0].id}`));
+  let r;
+  try {
+    r = await phoneAsync('relink-NewPull', A, `
+      await p.sync(); await p.sync(); await p.sync();
+      p.done({ bowl: !!(await p.api.getRecipes()).find(x => x.name === 'NewPull Bowl') });`, { NT_SERVER: px.url });
+  } finally { await px.close(); }
+  assert.equal(q(`SELECT deleted_at IS NOT NULL AS d FROM meals WHERE name = 'NewPull Bowl'`)[0].d, 1, 'the recipe stays deleted on the server');
+  assert.equal(r.bowl, false, 'and on the phone');
+});
+
+test('a link filled in at the start of a push (the food went up in an earlier push) does not bring back a recipe deleted on the web', async (t) => {
+  if (skip(t)) return;
+  const { bowl } = await kaleBowl('Start', true);
+  // The food went up earlier (Connect > Upload, a push that was cut off):
+  // it has its server id here, and the recipe still names it by the phone's.
+  const kale = await http(A, 'POST', '/api/foods', { name: 'Start Kale Up', nutrition: { calories: 30 }, portion: 100, unit: 'g' });
+  const before = phone('relink-Start', A, `
+    const db = await p.dbn.getDb();
+    const k = (await p.api.getFoods()).find(f => f.name === 'Start Kale');
+    await db.run("UPDATE foods SET server_id = ?, sync_status = 'synced', name = 'Start Kale Up' WHERE id = ?", [${kale.id}, k.id]);
+    p.done((await p.api.getRecipes()).find(x => x.server_id === ${bowl.id}).items.map(i => [i.name, i.server_id === undefined ? 'none' : i.server_id]));`);
+  assert.deepEqual(before, [['Start Oats', 'none'], ['Start Kale', null]], 'the recipe names the food by the phone\'s id');
+  await http(A, 'DELETE', `/api/meals/${bowl.id}`);
+  await sleep(1100);
+  const r = phone('relink-Start', A, `
+    await p.sync(); await p.sync();
+    p.done({ bowl: !!(await p.api.getRecipes()).find(x => x.server_id === ${bowl.id}) });`);
+  assert.equal(q('SELECT deleted_at IS NOT NULL AS d FROM meals WHERE id = ?', bowl.id)[0].d, 1, 'the recipe stays deleted on the server');
+  assert.equal(r.bowl, false, 'and on the phone');
+});
+
+test('a link does not undo a newer edit of the recipe made on the web, is tried again on what the web left, and the phone then goes quiet', async (t) => {
+  if (skip(t)) return;
+  const { bowl, oats } = await kaleBowl('Lost');
+  // The web changes the oats' amount after the phone's push landed.
+  const px = await onceOnPush(async () => {
+    const now = await http(A, 'GET', `/api/meals/${bowl.id}`);
+    await http(A, 'PUT', `/api/meals/${bowl.id}`, { items: now.items.map(i => (i.id === oats.id ? { ...i, quantity: 3 } : i)), changed_fields: ['items'] });
+  });
+  let r;
+  try {
+    r = await phoneAsync('relink-Lost', A, `
+      await p.sync(); await p.sync(); await p.sync();
+      p.done();`, { NT_SERVER: px.url });
+    const sent = () => px.seen.filter(x => x.path.startsWith('/api/sync/push') && JSON.parse(x.body).meals?.length).length;
+    const n = sent();
+    await phoneAsync('relink-Lost', A, `await p.sync(); await p.sync(); await p.sync(); p.done();`, { NT_SERVER: px.url });
+    assert.equal(sent(), n, 'nothing more is sent: the link is not tried on every sync');
+  } finally { await px.close(); }
+  const kale = q(`SELECT id FROM foods WHERE name = 'Lost Kale'`)[0].id;
+  const items = serverItems(bowl.id);
+  assert.equal(items.find(i => i.id === oats.id).quantity, 3, "the web's newer edit stayed");
+  assert.equal(items.find(i => i.name === 'Lost Kale').server_id, kale, 'and the link got there on the next try');
+  const onPhone = phone('relink-Lost', A, `
+    p.done((await p.api.getRecipes()).find(x => x.server_id === ${bowl.id}).items.map(i => [i.name, i.quantity, i.server_id ?? 'none']));`);
+  assert.deepEqual(onPhone, [['Lost Oats', 3, 'none'], ['Lost Kale', 1, kale]], 'the phone has the same');
+});
+
+test('the link reaches the server and then the phone is quiet (no web edit, no delete)', async (t) => {
+  if (skip(t)) return;
+  const { bowl } = await kaleBowl('Calm');
+  const px = await proxy();
+  try {
+    await phoneAsync('relink-Calm', A, `await p.sync(); await p.sync(); await p.sync(); p.done();`, { NT_SERVER: px.url });
+    const pushes = px.seen.filter(x => x.path.startsWith('/api/sync/push') && JSON.parse(x.body).meals?.length);
+    assert.equal(pushes.length, 2, 'the recipe, then its link, then nothing');
+    await phoneAsync('relink-Calm', A, `await p.sync(); await p.sync(); p.done();`, { NT_SERVER: px.url });
+    assert.equal(px.seen.filter(x => x.path.startsWith('/api/sync/push') && JSON.parse(x.body).meals?.length).length, 2);
+  } finally { await px.close(); }
+  const kale = q(`SELECT id FROM foods WHERE name = 'Calm Kale'`)[0].id;
+  assert.equal(serverItems(bowl.id).find(i => i.name === 'Calm Kale').server_id, kale);
+  assert.equal(q('SELECT deleted_at FROM meals WHERE id = ?', bowl.id)[0].deleted_at, null);
+});
+
+test('a day deleted on the web while the push was on its way back stays deleted after the phone links its item', async (t) => {
+  if (skip(t)) return;
+  const D = '2026-07-21';
+  phone('relink-Day', A, `await p.sync(); p.done();`);
+  phone('relink-Day', A, `
+    await p.offline(async () => {
+      const kale = await p.api.createFood({ name: 'Day Kale', nutrition: { calories: 30 }, portion: 100, unit: 'g' });
+      const { addDiaryItem } = await import(p.src + 'stores/diary.js');
+      await addDiaryItem(kale, 0, '${D}');
+    });
+    p.done();`);
+  await sleep(1100);
+  const px = await onceOnPush(() => http(A, 'DELETE', `/api/diary/${D}`));
+  let r;
+  try {
+    r = await phoneAsync('relink-Day', A, `
+      await p.sync(); await p.sync(); await p.sync();
+      p.done({ items: ((await p.api.getDiaryDate('${D}')).items || []).length });`, { NT_SERVER: px.url });
+  } finally { await px.close(); }
+  assert.equal(q(`SELECT deleted_at IS NOT NULL AS d FROM diary WHERE date = ? AND user_id = ${alice()}`, D)[0].d, 1, 'the day stays deleted on the server');
+  assert.equal(r.items, 0, 'and on the phone');
+});
+
+// A phone with a slow clock. The stamp a pull brings is already on the
+// server's clock; sent bare, the server would read it as the phone's and
+// shift it by the phone's clock error (ten minutes here, which is longer
+// than a delete made a moment later), so the link is sent as "+00:00".
+const SKEW = ms => `{ const R = Date; const skew = ${ms}; globalThis.Date = class extends R { constructor(...a) { if (a.length) super(...a); else super(R.now() + skew); } static now() { return R.now() + skew; } }; }`;
+test('a phone with a slow clock links a recipe it pulled without bringing it back after a delete made a moment later', async (t) => {
+  if (skip(t)) return;
+  const first = phone('relink-Jit', A, `
+    ${SKEW(-600000)}
+    await p.offline(async () => { await p.api.createFood({ name: 'Jit Kale', nutrition: { calories: 30 }, portion: 100, unit: 'g' }); });
+    await p.sync();
+    const k = (await p.api.getFoods()).find(f => f.name === 'Jit Kale');
+    p.done({ id: k.id, server_id: k.server_id, install: await p.dbn.dbInstallId() });`);
+  assert.ok(first.server_id, 'the food went up');
+  // The recipe the phone pushed with the food still named by the phone's id
+  // (a copy of it comes down again, as after a reinstall or a lost link).
+  const bowl = await http(A, 'POST', '/api/meals', { name: 'Jit Bowl', is_recipe: 1, portion: 100, unit: 'g', nutrition: {},
+    items: [{ id: first.id, name: 'Jit Kale', portion: 100, unit: 'g', quantity: 1, nutrition: { calories: 30 }, server_id: null, food_device: first.install }] });
+  const pulled = phone('relink-Jit', A, `
+    ${SKEW(-600000)}
+    await p.sync();
+    const r = (await p.api.getRecipes()).find(x => x.server_id === ${bowl.id});
+    p.done({ clock: p.dbn.dbClockOffset(), at: (await (await p.dbn.getDb()).query('SELECT updated_at, sync_status FROM meals WHERE server_id = ?', [${bowl.id}])).values[0], items: r.items.map(i => i.server_id === undefined ? 'none' : i.server_id) });`);
+  assert.ok(pulled.clock > 500000, 'the phone has learned its clock is slow');
+  assert.equal(pulled.at.sync_status, 'synced');
+  assert.deepEqual(pulled.items, [null], 'pulled with the link not filled in');
+  await sleep(1100);
+  await http(A, 'DELETE', `/api/meals/${bowl.id}`);
+  await sleep(1100);
+  const r = phone('relink-Jit', A, `
+    ${SKEW(-600000)}
+    await p.sync(); await p.sync();
+    p.done({ bowl: !!(await p.api.getRecipes()).find(x => x.server_id === ${bowl.id}) });`);
+  assert.equal(q('SELECT deleted_at IS NOT NULL AS d FROM meals WHERE id = ?', bowl.id)[0].d, 1, 'the recipe stays deleted on the server');
+  assert.equal(r.bowl, false, 'and on the phone');
+});
+
+// What a link writes into the row itself.
+test('a link takes the time the row already had: the items\' own edit time, not the later rename\'s, and a day keeps its own', async (t) => {
+  if (skip(t)) return;
+  const { bowl } = await kaleBowl('Own', true);
+  const D = '2026-07-23';
+  const r = phone('relink-Own', A, `
+    const db = await p.dbn.getDb();
+    const row = async () => (await db.query('SELECT updated_at, edit_times, sync_status FROM meals WHERE server_id = ?', [${bowl.id}])).values[0];
+    // A rename a second after the items were changed.
+    await p.sleep(1100);
+    await p.offline(async () => { const x = (await p.api.getRecipes()).find(y => y.server_id === ${bowl.id}); await p.api.updateMeal(x.id, { ...x, name: 'Own Bowl Renamed' }); });
+    const day = async () => (await db.query('SELECT updated_at, sync_status FROM diary WHERE date = ?', ['${D}'])).values[0];
+    await p.offline(async () => {
+      const k = (await p.api.getFoods()).find(f => f.name === 'Own Kale');
+      const { addDiaryItem } = await import(p.src + 'stores/diary.js');
+      await addDiaryItem({ ...k, food_server_id: null }, 0, '${D}');
+    });
+    const dayBefore = await day();
+    // The food has gone up (its server id is known here).
+    const k = (await p.api.getFoods()).find(f => f.name === 'Own Kale');
+    await db.run("UPDATE foods SET server_id = 987001, sync_status = 'synced' WHERE id = ?", [k.id]);
+    const before = await row();
+    const changed = await p.dbn.dbLinkDiaryItems();
+    p.done({ before, after: await row(), changed, dayBefore, dayAfter: await day() });`);
+  const sec = v => Math.floor(Date.parse(/Z$|[+-]\d\d:\d\d$/.test(v) ? v : `${v.replace(' ', 'T')}Z`) / 1000);
+  const bt = JSON.parse(r.before.edit_times), at = JSON.parse(r.after.edit_times);
+  assert.ok(sec(bt.name) > sec(bt.items), 'the rename was made after the items were');
+  assert.equal(r.after.sync_status, 'pending');
+  assert.notEqual(r.after.updated_at, r.before.updated_at);
+  assert.equal(sec(r.after.updated_at), sec(r.before.updated_at), "the row's time stays in its second");
+  assert.equal(sec(at.items), sec(bt.items), "the items' time is the items' own, not the rename's");
+  assert.notEqual(at.items, bt.items);
+  assert.equal(at.name, bt.name, 'the rename keeps its time');
+  assert.equal(r.changed, 1, 'the day was linked too');
+  assert.equal(r.dayAfter.sync_status, 'pending');
+  assert.notEqual(r.dayAfter.updated_at, r.dayBefore.updated_at);
+  assert.equal(sec(r.dayAfter.updated_at), sec(r.dayBefore.updated_at), "the day's time stays in its second");
+});
+
 // Save a Copy of an item its owner deleted: the server says it is gone (404).
 // The app used to answer any failure by copying its own row of that number,
 // a different food, as it does when the server can't be reached.
@@ -2749,4 +3020,71 @@ test("Save a Copy of a shared food its owner deleted fails on the phone instead 
       p.done(made.name);`);
     assert.equal(offline, 'Cy Own Food (copy)');
   } finally { await http(A, 'PUT', '/api/app-config', { key: 'sharing_enabled', value: 'false' }); }
+});
+
+// A recipe sent before (its answer was lost) and deleted on the web meanwhile:
+// the server answers the retry with the recipe it made, and now says it has
+// been deleted, so the phone doesn't treat it as made just now and bring it
+// back by linking its ingredient.
+test('a recipe the phone sent twice (the first answer was lost) and that was deleted on the web in between stays deleted', async (t) => {
+  if (skip(t)) return;
+  phone('relink-Twice', A, `await p.sync(); p.done();`);
+  phone('relink-Twice', A, `
+    await p.offline(async () => {
+      const kale = await p.api.createFood({ name: 'Twice Kale', nutrition: { calories: 30 }, portion: 100, unit: 'g' });
+      await p.api.createMeal({ name: 'Twice Bowl', is_recipe: 1, portion: 100, unit: 'g', nutrition: {}, items: [{ ...kale, quantity: 1 }] });
+    });
+    p.done();`);
+  let dropped = false;
+  const px = await proxy(req => (req.url.startsWith('/api/sync/push') && !dropped ? (dropped = true, { dropReply: true }) : null));
+  try {
+    await phoneAsync('relink-Twice', A, `try { await p.sync(); } catch {} p.done();`, { NT_SERVER: px.url });
+    assert.ok(dropped, 'the first answer was lost');
+    const id = q(`SELECT id FROM meals WHERE name = 'Twice Bowl'`)[0].id;
+    await sleep(1100);
+    await http(A, 'DELETE', `/api/meals/${id}`);
+    await sleep(1100);
+    const r = await phoneAsync('relink-Twice', A, `
+      await p.sync(); await p.sync(); await p.sync();
+      p.done({ bowl: !!(await p.api.getRecipes()).find(x => x.name === 'Twice Bowl') });`, { NT_SERVER: px.url });
+    assert.equal(r.bowl, false, 'gone from the phone');
+  } finally { await px.close(); }
+  assert.equal(q(`SELECT deleted_at IS NOT NULL AS d FROM meals WHERE name = 'Twice Bowl'`)[0].d, 1, 'and from the server');
+  assert.equal(q(`SELECT COUNT(*) AS n FROM meals WHERE name = 'Twice Bowl'`)[0].n, 1, 'made once');
+});
+
+// The phone's own time for a recipe it made is from before the server had it,
+// which the server counts as made when it arrives. A recipe whose push was
+// not followed by a pull, linked in a later push, would carry that time.
+test('a recipe made in an earlier push (no pull since) and linked in a later one stays deleted when it was deleted on the web in between', async (t) => {
+  if (skip(t)) return;
+  phone('relink-Made', A, `await p.sync(); p.done();`);
+  phone('relink-Made', A, `
+    await p.offline(async () => {
+      const kale = await p.api.createFood({ name: 'Made Kale', nutrition: { calories: 30 }, portion: 100, unit: 'g' });
+      await p.api.createMeal({ name: 'Made Bowl', is_recipe: 1, portion: 100, unit: 'g', nutrition: {}, items: [{ ...kale, quantity: 1, food_device: await p.dbn.dbInstallId() }] });
+      // The food isn't sent with it (its push is held back).
+      await (await p.dbn.getDb()).run("UPDATE foods SET sync_status = 'synced' WHERE name = 'Made Kale'");
+    });
+    p.done();`);
+  await sleep(1100);
+  const noPull = await proxy(req => (req.url.startsWith('/api/sync/pull') ? { status: 503 } : null));
+  try {
+    await phoneAsync('relink-Made', A, `try { await p.sync(); } catch {} p.done();`, { NT_SERVER: noPull.url });
+    const made = q(`SELECT id FROM meals WHERE name = 'Made Bowl'`)[0].id;
+    // The food goes up later (here: made on the web and found by the phone).
+    const kale = await http(A, 'POST', '/api/foods', { name: 'Made Kale Up', nutrition: { calories: 30 }, portion: 100, unit: 'g' });
+    phone('relink-Made', A, `
+      const db = await p.dbn.getDb();
+      await db.run("UPDATE foods SET server_id = ?, sync_status = 'synced' WHERE name = 'Made Kale'", [${kale.id}]);
+      p.done();`);
+    await sleep(1100);
+    await http(A, 'DELETE', `/api/meals/${made}`);
+    await sleep(1100);
+    const r = await phoneAsync('relink-Made', A, `
+      try { await p.sync(); } catch {}
+      p.done({ bowl: !!(await p.api.getRecipes()).find(x => x.name === 'Made Bowl') });`, { NT_SERVER: noPull.url });
+    assert.equal(r.bowl, false, 'gone from the phone');
+  } finally { await noPull.close(); }
+  assert.equal(q(`SELECT deleted_at IS NOT NULL AS d FROM meals WHERE name = 'Made Bowl'`)[0].d, 1, 'and from the server');
 });

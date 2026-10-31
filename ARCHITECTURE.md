@@ -258,6 +258,35 @@ merge by uuid and its note by its own time, as before.
   second, goes with it, and a day by its `deleted_at` the same way. Items
   and water deleted elsewhere stay deleted (`diary_tombstones`), as the
   server keeps them.
+- A link the phone fills in (a recipe ingredient's or a diary item's food,
+  once that food has a server id: `dbLinkDiaryItems`) is bookkeeping, not
+  an edit, so it is never stamped as one made now (`src/lib/relink-stamp.js`).
+  The row keeps the time it had, a millisecond on and in the same second
+  (the millisecond only so a push in flight, which `dbMarkSynced` matches by
+  `updated_at`, doesn't mark the link as sent), and for a recipe the items'
+  own edit time in `edit_times`. A time from a pull is sent as `+00:00`
+  (the server's clock, which it takes as it is; sent bare it would be
+  shifted by the phone's clock error). The server counts an edit from
+  before its row existed as made when it arrives, and the phone's own time
+  for a recipe it made is from before that: so a recipe a push made takes
+  that push's `server_time` as its `updated_at` once it is marked sent
+  (`dbStampMade`, what a pull would give it), and one linked in that same
+  push is linked at that time at the earliest. A row sent again with the
+  same `client_key` that was deleted meanwhile is answered with the deleted
+  row (`row`, as when an older edit loses to a delete), so the phone drops it
+  instead of taking it for one it just made. So a link loses to every delete
+  and every newer edit its row's last edit lost to, and ties go to the
+  delete. When a link loses to a newer edit of the items made elsewhere,
+  the server sends that copy back and the phone takes it, then fills the
+  links it made into it again (`dbApplyServerWinner`), at that copy's own
+  time: the next push lands them on the edit, once, and nothing is sent
+  after. A day's link takes the
+  day's time the same way; the server still brings back a deleted day
+  whatever pushes to it (`POST /api/sync/push`, diary), so a day deleted
+  elsewhere after the phone's last sync can still come back with a link.
+  Known edge: a recipe with a rename waiting and no time of its own for its
+  items (they were sent, the link was not) is linked at the rename's time,
+  so a web edit of the items made between the two is written over.
 - `POST /api/foods/:id/copy` and `/api/meals/:id/copy` (Save a Copy) skip
   deleted rows: a copy the person deleted isn't the copy they already made,
   so copying again makes a new one, and an item its owner deleted answers

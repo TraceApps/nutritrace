@@ -423,6 +423,12 @@ router.post('/push', wrap(async (req, res) => {
   // to keep. The phone used to mark its losing copy synced and keep it for
   // good. The row itself is left alone, so its time stays the real one.
   const winner = (table, id) => db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+  // A row sent before (the key is the same) is answered with the row made
+  // then. If it was deleted meanwhile, with the row as well, so the phone
+  // learns of the delete from this answer, not only from its next pull: it
+  // is not a row it made just now, and nothing it fills in afterwards may
+  // count as a change made after the delete.
+  const madeAnswer = (table, made) => (made.deleted_at ? { row: _out(winner(table, made.id)) } : {});
 
   const run = db.transaction(() => {
     // ── Foods ────────────────────────────────────────────────────────────
@@ -459,7 +465,7 @@ router.post('/push', wrap(async (req, res) => {
         // Sent before (the answer was lost): the row made then.
         const fKey = cleanCreateKey(f.client_key);
         const fMade = findByCreateKey('foods', u, fKey);
-        if (fMade) { result.foods.push({ client_id: f.client_id, server_id: fMade.id }); continue; }
+        if (fMade) { result.foods.push({ client_id: f.client_id, server_id: fMade.id, ...madeAnswer('foods', fMade) }); continue; }
         // The same source's food is already here (made on another device,
         // say a coach's food copied on the web): this is that food. A
         // deleted one lets go of its place in the unique source index.
@@ -514,7 +520,7 @@ router.post('/push', wrap(async (req, res) => {
         // but shares the same default).
         const mKey = cleanCreateKey(m.client_key);
         const mMade = findByCreateKey('meals', u, mKey);
-        if (mMade) { result.meals.push({ client_id: m.client_id, server_id: mMade.id }); continue; }
+        if (mMade) { result.meals.push({ client_id: m.client_id, server_id: mMade.id, ...madeAnswer('meals', mMade) }); continue; }
         const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
           `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, visibility, field_times, updated_at)
@@ -690,7 +696,7 @@ router.post('/push', wrap(async (req, res) => {
       } else if (!a.deleted_at) {
         const aKey = cleanCreateKey(a.client_key);
         const aMade = findByCreateKey('activity_log', u, aKey);
-        if (aMade) { result.activity.push({ client_id: a.client_id, server_id: aMade.id }); continue; }
+        if (aMade) { result.activity.push({ client_id: a.client_id, server_id: aMade.id, ...madeAnswer('activity_log', aMade) }); continue; }
         const r = db.prepare(
           `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, met, is_template, field_times, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
@@ -724,7 +730,7 @@ router.post('/push', wrap(async (req, res) => {
       } else if (!f.deleted_at) {
         const fsKey = cleanCreateKey(f.client_key);
         const fsMade = findByCreateKey('fasts', u, fsKey);
-        if (fsMade) { result.fasts.push({ client_id: f.client_id, server_id: fsMade.id }); continue; }
+        if (fsMade) { result.fasts.push({ client_id: f.client_id, server_id: fsMade.id, ...madeAnswer('fasts', fsMade) }); continue; }
         const r = db.prepare(
           `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes, field_times, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
