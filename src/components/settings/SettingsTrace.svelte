@@ -287,15 +287,26 @@
       <div class="setting-divider"></div>
       <div class="setting-row">
         <span class="setting-label">{$_('settings_trace.labels.provider')}</span>
-        <select class="select sel-sm" style="width:auto" bind:value={aiProviderVal} on:change={_onProviderChange} disabled={envLocks.ai}>
-          {#each AI_PROVIDERS as p}
-            <option value={p.value}>{p.label}</option>
-          {/each}
-        </select>
+        {#if envLocks.ai}
+          <input class="input" style="width:220px;text-align:right"
+            value={AI_PROVIDERS.find(p => p.value === envLocks.ai_provider)?.label || envLocks.ai_provider || ''} disabled />
+        {:else}
+          <select class="select sel-sm" style="width:auto" bind:value={aiProviderVal} on:change={_onProviderChange}>
+            {#each AI_PROVIDERS as p}
+              <option value={p.value}>{p.label}</option>
+            {/each}
+          </select>
+        {/if}
       </div>
 
       <div class="setting-divider"></div>
-      {#if aiProviderVal === 'oai-compat'}
+      {#if envLocks.ai}
+        <div class="setting-row">
+          <span class="setting-label">{$_('settings_trace.labels.model')}</span>
+          <input class="input" style="width:220px;text-align:right"
+            value={envLocks.ai_model || ''} disabled />
+        </div>
+      {:else if aiProviderVal === 'oai-compat'}
         <!-- Custom OpenAI-compatible: free-text Base URL + Model name -->
         <div class="form-group" style="padding:10px 16px">
           <label class="form-label" for="ai-base-url">{$_('settings_trace.labels.base_url')}</label>
