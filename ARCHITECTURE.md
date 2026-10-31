@@ -262,7 +262,20 @@ merge by uuid and its note by its own time, as before.
 - A write that moves a row's `updated_at` without changing a field (logging
   a food bumps how often it was used) isn't an edit: a row from before the
   times starts them from the write before (`fs_<table>_base` in `db.js`).
-  A full backup restores `field_times`.
+  A full backup restores `field_times`, the diary tombstones (dropping one
+  that names an item or water entry its restored day holds, or the next
+  save's merge would take it away again), and every column but the pull's
+  cursors: foods, meals, activities and fasts get `changed_at` now from the
+  insert, and diary days, settings, wearable workouts and coach messages
+  and recommendations get `updated_at` now, so every device pulls them
+  again. Foods, meals, days, activities, fasts and coach messages a device
+  may hold that the backup doesn't are kept as deleted (a message without
+  its text or photo; the delete stamped now in `field_times`), only for the
+  same accounts and pairings (`keepGone` in `server/routes/full-backup.js`).
+  Wearable workouts and readings it removed get a `sync_deletions` record
+  from the restore's own delete, and records from before the restore that
+  devices may not have pulled yet are kept (the accounts' delete would take
+  them).
 
 ### Android account protection
 

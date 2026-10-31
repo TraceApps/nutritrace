@@ -228,6 +228,9 @@ function restoreFromZip(zip) {
 
   // Signed-out sessions stay signed out (lib/session-version.js).
   keepSessionVersions(() => db.transaction(() => {
+    // What devices may hold of the tables that say a row is gone only with
+    // its deleted_at, read before the wipe (keepGone, below).
+    const before = rowsBefore(data);
     db.prepare('DELETE FROM password_reset_tokens').run();
     db.prepare('DELETE FROM invite_tokens').run();
     db.prepare('DELETE FROM food_shares').run();
@@ -257,24 +260,28 @@ function restoreFromZip(zip) {
     // field_times: when each synced field last changed (lib/field-sync.js),
     // so a restored row's fields keep their own times (a backup from before
     // has none: the row counts from its own updated_at, as then).
+    // client_key: the key the Android app made a row with (lib/create-keys.js),
+    // so a create it sends again after the restore finds its row instead of
+    // making a second one. changed_at, the pull's cursor, is the trigger's
+    // (now), so every device pulls the restored rows.
     const insFood = db.prepare(`
-      INSERT OR IGNORE INTO foods (id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, created_at, updated_at, deleted_at, field_times)
-      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @nutrition_basis, @alt_units, @density_g_ml, @source_app, @source_external_id, @source_url, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
+      INSERT OR IGNORE INTO foods (id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, created_at, updated_at, deleted_at, field_times, client_key)
+      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @nutrition_basis, @alt_units, @density_g_ml, @source_app, @source_external_id, @source_url, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times, @client_key)
     `);
-    for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, nutrition_basis: null, alt_units: null, density_g_ml: null, source_app: null, source_external_id: null, source_url: null, updated_at: null, deleted_at: null, field_times: null, ...f });
+    for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, nutrition_basis: null, alt_units: null, density_g_ml: null, source_app: null, source_external_id: null, source_url: null, updated_at: null, deleted_at: null, field_times: null, client_key: null, ...f });
 
     // Federation source columns (source_app / source_external_id / source_url /
     // import_warnings, added for the CookTrace pull flow) are part of the
     // meals row now. Restoring without them silently drops the "From
     // CookTrace" badge and the deep-link back to the source on restore.
     const insMeal = db.prepare(`
-      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, created_at, updated_at, deleted_at, field_times)
-      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @source_app, @source_external_id, @source_url, @import_warnings, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
+      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, created_at, updated_at, deleted_at, field_times, client_key)
+      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @source_app, @source_external_id, @source_url, @import_warnings, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times, @client_key)
     `);
     for (const m of data.meals || []) insMeal.run({
       visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null,
       source_app: null, source_external_id: null, source_url: null, import_warnings: null,
-      updated_at: null, deleted_at: null, servings: null, field_times: null, ...m,
+      updated_at: null, deleted_at: null, servings: null, field_times: null, client_key: null, ...m,
     });
 
     const insFoodShare = db.prepare(`INSERT OR IGNORE INTO food_shares (food_id, user_id) VALUES (@food_id, @user_id)`);
@@ -287,15 +294,23 @@ function restoreFromZip(zip) {
     // restore as NULL — same rule as foods/meals. NULL updated_at is silently
     // skipped by the Android delta sync's `WHERE updated_at >= ?` filter.
     // #207: completed_at + completed_meals ride along so day-completion
-    // state survives a full-backup restore.
+    // state survives a full-backup restore, with when each was set
+    // (completion_marked_at, meal_marks_at) and when the note was edited
+    // (notes_updated_at; from before it was kept, the day's last change, as
+    // at upgrade), so an older edit queued on a phone doesn't win over them.
+    // updated_at, the pull's cursor, is moved to now below (bumpCursors).
     const insDiary = db.prepare(`
-      INSERT OR IGNORE INTO diary (id, user_id, date, items, body_stats, water, notes, completed_at, completed_meals, updated_at, deleted_at, field_times)
-      VALUES (@id, @user_id, @date, @items, @body_stats, @water, @notes, @completed_at, @completed_meals, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
+      INSERT OR IGNORE INTO diary (id, user_id, date, items, body_stats, water, notes, notes_updated_at, completed_at, completed_meals, completion_marked_at, meal_marks_at, updated_at, deleted_at, field_times)
+      VALUES (@id, @user_id, @date, @items, @body_stats, @water, @notes, COALESCE(@notes_updated_at, CASE WHEN @notes IS NOT NULL THEN @updated_at END), @completed_at, @completed_meals, @completion_marked_at, @meal_marks_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
     `);
     for (const d of data.diary || []) insDiary.run({
-      notes: null, completed_at: null, completed_meals: null,
+      notes: null, notes_updated_at: null, completed_at: null, completed_meals: null, completion_marked_at: null, meal_marks_at: null,
       updated_at: null, deleted_at: null, field_times: null, ...d,
     });
+
+    // Items and water deleted from a day (diary_tombstones), so a device
+    // still holding one can't put it back; see restoreTombstones.
+    restoreTombstones(data.diary_tombstones);
 
     const insSettings = db.prepare(`
       INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at, deleted_at, field_times) VALUES (@user_id, @key, @value, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
@@ -330,18 +345,18 @@ function restoreFromZip(zip) {
 
     db.prepare('DELETE FROM activity_log').run();
     const insActivity = db.prepare(`
-      INSERT OR IGNORE INTO activity_log (id, user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at, deleted_at, field_times)
-      VALUES (@id, @user_id, @date, @name, @kcal, @duration_min, @distance, @source, @met, @is_template, @created_at, @updated_at, @deleted_at, @field_times)
+      INSERT OR IGNORE INTO activity_log (id, user_id, date, name, kcal, duration_min, distance, source, met, is_template, created_at, updated_at, deleted_at, field_times, client_key)
+      VALUES (@id, @user_id, @date, @name, @kcal, @duration_min, @distance, @source, @met, @is_template, @created_at, @updated_at, @deleted_at, @field_times, @client_key)
     `);
-    for (const a of data.activity_log || []) insActivity.run({ met: null, is_template: 0, deleted_at: null, field_times: null, ...a });
+    for (const a of data.activity_log || []) insActivity.run({ met: null, is_template: 0, deleted_at: null, field_times: null, client_key: null, ...a });
 
     // Intermittent fasting log
     db.prepare('DELETE FROM fasts').run();
     const insFast = db.prepare(`
-      INSERT OR IGNORE INTO fasts (id, user_id, start_at, end_at, goal_hours, notes, created_at, updated_at, deleted_at, field_times)
-      VALUES (@id, @user_id, @start_at, @end_at, @goal_hours, @notes, @created_at, @updated_at, @deleted_at, @field_times)
+      INSERT OR IGNORE INTO fasts (id, user_id, start_at, end_at, goal_hours, notes, created_at, updated_at, deleted_at, field_times, client_key)
+      VALUES (@id, @user_id, @start_at, @end_at, @goal_hours, @notes, @created_at, @updated_at, @deleted_at, @field_times, @client_key)
     `);
-    for (const f of data.fasts || []) insFast.run({ end_at: null, notes: null, deleted_at: null, field_times: null, ...f });
+    for (const f of data.fasts || []) insFast.run({ end_at: null, notes: null, deleted_at: null, field_times: null, client_key: null, ...f });
 
     // OIDC providers — admin config; client_secret is encrypted with the
     // deploy's JWT_SECRET, so cross-deploy restores will need the secret
@@ -417,6 +432,19 @@ function restoreFromZip(zip) {
     `);
     for (const i of data.invite_tokens || []) insInvite.run({ email: null, role: 'user', created_by: null, used: 0, coach_id: null, ...i });
 
+    // Webhooks set up by hand, so a restore doesn't quietly stop them (the
+    // secret is locked with this server's key: on a server with another
+    // key a delivery fails until the webhook is made again, and Settings
+    // says so). The users above cascaded the old ones away.
+    db.prepare('DELETE FROM webhooks').run();
+    const insHook = db.prepare(`
+      INSERT OR IGNORE INTO webhooks (id, user_id, url, secret_encrypted, events, enabled, last_delivery_at, last_delivery_status, last_delivery_error, created_at)
+      VALUES (@id, @user_id, @url, @secret_encrypted, @events, @enabled, @last_delivery_at, @last_delivery_status, @last_delivery_error, COALESCE(@created_at, datetime('now')))
+    `);
+    for (const w of (data.webhooks || []).filter(x => restoredUsers.has(x.user_id))) insHook.run({
+      enabled: 1, last_delivery_at: null, last_delivery_status: null, last_delivery_error: null, created_at: null, ...w,
+    });
+
     // Coaching pairings (1.5). A backup from before coaching has none. The
     // users above cascade these away first, so this only adds back what the
     // archive holds.
@@ -453,6 +481,12 @@ function restoreFromZip(zip) {
     for (const m of (data.coach_messages || []).filter(x => pairingIds.has(x.pairing_id))) insMessage.run({
       body: null, image_url: null, recommendation_id: null, read_at: null, created_at: null, updated_at: null, deleted_at: null, ...m,
     });
+
+    // Rows a device may hold that the backup doesn't: kept as deleted, so
+    // devices drop them. Then every restored row the pull picks by
+    // updated_at is sent again.
+    keepGone(before);
+    bumpCursors();
   })(), data.users);
 
   // Restore images — guard against zip-slip and zip-bomb attacks
@@ -486,6 +520,134 @@ function restoreFromZip(zip) {
   seedSmtpFromEnv();
   seedAiFromEnv();
   logTwoStepAfterRestore();
+}
+
+// Tables whose rows a device pulls whole and that say a row is gone only by
+// its deleted_at, with who has to be the same before and after the restore
+// for a row to be theirs (an account: its id, username and when it was made).
+const KEEP_GONE = ['foods', 'meals', 'diary', 'activity_log', 'fasts'];
+// The rows of `t` the backup doesn't hold (by `key`), read one at a time so
+// the rest never sits in memory beside the backup.
+function _notIn(data, t, key = 'id') {
+  const backed = new Set((Array.isArray(data?.[t]) ? data[t] : []).map(r => r?.[key]));
+  const out = [];
+  try { for (const r of db.prepare(`SELECT * FROM ${t}`).iterate()) if (!backed.has(r[key])) out.push(r); } catch { /* not in this build */ }
+  return out;
+}
+
+function rowsBefore(data) {
+  const out = Object.fromEntries(KEEP_GONE.map(t => [t, _notIn(data, t)]));
+  out.users = new Map(db.prepare('SELECT id, username, created_at FROM users').all().map(u => [u.id, `${u.username}\n${u.created_at}`]));
+  out.pairings = new Map(db.prepare('SELECT id, coach_id, client_id FROM coach_clients').all().map(p => [p.id, p]));
+  out.coach_messages = _notIn(data, 'coach_messages', 'uuid');
+  // Deletions devices are still to hear of (db.js sync_deletions): they
+  // belong to an account, so the accounts' delete takes them.
+  out.sync_deletions = db.prepare('SELECT * FROM sync_deletions').all();
+  return out;
+}
+
+/**
+ * A row a device may hold that the restore took away is put back deleted,
+ * the way these tables say a row is gone, so every device that pulls it
+ * drops its copy (a food made after the backup, a message sent since).
+ * Only for the same people: an account (or a pairing) that is someone else
+ * in the backup, or isn't in it, gets nothing of the other's. The delete
+ * counts as made now (field_times), so an older edit queued on a phone
+ * doesn't bring the row back. A day keeps nothing logged in it (a save to
+ * that date merges with a deleted day too, and would bring it all back),
+ * and a day the backup has (under any id) stays the backup's alone. A food
+ * or meal lets go of where it came from (source_app, source_external_id),
+ * as a deleted food does, so the same recipe or food can come in again. A
+ * message keeps no text or photo, as when it is deleted; one whose id the
+ * backup uses goes under a new one (devices know a message by its uuid).
+ */
+function keepGone(before) {
+  const usersNow = new Map(db.prepare('SELECT id, username, created_at FROM users').all().map(u => [u.id, `${u.username}\n${u.created_at}`]));
+  // A row with no account is the one user's of a server without accounts:
+  // the same only when there were none before and are none now (restored
+  // onto a server with accounts, it would be handed to one of them).
+  const solo = before.users.size === 0 && usersNow.size === 0;
+  const same = id => (id == null || id === 0 ? solo : usersNow.has(id) && usersNow.get(id) === before.users.get(id));
+  const now = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
+  const emptyDay = { items: '[]', water: '[]', body_stats: '{}', notes: null, notes_updated_at: null, completed_at: null, completed_meals: null, completion_marked_at: null, meal_marks_at: null, field_times: '{}' };
+  const sameDay = db.prepare('SELECT 1 FROM diary WHERE date = ? AND user_id IS ?');
+  for (const t of KEEP_GONE) {
+    const has = db.prepare(`SELECT 1 FROM ${t} WHERE id = ?`);
+    const cols = db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name).filter(c => c !== 'deleted_at' && c !== 'field_times' && c !== 'changed_at');
+    // When it was deleted (field_times deleted_at): now, or when it was if
+    // it already was. A day's field_times hold its measurements only.
+    const kept = `COALESCE(CASE WHEN json_valid(@field_times) AND @field_times != '{}' THEN @field_times END, json_object('_base', @updated_at))`;
+    const times = t === 'diary' ? '@field_times'
+      : `CASE WHEN @deleted_at IS NOT NULL THEN ${kept} ELSE json_set(${kept}, '$.deleted_at', ${now}) END`;
+    const ins = db.prepare(`INSERT OR IGNORE INTO ${t} (${cols.join(', ')}, deleted_at, field_times)
+      VALUES (${cols.map(c => '@' + c).join(', ')}, COALESCE(@deleted_at, datetime('now')), ${times})`);
+    for (const r of before[t]) {
+      if (has.get(r.id) || !same(r.user_id)) continue;
+      if (t === 'diary' && sameDay.get(r.date, r.user_id ?? null)) continue;
+      const row = { ...Object.fromEntries(cols.map(c => [c, null])), field_times: null, ...r, deleted_at: r.deleted_at ?? null };
+      if (t === 'diary') Object.assign(row, emptyDay);
+      if (t === 'foods' || t === 'meals') Object.assign(row, { source_app: null, source_external_id: null });
+      ins.run(row);
+    }
+  }
+  const pairsNow = new Map(db.prepare('SELECT id, coach_id, client_id FROM coach_clients').all().map(p => [p.id, p]));
+  const samePairing = id => {
+    const a = before.pairings.get(id), b = pairsNow.get(id);
+    return !!(a && b && a.coach_id === b.coach_id && a.client_id === b.client_id && same(a.coach_id) && same(a.client_id));
+  };
+  const hasUuid = db.prepare('SELECT 1 FROM coach_messages WHERE uuid = ?');
+  const insMessage = db.prepare(`INSERT OR IGNORE INTO coach_messages (id, uuid, pairing_id, sender_id, body, image_url, recommendation_id, read_at, created_at, updated_at, deleted_at)
+    VALUES (CASE WHEN EXISTS (SELECT 1 FROM coach_messages WHERE id = @id) THEN NULL ELSE @id END, @uuid, @pairing_id, @sender_id, NULL, NULL, NULL, @read_at, @created_at, datetime('now'), COALESCE(@deleted_at, datetime('now')))`);
+  for (const m of before.coach_messages) {
+    if (!hasUuid.get(m.uuid) && samePairing(m.pairing_id) && same(m.sender_id)) insMessage.run(m);
+  }
+  // Wearable workouts and readings deleted before the restore that a device
+  // may not have dropped yet, for the same people (the restore's own
+  // deletes are newer and stay).
+  const insGone = db.prepare(`INSERT OR IGNORE INTO sync_deletions (id, user_id, table_name, row_id, row_key, deleted_at) VALUES (@id, @user_id, @table_name, @row_id, @row_key, @deleted_at)`);
+  for (const g of before.sync_deletions) if (same(g.user_id)) insGone.run(g);
+}
+
+/**
+ * The tables the pull picks by updated_at (the server's time of the last
+ * write to them) get now, so every device pulls the restored rows again:
+ * a day, a setting, a wearable workout or a coach's message changed after
+ * the backup goes back to how it was. Their other times stay as backed up
+ * (field_times start from the backed-up updated_at). Foods, meals,
+ * activities and fasts are picked by changed_at, which the insert set.
+ */
+function bumpCursors() {
+  for (const t of ['diary', 'user_settings', 'workouts', 'coach_messages', 'coach_recommendations']) {
+    db.prepare(`UPDATE ${t} SET updated_at = datetime('now')`).run();
+  }
+}
+
+/**
+ * Put back the backup's diary tombstones, then drop every tombstone that
+ * names an item or water entry its day holds now: the merge
+ * (lib/diary-merge.js) drops a tombstoned entry from the day on its next
+ * save, so a deletion made after the backup would undo the restore.
+ * `rows`: absent in a backup from before they were kept.
+ */
+function restoreTombstones(rows) {
+  const users = new Set(db.prepare('SELECT id FROM users').all().map(r => r.id));
+  const has = db.prepare('SELECT 1 FROM diary_tombstones WHERE user_id IS @user_id AND date = @date AND kind = @kind AND uuid = @uuid');
+  const ins = db.prepare(`INSERT INTO diary_tombstones (user_id, date, kind, uuid, deleted_at) VALUES (@user_id, @date, @kind, @uuid, COALESCE(@deleted_at, datetime('now')))`);
+  for (const t of Array.isArray(rows) ? rows : []) {
+    if (!t || typeof t.date !== 'string' || typeof t.kind !== 'string' || typeof t.uuid !== 'string') continue;
+    const row = { user_id: t.user_id ?? null, date: t.date, kind: t.kind, uuid: t.uuid, deleted_at: t.deleted_at || null };
+    if (row.user_id != null && !users.has(row.user_id)) continue;
+    if (!has.get(row)) ins.run(row);
+  }
+  const dayOf = db.prepare('SELECT items, water FROM diary WHERE user_id IS ? AND date = ?');
+  const list = (v) => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+  const drop = db.prepare('DELETE FROM diary_tombstones WHERE rowid = ?');
+  for (const t of db.prepare('SELECT rowid AS rid, * FROM diary_tombstones').all()) {
+    const day = dayOf.get(t.user_id, t.date);
+    if (!day) continue;
+    const entries = t.kind === 'water' ? list(day.water) : t.kind === 'item' ? list(day.items) : [];
+    if (entries.some(e => e?.uuid === t.uuid)) drop.run(t.rid);
+  }
 }
 
 function dumpDatabase() {
@@ -539,6 +701,11 @@ function dumpDatabase() {
     api_tokens:       db.prepare('SELECT * FROM api_tokens').all(),
     // Outstanding invite tokens so pending invites survive a restore.
     invite_tokens:    db.prepare('SELECT * FROM invite_tokens').all(),
+    // Webhooks set up by hand (the secret locked with this server's key).
+    webhooks:         db.prepare('SELECT * FROM webhooks').all(),
+    // Items and water deleted from a day, so a device still holding one
+    // can't put it back after a restore.
+    diary_tombstones: db.prepare('SELECT * FROM diary_tombstones').all(),
     // Coaching pairings: who coaches whom, and requests waiting for an answer.
     coach_clients:    db.prepare('SELECT * FROM coach_clients').all(),
     coach_messages:   db.prepare('SELECT * FROM coach_messages').all(),
