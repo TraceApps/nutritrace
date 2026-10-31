@@ -341,12 +341,15 @@ router.post('/:id/copy', wrap((req, res) => {
   if (!food) return res.status(404).json({ error: 'Not found' });
   if (u != null && food.user_id === u) return res.status(400).json({ error: 'Already yours' });
   if (u != null && !canRead(food, u)) return res.status(403).json({ error: 'Forbidden' });
-
-  // Check not already copied
+  // Check not already copied. A copy deleted since isn't one: this makes a new one.
   if (u != null) {
-    const existing = db.prepare('SELECT id FROM foods WHERE user_id = ? AND source_id = ?').get(u, food.id);
+    const existing = db.prepare('SELECT id FROM foods WHERE user_id = ? AND source_id = ? AND deleted_at IS NULL').get(u, food.id);
     if (existing) return res.json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(existing.id)));
   }
+  // Deleted by its owner: nothing left to copy (said after who may read it,
+  // so a deleted private one doesn't tell anyone else it was there, and after
+  // the copy already made, so asking again after a lost answer finds it).
+  if (food.deleted_at) return res.status(404).json({ error: 'Not found' });
 
   const result = db.prepare(
     `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, updated_at)

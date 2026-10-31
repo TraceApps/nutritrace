@@ -2697,3 +2697,56 @@ test('a recipe saved on the phone, online, after it was deleted on the web comes
   assert.deepEqual(r, { now: 'Saved while online' }, 'the phone keeps it');
   assert.deepEqual(q('SELECT deleted_at, notes FROM meals WHERE id = ?', m.id)[0], { deleted_at: null, notes: 'Saved while online' }, 'and the server has the recipe back with it');
 });
+
+// Save a Copy of an item its owner deleted: the server says it is gone (404).
+// The app used to answer any failure by copying its own row of that number,
+// a different food, as it does when the server can't be reached.
+test("Save a Copy of a shared food its owner deleted fails on the phone instead of copying the phone's own food of that number", async (t) => {
+  if (skip(t)) return;
+  const cy = await account('copycy', A);
+  const CY = (await http(cy, 'GET', '/api/auth/me')).user;
+  await http(A, 'PUT', '/api/app-config', { key: 'sharing_enabled', value: 'true' });
+  try {
+    const shared = await http(B, 'POST', '/api/foods', { name: 'Copy Shared Oats', nutrition: { calories: 10 }, visibility: 'group' });
+    const up = phone('copy-gone', cy, `
+      const la = await import(p.src + 'lib/local-account.js');
+      await la.prepareLocalAccount(${JSON.stringify(CY)}, { confirm: async () => true });
+      await p.sync();
+      // A food of its own that has the number the shared food has on the server.
+      const f = await p.offline(async () => p.api.createFood({ name: 'Cy Own Food', nutrition: {} }));
+      await (await p.dbn.getDb()).run('UPDATE foods SET id = ? WHERE id = ?', [${shared.id}, f.id]);
+      p.done({ own: (await p.api.getFoods()).find(x => x.name === 'Cy Own Food').id });`);
+    assert.equal(up.own, shared.id, "the phone has a food of its own with the shared food's number");
+    const names = () => phone('copy-gone', cy, `p.done((await p.api.getFoods()).map(f => f.name).filter(n => /copy/i.test(n)));`);
+    // The owner deletes it; the phone asks the server for a copy.
+    await http(B, 'DELETE', `/api/foods/${shared.id}`);
+    const real = phone('copy-gone', cy, `
+      let err = null; try { await p.api.copyFood(${shared.id}); } catch (e) { err = e.message; }
+      p.done({ err });`);
+    assert.match(real.err, /404/, 'the server says it is gone');
+    assert.deepEqual(names(), [], 'and nothing was copied');
+    // Whatever the server's words, what it answers is its answer: gone, not
+    // allowed (the owner made it private), refused.
+    const priv = await http(B, 'POST', '/api/foods', { name: 'Copy Private Oats', nutrition: { calories: 10 }, visibility: 'group' });
+    await http(B, 'PATCH', `/api/foods/${priv.id}/share`, { visibility: 'private' });
+    const forbidden = phone('copy-gone', cy, `
+      let err = null; try { await p.api.copyFood(${priv.id}); } catch (e) { err = e.message; }
+      p.done({ err });`);
+    assert.match(forbidden.err, /403/);
+    for (const status of [404, 410, 403, 500]) {
+      const px = await proxy(req => (req.url.includes('/copy') ? { status } : null));
+      try {
+        const r = await phoneAsync('copy-gone', cy, `
+          let err = null; try { await p.api.copyFood(${shared.id}); } catch (e) { err = e.message; }
+          p.done({ err });`, { NT_SERVER: px.url });
+        assert.match(r.err, new RegExp(String(status)));
+      } finally { await px.close(); }
+    }
+    assert.deepEqual(names(), [], 'still nothing');
+    // A server that can't be reached is another matter: the copy is made here, as before.
+    const offline = phone('copy-gone', cy, `
+      const made = await p.offline(async () => p.api.copyFood(${shared.id}));
+      p.done(made.name);`);
+    assert.equal(offline, 'Cy Own Food (copy)');
+  } finally { await http(A, 'PUT', '/api/app-config', { key: 'sharing_enabled', value: 'false' }); }
+});

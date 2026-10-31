@@ -258,6 +258,16 @@ merge by uuid and its note by its own time, as before.
   second, goes with it, and a day by its `deleted_at` the same way. Items
   and water deleted elsewhere stay deleted (`diary_tombstones`), as the
   server keeps them.
+- `POST /api/foods/:id/copy` and `/api/meals/:id/copy` (Save a Copy) skip
+  deleted rows: a copy the person deleted isn't the copy they already made,
+  so copying again makes a new one, and an item its owner deleted answers
+  404 (after the check who may read it, so a deleted private one is still
+  403 for anyone else, and after the copy already made, so asking again
+  finds it). The Android app copies its own row of that number only when
+  the server can't be reached, never when the server answered.
+  `GET /api/foods/:id` and `/api/meals/:id` still answer a deleted row (with
+  its `deleted_at`): a logged recipe is split by reading its recipe, deleted
+  or not.
 - A food or meal saved with a source (`source_app`, `source_external_id`: a
   recipe pulled from CookTrace, a coach's food) holds its place in the
   unique index `(user_id, source_app, source_external_id)` only while it

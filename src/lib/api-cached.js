@@ -44,6 +44,11 @@ async function _serverFetch(method, path, body, timeoutMs = 3000) {
   return res.json();
 }
 
+// The server answered (gone, not allowed, ...): that is the answer. Only a
+// server that can't be reached copies this phone's own row of that number,
+// which is a different food.
+const _answered = e => /^API error \d+/.test(String(e?.message || ''));
+
 // Field mapping helpers
 //
 // _fromApi resolves img_url through resolveAssetUrl so the device can show
@@ -189,7 +194,8 @@ export const NtApiCached = {
     try {
       const r = await _serverFetch('POST', `/api/foods/${id}/copy`, {});
       return _foodFromApi(r);
-    } catch {
+    } catch (e) {
+      if (_answered(e)) throw e;
       return _foodFromApi(await dbCopyFood(id));
     }
   },
@@ -257,7 +263,10 @@ export const NtApiCached = {
 
   async copyMeal(id) {
     try { return _mealFromApi(await _serverFetch('POST', `/api/meals/${id}/copy`, {})); }
-    catch { return _mealFromApi(await dbCopyMeal(id)); }
+    catch (e) {
+      if (_answered(e)) throw e;
+      return _mealFromApi(await dbCopyMeal(id));
+    }
   },
 
   async markMealUsed(id, date) {

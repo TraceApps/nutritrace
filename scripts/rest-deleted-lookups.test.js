@@ -1,7 +1,12 @@
 /**
  * Lookups that ignore a deleted row, on a real server (server/index.js,
- * scratch database), with accounts on:
+ * scratch database), with accounts and sharing on:
  *
+ *   - Save a Copy (POST /api/foods/:id/copy, /api/meals/:id/copy) finds the
+ *     copy the person already made. A copy they deleted is not one: copying
+ *     again makes a new one, instead of answering with the deleted row they
+ *     can never see. An item its owner deleted can't be copied (404), once
+ *     the person is allowed to read it (a private one stays 403).
  *   - A meal or recipe saved with a source (source_app, source_external_id:
  *     a recipe pulled from CookTrace, a coach's meal) lets go of the place a
  *     deleted one holds in the unique index, as a deleted food does, so the
@@ -66,6 +71,7 @@ test.before(async () => {
     const { user } = await ok('ada', 'POST', '/api/auth/register', { username: name, password: PW, role: 'user' });
     tok[name] = jwt.sign({ id: user.id, username: name, role: 'user', csrf: 'x' }, JWT_SECRET, { expiresIn: '1h' });
   }
+  await ok('ada', 'PUT', '/api/app-config', { key: 'sharing_enabled', value: 'true' });
   const Database = serverRequire('better-sqlite3');
   sqlite = new Database(join(dir, 'server.db'));
 });
@@ -74,6 +80,62 @@ test.after(() => {
   try { server?.kill(); } catch {}
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
+
+const KINDS = {
+  foods: { path: '/api/foods', make: who => ok(who, 'POST', '/api/foods', { name: 'Lookup Oats', brand: 'Mill', nutrition: { calories: 380 }, portion: 100, unit: 'g', visibility: 'group' }) },
+  meals: { path: '/api/meals', make: who => ok(who, 'POST', '/api/meals', { name: 'Lookup Porridge', nutrition: { calories: 300 }, items: [], portion: 100, unit: 'g', visibility: 'group' }) },
+  recipes: { path: '/api/meals', make: who => ok(who, 'POST', '/api/meals', { name: 'Lookup Stew', is_recipe: 1, nutrition: { calories: 200 }, items: [], portion: 100, unit: 'g', visibility: 'group' }) },
+};
+
+for (const [kind, k] of Object.entries(KINDS)) {
+  const table = kind === 'foods' ? 'foods' : 'meals';
+
+  test(`${kind}: copying again after deleting the copy makes a new copy, not the deleted one`, async (t) => {
+    if (skip(t)) return;
+    const src = await k.make('ada');
+    const first = await call('ben', 'POST', `${k.path}/${src.id}/copy`);
+    assert.equal(first.status, 201);
+    assert.equal(first.data.source_id, src.id);
+    // Asked again while the copy is there: the same one, as before.
+    const again = await call('ben', 'POST', `${k.path}/${src.id}/copy`);
+    assert.deepEqual([again.status, again.data.id], [200, first.data.id]);
+    await ok('ben', 'DELETE', `${k.path}/${first.data.id}`);
+    const second = await call('ben', 'POST', `${k.path}/${src.id}/copy`);
+    assert.equal(second.status, 201, 'a new copy');
+    assert.notEqual(second.data.id, first.data.id);
+    assert.equal(second.data.deleted_at ?? null, null);
+    assert.equal(row(table, second.data.id).deleted_at, null);
+    assert.equal(row(table, second.data.id).user_id, row(table, first.data.id).user_id, 'in the same account');
+    const mine = await ok('ben', 'GET', k.path + (kind === 'recipes' ? '?recipes=1' : ''));
+    assert.ok(mine.some(x => x.id === second.data.id), 'it is in their list');
+    // And that one is found next time.
+    assert.equal((await call('ben', 'POST', `${k.path}/${src.id}/copy`)).data.id, second.data.id);
+  });
+
+  test(`${kind}: an item its owner deleted can't be copied; a private one still says forbidden`, async (t) => {
+    if (skip(t)) return;
+    const src = await k.make('ada');
+    await ok('ada', 'DELETE', `${k.path}/${src.id}`);
+    const gone = await call('ben', 'POST', `${k.path}/${src.id}/copy`);
+    assert.equal(gone.status, 404);
+    assert.equal(sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE source_id = ?`).get(src.id).n, 0, 'nothing was copied');
+    // A deleted item that was private to its owner doesn't tell anyone else it existed.
+    const priv = await k.make('ada');
+    await ok('ada', 'PATCH', `${k.path}/${priv.id}/share`, { visibility: 'private' });
+    await ok('ada', 'DELETE', `${k.path}/${priv.id}`);
+    assert.equal((await call('ben', 'POST', `${k.path}/${priv.id}/copy`)).status, 403);
+    // Its owner still hears it's theirs.
+    assert.equal((await call('ada', 'POST', `${k.path}/${priv.id}/copy`)).status, 400);
+    // A copy made before the owner deleted the original is the person's own and stays.
+    const kept = await k.make('ada');
+    const mine = await call('ben', 'POST', `${k.path}/${kept.id}/copy`);
+    await ok('ada', 'DELETE', `${k.path}/${kept.id}`);
+    assert.equal(row(table, mine.data.id).deleted_at, null);
+    // Asked again (an answer that was lost): the copy they have, not a refusal.
+    const again = await call('ben', 'POST', `${k.path}/${kept.id}/copy`);
+    assert.deepEqual([again.status, again.data.id], [200, mine.data.id]);
+  });
+}
 
 for (const [kind, path, table] of [['meal', '/api/meals', 'meals'], ['recipe', '/api/meals', 'meals'], ['food', '/api/foods', 'foods']]) {
   const body = (n, extra = {}) => ({ name: n, nutrition: { calories: 100 }, items: [], portion: 100, unit: 'g', ...(kind === 'recipe' ? { is_recipe: 1 } : {}), source_app: 'cooktrace', source_external_id: `${kind}:1`, ...extra });
