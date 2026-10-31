@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { onlyChanged } from '../lib/rest-merge.js';
+import { onlyChanged, deletedSave, goneBody } from '../lib/rest-merge.js';
 import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
@@ -235,11 +235,15 @@ router.put('/:id', wrap(async (req, res) => {
     notes: notes ?? existing.notes, category: category ?? existing.category, barcode: barcode ?? existing.barcode,
     favorite: fav, nutrition_basis: nb, alt_units: au, density_g_ml: dg,
   }, req.body.changed_fields);
+  const vis = visibility ?? existing.visibility;
+  // Deleted elsewhere: a save that changes something, made after the delete,
+  // brings the food back; any other is refused as gone (lib/rest-merge.js).
+  if (existing.deleted_at && !deletedSave('foods', existing, next)) return res.status(410).json(goneBody);
   db.prepare(
-    `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, visibility=?, favorite=?, nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=datetime('now') WHERE id=?`
+    `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, visibility=?, favorite=?, nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=datetime('now')${existing.deleted_at ? ', deleted_at=NULL' : ''} WHERE id=?`
   ).run(next.name, next.brand, next.nutrition, next.portion, next.unit, next.img_url,
     next.notes, next.category, next.barcode,
-    visibility ?? existing.visibility, next.favorite, next.nutrition_basis, next.alt_units, next.density_g_ml, req.params.id);
+    vis, next.favorite, next.nutrition_basis, next.alt_units, next.density_g_ml, req.params.id);
   res.json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id)));
 }));
 

@@ -2661,3 +2661,39 @@ test('a recipe changed offline (a new food added) and deleted on the web after t
   assert.equal(q('SELECT deleted_at IS NOT NULL AS d FROM meals WHERE id = ?', bowl.id)[0].d, 1, 'the recipe stays deleted on the server');
   assert.equal(q(`SELECT COUNT(*) AS n FROM foods WHERE name = 'Relink Kale' AND deleted_at IS NULL`)[0].n, 1);
 });
+
+// A save the phone sends straight to the server while online (a change made
+// now) of a row that was deleted on the web and hasn't reached the phone
+// yet: the save brings it back, on the server and on the phone, instead of
+// being written into the deleted row and lost with the next push.
+test('a food saved on the phone, online, after it was deleted on the web comes back with the save', async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Online Oats', brand: 'Mill', nutrition: {} });
+  phone('rest-del-food', A, `await p.sync(); p.done();`);
+  await http(A, 'DELETE', `/api/foods/${f.id}`);
+  await sleep(1100);
+  const r = phone('rest-del-food', A, `
+    const x = await p.food(${f.id});
+    await p.api.updateFood(x.id, { ...x, notes: 'Saved while online' });
+    await p.sleep(1500);
+    await p.sync(); await p.sync();
+    p.done({ now: (await p.food(${f.id}))?.notes ?? null });`);
+  assert.deepEqual(r, { now: 'Saved while online' }, 'the phone keeps it');
+  assert.deepEqual(q('SELECT deleted_at, notes FROM foods WHERE id = ?', f.id)[0], { deleted_at: null, notes: 'Saved while online' }, 'and the server has the food back with it');
+});
+
+test('a recipe saved on the phone, online, after it was deleted on the web comes back with the save', async (t) => {
+  if (skip(t)) return;
+  const m = await http(A, 'POST', '/api/meals', { name: 'Online Stew', is_recipe: 1, portion: 100, unit: 'g', items: [], nutrition: {} });
+  phone('rest-del-recipe', A, `await p.sync(); p.done();`);
+  await http(A, 'DELETE', `/api/meals/${m.id}`);
+  await sleep(1100);
+  const r = phone('rest-del-recipe', A, `
+    const x = (await p.api.getRecipes()).find(y => y.server_id === ${m.id});
+    await p.api.updateMeal(x.id, { ...x, notes: 'Saved while online' });
+    await p.sleep(1500);
+    await p.sync(); await p.sync();
+    p.done({ now: (await p.api.getRecipes()).find(y => y.server_id === ${m.id})?.notes ?? null });`);
+  assert.deepEqual(r, { now: 'Saved while online' }, 'the phone keeps it');
+  assert.deepEqual(q('SELECT deleted_at, notes FROM meals WHERE id = ?', m.id)[0], { deleted_at: null, notes: 'Saved while online' }, 'and the server has the recipe back with it');
+});

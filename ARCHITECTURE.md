@@ -233,6 +233,14 @@ merge by uuid and its note by its own time, as before.
   the save changes only those, so a form opened before an edit made
   elsewhere doesn't put it back (`lib/rest-merge.js`). Without them they
   write what they're sent, as before.
+  Foods, meals and recipes deleted elsewhere: a save is made now, so it
+  follows the rule a push of the same change follows (`editRevives`). One
+  that changes something brings the row back (`deleted_at` cleared, stamped
+  in `field_times`) with what it changed; one that changes nothing, or
+  comes in the second of the delete, is answered 410 `{ gone: true }` and
+  the delete stays, as LiftTrace answers a save made before a delete
+  (`deletedSave`, `lib/rest-merge.js`). Activities and fasts answer 404 for
+  a deleted row, as before.
 - The Android app keeps the server's copy of each row as `server_base`
   (`src/lib/sync-base.js`, set by each pull, each push that lands, and
   before the first edit of a row from before) and when each field was
