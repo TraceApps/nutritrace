@@ -1949,8 +1949,6 @@
       "new_token": "Neuer Token",
       "name": "Name *",
       "name_ph": "z. B. CookTrace, mein Dashboard",
-      "expires_label": "Gültig für (Tage, optional)",
-      "expires_ph": "Leer lassen für unbegrenzte Gültigkeit",
       "cancel": "Abbrechen",
       "creating": "Wird erstellt…"
     },
