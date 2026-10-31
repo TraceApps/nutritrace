@@ -122,6 +122,14 @@ router.post('/', wrap(async (req, res) => {
     }
   }
 
+  // A deleted meal from the same source still holds its place in the unique
+  // (source_app, source_external_id) index: it lets go, so the new one can
+  // be made (a CookTrace recipe deleted and pulled again), as a deleted food
+  // does (routes/foods.js).
+  if (cleanSourceApp && cleanSourceExtId) {
+    db.prepare(`UPDATE meals SET source_app = NULL, source_external_id = NULL WHERE user_id IS ? AND source_app = ? AND source_external_id = ? AND deleted_at IS NOT NULL`)
+      .run(u ?? null, cleanSourceApp, cleanSourceExtId);
+  }
   const result = db.prepare(
     `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id,
                         source_app, source_external_id, source_url, import_warnings, updated_at)

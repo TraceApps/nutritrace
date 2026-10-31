@@ -258,6 +258,13 @@ merge by uuid and its note by its own time, as before.
   second, goes with it, and a day by its `deleted_at` the same way. Items
   and water deleted elsewhere stay deleted (`diary_tombstones`), as the
   server keeps them.
+- A food or meal saved with a source (`source_app`, `source_external_id`: a
+  recipe pulled from CookTrace, a coach's food) holds its place in the
+  unique index `(user_id, source_app, source_external_id)` only while it
+  isn't deleted. A deleted one lets go of its source when the same source
+  comes in again (`POST /api/foods`, `/api/meals`, a push, a coach's
+  recommendation, a restore), and the new one is made; a live one is
+  updated in place, as before.
 - The browser sends what an offline edit changed (against the row it
   showed), each field with the time of the queued edit that changed it,
   and an online save sends what changed against the copy it holds, unless
