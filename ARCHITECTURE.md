@@ -242,7 +242,14 @@ merge by uuid and its note by its own time, as before.
   `edit_times`: the earlier edit's). A save sent straight to the server
   online sends only what that save changed. A pull leaves a row changed
   here and not sent yet as it is (activity and fasts too); it goes with
-  the next push.
+  the next push. So does a pulled delete of such a row, when the change
+  was made after the delete (`editRevives`, as the push is judged; a
+  deleted row in the pull says when the delete was made, `delete_time`,
+  which for one made offline on another phone is before it arrived): the
+  push brings it back. A change made before the delete, or in the same
+  second, goes with it, and a day by its `deleted_at` the same way. Items
+  and water deleted elsewhere stay deleted (`diary_tombstones`), as the
+  server keeps them.
 - The browser sends what an offline edit changed (against the row it
   showed), each field with the time of the queued edit that changed it,
   and an online save sends what changed against the copy it holds, unless

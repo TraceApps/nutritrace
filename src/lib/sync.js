@@ -634,7 +634,11 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
       if (wasNew(pending.meals, m.client_id)) created.push({ table: 'meals', localId: m.client_id, serverId: m.server_id });
     }
   }
-  try { if (live()) await dbLinkDiaryItems(created, live); }
+  // A meal or recipe the server answered with its delete (this phone's
+  // change was older) isn't linked: that would be a change made now, and
+  // would bring it back (db-native.js _changeOutlivesDelete). It goes below.
+  const deletedThere = new Set((result.meals || []).filter(m => m?.row?.deleted_at).map(m => m.client_id));
+  try { if (live()) await dbLinkDiaryItems(created, live, deletedThere); }
   catch (e) { console.warn('[sync] linking diary items waits for the next push:', e?.message || e); }
   for (const d of (result.diary || [])) {
     if (d.client_id && d.server_id) {

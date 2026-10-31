@@ -27,7 +27,7 @@ import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
 import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
 import { clientClock, parseUtc, editMs, resolveNote, sqlTime } from '../lib/sync-clock.js';
-import { mergeEdit, deleteLoses, editRevives, rowTimes, stampTimes, createdTimes, isoTime } from '../lib/field-sync.js';
+import { mergeEdit, deleteLoses, editRevives, rowTimes, readTimes, instantMs, stampTimes, createdTimes, isoTime } from '../lib/field-sync.js';
 import { SYNC_FIELDS, SYNC_GROUPS, SYNC_JSON } from '../lib/sync-fields.js';
 import { mergeBodyStats, changedList } from '../lib/body-stats-merge.js';
 import { readablePairingIds, createMessage, deleteMessage, messageOut, notifyMessage, pairingById } from '../lib/coaching-messages.js';
@@ -223,7 +223,14 @@ router.get('/pull', wrap((req, res) => {
   }
 
   // When each field changed (field_times) stays here: apps write what
-  // they're sent.
+  // they're sent. A deleted row says when the delete was made
+  // (delete_time), where that's known and isn't when it arrived (one made
+  // offline on a phone): a change waiting on another phone keeps or loses
+  // against it, as a push of that change would here (editRevives).
+  for (const rows of [foods, meals, activity, fasts]) for (const r of rows) {
+    const made = r.deleted_at ? readTimes(r.field_times).deleted_at : null;
+    if (Number.isFinite(instantMs(made))) r.delete_time = made;
+  }
   for (const rows of [foods, meals, diary, activity, fasts, settings]) for (const r of rows) delete r.field_times;
   res.json({ foods, meals, diary, diary_tombstones, activity, fasts, settings, wellness, workouts, chat_history, deletions, ...coachingOut, server_time: serverTime, clock_time: new Date().toISOString() });
 }));

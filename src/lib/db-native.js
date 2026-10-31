@@ -12,6 +12,7 @@ import { hydrateWithoutFoods } from './diary-hydration.js';
 import { parseAltUnits } from './units.js';
 import { itemSourceRef, relinkItems, relinkIngredients, itemFoodMatches, relinkedAt } from './item-source.js';
 import { baseOf, statsBase, changesOf, statsChanges } from './sync-base.js';
+import { editRevives, instantMs } from './field-sync.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -741,6 +742,44 @@ export async function dbSetClockOffset(ms) {
   await db.run(`INSERT INTO sync_meta (key, value) VALUES ('clock_offset_ms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(_clockOffsetMs)]);
 }
 export function dbClockOffset() { return _clockOffsetMs; }
+// An edit time here, in ms on the server's clock: one stamped on it
+// (_editNow, "+00:00") as it is, one on this phone's clock ("Z") set right
+// by the offset last learned, as the server sets it right on the push.
+function _serverClockMs(ts) {
+  const ms = instantMs(ts);
+  if (!Number.isFinite(ms) || (typeof ts === 'string' && /\+00:00$/.test(ts.trim()))) return ms;
+  return ms + (_clockOffsetMs ?? 0);
+}
+
+// A row deleted elsewhere that this phone changed and hasn't sent yet (a
+// change made while a sync was out, between its push and its pull): the
+// change stays when it was made after the delete, and the next push brings
+// the row back on the server; one made before the delete, or in the same
+// second, goes with it (field-sync.js editRevives). The server rules on
+// that push the same way, and when it keeps the delete after all (the
+// change changed nothing) it sends the row back and this phone takes it
+// (dbApplyServerWinner). `record`: the server's row, with deleted_at and,
+// from a server that sends it, delete_time, when the delete was made (one
+// made offline on another phone is made before it arrives).
+function _changeOutlivesDelete(local, record) {
+  if (!local || local.sync_status !== 'pending' || local.deleted_at) return false;
+  const at = _serverClockMs(local.updated_at);
+  if (!Number.isFinite(at)) return false;
+  return editRevives({ at, deletedAt: record.deleted_at, times: { deleted_at: record.delete_time } });
+}
+// The rows `where` names, deleted for the server's `record`, except one
+// whose change here outlives it. A row with nothing waiting goes in one
+// statement, as before (Clear all data brings thousands); `unique`: `where`
+// names one row at most, so a row gone that way leaves none to judge.
+async function _applyServerDelete(db, table, where, args, record, unique = true) {
+  const waiting = `COALESCE(sync_status, '') = 'pending' AND deleted_at IS NULL`;
+  const r = await db.run(`DELETE FROM ${table} WHERE (${where}) AND NOT (${waiting})`, args);
+  if (unique && r?.changes?.changes > 0) return;
+  const rows = _rows(await db.query(`SELECT id, sync_status, updated_at, deleted_at FROM ${table} WHERE (${where}) AND ${waiting}`, args));
+  for (const row of rows) {
+    if (!_changeOutlivesDelete(row, record)) await db.run(`DELETE FROM ${table} WHERE id = ?`, [row.id]);
+  }
+}
 
 // ── Foods ─────────────────────────────────────────────────────────────────
 
@@ -1816,7 +1855,8 @@ export async function dbOwnInstallIds() {
 // from before the tag existed link only to a row created in this push
 // (`created`, from the push answer) with the same name.
 // Changed days go up on the next push. Returns how many days changed.
-export async function dbLinkDiaryItems(created = [], live = () => true) {
+// `skipMeals`: ids here of meals not to link (deleted on the server).
+export async function dbLinkDiaryItems(created = [], live = () => true, skipMeals = null) {
   const db = await getDb();
   const r = await db.query(
     `SELECT id, items FROM diary WHERE user_id = ? AND deleted_at IS NULL AND items LIKE '%"food_server_id":null%'`,
@@ -1909,6 +1949,7 @@ export async function dbLinkDiaryItems(created = [], live = () => true) {
     changed++;
   }
   for (const meal of meals) {
+    if (skipMeals?.has(meal.id)) continue;
     const items = _parseJson(meal.items, []);
     if (!Array.isArray(items)) continue;
     const { out, hit } = fixIngredients(items);
@@ -2126,8 +2167,8 @@ export async function dbUpsertFromServer(table, serverRecord) {
   const { id: serverId, deleted_at, ...data } = serverRecord;
 
   if (deleted_at) {
-    // Server soft-deleted — hard delete locally
-    await db.run(`DELETE FROM ${table} WHERE server_id = ?`, [serverId]);
+    // Server soft-deleted: gone here too, unless changed here since.
+    await _applyServerDelete(db, table, 'server_id = ?', [serverId], serverRecord);
     return;
   }
 
@@ -2228,7 +2269,7 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
   } = serverRecord;
 
   if (deleted_at) {
-    await db.run(`DELETE FROM diary WHERE server_id = ? OR date = ?`, [serverId, date]);
+    await _applyServerDelete(db, 'diary', 'server_id = ? OR date = ?', [serverId, date], serverRecord, false);
     return;
   }
 
@@ -2536,7 +2577,7 @@ export async function dbUpsertActivityFromServer(record) {
   const db = await getDb();
   const { id: serverId, deleted_at } = record;
   if (deleted_at) {
-    await db.run(`DELETE FROM activity_log WHERE server_id = ?`, [serverId]);
+    await _applyServerDelete(db, 'activity_log', 'server_id = ?', [serverId], record);
     return;
   }
   // Match by server_id; if absent (first-pull), insert new
@@ -2678,7 +2719,7 @@ export async function dbUpsertFastFromServer(record) {
   const db = await getDb();
   const { id: serverId, deleted_at } = record;
   if (deleted_at) {
-    await db.run(`DELETE FROM fasts WHERE server_id = ?`, [serverId]);
+    await _applyServerDelete(db, 'fasts', 'server_id = ?', [serverId], record);
     return;
   }
   const existing = await db.query(`SELECT id, sync_status FROM fasts WHERE server_id = ? AND user_id = ?`, [serverId, LOCAL_USER_ID]);

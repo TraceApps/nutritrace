@@ -2441,3 +2441,223 @@ test("a row changed before the update and again after keeps each change's time",
   assert.deepEqual(q('SELECT name, brand, notes FROM foods WHERE id = ?', f.id)[0], want);
   assert.deepEqual(r, want, 'and the phone ends up with all three');
 });
+
+// A row deleted elsewhere that the phone changed and hasn't sent yet (an
+// edit made while a sync was out, between its push and its pull): the
+// change made after the delete stays and brings the row back on the
+// server; one made before it, or in the same second, doesn't
+// (lib/field-sync.js editRevives, as the server rules on a push).
+test('a pulled delete leaves a waiting change made after it, and takes one made before it or in the same second', async (t) => {
+  if (skip(t)) return;
+  const r = phone('pull-delete-rule', A, `
+    const db = await p.dbn.getDb();
+    await p.dbn.dbSetClockOffset(0);
+    const at = s => '2026-10-29T' + s + '+00:00';
+    const rows = {
+      foods: (id, upd, st, del) => db.run('INSERT INTO foods (server_id, user_id, name, updated_at, sync_status, deleted_at) VALUES (?, 1, ?, ?, ?, ?)', [id, 'F' + id, upd, st, del]),
+      meals: (id, upd, st, del) => db.run('INSERT INTO meals (server_id, user_id, name, updated_at, sync_status, deleted_at) VALUES (?, 1, ?, ?, ?, ?)', [id, 'M' + id, upd, st, del]),
+      activity_log: (id, upd, st, del) => db.run("INSERT INTO activity_log (server_id, user_id, date, name, kcal, updated_at, sync_status, deleted_at) VALUES (?, 1, '2026-10-29', ?, 100, ?, ?, ?)", [id, 'A' + id, upd, st, del]),
+      fasts: (id, upd, st, del) => db.run("INSERT INTO fasts (server_id, user_id, start_at, goal_hours, updated_at, sync_status, deleted_at) VALUES (?, 1, '2026-10-29T00:00:00Z', 16, ?, ?, ?)", [id, upd, st, del]),
+    };
+    const pull = {
+      foods: rec => p.dbn.dbUpsertFromServer('foods', rec),
+      meals: rec => p.dbn.dbUpsertFromServer('meals', rec),
+      activity_log: rec => p.dbn.dbUpsertActivityFromServer(rec),
+      fasts: rec => p.dbn.dbUpsertFastFromServer(rec),
+    };
+    const cases = [
+      ['after', at('10:00:01.000'), 'pending', null, {}],
+      ['same second', at('10:00:00.900'), 'pending', null, {}],
+      ['before', at('09:59:59.000'), 'pending', null, {}],
+      ['nothing waiting', at('10:00:05.000'), 'synced', null, {}],
+      ['deleted here too', at('10:00:05.000'), 'pending', '2026-10-29 10:00:05', {}],
+      // Made offline elsewhere at 09:59:58, sent at 10:00:10.
+      ['after the delete was made, before it arrived', at('10:00:01.000'), 'pending', null, { deleted_at: '2026-10-29 10:00:10', delete_time: '2026-10-29T09:59:58.000Z' }],
+    ];
+    const out = {};
+    let id = 7000;
+    for (const table of Object.keys(rows)) {
+      out[table] = {};
+      for (const [name, upd, st, del, rec] of cases) {
+        id++;
+        await rows[table](id, upd, st, del);
+        await pull[table]({ id, deleted_at: '2026-10-29 10:00:00', ...rec });
+        out[table][name] = (await db.query('SELECT COUNT(*) AS n FROM ' + table + ' WHERE server_id = ?', [id])).values[0].n === 1;
+      }
+    }
+    // A day, by its date.
+    out.diary = {};
+    const days = [['after', '2026-10-29T10:00:01.000Z', 'pending'], ['same second', '2026-10-29T10:00:00.500Z', 'pending'], ['before', '2026-10-29T09:59:59.000Z', 'pending'], ['nothing waiting', '2026-10-29T10:00:05.000Z', 'synced']];
+    for (let i = 0; i < days.length; i++) {
+      const date = '2026-07-0' + (i + 1);
+      await db.run("INSERT INTO diary (server_id, user_id, date, items, updated_at, sync_status) VALUES (?, 1, ?, '[]', ?, ?)", [8000 + i, date, days[i][1], days[i][2]]);
+      await p.dbn.dbUpsertDiaryFromServer({ id: 8000 + i, date, deleted_at: '2026-10-29 10:00:00' });
+      out.diary[days[i][0]] = (await db.query('SELECT COUNT(*) AS n FROM diary WHERE date = ?', [date])).values[0].n === 1;
+    }
+    p.done(out);`);
+  const want = { after: true, 'same second': false, before: false, 'nothing waiting': false, 'deleted here too': false, 'after the delete was made, before it arrived': true };
+  for (const table of ['foods', 'meals', 'activity_log', 'fasts']) assert.deepEqual(r[table], want, table);
+  assert.deepEqual(r.diary, { after: true, 'same second': false, before: false, 'nothing waiting': false }, 'diary');
+});
+
+// The proxy holds the phone's pull for `holdMs`, so the phone can change
+// something between its push and its pull, as a person can while a sync
+// is out. `pulled` resolves when the pull reaches the proxy.
+async function heldPull(holdMs) {
+  let seen;
+  const pulled = new Promise(r => { seen = r; });
+  const px = await proxy(req => (req.url.startsWith('/api/sync/pull') ? (seen(Date.now()), { delayMs: holdMs }) : null));
+  return { px, pulled };
+}
+const alice = () => `(SELECT id FROM users WHERE username = 'alice')`;
+
+test('a food deleted on the web and then changed on the phone while a sync was out comes back with the change, on the server and the phone', async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Revived Oats', brand: 'Mill', nutrition: {} });
+  phone('pull-del-newer', A, `await p.sync(); p.done();`);
+  await http(A, 'DELETE', `/api/foods/${f.id}`);
+  await sleep(1100);
+  const { px } = await heldPull(3000);
+  let r;
+  try {
+    r = await phoneAsync('pull-del-newer', A, `
+      const s = p.fullSync(true, true);
+      await p.sleep(1200);
+      await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, notes: 'Changed after the delete' }); });
+      await s;
+      const kept = await p.food(${f.id});
+      await p.sync(); await p.sync();
+      const x = await p.food(${f.id});
+      p.done({ kept: kept?.notes ?? null, now: x?.notes ?? null });`, { NT_SERVER: px.url });
+  } finally { await px.close(); }
+  assert.deepEqual(r, { kept: 'Changed after the delete', now: 'Changed after the delete' }, 'the phone kept its change through the pull');
+  assert.deepEqual(q('SELECT deleted_at, notes FROM foods WHERE id = ?', f.id)[0], { deleted_at: null, notes: 'Changed after the delete' }, 'and the server has the food back with it');
+});
+
+test('a food changed on the phone while a sync was out and deleted on the web after that stays deleted', async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Gone Oats', brand: 'Mill', nutrition: {} });
+  phone('pull-del-older', A, `await p.sync(); p.done();`);
+  const { px, pulled } = await heldPull(5000);
+  let r;
+  try {
+    const run = phoneAsync('pull-del-older', A, `
+      const s = p.fullSync(true, true);
+      await p.sleep(1200);
+      await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, notes: 'Changed before the delete' }); });
+      await s;
+      const after = await p.food(${f.id});
+      await p.sync(); await p.sync();
+      p.done({ after: after?.notes ?? null, now: (await p.food(${f.id}))?.notes ?? null });`, { NT_SERVER: px.url });
+    await pulled;
+    await sleep(3000);
+    await http(A, 'DELETE', `/api/foods/${f.id}`);
+    r = await run;
+  } finally { await px.close(); }
+  assert.deepEqual(r, { after: null, now: null });
+  assert.equal(q('SELECT deleted_at IS NOT NULL AS d FROM foods WHERE id = ?', f.id)[0].d, 1);
+});
+
+test('a food deleted offline on another phone, changed here after that, while a sync was out and before the delete arrived: the change stays', async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Late Delete Oats', brand: 'Mill', nutrition: {} });
+  phone('pull-del-late', A, `await p.sync(); p.done();`);
+  await sleep(5000);
+  const { px, pulled } = await heldPull(6000);
+  let r;
+  try {
+    const run = phoneAsync('pull-del-late', A, `
+      const s = p.fullSync(true, true);
+      await p.sleep(1200);
+      await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x, notes: 'Changed after the offline delete' }); });
+      await s;
+      const kept = await p.food(${f.id});
+      await p.sync(); await p.sync();
+      p.done({ kept: kept?.notes ?? null, now: (await p.food(${f.id}))?.notes ?? null });`, { NT_SERVER: px.url });
+    const seenAt = await pulled;
+    await sleep(3500);
+    // The other phone's push: its delete, made 4 s before this phone's pull.
+    const madeAt = new Date(seenAt - 4000).toISOString().replace(/Z$/, '+00:00');
+    await http(A, 'POST', '/api/sync/push', { foods: [{ client_id: 1, server_id: f.id, deleted_at: madeAt, updated_at: madeAt }], client_now: new Date().toISOString() });
+    assert.equal(q('SELECT deleted_at IS NOT NULL AS d FROM foods WHERE id = ?', f.id)[0].d, 1, 'the delete went in');
+    r = await run;
+  } finally { await px.close(); }
+  assert.deepEqual(r, { kept: 'Changed after the offline delete', now: 'Changed after the offline delete' });
+  assert.deepEqual(q('SELECT deleted_at, notes FROM foods WHERE id = ?', f.id)[0], { deleted_at: null, notes: 'Changed after the offline delete' });
+});
+
+test('a day deleted on the web and then logged to on the phone while a sync was out comes back with the new item', async (t) => {
+  if (skip(t)) return;
+  const D = '2026-07-14';
+  await http(A, 'PUT', `/api/diary/${D}`, { items: [{ uuid: 'pd-old', name: 'Toast', nutrition: {}, portion: 100, unit: 'g', quantity: 1, meal: 0 }], body_stats: {}, water: [] });
+  phone('pull-del-day', A, `await p.sync(); p.done();`);
+  await http(A, 'DELETE', `/api/diary/${D}`);
+  await sleep(1100);
+  const { px } = await heldPull(3000);
+  let r;
+  try {
+    r = await phoneAsync('pull-del-day', A, `
+      const s = p.fullSync(true, true);
+      await p.sleep(1200);
+      await p.offline(async () => { const d = await p.api.getDiaryDate('${D}'); await p.api.saveDiaryDate('${D}', { ...d, items: [...(d.items || []), { uuid: 'pd-new', name: 'Apple', nutrition: {}, portion: 100, unit: 'g', quantity: 1, meal: 0 }] }); });
+      await s;
+      const kept = ((await p.api.getDiaryDate('${D}')).items || []).map(i => i.uuid).sort();
+      await p.sync(); await p.sync();
+      p.done({ kept, now: ((await p.api.getDiaryDate('${D}')).items || []).map(i => i.uuid).sort() });`, { NT_SERVER: px.url });
+  } finally { await px.close(); }
+  assert.deepEqual(r, { kept: ['pd-new', 'pd-old'], now: ['pd-new', 'pd-old'] });
+  const row = q(`SELECT deleted_at, items FROM diary WHERE user_id = ${alice()} AND date = ?`, D)[0];
+  assert.equal(row.deleted_at, null);
+  assert.deepEqual(JSON.parse(row.items).map(i => i.uuid).sort(), ['pd-new', 'pd-old']);
+});
+
+test("a change kept through a pulled delete that the server still refuses (it changes nothing) leaves the phone with the delete", async (t) => {
+  if (skip(t)) return;
+  const f = await http(A, 'POST', '/api/foods', { name: 'Same Oats', brand: 'Mill', nutrition: {} });
+  phone('pull-del-same', A, `await p.sync(); p.done();`);
+  await http(A, 'DELETE', `/api/foods/${f.id}`);
+  await sleep(1100);
+  const { px } = await heldPull(3000);
+  let r;
+  try {
+    r = await phoneAsync('pull-del-same', A, `
+      const s = p.fullSync(true, true);
+      await p.sleep(1200);
+      // Saved again as it was: newer, but nothing in it changed.
+      await p.offline(async () => { const x = await p.food(${f.id}); await p.api.updateFood(x.id, { ...x }); });
+      await s;
+      const kept = await p.food(${f.id});
+      await p.sync(); await p.sync();
+      p.done({ kept: kept?.name ?? null, now: (await p.food(${f.id}))?.name ?? null });`, { NT_SERVER: px.url });
+  } finally { await px.close(); }
+  assert.deepEqual(r, { kept: 'Same Oats', now: null }, 'kept through the pull, then gone once the server refused it');
+  assert.equal(q('SELECT deleted_at IS NOT NULL AS d FROM foods WHERE id = ?', f.id)[0].d, 1);
+});
+
+// Linking a recipe's ingredient to its food's new server id after a push
+// isn't a change made then: a recipe whose offline edit lost to a delete
+// made after it stays deleted.
+test('a recipe changed offline (a new food added) and deleted on the web after that stays deleted', async (t) => {
+  if (skip(t)) return;
+  const oats = await http(A, 'POST', '/api/foods', { name: 'Relink Oats', nutrition: { calories: 50 }, portion: 100, unit: 'g' });
+  const bowl = await http(A, 'POST', '/api/meals', { name: 'Relink Bowl', is_recipe: 1, portion: 100, items: [{ id: oats.id, name: oats.name, portion: 100, unit: 'g', quantity: 1, nutrition: { calories: 50 } }] });
+  phone('pull-del-relink', A, `await p.sync(); p.done();`);
+  const before = phone('pull-del-relink', A, `
+    await p.offline(async () => {
+      const kale = await p.api.createFood({ name: 'Relink Kale', nutrition: { calories: 30 }, portion: 100, unit: 'g' });
+      const r = (await p.api.getRecipes()).find(x => x.server_id === ${bowl.id});
+      await p.api.updateMeal(r.id, { ...r, items: [...(r.items || []), { ...kale, quantity: 1 }] });
+    });
+    const r = (await p.api.getRecipes()).find(x => x.server_id === ${bowl.id});
+    p.done(r.items.map(i => ({ name: i.name, id: i.id, server_id: i.server_id, food_server_id: i.food_server_id, dev: i.food_device ? 1 : 0 })));`);
+  assert.deepEqual(before.map(i => [i.name, i.server_id]), [['Relink Oats', undefined], ['Relink Kale', null]], 'the new food has no server id yet');
+  await sleep(1100);
+  await http(A, 'DELETE', `/api/meals/${bowl.id}`);
+  await sleep(1100);
+  const r = phone('pull-del-relink', A, `
+    await p.sync(); await p.sync();
+    p.done({ bowl: !!(await p.api.getRecipes()).find(x => x.server_id === ${bowl.id}), kale: !!(await p.api.getFoods()).find(f => f.name === 'Relink Kale' && f.server_id) });`);
+  assert.deepEqual(r, { bowl: false, kale: true });
+  assert.equal(q('SELECT deleted_at IS NOT NULL AS d FROM meals WHERE id = ?', bowl.id)[0].d, 1, 'the recipe stays deleted on the server');
+  assert.equal(q(`SELECT COUNT(*) AS n FROM foods WHERE name = 'Relink Kale' AND deleted_at IS NULL`)[0].n, 1);
+});
