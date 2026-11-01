@@ -491,8 +491,11 @@
       "disabling": "Deaktiverer…",
       "failed": "Gjenoppretting mislyktes",
       "success": "Brukeradministrasjon deaktivert – du er nå i enbruker-modus",
-      "done": "Brukeradministrasjon har blitt deaktivert.<br>Omdirigerer…"
-    }
+      "done": "Brukeradministrasjon har blitt deaktivert.<br>Omdirigerer…",
+      "confirm_delete": "Dette vil slette alle brukerkontoene og alt som er lagret i dem (dagbok, matvarer, måltider, oppskrifter og mål). Fortsett?",
+      "explainer_delete": "Hvis du aldri oppretter brukerkontoer med vilje, kan du deaktivere brukeradministrasjon. <strong>Dette vil slette alle brukerkontoene og alt som er lagret i dem (dagbok, matvarer, måltider, oppskrifter og mål).</strong>"
+    },
+    "session_ended": "Du er logget ut på denne enheten: passordet til kontoen eller to-trinnspålogging ble endret, eller Logg ut fra alle steder ble brukt. Logg inn igjen for å fortsette. Endringer som venter på denne enheten lastes opp når du logger inn igjen."
   },
   "forgot_password": {
     "title": "Tilbakestill passord",
@@ -590,7 +593,12 @@
       "delete_account_failed": "Kunne ikke slette konto",
       "not_kept": "Denne nettleseren kunne ikke bevare profilen din for å sende senere. Sjekk at den har ledig plass og tillater denne siden å lagre data, og prøv igjen.",
       "needs_connection": "Å bevare profilen din krever en forbindelse. Prøv igjen når du er tilkoblet."
-    }
+    },
+    "sign_out_everywhere": "Logg ut fra alle steder",
+    "sign_out_everywhere_hint": "Alle andre nettlesere og telefoner logges ut. Denne forblir logget inn.",
+    "sign_out_everywhere_title": "Logg ut fra alle steder?",
+    "sign_out_everywhere_message": "Alle andre nettlesere og telefoner som er logget inn på din konto logges ut og må logge inn igjen. Denne enheten bforblir logget inn. API-nøkler fungerer fortsatt: Tilbaketrekk dem under API-nøkler.",
+    "signed_out_everywhere": "Logget ut fra alle andre steder"
   },
   "wizard": {
     "nav": {
@@ -723,7 +731,9 @@
       "mark_day_complete": "Merk dag som fullført",
       "unmark_day_complete": "Fjern merking for fullført dag",
       "body_stats": "Kroppsstatistikk",
-      "body_stats_long": "Kroppsstatistikk – logg vekt, kroppsfett og mål"
+      "body_stats_long": "Kroppsstatistikk – logg vekt, kroppsfett og mål",
+      "move_selected": "Flytt valgt",
+      "copy_selected": "Kopier valgt"
     },
     "day_complete": {
       "marked_toast": "Dag merket som fullført",
@@ -845,6 +855,41 @@
       "adjusted_for_activity": "Justert etter aktivitet",
       "expand_panel": "Utvid næringspanel",
       "collapse_panel": "Fold sammen næringspanel"
+    },
+    "copy": {
+      "title_selection": "Kopier {n, plural, one {# Element} other {# Elementer}} til…",
+      "keep_meals": "Behold hvert elements måltid",
+      "repeat": "Gjenta",
+      "repeat_off": "Av",
+      "repeat_value": "{n, plural, one {Neste dag} other {Neste # dager}}",
+      "fewer_days": "Færre dager",
+      "more_days": "Flere dager",
+      "repeat_hint": "Kopier {days} dager: {from} til {to}.",
+      "toast_day_meal": "Kopierte {n, plural, one {# element} other {# elementer}} til {rel, select, yesterday {gårsdagens {meal}} today {dagens {meal}} tomorrow {morgendagens {meal}} other {{meal} på {day}}}",
+      "toast_day": "Kopierte {n, plural, one {# element} other {# elementer}} til {rel, select, yesterday {i går} today {i dag} tomorrow {i morgen} other {{day}}}",
+      "toast_days_meal": "Kopierte {n, plural, one {# element} other {# elementer}} til {meal} på {days} dager, {from} til {to}",
+      "toast_days": "Kopierte {n, plural, one {# element} other {# elementer}} til {days} dager, {from} til {to}",
+      "toast_partial": "Kopierte {n, plural, one {# element} other {# elementer}} til {done} av {total} dager. Ikke kopiert til {failed}.",
+      "toast_failed": "Kopi feilet",
+      "toast_failed_reason": "Kopi feilet: {error}",
+      "toast_nothing": "Ingenting å kopiere"
+    },
+    "move": {
+      "title": "Flytt til…",
+      "title_selection": "Flytt {n, plural, one {# Element} other {# Elementer}} til…",
+      "moved": "Flyttet {n, plural, one {# element} other {# elementer}} til {rel, select, yesterday {gårsdagens {meal}} today {dagens {meal}} tomorrow {morgendagens {meal}} other {{meal} på {day}}}",
+      "already_there": "Allerede i {meal}",
+      "failed": "Flytt feilet",
+      "failed_reason": "Flytt feilet: {error}",
+      "both_days": "{n, plural, one {Elementet ble} other {Elementene ble}} lagt til {rel, select, yesterday {gårsdagens {meal}} today {dagens {meal}} tomorrow {morgendagens {meal}} other {{meal} på {day}}} men kan fortsatt være på denne dagen også. Sjekk her og slett {n, plural, one {det} other {dem}} hvis du ikke vil ha det på begge dager."
+    },
+    "day_picker": {
+      "label": "Dag",
+      "date": "Dato",
+      "tomorrow": "I morgen"
+    },
+    "shortcut": {
+      "water_hidden": "Vann er skjult i Dagenboken. Aktiver Vis i dagenboken for å logge det."
     }
   },
   "foods": {
@@ -912,7 +957,9 @@
       "delete_recipe_confirm_title": "Slett denne oppskriften?",
       "delete_recipe_confirm_body": "\"{name}\" vil bli fjernet fra dine oppskrifter. Eksisterende dagboksinnlegg som refererer til denne oppskriften beholdes.",
       "recipe_deleted": "Oppskrift slettet",
-      "delete_meal_confirm_body": "\"{name}\" vil bli fjernet fra dine måltider. Eksisterende dagbok innlegg som refererer til måltidet blir behold."
+      "delete_meal_confirm_body": "\"{name}\" vil bli fjernet fra dine måltider. Eksisterende dagbok innlegg som refererer til måltidet blir behold.",
+      "added_to_day": "Lagt til {rel, select, yesterday {gårsdagens {meal}} today {dagens {meal}} tomorrow {morgendagens {meal}} other {{meal} på {day}}}",
+      "adding_to_day": "Legger til {rel, select, yesterday {gårsdagens {meal}} today {dagens {meal}} tomorrow {morgendagens {meal}} other {{meal} på {day}}}"
     },
     "sources": {
       "local": "Lokal",
@@ -968,6 +1015,10 @@
       "add_food": "Legg til matvarer",
       "add_meal": "Legg til måltid",
       "add_recipe": "Legg til oppskrift"
+    },
+    "shortcut": {
+      "change": "Endre",
+      "change_aria": "Endre måltid eller dag"
     }
   },
   "trace": {
@@ -1315,7 +1366,11 @@
     "title": "Næringsinnhold",
     "serving_size": "Porsjonsstørrelse",
     "amount_per": "Mengde per porsjon",
-    "includes": "Inkluderer {amount} {label}"
+    "includes": "Inkluderer {amount} {label}",
+    "per_100": "Per 100 {unit}",
+    "per_100_energy": "{value} per 100 {unit}",
+    "per_100_from": "Verdier per 100 {unit} beregnes fra en portion på {amount}.",
+    "per_100_unknown": "Per 100 g må vite hva dette veier. Gi måltidsstørrelsen eller hver ingrediens et volum i gram eller milliliter for å se det."
   },
   "fasting_insights": {
     "title": "Faste",
@@ -1465,7 +1520,13 @@
     "meals_sort": "Sortering av Måltider",
     "opt_recent": "Nylig brukt",
     "opt_most": "Mest brukt",
-    "opt_alpha": "Alfabetisk"
+    "opt_alpha": "Alfabetisk",
+    "facts_heading": "Næringsinnhold",
+    "facts_sub": "Etiketten som vises når du åpner en mat, måltid eller oppskrift.",
+    "facts_column": "Høyre kolonne",
+    "facts_column_desc": "% Dagsverdi eller mengden i 100 g (100 ml for drikker) slik at matvarer med ulike måltidsstørrelser er enkle å sammenligne.",
+    "facts_column_dv": "% Dagsverdi",
+    "facts_column_per100": "Per 100 g"
   },
   "barcode_scanner": {
     "toast": {
@@ -1565,7 +1626,8 @@
     "derived": {
       "sodium_from_salt": "Beregnet fra salt (× 400 mg/g)",
       "salt_from_sodium": "Beregnet fra natrium (÷ 400"
-    }
+    },
+    "values_for": "Verdier for {amount}"
   },
   "meal_editor": {
     "meal_name_placeholder": "Måltidsnavn",
@@ -2013,7 +2075,15 @@
       "scopes": "Omfang *",
       "cancel": "Avbryt",
       "creating": "Oppretter…",
-      "create": "Opprett token"
+      "create": "Opprett token",
+      "expiry": "Utløper",
+      "expiry_30": "Om 30 dager",
+      "expiry_90": "Om 90 dager",
+      "expiry_365": "Om 1 år",
+      "expiry_never": "Ingen utløpsdato",
+      "check_title": "Bekreft at det er deg",
+      "check_message": "Skriv inn passordet ditt for å opprette denne nøkkelen. En nøkkel gir en app mulighet til å bruke din konto frem til den utløper eller du Tilbaketrekker den.",
+      "check_message_sso": "Du logger inn med enkelpålogging, så opprettelse av en nøkkel krever en innlogging i de siste 15 minuttene. Hvis det har gått lengre, logg ut og logg inn igjen først."
     },
     "confirm": {
       "revoke_title": "Trekk tilbake \"{name}\"?",
@@ -2903,7 +2973,9 @@
   "trace_reply": {
     "stopped_length": "Svaret ble avbrutt før slutten, så det ble ikke brukt. Prøv igjen, eller be om mindre på en gang.",
     "stopped_thinking": "Modellen ga sin begrunnelse, men ingen svar. Prøv igjen, eller reduser den logiske begrunnelsen.",
-    "out_of_rounds": "Det tok flere trinn enn en svar tillater, og ingenting ble sendt tilbake. Be om mindre på en gang, for eksempel en kortere tidsperiode."
+    "out_of_rounds": "Det tok flere trinn enn en svar tillater, og ingenting ble sendt tilbake. Be om mindre på en gang, for eksempel en kortere tidsperiode.",
+    "stopped_empty": "Modellen sendte tilbake et tomme svar. Alt Trace allerede gjorde denne runden beholdes, så sjekk før du spør igjen.",
+    "stuck_on_tool": "Trace fortsatte å spørre om samme informasjon og fikk ingen svar, så den stoppet. Prøv å spør på en annen måte."
   },
   "server_signin": {
     "web_page": "Noe annet enn NutriTrace svarte med en nettside: ofte en logginnproxy (Authentik, Authelia, Cloudflare Access), eller så er dette ikke din serverens adresse. La appen nå /api på serveren din.",
@@ -3016,5 +3088,114 @@
     "weight_kg": "Målvekt",
     "body_fat_pct": "Mål for kroppsfettprosent",
     "muscle_mass_kg": "Mål for muskelmasse"
+  },
+  "two_step": {
+    "errors": {
+      "generic": "Noe gikk galt. Prøv igjen.",
+      "copy_failed": "Klarte ikke å kopiere. Velg teksten og kopier den manuelt."
+    },
+    "setup": {
+      "loading": "Laster…",
+      "scan": "Skann denne QR-koden med en autentiseringsapp, som Aegis, 2FAS, Google Authenticator eller 1Password.",
+      "qr_alt": "QR-kode for din autentiseringsapp",
+      "open_app": "Åpne i autentiseringsapp",
+      "key_intro": "Kan ikke skanne den? Skriv inn denne nøkkelen i appen isteden:",
+      "copy_key": "Kopier nøkkel",
+      "key_copied": "Nøkkel kopiert",
+      "key_details": "Tidsbasert, 6 sifre, hvert 30. sekund.",
+      "code_label": "6-sifret kode fra appen",
+      "turn_on": "Aktiver",
+      "turning_on": "Aktiverer…"
+    },
+    "codes": {
+      "title": "Lagre dine gjenopprettingskoder",
+      "explain": "Hvis du mister telefonen, vil hver av disse kodene gi deg tilgang én gang. Oppbevar dem på et trygt sted, som en passordbehandler. De vises ikke igjen.",
+      "copy": "Kopier koder",
+      "download": "Last ned",
+      "copied": "Gjenopprettingskoder kopiert",
+      "saved": "Jeg har lagret kodene mine"
+    },
+    "signin": {
+      "title": "to-trinnspålogging",
+      "setup_title": "Sett opp to-trinnspålogging",
+      "setup_intro": "Din administrator krever to-trinnspålogging. Sett den opp nå for å fullføre påloggingen.",
+      "intro": "Skriv inn den 6-sifrede koden fra din autentiseringsapp.",
+      "recovery_intro": "Skriv inn én av de gjenopprettingskodene du lagret da du satte opp to-trinnspålogging.",
+      "code_label": "Kode",
+      "recovery_label": "Gjenopprettingskode",
+      "verify": "Verifiser",
+      "verifying": "Verifiserer…",
+      "use_recovery": "Bruk en gjenopprettingskode",
+      "use_app": "Bruk en kode fra appen din",
+      "back": "Tilbake til pålogging",
+      "lost_phone": "Mistet telefonen og gjenopprettingskodene? Be en administrator om å tilbakestille to-trinnspålogging.",
+      "recovery_used": "Logget på med en gjenopprettingskode. {count, plural, =0 {Du har ingen igjen: lager nye i Innstillinger, Profil.} one {# igjen.} other {# igjen.}}"
+    },
+    "settings": {
+      "title": "to-trinnspålogging",
+      "on": "På",
+      "off": "Av",
+      "desc": "Etter passordet, be om en kode fra en autentiseringsapp på telefonen din.",
+      "sso": "Du logger på med enkel pålogging, så din påloggingsleverandør håndterer to-trinnspålogging.",
+      "load_failed": "Klarte ikke å laste dine innstillinger for to-trinnspålogging.",
+      "required_note": "Din administrator krever to-trinnspålogging, så du vil bli spurt om å sette det opp neste gang du logger på.",
+      "key_problem": "Koder fra din autentiseringsapp kan ikke sjekkes på denne serveren nå (dens to-trinnsnøkkel har endret seg eller mangler). Logg på med en gjenopprettingskode, eller be en administrator om å tilbakestille to-trinnspålogging, og å sette det opp igjen.",
+      "cant_set_up": "to-trinnspålogging kan ikke settes opp på denne serveren nå: den kunne ikke lagre nøkkelen sin. spør din administrator.",
+      "set_up": "Sett opp to-trinnspålogging",
+      "password_label": "Ditt passord",
+      "continue": "Fortsett",
+      "on_since": "På siden {date}",
+      "codes_left": "{count, plural, one {# gjenopprettingskode igjen} other {# gjenopprettingskoder igjen}}",
+      "codes_low": "Har få gjenopprettingskoder igjen. Lag nye slik at du fortsatt kan logge på hvis du mister telefonen.",
+      "new_codes": "Nye gjenopprettingskoder",
+      "codes_explain": "Nye koder erstatter de du har nå. Skriv inn passordet ditt og en kode fra appen (eller en gjenopprettingskode).",
+      "turn_off": "Slå av",
+      "off_explain": "Du logger på med passordet ditt alene. Skriv inn passordet ditt og en kode fra appen (eller en gjenopprettingskode).",
+      "code_label": "Kode fra appen eller en gjenopprettingskode",
+      "turned_on": "to-trinnspålogging er på",
+      "turned_off": "to-trinnspålogging er av"
+    },
+    "admin": {
+      "require": "Krev to-trinnspålogging for alle",
+      "require_desc": "Hvem som helst som logger på med et passord og ikke har satt det opp gjør det umiddelbart etter passordet, neste gang de logger på. Enkel pålogging-kontoer påvirkes ikke.",
+      "required_on": "to-trinnspålogging er nå påkrevd",
+      "required_off": "to-trinnspålogging er ikke lenger påkrevd",
+      "required_failed": "Klarte ikke å lagre: {msg}",
+      "reset": "Tilbakestill to-trinnspålogging",
+      "reset_title": "Tilbakestill to-trinnspålogging for {name}?",
+      "reset_message": "Deres autentiseringsapp og gjenopprettingskoder stopper å virke, og de logger på med passordet sitt alene fram til de setter det opp igjen. De får e-post hvis serveren sender e-post.",
+      "your_password": "Ditt passord",
+      "your_code": "Din to-trinnskode",
+      "resetting": "Tilbakestiller…",
+      "reset_done": "to-trinnspålogging tilbakestilt for {name}",
+      "reset_confirm": "Nullstill"
+    },
+    "locked_out": {
+      "title": "Tilbakestill to-trinnspålogging for én konto",
+      "explain": "For noen som mistet telefonen og gjenopprettingskodene. Bare den kontoen endres: den logger på med passordet sitt alene fram til to-trinnspålogging blir satt opp igjen.",
+      "username_placeholder": "Brukernavn",
+      "action": "Tilbakestill to-trinnspålogging",
+      "resetting": "Tilbakestiller…",
+      "failed": "Klarte ikke å tilbakestille to-trinnspålogging",
+      "done": "to-trinnspålogging er av for {name}. Logg på med passordet.",
+      "disable_title": "Deaktiver brukeradministrasjon"
+    },
+    "reset_password_done": "Ditt passord ble endret. to-trinnspålogging er på for denne kontoen, så logg på med ditt nye passord og din kode.",
+    "link": {
+      "title": "Koble til {provider}?",
+      "message": "Skriv inn passordet ditt for å koble til {provider}. Fra da av kan du logge inn med den.",
+      "message_sso": "Du logger inn med enkelpålogging, så koble til {provider} krever en innlogging i de siste 15 minuttene. Hvis det har gått lengre, logg ut og logg inn igjen først.",
+      "password_label": "Ditt passord",
+      "code_label": "Kode fra appen din eller en gjenopprettingskode",
+      "continue": "Fortsett",
+      "checking": "Sjekker…"
+    },
+    "email": {
+      "title": "Bekreft din nye e-post",
+      "explain": "Skriv inn passordet ditt for å bekrefte det. Fram til det, vil tilbakestilling av passord gå til din tidligere e-post, og enkelpålogging kobles ikke til kontoen din via denne.",
+      "explain_sso": "Bekreft det før 15 minutter etter at du har logget inn. fram til det, vil tilbakestilling av passord gå til din tidligere e-post, og enkelpålogging kobles ikke til kontoen din via denne. Hvis det har gått lengre tid, logg ut og logg inn igjen først.",
+      "confirm": "Bekreft e-post",
+      "confirmed": "E-post bekreftet"
+    }
   }
 }
