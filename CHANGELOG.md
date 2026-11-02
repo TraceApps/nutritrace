@@ -9,6 +9,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Daily targets on the Nutrition Summary.** Each nutrient shows how far you are from a target: at least (protein, fiber, vitamins and minerals), at most (sodium, cholesterol, saturated fat, added sugar), or a split (fat, carbs). The targets come from your sex, age, height, weight and target weight: protein is 1.8 g per kg of target weight, fat is 30% of the calorie goal, saturated fat and added sugar are under 10%, and vitamins and minerals follow the Dietary Reference Intakes for your sex and age. A goal you set in Goals always replaces the recommendation. Turn the targets off in Settings > Diary.
+
 - **Two-step sign-in** ([#222](https://github.com/TraceApps/nutritrace/issues/222)). Settings > Profile > Two-Step Sign-In asks for a code from an authenticator app after your password: scan the QR code (or type the key), enter a code to turn it on, and save ten one-time recovery codes. It works in the browser and the Android app. Lost your phone? Sign in with a recovery code; an admin can reset it from Settings > Users; the owner can reset one account with the RECOVERY_TOKEN under Locked Out?, or with `docker exec nutritrace npm run reset-2fa -- <username>`. Admins can require it for everyone, and a password reset link never skips the code. Single sign-on, API tokens and saved sign-ins are unchanged. Thanks @fatman00.
 
 ### Security

@@ -32,7 +32,7 @@ export const USER_PREFS = new Set([
   'bodyStatsOrder','hiddenBodyStats','foodCategories','customUnits',
   'diaryShowNutritionBar','diaryTotalsMode','macroLegendMode',
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
-  'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
+  'diaryShowAllNutrients','dailyTargetsEnabled','diaryShowNutritionUnits','diaryShowMacroSummary',
   'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes','warnUnitMismatch','showUnitMetadata',
   'diaryShowCompletion',
   'diaryDefaultField',
@@ -566,6 +566,7 @@ export const diaryShowBrands        = createSettingStore('diaryShowBrands',     
 export const diaryShowTimestamps    = createSettingStore('diaryShowTimestamps',     false);
 export const diaryShowThumbnails    = createSettingStore('diaryShowThumbnails',     true);
 export const diaryShowAllNutrients  = createSettingStore('diaryShowAllNutrients',   false);
+export const dailyTargetsEnabled   = createSettingStore('dailyTargetsEnabled', true);  // recommended targets from the profile on the Nutrition Summary; a goal set in Goals wins
 export const diaryShowNutritionUnits= createSettingStore('diaryShowNutritionUnits', true);
 export const diaryShowMacroSummary  = createSettingStore('diaryShowMacroSummary',   true);
 export const diaryPromptQuantity    = createSettingStore('diaryPromptQuantity',     true);
