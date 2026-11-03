@@ -1,1 +1,66 @@
-{}
+{
+  "common": {
+    "hide": "Nascondi",
+    "save": "Salva",
+    "saving": "Salvataggio…",
+    "cancel": "Cancella",
+    "back": "Indietro",
+    "close": "Chiudi",
+    "delete": "Elimina",
+    "signed_in": "Loggato",
+    "signed_out": "Non loggato",
+    "linked": "Collegato",
+    "unlinked": "Scollegato",
+    "admin": "amministratore",
+    "errors": {
+      "cant_reach_server": "Server non raggiungibile",
+      "failed": "Fallito",
+      "unlink_failed": "Non scollegato",
+      "save_failed": "Salvataggio fallito",
+      "delete_failed": "Eliminazione fallita",
+      "name_required": "Nome necessario",
+      "network_error_upload": "Errore di rete durante l'upload",
+      "voice_unsupported": "L'input vocale non è supportato in questo browser",
+      "cant_start_mic": "Impossibile avviare il microfono"
+    },
+    "macro_pct": {
+      "protein": "Proteine {pct}%",
+      "carbs": "Carboidrati {pct}%",
+      "fat": "Grassi {pct}%"
+    }
+  },
+  "sync": {
+    "synced": "Sincronizzato",
+    "sync_offline": "Offline",
+    "sign_out_waiting_title": "Le modifiche sono ancora in attesa"
+  },
+  "nutriments": {
+    "fiber": "Fibre"
+  },
+  "settings": {
+    "regional": {
+      "date_format": "Formato Data"
+    },
+    "users": {
+      "toast_user_created": "Aggiunto dall'utente"
+    }
+  },
+  "wellness_page": {
+    "sync": {
+      "fitbit_with_user": "Sincronizza Fitbit · {user}"
+    }
+  },
+  "body_metrics": {
+    "weight": "Peso"
+  },
+  "settings_wellness": {
+    "hc": {
+      "sync_failed": "Sincronizzazione Health Connect fallita: "
+    }
+  },
+  "coaching": {
+    "needs_server": {
+      "connect": "Connetti al Server"
+    }
+  }
+}
