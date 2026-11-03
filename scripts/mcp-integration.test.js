@@ -25,7 +25,7 @@ process.env.NODE_ENV = 'test';
 // Node-ABI mismatch on better-sqlite3 (e.g. running against a Node
 // build that doesn't match the .node binary compiled for the Docker
 // image) skips the suite with a clear diagnostic instead of crashing.
-// The Docker container runs Node 20 with a matching binding, so this
+// The Docker container runs Node 24 with a matching binding, so this
 // suite always runs there.
 let db, registerReadTools, registerWriteTools, registerDestroyTools;
 try {

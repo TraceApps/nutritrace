@@ -678,7 +678,7 @@ Survey done 2026-05-20 audit.
 
 **Skip** unless something changes:
 
-- **better-sqlite3 9 → 12**: Node-compat bumps, no NT-specific gain.
+- ~~**better-sqlite3 9 → 12**~~ *(done: 13.0.3 with the Node 24 move, #302)*
 
 Audit cadence: see memory `project_nutritrace_dep_audit.md` (monthly `npm audit` + targeted bumps).
 

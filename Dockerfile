@@ -1,5 +1,5 @@
 # ── Stage 1: Build Svelte frontend ──────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM node:20-alpine AS build
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 # scripts/postinstall.cjs is referenced by the "postinstall" npm hook, so it
@@ -21,7 +21,10 @@ RUN npm run build
 # Multi-arch note: this image builds for both linux/amd64 and linux/arm64
 # (Raspberry Pi 4 / 5). npm picks the right @duckdb/node-bindings-linux-<arch>
 # automatically during install based on the build platform.
-FROM node:20-slim
+# node:24 follows the newest Node 24 LTS release, so every image build picks up
+# its security fixes without a Dockerfile change (24.22.1 or later carries the
+# CVE-2026-111497 fix, nutritrace#302).
+FROM node:24-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 build-essential \
  && rm -rf /var/lib/apt/lists/*

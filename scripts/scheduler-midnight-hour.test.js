@@ -2,7 +2,7 @@
  * Reminders and the weekly summary set just after midnight fire.
  *
  * The scheduler read the person's clock with Intl and `hour12: false`. On
- * Node 20 (the server image) that writes the hour after midnight as "24", so
+ * Node 20 (the server image then) that writes the hour after midnight as "24", so
  * from 00:00 to 00:59 the time read as 24:xx: a bedtime at 00:00, a weekly
  * summary at 00:00 and a wind-down before a bedtime just after midnight never
  * fired. The hour is now read with `hourCycle: 'h23'`, and the 15-minute

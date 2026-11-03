@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:24-alpine
 
 # better-sqlite3 needs python + make to compile
 RUN apk add --no-cache python3 make g++

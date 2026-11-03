@@ -15,7 +15,7 @@
     "@zxcvbn-ts/language-en": "^3.0.2",
     "adm-zip": "^0.6.0",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^13.0.3",
     "cookie-parser": "^1.4.6",
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
