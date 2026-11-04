@@ -893,7 +893,9 @@
   // strip (visible across ALL tabs on desktop) has data — not just
   // when the Heart tab is active. Cheap to fetch; already cached by
   // _readinessLoaded so we don't spam the endpoint.
-  $: if (!_readinessLoaded && (fitbitAvailable || garminAvailable)) loadReadiness();
+  // Health Connect too: it reads HRV now (#279), and its rows come in with
+  // /api/wellness/fitbit/data like Fitbit's.
+  $: if (!_readinessLoaded && (fitbitAvailable || garminAvailable || healthConnectAvailable)) loadReadiness();
 
   // ── Readiness insight text ─────────────────────────────────────────────────
   // Generate a band-driven lead + sub-score-driven driver line. Sub-scores

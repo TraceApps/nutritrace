@@ -1,0 +1,404 @@
+{
+  "_about": "Shared by deriveHealthConnectHrv (src/lib/sleep-sessions.js) and its Kotlin port SleepDerivation.deriveHrv, the foreground sync and the background worker (#279). A day's HRV is the average of the Health Connect HeartRateVariabilityRmssd readings taken during the night you woke up from that day; with none there, the day's readings outside any other day's night. Expected values are worked by hand. Samples are [time, RMSSD in ms]; sessions are as in sleep-sessions.json.",
+  "cases": [
+    {
+      "name": "readings during the night are averaged, the day's are left out",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-03T01:00:00Z",
+          40
+        ],
+        [
+          "2026-11-03T03:00:00Z",
+          50
+        ],
+        [
+          "2026-11-03T05:00:00Z",
+          45
+        ],
+        [
+          "2026-11-03T12:00:00Z",
+          20
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 45.0
+      }
+    },
+    {
+      "name": "the night that began the evening before belongs to the day you woke up",
+      "date": "2026-11-02",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-02T22:30:00Z",
+          40
+        ],
+        [
+          "2026-11-03T03:00:00Z",
+          50
+        ]
+      ],
+      "expect": {}
+    },
+    {
+      "name": "no sleep recorded: the day's readings, averaged",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [],
+      "samples": [
+        [
+          "2026-11-02T20:00:00Z",
+          99
+        ],
+        [
+          "2026-11-03T08:00:00Z",
+          30
+        ],
+        [
+          "2026-11-03T15:00:00Z",
+          35
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 32.5
+      }
+    },
+    {
+      "name": "a night without readings falls back to the day's",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-03T09:00:00Z",
+          28
+        ],
+        [
+          "2026-11-03T13:00:00Z",
+          31
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 29.5
+      }
+    },
+    {
+      "name": "a reading during the next night is not part of today's fallback",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        },
+        {
+          "id": "next",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-03T22:30:00Z",
+          "end": "2026-11-04T06:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-03T10:00:00Z",
+          30
+        ],
+        [
+          "2026-11-03T22:45:00Z",
+          60
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 30.0
+      }
+    },
+    {
+      "name": "that reading belongs to the next day's night",
+      "date": "2026-11-04",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        },
+        {
+          "id": "next",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-03T22:30:00Z",
+          "end": "2026-11-04T06:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-03T10:00:00Z",
+          30
+        ],
+        [
+          "2026-11-03T22:45:00Z",
+          60
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 60.0
+      }
+    },
+    {
+      "name": "an afternoon nap does not replace the night",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        },
+        {
+          "id": "nap",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-03T13:00:00Z",
+          "end": "2026-11-03T14:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-03T02:00:00Z",
+          42
+        ],
+        [
+          "2026-11-03T04:00:00Z",
+          44
+        ],
+        [
+          "2026-11-03T13:30:00Z",
+          70
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 43.0
+      }
+    },
+    {
+      "name": "two apps record the night: only readings inside the kept app's session count",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "watch",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T23:00:00Z",
+          "end": "2026-11-03T05:00:00Z",
+          "stages": [
+            [
+              "LIGHT",
+              "2026-11-02T23:00:00Z",
+              "2026-11-03T01:00:00Z"
+            ],
+            [
+              "DEEP",
+              "2026-11-03T01:00:00Z",
+              "2026-11-03T02:00:00Z"
+            ],
+            [
+              "LIGHT",
+              "2026-11-03T02:00:00Z",
+              "2026-11-03T05:00:00Z"
+            ]
+          ]
+        },
+        {
+          "id": "sched",
+          "origin": "com.google.android.apps.fitness",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-02T22:30:00Z",
+          80
+        ],
+        [
+          "2026-11-03T01:00:00Z",
+          40
+        ],
+        [
+          "2026-11-03T04:00:00Z",
+          46
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 43.0
+      }
+    },
+    {
+      "name": "a reading at the night's last minute counts",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-03T06:00:00Z",
+          50
+        ],
+        [
+          "2026-11-03T12:00:00Z",
+          20
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 50.0
+      }
+    },
+    {
+      "name": "readings at zero or below are ignored",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-03T01:00:00Z",
+          0
+        ],
+        [
+          "2026-11-03T02:00:00Z",
+          -5
+        ],
+        [
+          "2026-11-03T03:00:00Z",
+          30
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 30.0
+      }
+    },
+    {
+      "name": "nothing on the day: no value",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [],
+      "samples": [
+        [
+          "2026-11-01T12:00:00Z",
+          40
+        ],
+        [
+          "2026-11-04T12:00:00Z",
+          40
+        ]
+      ],
+      "expect": {}
+    },
+    {
+      "name": "a mean on the half rounds up: 41.0 and 41.5 make 41.3",
+      "date": "2026-11-03",
+      "zone": "Europe/Berlin",
+      "sessions": [
+        {
+          "id": "night",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-11-02T22:00:00Z",
+          "end": "2026-11-03T06:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-11-03T01:00:00Z",
+          41.0
+        ],
+        [
+          "2026-11-03T02:00:00Z",
+          41.5
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 41.3
+      }
+    },
+    {
+      "name": "one reading a night, written at wake-up, counts for that night",
+      "date": "2026-10-20",
+      "zone": "America/New_York",
+      "sessions": [
+        {
+          "id": "ny",
+          "origin": "com.sec.android.app.shealth",
+          "start": "2026-10-20T03:30:00Z",
+          "end": "2026-10-20T11:00:00Z",
+          "stages": []
+        }
+      ],
+      "samples": [
+        [
+          "2026-10-20T11:00:00Z",
+          36.4
+        ],
+        [
+          "2026-10-19T11:00:00Z",
+          38.1
+        ]
+      ],
+      "expect": {
+        "hrv_daily_rmssd": 36.4
+      }
+    }
+  ]
+}

@@ -179,17 +179,18 @@ function _mergedStages(night) {
   return out;
 }
 
-/**
- * The sleep metrics for `dateStr` (the day you woke up), from every
- * SleepSession record Health Connect returned. `records` are the plugin's
- * shape: { startTime, endTime, metadata: { id, dataOrigin }, stages: [
- * { startTime, endTime, stage } ] }. Returns {} when no night ends that day.
- */
-export function deriveHealthConnectSleep(records, dateStr, timeZone) {
-  const sessions = _resolveOverlaps(_normalize(records));
+/** Every night in the records: overlaps resolved, sessions grouped by NIGHT_GAP_MS. */
+function _nights(records) {
+  return _runs(_resolveOverlaps(_normalize(records)), NIGHT_GAP_MS);
+}
 
+/**
+ * The night for `dateStr`: of the nights that ended that day, the one with
+ * the most recorded sleep; of two equal, the later. { night: null } if none.
+ */
+function _pickNight(nights, dateStr, timeZone) {
   let night = null, nightCovered = -1, nightEnd = -Infinity;
-  for (const run of _runs(sessions, NIGHT_GAP_MS)) {
+  for (const run of nights) {
     const end = Math.max(...run.map(s => s.end));
     if (localDate(end, timeZone) !== dateStr) continue;
     const covered = _coveredMs(run);
@@ -197,6 +198,17 @@ export function deriveHealthConnectSleep(records, dateStr, timeZone) {
       night = run; nightCovered = covered; nightEnd = end;
     }
   }
+  return { night, nightCovered };
+}
+
+/**
+ * The sleep metrics for `dateStr` (the day you woke up), from every
+ * SleepSession record Health Connect returned. `records` are the plugin's
+ * shape: { startTime, endTime, metadata: { id, dataOrigin }, stages: [
+ * { startTime, endTime, stage } ] }. Returns {} when no night ends that day.
+ */
+export function deriveHealthConnectSleep(records, dateStr, timeZone) {
+  const { night, nightCovered } = _pickNight(_nights(records), dateStr, timeZone);
   if (!night) return {};
 
   const metrics = { sleep_duration_min: Math.round(nightCovered / 60000) };
@@ -222,4 +234,44 @@ export function deriveHealthConnectSleep(records, dateStr, timeZone) {
   if (q.timeToSoundSleep != null) metrics.sleep_time_to_fall_asleep_min = q.timeToSoundSleep;
   if (q.soundSleepMin    != null) metrics.sleep_sound_sleep_min         = q.soundSleepMin;
   return metrics;
+}
+
+/** Whether instant `t` falls inside one of the night's sessions, ends included. */
+const _inNight = (night, t) => night.some(s => t >= s.start && t <= s.end);
+
+/**
+ * hrv_daily_rmssd for `dateStr` from Health Connect HeartRateVariabilityRmssd
+ * samples (#279). Health Connect keeps HRV as single readings with a time;
+ * Fitbit and Google Health report one nightly RMSSD, taken during sleep, and
+ * Readiness and Resilience compare that against your own baseline. So the
+ * day's value is the night's value, filed under the day you woke up, as
+ * every other sleep metric is:
+ *
+ *  1. The readings taken during that day's night (the same night
+ *     deriveHealthConnectSleep picks, inside one of its sessions), averaged.
+ *  2. With none there (no sleep recorded, the watch was off at night, or
+ *     sleep isn't allowed), the readings taken that day, averaged, leaving
+ *     out any taken during a night that belongs to another day.
+ *
+ * `samples` are { time (ms), rmssd (ms) }. Rounded to 0.1 ms, the precision
+ * the HRV card shows. Returns {} when there is nothing for the day.
+ */
+export function deriveHealthConnectHrv(sleepRecords, samples, dateStr, timeZone) {
+  const nights = _nights(sleepRecords);
+  const { night } = _pickNight(nights, dateStr, timeZone);
+  // Time order, so the sum (and its last bit of rounding) is the same here
+  // and in the Kotlin port whatever order Health Connect returned them in.
+  const valid = (samples || [])
+    .filter(s => Number.isFinite(s?.time) && Number.isFinite(s?.rmssd) && s.rmssd > 0)
+    .sort((a, b) => (a.time - b.time) || (a.rmssd - b.rmssd));
+
+  let picked = night ? valid.filter(s => _inNight(night, s.time)) : [];
+  if (!picked.length) {
+    const otherNights = nights.filter(n => localDate(Math.max(...n.map(s => s.end)), timeZone) !== dateStr);
+    picked = valid.filter(s => localDate(s.time, timeZone) === dateStr && !otherNights.some(n => _inNight(n, s.time)));
+  }
+  if (!picked.length) return {};
+  let sum = 0;
+  for (const s of picked) sum += s.rmssd;
+  return { hrv_daily_rmssd: +(sum / picked.length).toFixed(1) };
 }

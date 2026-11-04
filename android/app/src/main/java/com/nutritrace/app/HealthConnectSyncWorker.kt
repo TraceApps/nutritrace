@@ -13,6 +13,7 @@ import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.FloorsClimbedRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
 import androidx.health.connect.client.records.HydrationRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.Record
@@ -303,6 +304,9 @@ class HealthConnectSyncWorker(
             // same fixtures, so this path and the foreground one store the
             // same numbers. The read opens at midnight the day before the
             // first day, so a night that began that evening is read whole.
+            // The night's sessions, for HRV below: empty when sleep isn't
+            // allowed, null when its read failed.
+            var sleepSessions: List<SleepDerivation.RawSession>? = if (has(SleepSessionRecord::class)) null else emptyList()
             if (has(SleepSessionRecord::class)) attempt("SleepSession") {
                 val sleepFrom = dayStart(days.first().minusDays(1))
                 val records = readAll(SleepSessionRecord::class, TimeRangeFilter.between(sleepFrom, now))
@@ -318,6 +322,23 @@ class HealthConnectSyncWorker(
                     )
                 }
                 for (d in days) out.getValue(d.toString()).putAll(SleepDerivation.derive(sessions, d.toString(), zone))
+                sleepSessions = sessions
+            }
+
+            // HRV (#279): the readings taken during the night you woke up
+            // from that day, averaged, or the day's own readings when the
+            // night has none. SleepDerivation.deriveHrv is a port of
+            // deriveHealthConnectHrv in src/lib/sleep-sessions.js, both held
+            // to scripts/fixtures/hrv-nights.json. Read from the same
+            // midnight as sleep so the night is whole; skipped when the sleep
+            // read failed, as the foreground sync does.
+            val nights = sleepSessions
+            if (nights != null && has(HeartRateVariabilityRmssdRecord::class)) attempt("HeartRateVariability") {
+                val hrvFrom = dayStart(days.first().minusDays(1))
+                val samples = readAll(HeartRateVariabilityRmssdRecord::class, TimeRangeFilter.between(hrvFrom, now)).map {
+                    SleepDerivation.HrvSample(it.time.toEpochMilli(), it.heartRateVariabilityMillis)
+                }
+                for (d in days) out.getValue(d.toString()).putAll(SleepDerivation.deriveHrv(nights, samples, d.toString(), zone))
             }
             return out
         }

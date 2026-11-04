@@ -223,4 +223,24 @@ export function parseVo2Max(rec) {
   return null;
 }
 
+/**
+ * Extract HRV (RMSSD) in milliseconds (#279). The plugin has no converter
+ * for HeartRateVariabilityRmssdRecord, so it arrives as the toString():
+ *   'HeartRateVariabilityRmssdRecord(time=..., zoneOffset=...,
+ *    heartRateVariabilityMillis=42.5, metadata=...)'.
+ * A Kotlin Double can print as '1.0E-4'; the exponent is read too.
+ *   - Object: { heartRateVariabilityMillis }, { value }.
+ */
+export function parseHrvMillis(rec) {
+  if (rec == null) return null;
+  if (typeof rec === 'string') {
+    const m = rec.match(/heartRateVariabilityMillis=([\d.]+(?:E[+-]?\d+)?)/i);
+    return m ? _positive(m[1]) : null;
+  }
+  if (typeof rec === 'object') {
+    return _positive(rec.heartRateVariabilityMillis ?? rec.value);
+  }
+  return null;
+}
+
 export const _internal = { WATTS_TO_KCAL_PER_DAY };

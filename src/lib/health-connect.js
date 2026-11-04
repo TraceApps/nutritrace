@@ -6,7 +6,7 @@
  *
  * Available data types:
  * - Steps, Distance, Calories (active + total)
- * - Heart rate (avg, min, max), Resting heart rate
+ * - Heart rate (avg, min, max), Resting heart rate, HRV (RMSSD)
  * - Sleep sessions
  *
  * Verbose Health Connect logs are gated on dev — production users don't need
@@ -35,8 +35,9 @@ import {
   parseTemperatureC,
   parseRespiratoryRate,
   parseVo2Max,
+  parseHrvMillis,
 } from './health-connect-parsers.js';
-import { deriveHealthConnectSleep, localDate } from './sleep-sessions.js';
+import { deriveHealthConnectSleep, deriveHealthConnectHrv, localDate } from './sleep-sessions.js';
 
 function _getPlugin() {
   if (!isNative) return null;
@@ -56,17 +57,25 @@ function _getPlugin() {
  * anyway (line ~140 onwards), so those types silently returned nothing
  * on every device. The manifest already declares the four missing HC
  * runtime permissions.
+ *
+ * The names are the plugin's, AndroidX's record type map, which is also
+ * what getGrantedPermissions answers with: heart rate is HeartRateSeries
+ * and workouts are ActivitySession there. 'HeartRate' and 'ExerciseSession'
+ * aren't in that map, so the plugin turned down every batch that held
+ * them, asked again one type at a time (one screen per type), never asked
+ * for those two at all, and counted them as missing forever (#279).
  */
 export const DESIRED_READS = Object.freeze([
   'Steps',
   'Distance',
   'TotalCaloriesBurned',
   'ActiveCaloriesBurned',
-  'HeartRate',
+  'HeartRateSeries',
   'RestingHeartRate',
+  'HeartRateVariabilityRmssd',
   'Weight',
   'SleepSession',
-  'ExerciseSession',
+  'ActivitySession',
   'BloodPressure',
   'OxygenSaturation',
   'BodyFat',
@@ -404,7 +413,8 @@ const AGGREGATES = [
   { type: 'Distance',             perm: 'Distance',             key: 'distance_km',     sum: true, conv: v => +(v / 1000).toFixed(2) },
   { type: 'TotalCaloriesBurned',  perm: 'TotalCaloriesBurned',  key: 'calories_out',    sum: true, conv: v => Math.round(v) },
   { type: 'ActiveCaloriesBurned', perm: 'ActiveCaloriesBurned', key: 'active_calories', sum: true, conv: v => Math.round(v) },
-  { type: 'HeartRate',            perm: 'HeartRateSeries',      key: 'avg_heart_rate',  sum: false, conv: v => Math.round(v) },
+  // An average of 0 is no readings, today too: the plugin answers 0 for none.
+  { type: 'HeartRate',            perm: 'HeartRateSeries',      key: 'avg_heart_rate',  sum: false, conv: v => Math.round(v), zeroIsNone: true },
 ];
 
 // The plugin can't read a type its name map doesn't have ("Unexpected
@@ -508,7 +518,7 @@ export async function readDays(hc, days, { now = new Date(), granted = null } = 
           : Number(aggregates[0].value);
         if (!Number.isFinite(raw)) continue;
         const v = a.conv(raw);
-        if (v === 0 && d !== today) continue;
+        if (v === 0 && (d !== today || a.zeroIsNone)) continue;
         byDay[d][a.key] = v;
         if (a.type === 'Steps') _dlog(`[health-connect] ${d} Steps aggregates:`, JSON.stringify(aggregates).slice(0, 200));
       } catch (e) {
@@ -559,15 +569,40 @@ export async function readDays(hc, days, { now = new Date(), granted = null } = 
     // runs a Kotlin port of the same code, so both paths store the same
     // numbers. The read opens at midnight the day before the first day, so
     // a night that began that evening is read whole.
+    const sleepFrom = dayBounds(addDays(run[0], -1)).start;
+    // The night's records, for HRV below: [] when sleep isn't allowed, null
+    // when its read failed.
+    let sleepRecords = can('SleepSession') ? null : [];
     if (can('SleepSession')) {
       try {
-        const sleepFrom = dayBounds(addDays(run[0], -1)).start;
         const { records } = await hc.readRecords({ start: sleepFrom, end, type: 'SleepSession' });
         for (const day of run) Object.assign(byDay[day], deriveHealthConnectSleep(records || [], day));
+        sleepRecords = records || [];
         _dlog(`[health-connect] Sleep: ${records?.length || 0} records for ${run[0]}..${run[run.length - 1]}`);
       } catch (e) {
         failed++;
         console.warn('[health-connect] Sleep error:', e?.message);
+      }
+    }
+
+    // HRV (#279): the readings taken during the night you woke up from that
+    // day, averaged, or the day's own readings when the night has none
+    // (deriveHealthConnectHrv, the Kotlin worker runs a port). Read from the
+    // same midnight as sleep so the night is whole. Skipped when the sleep
+    // read failed: the day's readings alone would store a different number
+    // than the night gives on the next sync.
+    if (can('HeartRateVariabilityRmssd') && sleepRecords) {
+      try {
+        const { records } = await hc.readRecords({ start: sleepFrom, end, type: 'HeartRateVariabilityRmssd' });
+        const samples = [];
+        for (const rec of records || []) {
+          const time = recordTimeMs(rec), rmssd = parseHrvMillis(rec);
+          if (time != null && rmssd != null) samples.push({ time, rmssd });
+        }
+        for (const day of run) Object.assign(byDay[day], deriveHealthConnectHrv(sleepRecords, samples, day));
+      } catch (e) {
+        if (!_unreadable(e)) failed++;
+        _dlog(`[health-connect] HRV read failed: ${e?.message}`);
       }
     }
 
@@ -793,10 +828,13 @@ async function _syncHealthConnect(dateStr, { catchUp = false } = {}, deps = null
   // Fitbit/Garmin/Google Health sync. Without this, the Wellness page
   // Resilience card stays blank in Android local-only mode. For the day
   // asked for only, as before: its baseline is the 30 days before today, so
-  // it would be wrong for a day caught up in the past.
+  // it would be wrong for a day caught up in the past. Today's is worked
+  // out again on every sync (#279): a watch can send the night's HRV in
+  // parts, and the first score must not stay for the whole day (the server
+  // re-runs its snapshot when sleep changes for the same reason).
   try {
     const snapshot = deps?.snapshot ?? (await import('./wellness-scores-local.js')).snapshotScoresLocal;
-    await snapshot(day);
+    await snapshot(day, { force: day === today });
   } catch (e) {
     _dlog(`[health-connect] snapshot failed: ${e?.message}`);
   }

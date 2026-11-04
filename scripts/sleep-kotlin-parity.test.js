@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { render, OUT } from './gen-sleep-kotlin-test.mjs';
+import { render, OUT, renderHrv, OUT_HRV } from './gen-sleep-kotlin-test.mjs';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const worker = read('../android/app/src/main/java/com/nutritrace/app/HealthConnectSyncWorker.kt');
@@ -21,6 +21,14 @@ const port = read('../android/app/src/main/java/com/nutritrace/app/SleepDerivati
 test('the Kotlin fixture test is generated from the current fixtures', () => {
   assert.equal(readFileSync(OUT, 'utf8'), render(),
     'fixtures changed: run `node scripts/gen-sleep-kotlin-test.mjs` and commit the result');
+});
+
+test('#279: the Kotlin HRV fixture test is generated from the current fixtures', () => {
+  assert.equal(readFileSync(OUT_HRV, 'utf8'), renderHrv(),
+    'fixtures changed: run `node scripts/gen-sleep-kotlin-test.mjs` and commit the result');
+  const { cases } = JSON.parse(read('./fixtures/hrv-nights.json'));
+  const kt = readFileSync(OUT_HRV, 'utf8');
+  for (const c of cases) assert.ok(kt.includes(JSON.stringify(c.name).replace(/\$/g, '\\$')), c.name);
 });
 
 test('every fixture case reaches the Kotlin test', () => {

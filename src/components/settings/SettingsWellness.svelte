@@ -42,6 +42,31 @@
     const { requestBackgroundRead } = await import('../../lib/health-connect.js');
     hcBackground = await requestBackgroundRead();
   }
+  // Data types NutriTrace reads that this phone hasn't allowed yet: types
+  // added after you turned Health Connect on (HRV, #279) or ones you left
+  // off. Sync reads whatever is allowed, so this is only an offer.
+  let hcMissing = [];
+  async function _refreshHcMissing() {
+    try {
+      const { DESIRED_READS, computeMissingReads } = await import('../../lib/health-connect.js');
+      hcMissing = computeMissingReads(DESIRED_READS, healthConnectPermissions);
+    } catch { hcMissing = []; }
+  }
+  $: healthConnectPermissions, isNative && _refreshHcMissing();
+  let allowingHc = false;
+  async function allowMoreHc() {
+    if (allowingHc) return;
+    allowingHc = true;
+    try {
+      const { requestPermissions, getGrantedPermissions, getBackgroundReadStatus } = await import('../../lib/health-connect.js');
+      await requestPermissions();
+      // What the phone has now, also when the request answered with nothing.
+      healthConnectPermissions = await getGrantedPermissions();
+      hcBackground = await getBackgroundReadStatus();
+    } finally {
+      allowingHc = false;
+    }
+  }
 
   // Check Health Connect availability on mount
   if (isNative) {
@@ -161,6 +186,7 @@
     { id: 'calories_out',             label: 'Calories'            },
     { id: 'distance_km',              label: 'Distance'            },
     { id: 'floors',                   label: 'Floors'              },
+    { id: 'hrv_daily_rmssd',          label: 'HRV'                 },
     { id: 'lean_mass_kg',             label: 'Lean Mass'           },
     { id: 'resting_hr',               label: 'Resting HR'          },
     { id: 'respiratory_rate',          label: 'Resp. Rate'          },
@@ -1362,6 +1388,24 @@
               </div>
             {/if}
           </div>
+          {#if healthConnectAvailability === 'Available' && healthConnectPermissions.read?.length && hcMissing.length}
+            <div class="setting-divider"></div>
+            <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:6px">
+              <span class="setting-label">{$_('settings_wellness.hc.more_data_label')}</span>
+              <div class="setting-desc hc-bg-read">
+                <span>
+                  {#if hcMissing.length === 1 && hcMissing[0] === 'HeartRateVariabilityRmssd'}
+                    {$_('settings_wellness.hc.more_data_hrv_only')}
+                  {:else}
+                    {$_('settings_wellness.hc.more_data_desc', { values: { count: hcMissing.length } })}
+                    {#if hcMissing.includes('HeartRateVariabilityRmssd')}{' '}{$_('settings_wellness.hc.more_data_hrv')}{/if}
+                  {/if}
+                  {' '}{$_('settings_wellness.hc.more_data_where')}
+                </span>
+                <button class="status-retest" on:click={allowMoreHc} disabled={allowingHc}>{$_('settings_wellness.hc.bg_read_allow')}</button>
+              </div>
+            </div>
+          {/if}
           <div class="setting-divider"></div>
           <div class="setting-row" style="align-items:flex-start;flex-direction:column;gap:8px">
             <span class="setting-label">{$_('settings_wellness.common.visible_metrics')}</span>

@@ -167,17 +167,20 @@ object SleepDerivation {
 
     private fun roundMin(ms: Long): Int = Math.round(ms / 60000.0).toInt()
 
-    /**
-     * The sleep metrics for `dateStr` (the day you woke up) under the
-     * canonical Wellness ids. Empty when no night ends that day.
-     */
-    fun derive(raw: List<RawSession>, dateStr: String, zone: ZoneId): Map<String, Number> {
-        val sessions = resolveOverlaps(normalize(raw))
+    /** Every night in the records: overlaps resolved, sessions grouped by [NIGHT_GAP_MS]. */
+    private fun nights(raw: List<RawSession>): List<List<Sess>> =
+        runs(resolveOverlaps(normalize(raw)), NIGHT_GAP_MS)
 
+    /**
+     * The night for `dateStr` and its recorded sleep in ms: of the nights
+     * that ended that day, the one with the most; of two equal, the later.
+     * Null if none. Mirrors _pickNight() in sleep-sessions.js.
+     */
+    private fun pickNight(nights: List<List<Sess>>, dateStr: String, zone: ZoneId): Pair<List<Sess>, Long>? {
         var night: List<Sess>? = null
         var nightCovered = -1L
         var nightEnd = Long.MIN_VALUE
-        for (run in runs(sessions, NIGHT_GAP_MS)) {
+        for (run in nights) {
             val end = run.maxOf { it.end }
             if (localDate(end, zone) != dateStr) continue
             val covered = coveredMs(run)
@@ -185,7 +188,15 @@ object SleepDerivation {
                 night = run; nightCovered = covered; nightEnd = end
             }
         }
-        val chosen = night ?: return emptyMap()
+        return night?.let { it to nightCovered }
+    }
+
+    /**
+     * The sleep metrics for `dateStr` (the day you woke up) under the
+     * canonical Wellness ids. Empty when no night ends that day.
+     */
+    fun derive(raw: List<RawSession>, dateStr: String, zone: ZoneId): Map<String, Number> {
+        val (chosen, nightCovered) = pickNight(nights(raw), dateStr, zone) ?: return emptyMap()
 
         val metrics = LinkedHashMap<String, Number>()
         metrics["sleep_duration_min"] = roundMin(nightCovered)
@@ -215,6 +226,39 @@ object SleepDerivation {
         q.timeToSoundSleep?.let { metrics["sleep_time_to_fall_asleep_min"] = it }
         q.soundSleepMin?.let { metrics["sleep_sound_sleep_min"] = it }
         return metrics
+    }
+
+    /** One Health Connect HeartRateVariabilityRmssd reading: when, and RMSSD in ms. */
+    data class HrvSample(val time: Long, val rmssd: Double)
+
+    private fun inNight(night: List<Sess>, t: Long) = night.any { t >= it.start && t <= it.end }
+
+    /**
+     * hrv_daily_rmssd for `dateStr` (#279). Port of deriveHealthConnectHrv()
+     * in src/lib/sleep-sessions.js, held to scripts/fixtures/hrv-nights.json
+     * (HrvDerivationFixturesTest). The readings taken during that day's night
+     * (the night [derive] picks), averaged; with none there, the readings
+     * taken that day outside any other day's night. Rounded to 0.1 ms. Empty
+     * when there is nothing for the day.
+     */
+    fun deriveHrv(raw: List<RawSession>, samples: List<HrvSample>, dateStr: String, zone: ZoneId): Map<String, Number> {
+        val all = nights(raw)
+        val night = pickNight(all, dateStr, zone)?.first
+        // Time order, so the sum is the same as the JS whatever order Health
+        // Connect returned the readings in.
+        val valid = samples
+            .filter { it.rmssd.isFinite() && it.rmssd > 0.0 }
+            .sortedWith(compareBy<HrvSample>({ it.time }, { it.rmssd }))
+
+        var picked = if (night != null) valid.filter { inNight(night, it.time) } else emptyList()
+        if (picked.isEmpty()) {
+            val otherNights = all.filter { n -> localDate(n.maxOf { it.end }, zone) != dateStr }
+            picked = valid.filter { s -> localDate(s.time, zone) == dateStr && otherNights.none { inNight(it, s.time) } }
+        }
+        if (picked.isEmpty()) return emptyMap()
+        var sum = 0.0
+        for (s in picked) sum += s.rmssd
+        return mapOf("hrv_daily_rmssd" to HealthConnectDays.round(sum / picked.size, 1))
     }
 
     private data class Quality(

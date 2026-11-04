@@ -12,6 +12,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   DESIRED_READS,
   computeMissingReads,
@@ -24,10 +25,12 @@ test('DESIRED_READS contains every type the read code queries', () => {
   // actually call hc.aggregateRecords / hc.readRecords with. If any drift
   // out of DESIRED_READS, the runtime permission for that type would
   // never be requested and syncs would silently return nothing.
+  // Under the plugin's names: heart rate is HeartRateSeries, workouts are
+  // ActivitySession (see the record type map test below).
   const readCode = [
     'Steps', 'Distance', 'TotalCaloriesBurned', 'ActiveCaloriesBurned',
-    'HeartRate', 'RestingHeartRate', 'Weight', 'SleepSession',
-    'ExerciseSession', 'BloodPressure', 'OxygenSaturation', 'BodyFat',
+    'HeartRateSeries', 'RestingHeartRate', 'HeartRateVariabilityRmssd', 'Weight', 'SleepSession',
+    'ActivitySession', 'BloodPressure', 'OxygenSaturation', 'BodyFat',
     'RespiratoryRate', 'FloorsClimbed', 'Hydration', 'BoneMass',
     'LeanBodyMass', 'BodyTemperature', 'BasalMetabolicRate', 'Vo2Max',
   ];
@@ -59,7 +62,7 @@ test('#204: some reads granted still asks for the rest', () => {
   // desired name) shows up in the missing list.
   const granted = { read: ['Steps', 'SleepSession', 'OxygenSaturation'] };
   const missing = computeMissingReads(DESIRED_READS, granted);
-  assert.ok(missing.includes('HeartRate'), 'HeartRate must be in missing');
+  assert.ok(missing.includes('HeartRateSeries'), 'heart rate must be in missing');
   assert.ok(missing.includes('RestingHeartRate'), 'RestingHeartRate too');
   assert.ok(!missing.includes('Steps'), 'Steps should not be re-requested');
   assert.ok(!missing.includes('SleepSession'));
@@ -106,4 +109,54 @@ test('computeMissingReads: order preserved from desired input', () => {
     { read: ['Steps', 'Weight'] }
   );
   assert.deepEqual(missing, ['HeartRate', 'RestingHeartRate']);
+});
+
+// ── #279: names the plugin knows, and HRV ─────────────────────────────
+
+// RECORDS_TYPE_NAME_MAP in androidx.health.connect:connect-client 1.1.0
+// (impl/converters/datatype/RecordsTypeNameMap.kt), the map the plugin
+// looks every requested name up in, and the names getGrantedPermissions
+// answers with. A name outside it makes the plugin turn down the whole
+// request ("Invalid records specified").
+const RECORD_TYPE_NAMES = {
+  ActiveCaloriesBurned: 'READ_ACTIVE_CALORIES_BURNED', ActivitySession: 'READ_EXERCISE',
+  BasalMetabolicRate: 'READ_BASAL_METABOLIC_RATE', BloodPressure: 'READ_BLOOD_PRESSURE',
+  BodyFat: 'READ_BODY_FAT', BodyTemperature: 'READ_BODY_TEMPERATURE', BoneMass: 'READ_BONE_MASS',
+  Distance: 'READ_DISTANCE', FloorsClimbed: 'READ_FLOORS_CLIMBED', HeartRateSeries: 'READ_HEART_RATE',
+  HeartRateVariabilityRmssd: 'READ_HEART_RATE_VARIABILITY', Hydration: 'READ_HYDRATION',
+  LeanBodyMass: 'READ_LEAN_BODY_MASS', OxygenSaturation: 'READ_OXYGEN_SATURATION',
+  RespiratoryRate: 'READ_RESPIRATORY_RATE', RestingHeartRate: 'READ_RESTING_HEART_RATE',
+  SleepSession: 'READ_SLEEP', Steps: 'READ_STEPS', TotalCaloriesBurned: 'READ_TOTAL_CALORIES_BURNED',
+  Vo2Max: 'READ_VO2_MAX', Weight: 'READ_WEIGHT',
+};
+
+test('#279: every name asked for is one the plugin knows, so one request asks for all', () => {
+  for (const name of DESIRED_READS) {
+    assert.ok(name in RECORD_TYPE_NAMES, `${name} is not in the record type map: the plugin turns the whole request down`);
+  }
+  assert.ok(!DESIRED_READS.includes('HeartRate'), 'the plugin calls it HeartRateSeries');
+  assert.ok(!DESIRED_READS.includes('ExerciseSession'), 'the plugin calls it ActivitySession');
+});
+
+test('#279: a phone that allowed everything has nothing missing', () => {
+  // What getGrantedPermissions answers with once every type is allowed.
+  const granted = { read: Object.keys(RECORD_TYPE_NAMES), write: [] };
+  assert.deepEqual(computeMissingReads(DESIRED_READS, granted), []);
+});
+
+test('#279: HRV is asked for, and the manifest and rationale list declare it', () => {
+  assert.ok(DESIRED_READS.includes('HeartRateVariabilityRmssd'));
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const manifest = read('../android/app/src/main/AndroidManifest.xml');
+  const rationale = read('../android/app/src/main/res/values/health_permissions.xml');
+  for (const name of DESIRED_READS) {
+    const perm = `android.permission.health.${RECORD_TYPE_NAMES[name]}`;
+    assert.ok(manifest.includes(`<uses-permission android:name="${perm}" />`), `manifest lacks ${perm}`);
+    assert.ok(rationale.includes(`<item>${perm}</item>`), `health_permissions.xml lacks ${perm}`);
+  }
+});
+
+test('#279: someone who allowed everything before HRV is missing only HRV', () => {
+  const before = Object.keys(RECORD_TYPE_NAMES).filter(n => n !== 'HeartRateVariabilityRmssd');
+  assert.deepEqual(computeMissingReads(DESIRED_READS, { read: before }), ['HeartRateVariabilityRmssd']);
 });

@@ -1902,6 +1902,11 @@
       "bg_read_off": "Reading in the background isn't allowed, so NutriTrace reads Health Connect only while it's open.",
       "bg_read_unsupported": "Health Connect on this phone can't be read in the background, so NutriTrace reads it only while it's open.",
       "bg_read_allow": "Allow",
+      "more_data_label": "Data Not Allowed Yet",
+      "more_data_desc": "{count, plural, one {# data type NutriTrace can read isn't allowed. Sync works without it.} other {# data types NutriTrace can read aren't allowed. Sync works without them.}}",
+      "more_data_hrv": "HRV is one of them, and Readiness and Resilience need it.",
+      "more_data_hrv_only": "HRV isn't allowed yet. Readiness and Resilience need it; sync works without it.",
+      "more_data_where": "If Health Connect doesn't ask, open Health Connect, then App Permissions, then NutriTrace.",
       "synced_count": "Synced {count} Health Connect metric(s) for {date}",
       "sync_failed": "Health Connect sync failed: "
     },

@@ -231,7 +231,8 @@ test('syncHealthConnect: first catch-up fills the past days, each under its own 
   assert.equal(db.value('2026-10-19', 'sleep_duration_min'), 420);
   assert.equal(db.value('2026-10-20', 'sleep_duration_min'), 390);
   assert.equal(db.value(TODAY, 'steps'), 9878);
-  assert.equal(db.value(TODAY, 'avg_heart_rate'), 0, 'heart rate is granted as HeartRateSeries and still read');
+  assert.ok(hc.calls.some(c => c.op === 'aggregate' && c.type === 'HeartRate'), 'heart rate is granted as HeartRateSeries and still read');
+  assert.equal(db.value(TODAY, 'avg_heart_rate'), undefined, 'an average of 0 is no readings, not 0 bpm (#279)');
   const aggDays = hc.calls.filter(c => c.op === 'aggregate' && c.type === 'Steps').length;
   assert.equal(aggDays, HC_HISTORY_DAYS, 'the first catch-up reads 30 days');
   assert.equal(db.meta.get('hc_catchup_day'), TODAY);
