@@ -4875,6 +4875,8 @@
   .ns-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
   .ns-row:last-child { border-bottom: none; }
   .ns-row-clickable {
+    padding: 10px 12px;
+    margin: 0 -12px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
