@@ -73,7 +73,10 @@ test('the catalogue-only commit path does not touch the diary', () => {
 test('the food card starts on Don\'t Log, with no meal picked for you', () => {
   assert.match(trace, /let _foodProposalCommittedMealIdx = null;/);
   const handler = trace.slice(trace.indexOf("case 'propose_food': {"), trace.indexOf("default:", trace.indexOf("case 'propose_food': {")));
-  assert.match(handler, /_foodProposalCommittedMealIdx = null;/);
+  // the handler shows its card through _showCard, as Show Card Again does (#309)
+  assert.match(handler, /_showCard\('food', payload\);/);
+  const show = trace.slice(trace.indexOf('function _showCard(kind, payload) {'));
+  assert.match(show.slice(0, show.indexOf('\n  }\n')), /_pendingFoodProposal = payload;[^}]*_foodProposalCommittedMealIdx = null;/);
   assert.doesNotMatch(handler, /meal_hint|mealHint/, 'the old default fell back to Snacks');
   const picker = trace.slice(trace.indexOf('<div class="proposal-meal-picker">'), trace.indexOf('<div class="proposal-actions proposal-actions-wide">'));
   assert.match(picker, /<option value=\{null\}>\{\$_\('trace\.food_card\.dont_log'\)\}<\/option>\s*\{#each/, "Don't Log comes first");

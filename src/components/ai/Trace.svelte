@@ -88,6 +88,44 @@
       : (_pendingFoodProposal && !_foodProposalCommitted) ? _pendingFoodProposal : null;
     return p ? { replaced: p.name } : {};
   }
+  // Puts a card on screen as the one waiting on the user, replacing any other.
+  function _showCard(kind, payload) {
+    _answeredCard = null;
+    _cardOffer = null;
+    _turnCardOffer = null;
+    if (kind === 'quick') {
+      _pendingProposal = payload;
+      _proposalCommitted = false;
+      _proposalCommittedKcal = 0;
+      // Clear any in-flight food proposal: two cards stacked in one
+      // turn would be confusing.
+      _pendingFoodProposal = null;
+    } else {
+      _pendingFoodProposal = payload;
+      _foodProposalCommitted = false;
+      _foodProposalCommittedKind = '';
+      _foodProposalCommittedMealIdx = null;
+      _pendingProposal = null;
+    }
+  }
+  // #309: a proposal that repeats a card the user already answered isn't
+  // shown by itself (#292), but they may well want it back. That reply gets
+  // a Show Card Again button: { kind, payload, msg }, msg being the reply on
+  // screen. One at a time, the newest repeat's; it goes when it's used, when
+  // any other card is shown, on Clear, and when the transcript is loaded
+  // again (nothing about it is saved, so a reload never shows one).
+  let _cardOffer = null;
+  let _turnCardOffer = null; // this turn's repeat, until its reply is on screen
+  function _attachCardOffer(reply) {
+    if (_turnCardOffer) _cardOffer = { ..._turnCardOffer, msg: reply };
+    _turnCardOffer = null;
+  }
+  function _showCardAgain() {
+    const o = _cardOffer;
+    if (!o) return;
+    _showCard(o.kind, { ...o.payload });
+    tick().then(() => _scrollBottom());
+  }
   // A draft Trace prepared for a coach (draft_targets / draft_day_plan):
   // only shown here; the coach opens it in the app, reviews it and sends it.
   let _coachDraftCard = null;
@@ -836,15 +874,13 @@
           // added or discarded) is left alone; anything else replaces the
           // pending card.
           const repeat = repeatedCard(cardKey('quick', payload), { pendingKey: _pendingCardKey(), answered: _answeredCard });
-          if (repeat) return repeatedCardResult(repeat);
+          if (repeat) {
+            // An answered card gets Show Card Again under the reply (#309).
+            if (repeat !== 'pending') _turnCardOffer = { kind: 'quick', payload };
+            return repeatedCardResult(repeat, 'quick');
+          }
           const replaced = _replacedCard();
-          _answeredCard = null;
-          _pendingProposal = payload;
-          _proposalCommitted = false;
-          _proposalCommittedKcal = 0;
-          // Clear any in-flight food proposal — two cards stacked in one
-          // turn would be confusing.
-          _pendingFoodProposal = null;
+          _showCard('quick', payload);
           return { ok: true, kind: 'quick_calories_proposal', ...payload, ...replaced };
         }
         case 'propose_food': {
@@ -872,14 +908,12 @@
           }
           const payload = { name, brand, portion, unit, nutrition: clean, notes };
           const repeat = repeatedCard(cardKey('food', payload), { pendingKey: _pendingCardKey(), answered: _answeredCard });
-          if (repeat) return repeatedCardResult(repeat);
+          if (repeat) {
+            if (repeat !== 'pending') _turnCardOffer = { kind: 'food', payload };
+            return repeatedCardResult(repeat, 'food');
+          }
           const replaced = _replacedCard();
-          _answeredCard = null;
-          _pendingFoodProposal = payload;
-          _foodProposalCommitted = false;
-          _foodProposalCommittedKind = '';
-          _foodProposalCommittedMealIdx = null;
-          _pendingProposal = null;
+          _showCard('food', payload);
           return { ok: true, kind: 'food_proposal', ...payload, ...replaced };
         }
         default: {
@@ -973,6 +1007,7 @@
       const seenCount = parseInt(localStorage.getItem('nt:chatSeenCount') || '0');
       const hasNew = next.length > seenCount;
       messages = next;
+      _cardOffer = null;
       if (hasNew && !panelOpen) hasUnread = true;
       tick().then(() => _scrollBottom(true));
     } catch {}
@@ -1831,6 +1866,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     input    = '';
     attachedImage = null;
     loading  = true;
+    _turnCardOffer = null;
     // #158: hold a screen wake lock while the request is in-flight so
     // the user doesn't have to keep tapping the screen when a slow
     // self-hosted model is thinking. Released in the finally block.
@@ -1893,7 +1929,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall, onToolsUnsupported });
       // No words: said as an error, never shown or saved as a blank answer (#286).
       if (!String(reply ?? '').trim()) throw new Error($_('trace_reply.stopped_empty'));
-      messages = [...messages, { role: 'assistant', content: reply, time: fmtTime() }];
+      const replyMsg = { role: 'assistant', content: reply, time: fmtTime() };
+      messages = [...messages, replyMsg];
+      _attachCardOffer(replyMsg);
       if (toolsNote) messages = toolsNotice.add(messages, $_(toolsNote));
       // Persist assistant reply to server (best-effort)
       NtApi.post('/api/ai/history', { role: 'assistant', content: reply }).catch(() => {});
@@ -1974,6 +2012,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     _foodProposalCommittedKind = '';
     _foodProposalCommittedMealIdx = null;
     _answeredCard = null;
+    _cardOffer = null;
     _coachDraftCard = null;
   }
 
@@ -2279,6 +2318,12 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                   <img src={msg.image} alt="Attached" class="ai-msg-image" />
                 {/if}
                 <div class="ai-bubble">{msg.content}</div>
+                {#if _cardOffer && _cardOffer.msg === msg}
+                  <button class="ai-chip ai-card-again" on:click={_showCardAgain}>
+                    <span class="material-symbols-rounded" aria-hidden="true">replay</span>
+                    {$_('trace.show_card_again')}
+                  </button>
+                {/if}
                 {#if msg.time}
                   <div class="ai-time">{msg.time}</div>
                 {/if}
@@ -2897,6 +2942,15 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     color: var(--accent-text);
     border-bottom-right-radius: 6px;
   }
+
+  /* Show Card Again under a reply (#309): the welcome chips' look. */
+  .ai-card-again {
+    align-self: flex-start;
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-top: 3px;
+    min-height: 36px;
+  }
+  .ai-card-again .material-symbols-rounded { font-size: 16px; }
 
   .ai-time {
     font-size: 10px;

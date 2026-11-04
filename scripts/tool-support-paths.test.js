@@ -239,7 +239,7 @@ test('Trace adds the note once per conversation, in words for each setup, and ne
   assert.match(trace, /callAIProxy\(\{[^}]*onToolsUnsupported \}\)/);
   assert.match(trace, /callAI\(\{[^}]*onToolsUnsupported \}\)/);
   assert.match(trace, /toolsNote = routed \? 'trace\.tools_unsupported_routed'\s*: aiEnvLocked \? 'trace\.tools_unsupported_server' : 'trace\.tools_unsupported';/);
-  assert.match(trace, /messages = \[\.\.\.messages, \{ role: 'assistant', content: reply, time: fmtTime\(\) \}\];\s*if \(toolsNote\) messages = toolsNotice\.add\(messages, \$_\(toolsNote\)\);/);
+  assert.match(trace, /const replyMsg = \{ role: 'assistant', content: reply, time: fmtTime\(\) \};\s*messages = \[\.\.\.messages, replyMsg\];\s*_attachCardOffer\(replyMsg\);\s*if \(toolsNote\) messages = toolsNotice\.add\(messages, \$_\(toolsNote\)\);/);
   assert.match(trace, /messages = \[\];\s*toolsNotice\.reset\(\);/, 'a cleared chat is a new conversation');
   assert.match(trace, /const apiMessages {2}= forModel\(messages\)/, 'the note is never sent to a model');
   assert.match(trace, /\{#if msg\.role === 'note'\}\s*<div class="ai-note" role="status">/);

@@ -53,13 +53,21 @@ const _done = (action) => action === 'discarded' ? 'discarded' : action === 'sav
 // which button to tap rather than a vague answer or a false "saved".
 const SAVE_BY_BUTTON = 'Only the buttons on the card save it: you cannot. If the user asks to save or add it, tell them to tap Save to Foods or Save & Add to Diary (a food card) or Add to Diary (a Quick Calories card), and never say it was saved or added.';
 
-export function repeatedCardResult(repeat) {
+export function repeatedCardResult(repeat, kind = '') {
   if (repeat === 'pending') {
     return { already_on_screen: true, message: 'This exact card is already on screen, waiting for the user. Nothing changed. Do not mention it again unless the user asks about it; answer their latest message. The user can change the meal on the card. ' + SAVE_BY_BUTTON };
   }
   return {
     already_answered: repeat,
-    message: `The user already ${_done(repeat)} this exact card, so it was not shown again. Do not mention it unless the user asks; answer their latest message. If their latest message asks for it again (another serving, or the card back), propose it with the amount or the name changed to say so.`,
+    // #309: the user brings it back with the button; changing the card to
+    // get past this put wrong numbers on it, and some models never did.
+    // Another serving of a food already in their Foods is logged from there,
+    // not saved again as a second food.
+    message: `The user already ${_done(repeat)} this exact card, so it was not shown. A Show Card Again button for it is under your reply, unless you show another card: if their latest message asks for this card back, tell them to tap it.`
+      + (kind === 'food' && repeat !== 'discarded'
+        ? ' This food is already in their Foods: for another serving, log it with log_food instead.'
+        : '')
+      + ' Otherwise do not mention it; answer their latest message. Never say this card was created, shown, saved or added.',
   };
 }
 

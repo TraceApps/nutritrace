@@ -57,16 +57,17 @@ function session() {
     localDateStr: () => '2026-10-17',
     _pendingProposal: null, _proposalCommitted: false, _proposalCommittedKcal: 0,
     _pendingFoodProposal: null, _foodProposalCommitted: false, _foodProposalCommittedKind: '', _foodProposalCommittedMealIdx: null,
-    _answeredCard: null,
+    _answeredCard: null, _cardOffer: null, _turnCardOffer: null,
     // the diary and the server, stubbed; onSave runs while a save is in flight
     onSave: async () => {},
     addQuickCalories: async () => { await state.onSave(); },
     _saveProposedFood: async () => { await state.onSave(); return { id: 7 }; },
     showError: (m) => { state.errors.push(m); }, errors: [], $_: (k) => k,
+    tick: async () => {}, _scrollBottom: () => {},
     ...cards,
   };
-  const helper = (name) => trace.includes(`function ${name}() {`) ? `function ${name}() {${block(`function ${name}() {`)}\n}` : '';
-  const helpers = helper('_pendingCardKey') + '\n' + helper('_replacedCard');
+  const helper = (name) => trace.includes(`function ${name}(`) ? `function ${name}(${block(`function ${name}(`)}\n}` : '';
+  const helpers = ['_pendingCardKey', '_replacedCard', '_showCard'].map(helper).join('\n');
   const run = (src) => new Function('ctx', `with (ctx) { ${helpers}\n return (async () => {${src}\n})(); }`);
   const quick = run(`const args = ctx.args; ${block("case 'propose_quick_calories': {")}`);
   const food = run(`const args = ctx.args; ${block("case 'propose_food': {")}`);
@@ -79,8 +80,14 @@ function session() {
   // what send() does with answered cards when the next message goes out
   const i = trace.indexOf('    if (_proposalCommitted)     {');
   const nextMessage = run(trace.slice(i, trace.indexOf('\n', trace.indexOf('\n', i) + 1)));
+  // #309: the reply the turn's repeat hangs its button under, and the button
+  const fn = (name) => trace.includes(`function ${name}(`) ? run(block(`function ${name}(`).replace(/^[^)]*\)\s*\{/, '')) : null;
+  const attach = fn('_attachCardOffer');
+  const again = fn('_showCardAgain');
   return {
     state,
+    reply: (msg = { role: 'assistant', content: 'ok' }) => { assert.ok(attach, '_attachCardOffer is in Trace.svelte'); state.reply = msg; return attach(state).then(() => msg); },
+    showAgain: () => { assert.ok(again, '_showCardAgain is in Trace.svelte'); return again(state); },
     saveFood: () => saveFood(state),
     nextMessage: () => nextMessage(state),
     quick: (args) => { state.args = args; return quick(state); },
@@ -170,7 +177,6 @@ test('an added card does not come back either, and another serving can be asked 
   assert.equal(s.state._pendingProposal, null);
   const r = await s.quick(lasagna);
   assert.equal(r.already_answered, 'added');
-  assert.match(r.message, /propose it with the amount or the name changed/);
   assert.equal(s.state._pendingProposal, null);
   assert.equal((await s.quick({ ...lasagna, name: 'Homemade lasagna, 2nd slice' })).ok, true);
 });
@@ -256,4 +262,110 @@ test('a pending card tells the model only its buttons save it', async () => {
   assert.equal(r.already_on_screen, true);
   assert.match(r.message, /tell them to tap Save to Foods/);
   assert.match(r.message, /never say it was saved or added/);
+});
+
+// #309: an answered card asked for again was refused with nothing on screen,
+// and the only way back the model was given (change the amount or the name)
+// put wrong numbers on the card or never happened at all.
+test('a discarded food card comes back with Show Card Again, and saves', async () => {
+  const s = session();
+  await s.food(banana);
+  await s.discardFood();
+  const r = await s.food(banana); // "give me the card again"
+  assert.equal(r.already_answered, 'discarded');
+  assert.equal(s.state._pendingFoodProposal, null, 'not on screen by itself (#292)');
+  const msg = await s.reply();
+  assert.equal(s.state._cardOffer.msg, msg, 'the button sits under this reply');
+  assert.equal(s.state._cardOffer.kind, 'food');
+  await s.showAgain();
+  assert.equal(s.state._pendingFoodProposal.name, 'Banana with peanut butter');
+  assert.deepEqual(s.state._pendingFoodProposal.nutrition, banana.nutrition, 'the same numbers, nothing changed');
+  assert.equal(s.state._foodProposalCommitted, false);
+  assert.equal(s.state._foodProposalCommittedMealIdx, null, 'starts at Don\'t Log, like any new card');
+  assert.equal(s.state._answeredCard, null, 'cleared as a new card would');
+  assert.equal(s.state._cardOffer, null, 'the button is used up');
+  await s.saveFood();
+  assert.equal(s.state._foodProposalCommitted, true);
+  assert.equal(s.state._answeredCard.action, 'saved');
+});
+
+test('an added Quick Calories card comes back for another serving', async () => {
+  const s = session();
+  await s.quick(lasagna);
+  await s.commit();
+  await s.nextMessage();
+  assert.equal((await s.quick(lasagna)).already_answered, 'added');
+  await s.reply();
+  assert.equal(s.state._cardOffer.kind, 'quick');
+  await s.showAgain();
+  assert.equal(s.state._pendingProposal.name, 'Homemade lasagna');
+  assert.equal(s.state._proposalCommitted, false);
+  assert.equal(s.state._pendingFoodProposal, null);
+  await s.commit();
+  assert.equal(s.state._proposalCommitted, true, 'Add to Diary works on it');
+});
+
+test('the model hears the card was not shown and where the button is', async () => {
+  for (const kind of ['food', 'quick']) {
+    for (const action of ['discarded', 'saved', 'added']) {
+      const m = cards.repeatedCardResult(action, kind).message;
+      assert.match(m, /was not shown/);
+      assert.match(m, /Show Card Again button for it is under your reply, unless you show another card/);
+      assert.match(m, /Never say this card was created, shown, saved or added/);
+      assert.doesNotMatch(m, /amount or the name/, 'no advice to change the card to get it back');
+      // another serving of a saved food is logged, not saved as a second food
+      assert.equal(/log it with log_food/.test(m), kind === 'food' && action !== 'discarded', `${kind} ${action}`);
+    }
+  }
+  assert.match(trace, /return repeatedCardResult\(repeat, 'quick'\);/);
+  assert.match(trace, /return repeatedCardResult\(repeat, 'food'\);/);
+});
+
+test('a card still on screen gets no Show Card Again button', async () => {
+  const s = session();
+  await s.food(banana);
+  assert.equal((await s.food(banana)).already_on_screen, true);
+  await s.reply();
+  assert.equal(s.state._cardOffer, null);
+});
+
+test('#292 still holds: an accidental repeat brings back no card, and another card retires the button', async () => {
+  const s = session();
+  await s.food(banana);
+  await s.discardFood();
+  // an unrelated question, and the model calls the tool again anyway
+  assert.equal((await s.food(banana)).already_answered, 'discarded');
+  await s.reply();
+  assert.equal(s.state._pendingFoodProposal, null);
+  assert.equal(s.state._pendingProposal, null);
+  // a newer repeat moves the button to the newest reply: one at a time
+  await s.food(banana);
+  const second = await s.reply({ role: 'assistant', content: 'second' });
+  assert.equal(s.state._cardOffer.msg, second);
+  // a different card shown retires it, so it can't bring back an outdated card
+  assert.equal((await s.quick(lasagna)).ok, true);
+  assert.equal(s.state._cardOffer, null);
+  // and a turn that shows a card after a repeat leaves no button behind
+  await s.discard();
+  await s.food(lasagna);
+  await s.quick(lasagna); // repeat of the discarded quick card
+  await s.food(banana); // then a new card in the same answer
+  await s.reply();
+  assert.equal(s.state._cardOffer, null);
+  assert.equal(s.state._pendingFoodProposal.name, 'Banana with peanut butter');
+});
+
+test('the button lives only on the reply on screen, never in the saved chat', () => {
+  const en = JSON.parse(readFileSync(new URL('../src/i18n/en.json', import.meta.url), 'utf8'));
+  assert.equal(en.trace.show_card_again, 'Show Card Again');
+  assert.match(trace, /\{#if _cardOffer && _cardOffer\.msg === msg\}/);
+  assert.match(trace, /\$_\('trace\.show_card_again'\)/);
+  // a transcript loaded again from the server drops it, and so does Clear
+  const refetch = block('async function _refetchChatHistory(e) {');
+  assert.match(refetch, /messages = next;\s*_cardOffer = null;/);
+  assert.match(block('async function clearChat() {'), /_cardOffer = null;/);
+  // a turn that errors leaves nothing for the next reply to pick up
+  assert.match(block('async function send() {'), /loading {2}= true;\s*_turnCardOffer = null;/);
+  // nothing about it is posted to the history
+  assert.doesNotMatch(trace, /api\/ai\/history', \{[^}]*_cardOffer/);
 });
