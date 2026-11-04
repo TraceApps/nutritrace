@@ -21,6 +21,7 @@ The important reads:
 - `src/lib/db.js`, IndexedDB abstraction for PWA
 - `src/lib/db-native.js`, on-device SQLite for Android local mode
 - `src/lib/sync.js`, differential push/pull orchestrator for Android server mode
+- `src/lib/sync-refresh.js`, what a sync changed (`nt:sync-complete` carries `kinds`) and `onSynced(kinds, fn)`, which an open page uses to read its rows again
 - `src/lib/aiChat.js`, multi-provider AI (Claude/OpenAI/Gemini) with tool-use loop
 - `src/stores/diary.js`, `currentDate`, `currentEntry`, `diaryTotals`, mutations
 - `src/stores/settings.js`, all settings as `createSettingStore` instances

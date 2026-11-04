@@ -65,6 +65,8 @@
            diaryRailShowNotes,
            forceMobileLayout } from '../stores/settings.js';
   import { dayActivity, activitySummary, loadActivity, deleteActivity } from '../stores/activity.js';
+  import { loadFasting } from '../stores/fasting.js';
+  import { syncTouched } from '../lib/sync-refresh.js';
   import WaterBanner  from '../components/banners/WaterBanner.svelte';
   import DiaryCoachCard from '../components/coaching/DiaryCoachCard.svelte';
   import DiaryPlanCard from '../components/coaching/DiaryPlanCard.svelte';
@@ -1930,22 +1932,33 @@
     // sync finishes pulling diary entries down. Refresh after each
     // sync-complete event so the diary populates without requiring the
     // user to force-stop and reopen the app.
-    let _onSyncComplete = null;
-    if (isNative && getServerUrl()) {
-      _onSyncComplete = (e) => {
-        if (e?.detail?.changed === false) return; // nothing new
-        let cur = null;
-        currentDate.subscribe(v => cur = v)();
-        if (cur) loadEntry(cur);
-      };
-      window.addEventListener('nt:sync-complete', _onSyncComplete);
-    }
+    // (Listened to by the onMount below: this one is async, so a cleanup
+    // returned from here is never run.)
 
     return () => {
       document.removeEventListener('visibilitychange', _onVisibility);
       window.removeEventListener('wl:setting', _reloadWaterSettings);
-      if (_onSyncComplete) window.removeEventListener('nt:sync-complete', _onSyncComplete);
     };
+  });
+
+  onMount(() => {
+    if (!(isNative && getServerUrl())) return;
+    const onSyncComplete = (e) => {
+      if (e?.detail?.changed === false) return; // nothing new
+      let cur = null;
+      currentDate.subscribe(v => cur = v)();
+      if (cur) loadEntry(cur);
+      // The rest of the page reads the phone's database too: what the sync
+      // changed (a day's activity or a fast deleted, ended or started on
+      // the web, another day of the week strip) is read again. Wearable
+      // activity arrives with the wellness rows.
+      const d = e?.detail;
+      if (cur && $diaryShowActivity && syncTouched(d, ['activity', 'wellness'])) loadActivity(cur);
+      if ($fastingEnabled && syncTouched(d, ['fasts'])) loadFasting();
+      if (syncTouched(d, ['diary', 'activity'])) _weekStripRefreshKey += 1;
+    };
+    window.addEventListener('nt:sync-complete', onSyncComplete);
+    return () => window.removeEventListener('nt:sync-complete', onSyncComplete);
   });
 
   // Half open like a book, the day's meals fall onto the two pages: the

@@ -31,6 +31,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Save a Copy no longer finds a copy you deleted.** Copying a shared food, meal or recipe again after deleting your copy answered with the deleted one, so nothing showed up and you could not copy it again. It now makes a new copy, and copying something its owner has deleted is refused. The Android app also no longer answers a refusal by copying one of its own foods that happens to have the same number.
 - **Saving a meal or recipe from a source again after deleting it no longer fails.** A meal or recipe pulled in from a source such as CookTrace, saved again after you deleted the earlier one, answered with a server error. The deleted one now lets go of the source, as a deleted food already did, and a new one is made.
 - **Logging a food no longer makes it look newer than an offline edit of it.** On a food or meal from before the update, logging it counted as a change of every field, so an edit made offline before you logged it was dropped. Restoring a full backup now keeps when each field was last changed.
+- **The Android app's open pages show a sync's changes.** A food, meal or recipe deleted, renamed or added on the web stayed (or stayed missing) on the Foods page until you left it and came back, and the same went for the Diary's activity, fast and week strip, Statistics and Goals. Every sync now says what it changed, and the page you're on reads it again.
 
 ---
 

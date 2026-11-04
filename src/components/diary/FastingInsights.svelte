@@ -11,10 +11,12 @@
   import { _ } from 'svelte-i18n';
   import { activeFast, fastHistory, loadFasting, fastingStats, deleteFast } from '../../stores/fasting.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
+  import { onSynced } from '../../lib/sync-refresh.js';
 
   let _showHistory = false;
 
-  onMount(() => { loadFasting(); });
+  // Fasts changed by a sync (one ended or removed on the web) are read again.
+  onMount(() => { loadFasting(); return onSynced(['fasts'], () => { loadFasting(); }); });
 
   async function _removeFast(f) {
     const hrs = f.end_at ? ((new Date(f.end_at) - new Date(f.start_at)) / 3600000).toFixed(1) : '?';

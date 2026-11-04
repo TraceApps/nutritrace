@@ -24,6 +24,7 @@
            diaryShowCompletion, weekStartDay } from '../stores/settings.js';
   import { leadingBlanks, inWeekOrder } from '../lib/week.js';
   import FastingInsights from '../components/diary/FastingInsights.svelte';
+  import { onSynced } from '../lib/sync-refresh.js';
   import { isNative } from '../lib/platform.js';
   import { foldText } from '../lib/search-text.js';
 
@@ -886,6 +887,10 @@
        if (canvasEl) loadData(); }
 
   onDestroy(() => { if (chart) chart.destroy(); });
+
+  // A sync that changed diary days or wellness values (one deleted or edited
+  // on the web) redraws what the page shows.
+  onMount(() => onSynced(['diary', 'wellness'], () => { if (canvasEl) loadData(); }));
 
   // ── Custom range calendar ──────────────────────────────────────────────────
   let showCalFor   = null; // 'start' | 'end' | null

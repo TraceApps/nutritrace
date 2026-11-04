@@ -23,6 +23,7 @@
   import TargetsCard from '../components/coaching/TargetsCard.svelte';
   import { coachTab, coachingState, coachRecommendations, loadCoachRecommendations } from '../stores/coaching.js';
   import { coachNameFor, goalsCardRecommendation } from '../lib/coaching-view.js';
+  import { onSynced } from '../lib/sync-refresh.js';
 
   // A coach's recommended targets: only for someone with a coach (nobody
   // else asks for anything, and Goals looks as it always did for them).
@@ -248,12 +249,13 @@
     && goalsFoldLeftW >= 280
     && goalsBodyW - goalsFoldLeftW - goalsHinge >= 280;
 
-  onMount(async () => {
-    // #146 migration on page load. See _migrateKilojoulesGoal above.
-    goals.update(_migrateKilojoulesGoal);
-
-    // Load diary data first — don't block on server calls
+  // Today's diary and the recent body-stat readings, from the phone's
+  // database: on opening the page, and again after a sync changed diary days.
+  let _diarySeq = 0;
+  async function loadDiaryData() {
+    const seq = ++_diarySeq;
     const entry = await NtApi.getDiaryDate(today).catch(() => null);
+    if (seq !== _diarySeq) return;
     if (entry) {
       todayBodyStats = entry.body_stats || entry.bodyStats || {};
       todayTotals = Nutrition.sum((entry.items || []).map(i => Nutrition.calculate(i)));
@@ -269,6 +271,7 @@
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
       const cutoffStr = localDateStr(cutoff);
       const all = await NtApi.getAllDiary().catch(() => []);
+      if (seq !== _diarySeq) return;
       const recent = (all || [])
         .filter(e => e?.date && e.date >= cutoffStr && e.date <= today)
         .sort((a, b) => b.date.localeCompare(a.date));   // newest first
@@ -283,6 +286,14 @@
       }
       recentBodyStats = found;
     } catch {}
+  }
+
+  onMount(() => onSynced(['diary'], () => { loadDiaryData(); }));
+
+  onMount(async () => {
+    // #146 migration on page load. See _migrateKilojoulesGoal above.
+    goals.update(_migrateKilojoulesGoal);
+    await loadDiaryData();
     // Dynamic goal from server — non-blocking
     if ($calorieGoalMode === 'dynamic') {
       NtApi.get(`/api/wellness/calories-out?date=${today}`)

@@ -30,6 +30,7 @@ import {
 } from './db-native.js';
 import { baseOf, changesOf, statsBase, statsChanges } from './sync-base.js';
 import { SYNC_FIELDS } from './sync-fields.js';
+import { pullKinds } from './sync-refresh.js';
 import { localDataIsThisAccount, serverKeepsNotes, accountGeneration } from './local-account.js';
 import { get, writable } from 'svelte/store';
 
@@ -46,6 +47,18 @@ export const syncState = writable({
 });
 
 let _syncing = false;
+
+// The kinds of rows (lib/sync-refresh.js) a sync changed on this phone that
+// no page has been told of yet: what a pull brought, and the server's copy
+// of a row that beat a pushed edit. Whatever announces next sends them, and
+// starts the list again.
+const _touched = new Set();
+/** Tell the open pages (nt:sync-complete) that a sync ended; `kinds` says what it changed. */
+function _announce(changed) {
+  const kinds = [..._touched];
+  _touched.clear();
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nt:sync-complete', { detail: { changed: !!changed || kinds.length > 0, kinds } }));
+}
 
 function _parseJson(val) {
   if (val == null) return null;
@@ -721,7 +734,7 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
   for (const [name, table] of [['foods', 'foods'], ['meals', 'meals'], ['activity', 'activity_log'], ['fasts', 'fasts']]) {
     for (const r of (result[name] || [])) {
       if (r && r.row) {
-        try { if (live()) await dbApplyServerWinner(table, r.row); }
+        try { if (live()) { await dbApplyServerWinner(table, r.row); _touched.add(name); } }
         catch (e) { console.warn(`[sync] keeping the server's ${name} row failed:`, e?.message || e); }
       }
     }
@@ -821,6 +834,11 @@ async function pullChanges({ signal = null, gen = accountGeneration() } = {}) {
   // checked before each kind of row is written, and before the cursor.
   const mine = () => localDataIsThisAccount(token);
   if (!(await mine())) return false;
+  // Said to the open pages when this sync ends (_announce): one that lists
+  // any of these reloads, deletes included (a row the server removed is
+  // still a row the page was showing). Recorded before the rows are written,
+  // so a pull that fails partway still has its rows announced.
+  for (const k of pullKinds(data)) _touched.add(k);
   // And every 50 rows within a kind, so a long pull stops soon after.
   let _written = 0;
   const stillMine = async () => live() && (++_written % 50 === 0 ? mine() : true);
@@ -971,6 +989,7 @@ async function pullChanges({ signal = null, gen = accountGeneration() } = {}) {
     // Rows that only went away count too: a page still showing them reloads.
     + (data.fasts?.length || 0) + (data.diary_tombstones?.length || 0) + coachChanged
     + Object.values(data.deletions || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0);
+  if (coachChanged) _touched.add('coaching');
   _dlog(`[sync] pull complete: ${data.foods?.length || 0} foods, ${data.meals?.length || 0} meals, ${data.diary?.length || 0} diary, ${data.activity?.length || 0} activity, ${data.wellness?.length || 0} wellness, ${pulledSettings.length} settings, ${data.workouts?.length || 0} workouts, ${newChat.length} chat`);
   return totalChanges > 0;
 }
@@ -1184,7 +1203,7 @@ async function _fullSync(silent, forceCheck, showFailureBanner, signal, gen) {
     }));
     // Notify the app that sync completed: pages refresh their data when it
     // brought or sent something (changed), and may skip it otherwise.
-    window.dispatchEvent(new CustomEvent('nt:sync-complete', { detail: { changed: !!hadChanges } }));
+    _announce(hadChanges);
     return { ok: true };
   } catch (e) {
     // Log e.message + e.code + e.stack so future issue reports don't come
@@ -1202,6 +1221,9 @@ async function _fullSync(silent, forceCheck, showFailureBanner, signal, gen) {
       error: e.message || 'Sync failed (see console)',
       ...(showFailureBanner ? { showErrorBanner: true } : {}),
     }));
+    // Rows a failed sync had already changed here (a pull that stopped partway):
+    // the open pages read them now rather than at the next sync that ends well.
+    if (_touched.size) _announce(true);
     // Notify on sync failure
     try {
       const { notify } = await import('./notifications.js');
@@ -1258,7 +1280,12 @@ export function schedulePush() {
     _endRun(r, (async () => {
       try {
         const online = await checkOnline();
-        if (online) await pushChanges({ signal: r.signal, gen });
+        if (online) {
+          await pushChanges({ signal: r.signal, gen });
+          // The server's copy of a row that beat this phone's edit: a page
+          // showing the row reloads. (A full sync running now announces it.)
+          if (!_syncing && _touched.size) _announce(true);
+        }
       } catch (e) {
         console.error('[sync] scheduled push failed:', e);
       }
@@ -1290,6 +1317,7 @@ export function pushBeforeSignOut(timeoutMs = 4000) {
       return false;
     } finally {
       _syncing = false;
+      _touched.clear(); // signing out: no page is waiting on this account's rows
     }
   })();
   _endRun(r, run);

@@ -42,6 +42,7 @@
   import { focusDefaultField } from '../lib/default-field.js';
   import { rememberFoodsTab, lastFoodsTab } from '../lib/app-shortcut.js';
   import { pageScrollTop, restorePageScroll } from '../lib/scroll-anchor.js';
+  import { onSynced } from '../lib/sync-refresh.js';
 
   // Query string params
   function qs() {
@@ -845,22 +846,29 @@
     return sorted;
   }
 
-  async function load() {
-    loadError = false;
+  // The newest read wins: a sync reloads the lists (quiet) while an earlier
+  // read may still be on its way. A quiet read that fails leaves the lists
+  // as they are rather than replacing them with the error.
+  let _loadSeq = 0, _loadedOnce = false;
+  async function load({ quiet = false } = {}) {
+    const seq = ++_loadSeq;
+    if (!quiet) loadError = false;
     try {
       const [foods, meals, recipes] = await Promise.all([
         NtApi.getFoods(),
         NtApi.getMeals(),
         NtApi.getRecipes(),
       ]);
+      if (seq !== _loadSeq) return;
       localFoods   = _applySort(foods,   foodsSort.get());
       localMeals   = _applySort(meals,   mealsSort.get());
       localRecipes = _applySort(recipes, recipesSort.get());
+      _loadedOnce = true;
     } catch(e) {
       console.error('[foods] load error:', e);
-      loadError = true;
+      if (seq === _loadSeq && (!quiet || !_loadedOnce)) loadError = true;
     } finally {
-      _initialLoading = false;
+      if (seq === _loadSeq) _initialLoading = false;
     }
   }
 
@@ -1792,6 +1800,14 @@
   let _myInstalls = null;
   onMount(() => {
     if (isNative) import('../lib/db-native.js').then(m => m.dbOwnInstallIds()).then(s => { _myInstalls = s; }).catch(() => {});
+  });
+  // A sync on the phone changes the rows under a list that is open (a food
+  // deleted, renamed or added on the web, a recipe too): read them again.
+  // Yesterday's meals come from the diary.
+  onMount(() => {
+    const offCatalog = onSynced(['foods', 'meals'], () => { load({ quiet: true }); });
+    const offDiary = onSynced(['diary'], () => { loadYesterdayMeals().catch(() => {}); });
+    return () => { offCatalog(); offDiary(); };
   });
   function liveImgFor(item) {
     // The diary's own lookup (lib/item-source.js catalogImgFor): a recipe

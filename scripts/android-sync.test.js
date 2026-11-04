@@ -1843,7 +1843,8 @@ test('the connection check and the sync stop while the app is hidden, and syncs 
   assert.doesNotMatch(monitor, /setInterval\(async/, 'an ungated interval');
   assert.match(monitor, /document\.hidden \? off\(\) : on\(\)/);
   assert.match(monitor, /addListener\('pause', off\)/);
-  assert.match(sync, /new CustomEvent\('nt:sync-complete', \{ detail: \{ changed: !!hadChanges \} \}\)/);
+  assert.match(sync, /new CustomEvent\('nt:sync-complete', \{ detail: \{ changed: !!changed \|\| kinds\.length > 0, kinds \} \}\)/);
+  assert.match(sync, /_announce\(hadChanges\);/);
   // A pull that only removed rows (Clear all data, a wearable re-sync) is a change.
   assert.match(sync, /Object\.values\(data\.deletions \|\| \{\}\)\.reduce/);
   assert.match(sync, /data\.diary_tombstones\?\.length/);
@@ -3087,4 +3088,79 @@ test('a recipe made in an earlier push (no pull since) and linked in a later one
     assert.equal(r.bowl, false, 'gone from the phone');
   } finally { await noPull.close(); }
   assert.equal(q(`SELECT deleted_at IS NOT NULL AS d FROM meals WHERE name = 'Made Bowl'`)[0].d, 1, 'and from the server');
+});
+
+// A page that lists the phone's rows reads them when it opens and again only
+// when told: a sync that deleted a food, recipe, activity, fast or diary day
+// (or edited or added one) changed the database under the open Foods page,
+// Diary, Statistics and Goals, which kept showing the old rows until the app
+// was reopened. Every sync now ends with 'nt:sync-complete' saying which
+// kinds of rows it touched (lib/sync-refresh.js), and those pages reload.
+test("a sync tells the open pages which kinds of rows it changed: deletes, edits and new rows alike", async (t) => {
+  if (skip(t)) return;
+  const who = await account('stalelist', A);
+  const W = (await http(who, 'GET', '/api/auth/me')).user;
+  const food = await http(who, 'POST', '/api/foods', { name: 'Stale Oats', nutrition: { calories: 100 }, portion: 100, unit: 'g' });
+  const gone = await http(who, 'POST', '/api/foods', { name: 'Stale Beans', nutrition: { calories: 100 }, portion: 100, unit: 'g' });
+  const bowl = await http(who, 'POST', '/api/meals', { name: 'Stale Bowl', is_recipe: true, nutrition: {}, items: [] });
+  const meal = await http(who, 'POST', '/api/meals', { name: 'Stale Plate', is_recipe: false, nutrition: {}, items: [] });
+  const walk = await http(who, 'POST', '/api/activity', { date: '2026-09-02', name: 'Stale Walk', kcal: 100, duration_min: 30 });
+  const fast = await http(who, 'POST', '/api/fasts/start', { goal_hours: 16, start_at: '2026-09-02T20:00:00.000Z' });
+  await http(who, 'PUT', '/api/diary/2026-09-02', { items: [], body_stats: {}, water: [], notes: 'Stale day' });
+  // The phone's first sync brings all of it (everything is new), and says so.
+  const first = phone('stalelist', who, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(W)}, { confirm: async () => true });
+    const seen = [];
+    addEventListener('nt:sync-complete', e => seen.push(e.detail));
+    await p.sync();
+    p.done({ seen });`);
+  assert.deepEqual(first.seen.length, 1, 'one sync, one announcement');
+  assert.equal(first.seen[0].changed, true);
+  for (const k of ['foods', 'meals', 'activity', 'fasts', 'diary']) assert.ok(first.seen[0].kinds.includes(k), `a new ${k} row is announced`);
+  // The web deletes a food, a recipe, an activity, a fast and a day; edits a food.
+  await sleep(1100);
+  await http(who, 'DELETE', `/api/foods/${gone.id}`);
+  await http(who, 'DELETE', `/api/meals/${bowl.id}`);
+  await http(who, 'DELETE', `/api/activity/${walk.id}`);
+  await http(who, 'DELETE', `/api/fasts/${fast.id}`);
+  await http(who, 'DELETE', '/api/diary/2026-09-02');
+  await http(who, 'PUT', `/api/foods/${food.id}`, { name: 'Stale Oats Renamed' });
+  const second = phone('stalelist', who, `
+    const seen = [];
+    addEventListener('nt:sync-complete', e => seen.push(e.detail));
+    await p.sync();
+    p.done({ seen, foods: (await p.api.getFoods()).map(f => f.name), recipes: (await p.api.getRecipes()).map(f => f.name), meals: (await p.api.getMeals()).map(f => f.name),
+      activity: await p.api.getActivity('2026-09-02'), fasts: (await p.dbn.getDb().then(d => d.query('SELECT id FROM fasts WHERE deleted_at IS NULL', []))).values.length });`);
+  assert.deepEqual(second.foods, ['Stale Oats Renamed'], 'the deleted food is gone and the edit is in');
+  assert.deepEqual(second.recipes, [], 'the deleted recipe is gone');
+  assert.deepEqual(second.meals, ['Stale Plate']);
+  assert.deepEqual(second.activity, []);
+  assert.equal(second.fasts, 0);
+  assert.equal(second.seen.length, 1);
+  assert.equal(second.seen[0].changed, true);
+  for (const k of ['foods', 'meals', 'activity', 'fasts', 'diary']) assert.ok(second.seen[0].kinds.includes(k), `a deleted or edited ${k} row is announced`);
+  // Nothing changed on the web: a sync says nothing was touched. (The server's
+  // clock is whole seconds and a pull asks from the last one's, so rows changed
+  // in that second come once more: a sync to settle first, a second later.)
+  await sleep(1100);
+  phone('stalelist', who, `await p.sync(); p.done();`);
+  await sleep(1100);
+  const third = phone('stalelist', who, `
+    const seen = [];
+    addEventListener('nt:sync-complete', e => seen.push(e.detail));
+    await p.sync();
+    p.done({ seen });`);
+  assert.equal(third.seen.length, 1);
+  assert.deepEqual(third.seen[0], { changed: false, kinds: [] }, 'a quiet sync announces nothing touched');
+  // A new food and a recipe edit made on the web arrive as touched kinds, and only those.
+  await sleep(1100);
+  await http(who, 'POST', '/api/foods', { name: 'Stale Honey', nutrition: { calories: 300 }, portion: 100, unit: 'g' });
+  const fourth = phone('stalelist', who, `
+    const seen = [];
+    addEventListener('nt:sync-complete', e => seen.push(e.detail));
+    await p.sync();
+    p.done({ seen, foods: (await p.api.getFoods()).map(f => f.name).sort() });`);
+  assert.deepEqual(fourth.seen[0].kinds, ['foods'], 'only what the sync touched');
+  assert.deepEqual(fourth.foods, ['Stale Honey', 'Stale Oats Renamed']);
 });
