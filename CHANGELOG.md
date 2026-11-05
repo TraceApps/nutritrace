@@ -43,6 +43,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **The adaptive and dynamic calorie goals follow a sync.** On the Android app, a weight from your scale or a day's food that a sync brought didn't change the adaptive calorie goal on the Diary and Goals until the app was reopened, nor did yesterday's burn change the dynamic one. Both are now worked out again after the sync.
 - **Logging a food into a day you deleted no longer brings back what you deleted.** Saving a day in the web app (or the Android app online) after the day had been deleted brought back every food, water entry, measurement, note and completion mark deleted with it. Now the day comes back with only what you logged or changed after the delete; the rest stays deleted, also when a phone later sends its older copy of the day.
 - **Clear All Settings on the web resets the Android app too.** The app kept using your old settings. Now each setting goes back to its default at the next sync, on screen too. A setting you changed on the phone after the reset, not yet sent, stays as you set it.
+- **The connection banner in Settings follows your language.** Connected, Not connected, Test and Testing were always in English.
 
 ---
 

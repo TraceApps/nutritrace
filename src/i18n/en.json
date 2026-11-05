@@ -3102,6 +3102,14 @@
       "meal_n": "Meal {n}"
     }
   },
+  "connection_status": {
+    "connected": "Connected",
+    "not_connected": "Not connected",
+    "not_connected_error": "Not connected: {error}",
+    "test": "Test",
+    "testing": "Testing…",
+    "testing_connection": "Testing connection…"
+  },
   "two_step": {
     "errors": {
       "generic": "Something went wrong. Try again.",
