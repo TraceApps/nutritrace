@@ -260,9 +260,14 @@ merge by uuid and its note by its own time, as before.
   item or water entry the deleted day didn't hold is new and comes back
   whatever its time says (a slow clock, the delete's own second); one it
   held comes back only when changed after the delete (its own `updatedAt`,
-  else `addedAt`). The measurements and note the save sends come back; the
-  deleted day's are gone at the delete's time (`body_stats.*` in
-  `field_times`, `notes_updated_at`), so an older edit pushed later loses.
+  else `addedAt`); one stored without a uuid is matched by its twin
+  (`addedAt` and name, as the merge does). The measurements and note the
+  save sends come back, except one sent as the deleted day had it and not
+  said to be changed (`body_stats_changed`, a later `notes_updated_at`): the
+  web saves the whole day it shows. The deleted day's are gone at the
+  delete's time (`body_stats.*` in `field_times`, `notes_updated_at`), and
+  so are its completion marks (`completion_marked_at`, `meal_marks_at`), so
+  an older edit or mark sent later loses.
   The deleted day's own entries (also as a form opened before the delete
   sends them) stay deleted and are tombstoned, so an older push of the day
   can't put them back (`_sinceDelete` in `routes/diary.js`); that also

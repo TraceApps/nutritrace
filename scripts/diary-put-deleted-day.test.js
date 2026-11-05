@@ -173,3 +173,40 @@ test("the deleted day's note and measurements don't come back with a phone's old
   assert.equal(day(D).notes, 'new note');
   assert.deepEqual(stats(day(D)), { weight: 82 });
 });
+
+test("a stale form's whole-day save leaves the deleted note, measurements and completion marks deleted", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-07-08';
+  await api('PUT', `/api/diary/${D}`, { items: [item(`${D}-a`, { addedAt: ago(60_000) })], body_stats: { weight: 80 }, water: [], notes: 'old note' });
+  await api('PUT', `/api/diary/${D}/completion`, { completed: true });
+  await api('PUT', `/api/diary/${D}/meal-completion`, { slot: 1, completed: true });
+  await sleep(1100);
+  await api('DELETE', `/api/diary/${D}`);
+  await sleep(1100);
+  // The web's water add from the day it still shows: the whole day, no times.
+  await api('PUT', `/api/diary/${D}`, { items: [item(`${D}-a`, { addedAt: ago(60_000) })], body_stats: { weight: 80, body_fat: 21 }, notes: 'old note', water: [{ uuid: `${D}-w-new`, amount: 300 }] });
+  const row = day(D);
+  assert.deepEqual(uuids(row), []);
+  assert.deepEqual(waters(row), [`${D}-w-new`]);
+  assert.deepEqual(stats(row), { body_fat: 21 }, 'the old weight stays deleted, a new measurement comes back');
+  assert.equal(row.notes, null);
+  assert.equal(row.completed_at, null, 'the day is no longer marked complete');
+  assert.equal(row.completed_meals, null);
+  // An older mark sent afterwards loses to the delete.
+  await api('PUT', `/api/diary/${D}/completion`, { completed: true, at: ago(2_000_000) });
+  assert.equal(day(D).completed_at, null);
+});
+
+test('an item stored without a uuid comes back from its echo only when changed after the delete', async (t) => {
+  if (skip(t)) return;
+  const D = '2026-07-09';
+  const at = ago(60_000);
+  await api('PUT', `/api/diary/${D}`, { items: [], body_stats: {}, water: [] });
+  // As an MCP or REST write stores it: no uuid.
+  sqlite.prepare('UPDATE diary SET items = ? WHERE user_id = ? AND date = ?').run(JSON.stringify([{ name: 'Mcp Toast', nutrition: { calories: 90 }, quantity: 1, meal: 0, addedAt: at }]), me, D);
+  await sleep(1100);
+  await api('DELETE', `/api/diary/${D}`);
+  await sleep(1100);
+  await api('PUT', `/api/diary/${D}`, { items: [{ name: 'Mcp Toast', nutrition: { calories: 90 }, quantity: 1, meal: 0, addedAt: at }, item(`${D}-new`, { addedAt: iso(Date.now()) })], body_stats: {}, water: [] });
+  assert.deepEqual(JSON.parse(day(D).items).map(i => i.name), [`${D}-new`]);
+});

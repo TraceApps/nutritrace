@@ -122,13 +122,20 @@ function _stripDataUrlImages(items) {
 function _sinceDelete(deletedRow, field, entries, clock, now) {
   let had = [];
   try { had = JSON.parse(deletedRow[field] || '[]'); } catch { /* none */ }
-  const hadUuids = new Set((Array.isArray(had) ? had : []).map(e => e?.uuid).filter(Boolean));
+  const hadList = Array.isArray(had) ? had : [];
+  const hadUuids = new Set(hadList.map(e => e?.uuid).filter(Boolean));
+  // An entry stored without a uuid (an MCP or REST write) comes back from
+  // a client without one too: its twin by addedAt and name, as the merge
+  // matches them (lib/diary-merge.js).
+  const twin = e => (typeof e?.addedAt === 'string' && e.addedAt ? `${e.addedAt}\u0000${e.name ?? ''}\u0000${e.type ?? ''}` : null);
+  const hadTwins = new Set(hadList.filter(e => e && !e.uuid).map(twin).filter(Boolean));
+  const held = e => (e.uuid ? hadUuids.has(e.uuid) : hadTwins.has(twin(e)));
   const kept = [], gone = new Set(hadUuids);
   for (const e of Array.isArray(entries) ? entries : []) {
     if (!e || typeof e !== 'object') continue;
     const t = e.updatedAt || e.addedAt;
     const at = typeof t === 'string' ? editMs(t, clock, now) : NaN;
-    const after = !hadUuids.has(e.uuid) || (Number.isFinite(at) && editRevives({ existing: deletedRow, at }));
+    const after = !held(e) || (Number.isFinite(at) && editRevives({ existing: deletedRow, at }));
     if (after) { kept.push(e); if (e.uuid) gone.delete(e.uuid); }
     else if (typeof e.uuid === 'string' && e.uuid) gone.add(e.uuid);
   }
@@ -169,7 +176,9 @@ router.put('/:date', wrap((req, res) => {
     let t = {}, stats = {};
     try { t = JSON.parse(loadedRow.field_times || '{}') || {}; } catch { /* none */ }
     try { stats = JSON.parse(loadedRow.body_stats || '{}') || {}; } catch { /* none */ }
-    const at = new Date(parseUtc(loadedRow.deleted_at)).toISOString();
+    const ms = parseUtc(loadedRow.deleted_at);
+    if (!Number.isFinite(ms)) return loadedRow.field_times ?? null;
+    const at = new Date(ms).toISOString();
     for (const k of Object.keys(stats)) t[`body_stats.${k}`] = at;
     return JSON.stringify(t);
   };
@@ -196,7 +205,21 @@ router.put('/:date', wrap((req, res) => {
   // body_stats: each measurement on its own (lib/body-stats-merge.js),
   // made now; an empty one changes nothing (issue #81). A save that says
   // which it changed (body_stats_changed) leaves the others alone.
-  const bs = mergeBodyStats(existingRow, body_stats, { at: receivedAt, changed: changedList(req.body.body_stats_changed) });
+  // Brought back: a measurement or note sent as the deleted day had it is
+  // a form's older copy, not a change made now (the web's saves send the
+  // whole day). It stays deleted unless the save says it changed it.
+  const saidStats = changedList(req.body.body_stats_changed);
+  let sentStats = body_stats, sentNote = notes;
+  if (fromEmpty) {
+    let was = {};
+    try { was = JSON.parse(loadedRow.body_stats || '{}') || {}; } catch { /* none */ }
+    if (sentStats && typeof sentStats === 'object' && !Array.isArray(sentStats)) {
+      sentStats = Object.fromEntries(Object.entries(sentStats).filter(([k, v]) => !(k in was && String(was[k]) === String(v) && !(saidStats || []).includes(k))));
+    }
+    const noteAt = editMs(req.body.notes_updated_at, clock, receivedAt);
+    if (typeof notes === 'string' && notes === loadedRow.notes && !(Number.isFinite(noteAt) && editRevives({ existing: loadedRow, at: noteAt }))) sentNote = null;
+  }
+  const bs = mergeBodyStats(existingRow, sentStats, { at: receivedAt, changed: saidStats });
   const bsJson = bs ? bs.json : (existingRow?.body_stats ?? '{}');
   const dayTimes = bs ? JSON.stringify(bs.times) : (existingRow?.field_times ?? null);
 
@@ -205,7 +228,7 @@ router.put('/:date', wrap((req, res) => {
 
   const note = resolveNote(existingRow, {
     has: Object.prototype.hasOwnProperty.call(req.body || {}, 'notes'),
-    notes, at: req.body.notes_updated_at,
+    notes: sentNote, at: req.body.notes_updated_at,
   }, clock, receivedAt);
   const notesVal = note.notes, notesAt = note.at;
 
@@ -241,6 +264,17 @@ router.put('/:date', wrap((req, res) => {
     }
     for (const uuid of newItemTombstones) insertTombstone.run(u, date, 'item', uuid);
     for (const uuid of newWaterTombstones) insertTombstone.run(u, date, 'water', uuid);
+    // Brought back: the deleted day's completion marks stay deleted, taken
+    // away at the delete's time, so an older mark sent later loses.
+    if (fromEmpty) {
+      const at = loadedRow.deleted_at;
+      const slots = _parseSlotArray(loadedRow.completed_meals);
+      let marks = {};
+      try { marks = JSON.parse(loadedRow.meal_marks_at || '{}') || {}; } catch { /* none */ }
+      for (const sl of slots) marks[sl] = at;
+      db.prepare(`UPDATE diary SET completed_at = NULL, completed_meals = NULL, completion_marked_at = ?, meal_marks_at = ? WHERE id = ?`)
+        .run(loadedRow.completed_at ? at : loadedRow.completion_marked_at ?? null, Object.keys(marks).length ? JSON.stringify(marks) : null, loadedRow.id);
+    }
   })();
 
   const row = u == null
