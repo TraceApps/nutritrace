@@ -256,14 +256,19 @@ merge by uuid and its note by its own time, as before.
   elsewhere doesn't put it back (`lib/rest-merge.js`). Without them they
   write what they're sent, as before.
   A diary day deleted elsewhere: `PUT /api/diary/:date` is made now, so it
-  brings the day back (`editRevives`), but starts from an empty day: only
-  the items and water it sends that were logged or changed after the
-  delete (their own `updatedAt`, else `addedAt`; one with no time that the
-  deleted day didn't hold counts as new), and the measurements and note it
-  sends, come back. The deleted day's own entries (also as a form opened
-  before the delete sends them) stay deleted and are tombstoned, so an
-  older push of the day can't put them back (`_sinceDelete` in
-  `routes/diary.js`).
+  brings the day back (`editRevives`), but starts from an empty day. An
+  item or water entry the deleted day didn't hold is new and comes back
+  whatever its time says (a slow clock, the delete's own second); one it
+  held comes back only when changed after the delete (its own `updatedAt`,
+  else `addedAt`). The measurements and note the save sends come back; the
+  deleted day's are gone at the delete's time (`body_stats.*` in
+  `field_times`, `notes_updated_at`), so an older edit pushed later loses.
+  The deleted day's own entries (also as a form opened before the delete
+  sends them) stay deleted and are tombstoned, so an older push of the day
+  can't put them back (`_sinceDelete` in `routes/diary.js`); that also
+  drops a phone's edit of one of them made after the delete when the save
+  reaches the server first. The app's Upload (`history_upload`) puts a
+  deleted day back whole, as before.
   Foods, meals and recipes deleted elsewhere: a save is made now, so it
   follows the rule a push of the same change follows (`editRevives`). One
   that changes something brings the row back (`deleted_at` cleared, stamped

@@ -112,12 +112,13 @@ function _stripDataUrlImages(items) {
 // leaves the row untouched.
 // A save into a day deleted here brings the day back (it is made now:
 // lib/field-sync.js editRevives), but only with what was made after the
-// delete. Of the entries it sends, one logged or changed since (its own
-// updatedAt, else addedAt) comes back, and so does one with no time of its
-// own that the deleted day didn't hold (a new one from a client that sets
-// none). The rest (the deleted day's own, as a form opened before the
-// delete still holds them) stay deleted, tombstoned so an older push of
-// the day from a phone can't put them back. Returns { kept, gone: uuids }.
+// delete. An entry the deleted day didn't hold is new and comes back,
+// whatever its time says (a clock running slow, one logged in the second
+// of the delete). One it held comes back only when changed since (its own
+// updatedAt, else addedAt). The rest (the deleted day's own, as a form
+// opened before the delete still holds them) stay deleted, tombstoned so
+// an older push of the day from a phone can't put them back. Returns
+// { kept, gone: uuids }.
 function _sinceDelete(deletedRow, field, entries, clock, now) {
   let had = [];
   try { had = JSON.parse(deletedRow[field] || '[]'); } catch { /* none */ }
@@ -127,7 +128,7 @@ function _sinceDelete(deletedRow, field, entries, clock, now) {
     if (!e || typeof e !== 'object') continue;
     const t = e.updatedAt || e.addedAt;
     const at = typeof t === 'string' ? editMs(t, clock, now) : NaN;
-    const after = Number.isFinite(at) ? editRevives({ existing: deletedRow, at }) : !hadUuids.has(e.uuid);
+    const after = !hadUuids.has(e.uuid) || (Number.isFinite(at) && editRevives({ existing: deletedRow, at }));
     if (after) { kept.push(e); if (e.uuid) gone.delete(e.uuid); }
     else if (typeof e.uuid === 'string' && e.uuid) gone.add(e.uuid);
   }
@@ -157,11 +158,23 @@ router.put('/:date', wrap((req, res) => {
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL').get(date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ?').get(date, u);
   const clock = clientClock(req.body.client_now, receivedAt);
-  // Deleted here: the save starts from an empty day (_sinceDelete).
-  const sinceItems = loadedRow?.deleted_at ? _sinceDelete(loadedRow, 'items', items, clock, receivedAt) : null;
-  const sinceWater = loadedRow?.deleted_at ? _sinceDelete(loadedRow, 'water', water, clock, receivedAt) : null;
-  const existingRow = loadedRow?.deleted_at
-    ? { ...loadedRow, items: '[]', water: '[]', body_stats: '{}', notes: null, notes_updated_at: loadedRow.deleted_at }
+  // Deleted here: the save starts from an empty day (_sinceDelete), its
+  // measurements and note gone at the delete's time, so an older edit of
+  // them pushed later loses. Not for the app's Upload (isHistoryUpload),
+  // which puts days back on purpose (after Clear all data, say).
+  const fromEmpty = !!loadedRow?.deleted_at && !isHistoryUpload(req);
+  const sinceItems = fromEmpty ? _sinceDelete(loadedRow, 'items', items, clock, receivedAt) : null;
+  const sinceWater = fromEmpty ? _sinceDelete(loadedRow, 'water', water, clock, receivedAt) : null;
+  const goneTimes = () => {
+    let t = {}, stats = {};
+    try { t = JSON.parse(loadedRow.field_times || '{}') || {}; } catch { /* none */ }
+    try { stats = JSON.parse(loadedRow.body_stats || '{}') || {}; } catch { /* none */ }
+    const at = new Date(parseUtc(loadedRow.deleted_at)).toISOString();
+    for (const k of Object.keys(stats)) t[`body_stats.${k}`] = at;
+    return JSON.stringify(t);
+  };
+  const existingRow = fromEmpty
+    ? { ...loadedRow, items: '[]', water: '[]', body_stats: '{}', notes: null, notes_updated_at: loadedRow.deleted_at, field_times: goneTimes() }
     : loadedRow;
   const serverItems = existingRow ? JSON.parse(existingRow.items || '[]') : [];
   const serverWater = existingRow ? JSON.parse(existingRow.water || '[]') : [];
@@ -194,9 +207,7 @@ router.put('/:date', wrap((req, res) => {
     has: Object.prototype.hasOwnProperty.call(req.body || {}, 'notes'),
     notes, at: req.body.notes_updated_at,
   }, clock, receivedAt);
-  const notesVal = note.notes;
-  // No note on a day brought back: no note time either (it was the delete's).
-  const notesAt = notesVal == null && loadedRow?.deleted_at ? null : note.at;
+  const notesVal = note.notes, notesAt = note.at;
 
   const insertTombstone = db.prepare(
     `INSERT OR IGNORE INTO diary_tombstones (user_id, date, kind, uuid, deleted_at)

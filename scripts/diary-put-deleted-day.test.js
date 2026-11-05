@@ -137,3 +137,39 @@ test('a save into a day that is not deleted merges as before', async (t) => {
   assert.deepEqual(uuids(day(D)), [`${D}-a`, `${D}-b`]);
   assert.deepEqual(stats(day(D)), { weight: 80 });
 });
+
+test('a new food is never lost: a slow clock, or the second of the delete, still brings it back', async (t) => {
+  if (skip(t)) return;
+  const D = '2026-07-05';
+  await deletedDay(D);
+  // Logged on a laptop whose clock runs ten minutes slow: its time reads
+  // as before the delete, but the deleted day never held it.
+  const r = await api('PUT', `/api/diary/${D}`, { items: [item(`${D}-slow`, { addedAt: ago(600_000) })], body_stats: {}, water: [] });
+  assert.deepEqual(uuids(day(D)), [`${D}-slow`]);
+  assert.ok(!(r.tombstones?.items || []).includes(`${D}-slow`), 'and it is no tombstone');
+});
+
+test("the app's Upload puts a deleted day back whole, as before", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-07-06';
+  await deletedDay(D);
+  await api('PUT', `/api/diary/${D}`, { history_upload: true, items: [item(`${D}-a`, { addedAt: ago(70_000) }), item(`${D}-b`, { addedAt: ago(70_000) })], body_stats: { weight: 80 }, water: [{ uuid: `${D}-w`, amount: 250 }] });
+  assert.deepEqual(uuids(day(D)), [`${D}-a`, `${D}-b`]);
+  assert.deepEqual(waters(day(D)), [`${D}-w`]);
+  assert.deepEqual(stats(day(D)), { weight: 80 });
+});
+
+test("the deleted day's note and measurements don't come back with a phone's older push", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-07-07';
+  await deletedDay(D);
+  await api('PUT', `/api/diary/${D}`, { items: [item(`${D}-new`, { addedAt: iso(Date.now()) })], body_stats: {}, water: [] });
+  // A phone's edits from before the delete, sent now.
+  await push({ client_now: iso(Date.now()), diary: [{ date: D, items: [], water: [], body_stats: { weight: 81 }, body_stats_changed: ['weight'], notes: 'phone note', notes_updated_at: ago(2_500_000), updated_at: ago(2_500_000) }] });
+  assert.equal(day(D).notes, null, 'the older note loses to the delete');
+  assert.deepEqual(stats(day(D)), {}, 'and the older weight');
+  // One made after the delete comes back.
+  await push({ client_now: iso(Date.now()), diary: [{ date: D, items: [], water: [], body_stats: { weight: 82 }, body_stats_changed: ['weight'], notes: 'new note', notes_updated_at: iso(Date.now()), updated_at: iso(Date.now()) }] });
+  assert.equal(day(D).notes, 'new note');
+  assert.deepEqual(stats(day(D)), { weight: 82 });
+});
