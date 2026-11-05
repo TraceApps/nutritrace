@@ -229,6 +229,25 @@ merge by uuid and its note by its own time, as before.
   stays isn't what was sent, the answer carries the row (`row`) and its
   pull cursor moves. A setting's value is one field: an older change no
   longer replaces a newer one.
+  A diary day deleted here comes back the same way: a push of it made after
+  the delete that changes something (an item or water entry, a
+  measurement, the note) brings it back, and an item or water entry
+  changed or logged after the delete (its own `updatedAt`, else `addedAt`)
+  brings it back whatever the day's time says, so nothing logged offline
+  after the delete is lost. A push made before the delete, or one that
+  changes nothing (a phone's tombstone-only row for an item deleted
+  offline), leaves it deleted and touches it (`updated_at`), so the phone's
+  next pull takes the delete. A pushed delete of a day made before the
+  day's last write here (a food logged on the web since) loses.
+  A pushed row with no readable `updated_at` (missing, null, empty or not
+  a time) says nothing of when it was made: it never brings back a deleted
+  food, meal, activity, fast, setting or day (as LiftTrace). A row that
+  isn't deleted takes it as before (a setting as made now; a food, meal,
+  activity or fast answers with the server's row), and a new one is made
+  from it. A time outside the years 0000 to 9999 (a pushed `1e20`, or
+  `-271821-04-20` that the phone's clock offset moves past what a date can
+  hold) is no time either (`lib/sync-clock.js`): before, it made the whole
+  push fail.
 - `PUT /api/foods/:id`, `/api/meals/:id`, `/api/activity/:id` and
   `PUT /api/diary/:date` take `changed_fields` (and `body_stats_changed`):
   the save changes only those, so a form opened before an edit made
@@ -282,12 +301,13 @@ merge by uuid and its note by its own time, as before.
   links it made into it again (`dbApplyServerWinner`), at that copy's own
   time: the next push lands them on the edit, once, and nothing is sent
   after. A day's link takes the
-  day's time the same way; the server still brings back a deleted day
-  whatever pushes to it (`POST /api/sync/push`, diary), so a day deleted
-  elsewhere after the phone's last sync can still come back with a link.
-  Known edge: a recipe with a rename waiting and no time of its own for its
-  items (they were sent, the link was not) is linked at the rename's time,
-  so a web edit of the items made between the two is written over.
+  day's time the same way, and a day deleted elsewhere stays deleted for a
+  push made before the delete (see `POST /api/sync/push` above). A recipe
+  whose items have no time of their own here (not changed since the
+  server's copy) takes, for a link, the time it had when it was last as the
+  server has it (`_server` in `edit_times`, kept by its first change since:
+  a later rename's time would write over a web edit of the items made
+  between the two).
 - `POST /api/foods/:id/copy` and `/api/meals/:id/copy` (Save a Copy) skip
   deleted rows: a copy the person deleted isn't the copy they already made,
   so copying again makes a new one, and an item its owner deleted answers

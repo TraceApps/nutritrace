@@ -545,9 +545,18 @@ router.post('/push', wrap(async (req, res) => {
     // day-level soft delete still uses whole-row deleted_at.
     for (const d of diary) {
       if (!d.date) continue;
+      const dayWhere = `date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`;
+      const dayArgs = [d.date, ...(u != null ? [u] : [])];
+      // The day is written to (updated_at, the pull's cursor), so every
+      // device's next pull brings it as it stays here.
+      const touchDay = () => db.prepare(`UPDATE diary SET updated_at = datetime('now') WHERE ${dayWhere}`).run(...dayArgs);
       if (d.deleted_at) {
-        db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
-          .run(d.date, ...(u != null ? [u] : []));
+        // A delete made before the day's last write here (a food logged on
+        // the web since) loses; one with no readable time is made now.
+        const live = db.prepare(`SELECT updated_at, deleted_at FROM diary WHERE ${dayWhere}`).get(...dayArgs);
+        const delAt = editAt(d.updated_at);
+        if (live && !live.deleted_at && Number.isFinite(delAt) && deleteLoses({ existing: live, fields: [], at: delAt, times: { _base: live.updated_at } }) != null) touchDay();
+        else db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE ${dayWhere} AND deleted_at IS NULL`).run(...dayArgs);
       } else {
         const existingRow = u == null
           ? db.prepare(`SELECT * FROM diary WHERE date = ? AND user_id IS NULL`).get(d.date)
@@ -633,7 +642,26 @@ router.post('/push', wrap(async (req, res) => {
         const mergedMeals = Array.from(mealSet).sort((a, b) => a - b);
         const completedMealsJson = mergedMeals.length ? JSON.stringify(mergedMeals) : null;
 
-        if (u == null) {
+        // A day deleted here comes back only for a change made after the
+        // delete (lib/field-sync.js editRevives): the day's edit time, or
+        // an item or water entry's own (updatedAt, else addedAt), so one
+        // logged after the delete is never lost. A push made before the
+        // delete, one with no readable time, or one that changes nothing
+        // (an item deleted offline) leaves the day deleted; it is touched
+        // so the phone's next pull takes the delete.
+        const revives = !existingRow?.deleted_at || (() => {
+          const after = ms => Number.isFinite(ms) && editRevives({ existing: existingRow, at: ms });
+          const was = new Map([...serverItems, ...serverWater].filter(e => e && e.uuid).map(e => [e.uuid, JSON.stringify(e)]));
+          const gone = new Set([...deletedItemUuids, ...deletedWaterUuids, ...priorItemTombstones, ...priorWaterTombstones]);
+          const changedEntries = [...(Array.isArray(d.items) ? d.items : []), ...(Array.isArray(d.water) ? d.water : [])]
+            .filter(e => e && typeof e === 'object' && !gone.has(e.uuid) && was.get(e.uuid) !== JSON.stringify(e));
+          if (changedEntries.some(e => after(editAt(typeof (e.updatedAt || e.addedAt) === 'string' ? (e.updatedAt || e.addedAt) : null)))) return true;
+          const changes = changedEntries.length > 0 || (bs?.applied?.length > 0) || (dNotes ?? null) !== (existingRow.notes ?? null);
+          return changes && after(dayAt);
+        })();
+        if (!revives) {
+          touchDay();
+        } else if (u == null) {
           // Single-user mode: NULL user_id never collides under SQLite UNIQUE
           // (see diary.js PUT for the same workaround, issue #37).
           const existing = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`).get(d.date);
@@ -849,7 +877,9 @@ router.post('/push', wrap(async (req, res) => {
           taken.push(s.key);
         } else {
           const m = mergeEdit({ existing, values: { value: JSON.stringify(s.value) }, fields: ['value'], at });
-          const revive = existing.deleted_at && editRevives({ existing, at });
+          // One with no readable time is a copy a client has had for a
+          // while, not a change made now: it never brings a delete back.
+          const revive = existing.deleted_at && Number.isFinite(sAt) && editRevives({ existing, at });
           if (existing.deleted_at && !revive) touch();
           else {
             if (revive) m.times.deleted_at = isoTime(at);

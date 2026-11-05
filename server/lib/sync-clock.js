@@ -41,11 +41,17 @@ export const onServerClock = ts => typeof ts === 'string' && /\+00:00$/.test(ts.
 // Timestamps arrive as ISO strings ('...Z') or SQLite's UTC
 // 'YYYY-MM-DD HH:MM:SS'. Both are UTC; Date.parse would read the second
 // as local time.
+// A time outside the years 0000 to 9999 is no time: the rest of the server
+// can't read it back (lib/field-sync.js instantMs), and one near the end
+// of what a Date holds (a pushed '-271821-04-20') can't take the phone's
+// clock offset without failing the push.
+const MIN_MS = Date.parse('0000-01-01T00:00:00.000Z'), MAX_MS = Date.parse('9999-12-31T23:59:59.999Z');
+const _inYears = ms => (Number.isFinite(ms) && ms >= MIN_MS && ms <= MAX_MS ? ms : NaN);
 export function parseUtc(ts) {
   if (typeof ts !== 'string' || !ts) return NaN;
   let s = ts.trim().replace(' ', 'T');
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) s += 'Z';
-  return Date.parse(s);
+  return _inYears(Date.parse(s));
 }
 
 export const sqlTime = ms => new Date(ms).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
@@ -56,7 +62,8 @@ export const sqlTime = ms => new Date(ms).toISOString().replace('T', ' ').replac
 function _onServer(incoming, offsetMs, { serverNow, createdAt } = {}) {
   let a = parseUtc(incoming);
   if (!Number.isFinite(a)) return NaN;
-  if (!onServerClock(incoming)) a += offsetMs;
+  if (!onServerClock(incoming)) a = _inYears(a + offsetMs);
+  if (!Number.isFinite(a)) return NaN;
   if (serverNow != null) {
     const made = parseUtc(createdAt);
     if (a > serverNow + 1000 || (Number.isFinite(made) && Math.floor(a / 1000) < Math.floor(made / 1000))) a = serverNow;
@@ -89,8 +96,9 @@ export function pushWins(incoming, existing, offsetMs = 0, opts = undefined) {
 // before.
 export function editStamp(incoming, clock, serverNow = Date.now(), { createdAt } = {}) {
   const a0 = parseUtc(incoming);
-  if (!Number.isFinite(a0) || (!clock?.known && !onServerClock(incoming))) return sqlTime(serverNow);
-  return sqlTime(Math.min(_onServer(incoming, clock?.offsetMs || 0, { serverNow, createdAt }), serverNow));
+  const a = _onServer(incoming, clock?.offsetMs || 0, { serverNow, createdAt });
+  if (!Number.isFinite(a0) || !Number.isFinite(a) || (!clock?.known && !onServerClock(incoming))) return sqlTime(serverNow);
+  return sqlTime(Math.min(a, serverNow));
 }
 
 /**
