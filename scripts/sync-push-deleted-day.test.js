@@ -14,6 +14,12 @@
  * back by its own time, whatever the day's says. A pushed delete of a
  * day made before a later edit there loses.
  *
+ * A day brought back by a push came back whole: every item, water entry,
+ * measurement, note and completion mark deleted with it, for one change
+ * made after the delete. It now comes back as a save on the web brings it
+ * (lib/diary-revive.js): from an empty day, with only what was logged or
+ * changed after the delete; the rest stays deleted (tombstoned).
+ *
  * A setting deleted elsewhere came back with a push that had no readable
  * time (it counted as made now). And a time far out of range (1e20, the
  * year -271821) made the push fail as a whole.
@@ -133,7 +139,7 @@ test('a day pushed after the delete with something new comes back with it', asyn
   await push({ client_now: iso(Date.now()), diary: [{ date: D, items: [item(`${D}-old`), item(`${D}-new`, { addedAt: iso(after) })], body_stats: {}, water: [], updated_at: iso(after) }] });
   const row = day(D);
   assert.equal(row.deleted_at, null);
-  assert.deepEqual(uuids(row), [`${D}-new`, `${D}-old`]);
+  assert.deepEqual(uuids(row), [`${D}-new`], "with only the new item: the deleted day's own stays deleted");
 });
 
 test('an item logged after the delete brings the day back by its own time, even with no readable day time', async (t) => {
@@ -142,7 +148,7 @@ test('an item logged after the delete brings the day back by its own time, even 
   const { before, after } = await deletedDay(D);
   await push({ client_now: iso(Date.now()), diary: [{ date: D, items: [item(`${D}-new`, { addedAt: iso(after) })], body_stats: {}, water: [], updated_at: iso(before) }] });
   assert.equal(day(D).deleted_at, null, 'day time before the delete');
-  assert.deepEqual(uuids(day(D)), [`${D}-new`, `${D}-old`]);
+  assert.deepEqual(uuids(day(D)), [`${D}-new`]);
   const E = '2026-06-13';
   const e = await deletedDay(E);
   await push({ diary: [{ date: E, items: [], body_stats: {}, water: [{ uuid: `${E}-w`, amount: 250, addedAt: iso(e.after) }] }] });
@@ -168,6 +174,90 @@ test("a pushed delete of a day made before a later edit there loses; one made af
   await api('PUT', `/api/diary/${E}`, { items: [item(`${E}-a`)], body_stats: {}, water: [] });
   await push({ diary: [{ date: E, updated_at: iso(Date.now() - 3_600_000), deleted_at: iso(Date.now()) }] });
   assert.ok(day(E).deleted_at, 'no client_now: made now');
+});
+
+// A day the web deleted holding two foods, water, a weight, a note and
+// both completion marks; `after`: a time a moment after the delete.
+async function fullDeletedDay(date) {
+  const ago = iso(Date.now() - 60_000);
+  await api('PUT', `/api/diary/${date}`, { items: [item(`${date}-a`, { addedAt: ago }), item(`${date}-b`, { addedAt: ago })], water: [{ uuid: `${date}-w`, amount: 250, addedAt: ago }], body_stats: { weight: 80 }, notes: 'old note' });
+  await api('PUT', `/api/diary/${date}/completion`, { completed: true });
+  await api('PUT', `/api/diary/${date}/meal-completion`, { slot: 1, completed: true });
+  await sleep(1100);
+  await api('DELETE', `/api/diary/${date}`);
+  await sleep(1100);
+  // The phone's copy of the day, as it held it before the delete.
+  const copy = { date, items: [item(`${date}-a`, { addedAt: ago }), item(`${date}-b`, { addedAt: ago })], water: [{ uuid: `${date}-w`, amount: 250, addedAt: ago }], body_stats: { weight: 80 }, body_stats_changed: [], completed_at: ago, completed_meals: [1] };
+  return { after: Date.now(), copy };
+}
+const waters = row => JSON.parse(row?.water || '[]').map(w => w.uuid).sort();
+
+test("a phone's push with one change made after the delete brings back only that change, not the whole old day", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-06-16';
+  const { after, copy } = await fullDeletedDay(D);
+  const was = day(D).updated_at;
+  await push({ client_now: iso(Date.now()), diary: [{ ...copy, items: [...copy.items, item(`${D}-new`, { addedAt: iso(after) })], updated_at: iso(after) }] });
+  const row = day(D);
+  assert.equal(row.deleted_at, null, 'the day is back');
+  assert.deepEqual(uuids(row), [`${D}-new`], 'with the new food only');
+  assert.deepEqual(waters(row), [], "the deleted day's water stays deleted");
+  assert.deepEqual(JSON.parse(row.body_stats || '{}'), {}, 'and its weight');
+  assert.equal(row.notes, null, 'and its note');
+  assert.equal(row.completed_at, null, 'and its completion mark');
+  assert.equal(row.completed_meals, null, 'and its meal marks');
+  // The phone takes it at its next pull: the old ones as tombstones.
+  const pulled = await api('GET', `/api/sync/pull?since=${encodeURIComponent(was.replace(' ', 'T') + 'Z')}`);
+  const gone = pulled.diary_tombstones.filter(x => x.date === D).map(x => x.uuid).sort();
+  assert.deepEqual(gone, [`${D}-a`, `${D}-b`, `${D}-w`]);
+  // Another older push of the day (a second phone) can't put them back.
+  await push({ client_now: iso(Date.now()), diary: [{ ...copy, updated_at: iso(Date.now()) }] });
+  assert.deepEqual(uuids(day(D)), [`${D}-new`]);
+  assert.deepEqual(waters(day(D)), []);
+});
+
+test('a push into a deleted day keeps what the phone changed after the delete, and a new food whatever its time says', async (t) => {
+  if (skip(t)) return;
+  const D = '2026-06-17';
+  const { after, copy } = await fullDeletedDay(D);
+  const slow = iso(Date.now() - 600_000); // a phone clock ten minutes slow
+  await push({ client_now: iso(Date.now()), diary: [{
+    ...copy,
+    items: [item(`${D}-a`, { addedAt: copy.items[0].addedAt, updatedAt: iso(after), quantity: 2 }), copy.items[1], item(`${D}-slow`, { addedAt: slow })],
+    water: [...copy.water, { uuid: `${D}-w2`, amount: 500 }],
+    body_stats: { weight: 79 }, body_stats_changed: ['weight'],
+    notes: 'phone note', notes_updated_at: iso(after),
+    updated_at: iso(after),
+  }] });
+  const row = day(D);
+  assert.deepEqual(uuids(row), [`${D}-a`, `${D}-slow`], 'changed after the delete, and new');
+  assert.equal(JSON.parse(row.items).find(i => i.uuid === `${D}-a`).quantity, 2);
+  assert.deepEqual(waters(row), [`${D}-w2`]);
+  assert.deepEqual(JSON.parse(row.body_stats), { weight: 79 });
+  assert.equal(row.notes, 'phone note');
+});
+
+test('a completion mark made after the delete stays when a push brings the day back', async (t) => {
+  if (skip(t)) return;
+  const D = '2026-06-18';
+  const { after, copy } = await fullDeletedDay(D);
+  await api('PUT', `/api/diary/${D}/completion`, { completed: true });
+  await api('PUT', `/api/diary/${D}/meal-completion`, { slot: 2, completed: true });
+  await push({ client_now: iso(Date.now()), diary: [{ ...copy, items: [item(`${D}-new`, { addedAt: iso(after) })], updated_at: iso(after) }] });
+  assert.ok(day(D).completed_at, 'the day mark made after the delete stays');
+  assert.deepEqual(JSON.parse(day(D).completed_meals), [2], 'and the meal mark; the older one stays deleted');
+  // Marks the phone made after the delete, carried by its push.
+  const F = '2026-06-20';
+  const f = await fullDeletedDay(F);
+  await push({ client_now: iso(Date.now()), diary: [{ ...f.copy, items: [item(`${F}-new`, { addedAt: iso(f.after) })], completed_at: iso(f.after), completed_meals: [1, 3], updated_at: iso(f.after) }] });
+  assert.ok(day(F).completed_at, "the phone's day mark made after the delete stays");
+  assert.deepEqual(JSON.parse(day(F).completed_meals), [3], 'and its new meal mark; the deleted day\'s own stays deleted');
+  // An older mark sent afterwards loses to the delete.
+  const E = '2026-06-19';
+  const e = await fullDeletedDay(E);
+  await push({ client_now: iso(Date.now()), diary: [{ ...e.copy, items: [item(`${E}-new`, { addedAt: iso(e.after) })], updated_at: iso(e.after) }] });
+  await api('PUT', `/api/diary/${E}/completion`, { completed: true, at: iso(Date.now() - 2_000_000) });
+  assert.equal(day(E).completed_at, null);
 });
 
 test('a setting deleted on the server stays deleted for a push with no readable time', async (t) => {

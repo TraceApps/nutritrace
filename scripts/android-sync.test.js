@@ -2641,7 +2641,7 @@ test('a food deleted offline on another phone, changed here after that, while a 
   assert.deepEqual(q('SELECT deleted_at, notes FROM foods WHERE id = ?', f.id)[0], { deleted_at: null, notes: 'Changed after the offline delete' });
 });
 
-test('a day deleted on the web and then logged to on the phone while a sync was out comes back with the new item', async (t) => {
+test('a day deleted on the web and then logged to on the phone while a sync was out comes back with the new item only', async (t) => {
   if (skip(t)) return;
   const D = '2026-07-14';
   await http(A, 'PUT', `/api/diary/${D}`, { items: [{ uuid: 'pd-old', name: 'Toast', nutrition: {}, portion: 100, unit: 'g', quantity: 1, meal: 0 }], body_stats: {}, water: [] });
@@ -2660,10 +2660,12 @@ test('a day deleted on the web and then logged to on the phone while a sync was 
       await p.sync(); await p.sync();
       p.done({ kept, now: ((await p.api.getDiaryDate('${D}')).items || []).map(i => i.uuid).sort() });`, { NT_SERVER: px.url });
   } finally { await px.close(); }
-  assert.deepEqual(r, { kept: ['pd-new', 'pd-old'], now: ['pd-new', 'pd-old'] });
+  // Kept through the pull, then the day as it came back: the item logged
+  // after the delete, never the deleted day's own.
+  assert.deepEqual(r, { kept: ['pd-new', 'pd-old'], now: ['pd-new'] });
   const row = q(`SELECT deleted_at, items FROM diary WHERE user_id = ${alice()} AND date = ?`, D)[0];
   assert.equal(row.deleted_at, null);
-  assert.deepEqual(JSON.parse(row.items).map(i => i.uuid).sort(), ['pd-new', 'pd-old']);
+  assert.deepEqual(JSON.parse(row.items).map(i => i.uuid).sort(), ['pd-new']);
 });
 
 test("a change kept through a pulled delete that the server still refuses (it changes nothing) leaves the phone with the delete", async (t) => {

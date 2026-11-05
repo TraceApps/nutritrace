@@ -10,8 +10,8 @@ import { getGoalsCore } from '../lib/mcp/tools/goals.js';
 import { dailyTotalsCore } from '../lib/mcp/tools/daily-totals.js';
 import { checkNutritionGoalCrossing, checkWaterGoalCrossing } from '../lib/goal-webhook.js';
 import { Nutrition } from '../../src/lib/nutrition.js';
-import { clientClock, parseUtc, pushWins, editStamp, resolveNote, sqlTime, editMs } from '../lib/sync-clock.js';
-import { editRevives } from '../lib/field-sync.js';
+import { clientClock, parseUtc, pushWins, editStamp, resolveNote, sqlTime } from '../lib/sync-clock.js';
+import { fromEmptyDay, dropMarksBeforeDelete, parseSlotArray as _parseSlotArray } from '../lib/diary-revive.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -110,39 +110,6 @@ function _stripDataUrlImages(items) {
 //
 // The whole write runs inside a single db.transaction so a crash mid-merge
 // leaves the row untouched.
-// A save into a day deleted here brings the day back (it is made now:
-// lib/field-sync.js editRevives), but only with what was made after the
-// delete. An entry the deleted day didn't hold is new and comes back,
-// whatever its time says (a clock running slow, one logged in the second
-// of the delete). One it held comes back only when changed since (its own
-// updatedAt, else addedAt). The rest (the deleted day's own, as a form
-// opened before the delete still holds them) stay deleted, tombstoned so
-// an older push of the day from a phone can't put them back. Returns
-// { kept, gone: uuids }.
-function _sinceDelete(deletedRow, field, entries, clock, now) {
-  let had = [];
-  try { had = JSON.parse(deletedRow[field] || '[]'); } catch { /* none */ }
-  const hadList = Array.isArray(had) ? had : [];
-  const hadUuids = new Set(hadList.map(e => e?.uuid).filter(Boolean));
-  // An entry stored without a uuid (an MCP or REST write) comes back from
-  // a client without one too: its twin by addedAt and name, as the merge
-  // matches them (lib/diary-merge.js).
-  const twin = e => (typeof e?.addedAt === 'string' && e.addedAt ? `${e.addedAt}\u0000${e.name ?? ''}\u0000${e.type ?? ''}` : null);
-  const hadTwins = new Set(hadList.filter(e => e && !e.uuid).map(twin).filter(Boolean));
-  const held = e => (e.uuid ? hadUuids.has(e.uuid) : hadTwins.has(twin(e)));
-  const kept = [], gone = new Set(hadUuids);
-  for (const e of Array.isArray(entries) ? entries : []) {
-    if (!e || typeof e !== 'object') continue;
-    const t = e.updatedAt || e.addedAt;
-    const at = typeof t === 'string' ? editMs(t, clock, now) : NaN;
-    const after = !held(e) || (Number.isFinite(at) && editRevives({ existing: deletedRow, at }));
-    if (after) { kept.push(e); if (e.uuid) gone.delete(e.uuid); }
-    else if (typeof e.uuid === 'string' && e.uuid) gone.add(e.uuid);
-  }
-  for (const e of kept) if (e.uuid) gone.delete(e.uuid);
-  return { kept, gone: [...gone] };
-}
-
 router.put('/:date', wrap((req, res) => {
   const receivedAt = Date.now();
   const { body_stats, water, notes } = req.body;
@@ -165,26 +132,17 @@ router.put('/:date', wrap((req, res) => {
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL').get(date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ?').get(date, u);
   const clock = clientClock(req.body.client_now, receivedAt);
-  // Deleted here: the save starts from an empty day (_sinceDelete), its
+  // Deleted here: the save starts from an empty day (lib/diary-revive.js), its
   // measurements and note gone at the delete's time, so an older edit of
   // them pushed later loses. Not for the app's Upload (isHistoryUpload),
   // which puts days back on purpose (after Clear all data, say).
   const fromEmpty = !!loadedRow?.deleted_at && !isHistoryUpload(req);
-  const sinceItems = fromEmpty ? _sinceDelete(loadedRow, 'items', items, clock, receivedAt) : null;
-  const sinceWater = fromEmpty ? _sinceDelete(loadedRow, 'water', water, clock, receivedAt) : null;
-  const goneTimes = () => {
-    let t = {}, stats = {};
-    try { t = JSON.parse(loadedRow.field_times || '{}') || {}; } catch { /* none */ }
-    try { stats = JSON.parse(loadedRow.body_stats || '{}') || {}; } catch { /* none */ }
-    const ms = parseUtc(loadedRow.deleted_at);
-    if (!Number.isFinite(ms)) return loadedRow.field_times ?? null;
-    const at = new Date(ms).toISOString();
-    for (const k of Object.keys(stats)) t[`body_stats.${k}`] = at;
-    return JSON.stringify(t);
-  };
-  const existingRow = fromEmpty
-    ? { ...loadedRow, items: '[]', water: '[]', body_stats: '{}', notes: null, notes_updated_at: loadedRow.deleted_at, field_times: goneTimes() }
-    : loadedRow;
+  const saidStats = changedList(req.body.body_stats_changed);
+  const revived = fromEmpty
+    ? fromEmptyDay(loadedRow, { items, water, body_stats, changed: saidStats, notes, notesAt: req.body.notes_updated_at }, clock, receivedAt)
+    : null;
+  const sinceItems = revived?.items, sinceWater = revived?.water;
+  const existingRow = revived ? revived.row : loadedRow;
   const serverItems = existingRow ? JSON.parse(existingRow.items || '[]') : [];
   const serverWater = existingRow ? JSON.parse(existingRow.water || '[]') : [];
 
@@ -205,20 +163,10 @@ router.put('/:date', wrap((req, res) => {
   // body_stats: each measurement on its own (lib/body-stats-merge.js),
   // made now; an empty one changes nothing (issue #81). A save that says
   // which it changed (body_stats_changed) leaves the others alone.
-  // Brought back: a measurement or note sent as the deleted day had it is
-  // a form's older copy, not a change made now (the web's saves send the
-  // whole day). It stays deleted unless the save says it changed it.
-  const saidStats = changedList(req.body.body_stats_changed);
-  let sentStats = body_stats, sentNote = notes;
-  if (fromEmpty) {
-    let was = {};
-    try { was = JSON.parse(loadedRow.body_stats || '{}') || {}; } catch { /* none */ }
-    if (sentStats && typeof sentStats === 'object' && !Array.isArray(sentStats)) {
-      sentStats = Object.fromEntries(Object.entries(sentStats).filter(([k, v]) => !(k in was && String(was[k]) === String(v) && !(saidStats || []).includes(k))));
-    }
-    const noteAt = editMs(req.body.notes_updated_at, clock, receivedAt);
-    if (typeof notes === 'string' && notes === loadedRow.notes && !(Number.isFinite(noteAt) && editRevives({ existing: loadedRow, at: noteAt }))) sentNote = null;
-  }
+  // Brought back: a measurement or note sent as the deleted day had it
+  // stays deleted (lib/diary-revive.js fromEmptyDay).
+  const sentStats = revived ? revived.body_stats : body_stats;
+  const sentNote = revived ? revived.notes : notes;
   const bs = mergeBodyStats(existingRow, sentStats, { at: receivedAt, changed: saidStats });
   const bsJson = bs ? bs.json : (existingRow?.body_stats ?? '{}');
   const dayTimes = bs ? JSON.stringify(bs.times) : (existingRow?.field_times ?? null);
@@ -264,24 +212,9 @@ router.put('/:date', wrap((req, res) => {
     }
     for (const uuid of newItemTombstones) insertTombstone.run(u, date, 'item', uuid);
     for (const uuid of newWaterTombstones) insertTombstone.run(u, date, 'water', uuid);
-    // Brought back: the deleted day's completion marks stay deleted, taken
-    // away at the delete's time, so an older mark sent later loses. A mark
-    // made after the delete (the completion routes take a deleted day too)
-    // stays, with its own time.
-    if (fromEmpty) {
-      const at = loadedRow.deleted_at, delMs = parseUtc(at);
-      const madeBefore = t => !Number.isFinite(parseUtc(t)) || !Number.isFinite(delMs) || parseUtc(t) <= delMs;
-      const dayGone = !!loadedRow.completed_at && madeBefore(loadedRow.completion_marked_at);
-      let marks = {};
-      try { marks = JSON.parse(loadedRow.meal_marks_at || '{}') || {}; } catch { /* none */ }
-      const keep = [];
-      for (const sl of _parseSlotArray(loadedRow.completed_meals)) {
-        if (madeBefore(marks[sl])) marks[sl] = at; else keep.push(sl);
-      }
-      db.prepare(`UPDATE diary SET completed_at = ?, completed_meals = ?, completion_marked_at = ?, meal_marks_at = ? WHERE id = ?`)
-        .run(dayGone ? null : (loadedRow.completed_at ?? null), keep.length ? JSON.stringify(keep) : null,
-          dayGone ? at : (loadedRow.completion_marked_at ?? null), Object.keys(marks).length ? JSON.stringify(marks) : null, loadedRow.id);
-    }
+    // Brought back: the deleted day's completion marks stay deleted, one
+    // made after the delete stays (lib/diary-revive.js).
+    if (fromEmpty) dropMarksBeforeDelete(db, loadedRow);
   })();
 
   const row = u == null
@@ -474,14 +407,6 @@ function _markTime(req, existingAt, receivedAt) {
   return { at: editStamp(at, clock, receivedAt), older };
 }
 
-function _parseSlotArray(raw) {
-  if (!raw) return [];
-  try {
-    const v = JSON.parse(raw);
-    if (!Array.isArray(v)) return [];
-    return v.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
-  } catch { return []; }
-}
 
 // Fix any Capacitor cached paths that leaked into diary items
 function fixCachedPaths(items) {

@@ -234,7 +234,11 @@ merge by uuid and its note by its own time, as before.
   measurement, the note) brings it back, and an item changed or logged
   after the delete (its own `updatedAt`, else `addedAt`) brings it back
   whatever the day's time says, so nothing logged offline after the delete
-  is lost (water has no time of its own; the day's moves with it). A push made before the delete, or one that
+  is lost (water has no time of its own; the day's moves with it). It
+  comes back as a save on the web brings it (below): from an empty day,
+  with only what was logged or changed after the delete, the rest
+  tombstoned (`fromEmptyDay` in `lib/diary-revive.js`, used by both
+  routes). A push made before the delete, or one that
   changes nothing (a phone's tombstone-only row for an item deleted
   offline), leaves it deleted and touches it (`updated_at`), so the phone's
   next pull takes the delete. A pushed delete of a day made before the
@@ -270,7 +274,7 @@ merge by uuid and its note by its own time, as before.
   an older edit or mark sent later loses.
   The deleted day's own entries (also as a form opened before the delete
   sends them) stay deleted and are tombstoned, so an older push of the day
-  can't put them back (`_sinceDelete` in `routes/diary.js`); that also
+  can't put them back (`sinceDelete` in `lib/diary-revive.js`); that also
   drops a phone's edit of one of them made after the delete when the save
   reaches the server first. The app's Upload (`history_upload`) puts a
   deleted day back whole, as before.

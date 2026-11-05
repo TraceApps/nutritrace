@@ -70,6 +70,7 @@ function _loadTombstonesSince(u, sinceSql) {
 
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
 import { mergeEntries } from '../lib/diary-merge.js';
+import { fromEmptyDay, dropMarksBeforeDelete } from '../lib/diary-revive.js';
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
 
 // Issues #69 + #70: normalize alt_units before storing. Accepts null /
@@ -576,42 +577,45 @@ router.post('/push', wrap(async (req, res) => {
         const priorItemTombstones = _loadTombstoneUuids(u, d.date, 'item');
         const priorWaterTombstones = _loadTombstoneUuids(u, d.date, 'water');
 
-        // Server state → merge with client state.
-        const serverItems = existingRow ? JSON.parse(existingRow.items || '[]') : [];
-        const serverWater = existingRow ? JSON.parse(existingRow.water || '[]') : [];
-        const { merged: mergedItems, newTombstoneUuids: newItemTombstones } =
-          mergeEntries(serverItems, d.items || [], deletedItemUuids, priorItemTombstones);
-        const { merged: mergedWater, newTombstoneUuids: newWaterTombstones } =
-          mergeEntries(serverWater, d.water || [], deletedWaterUuids, priorWaterTombstones);
-
-        // body_stats: each measurement on its own, the newer edit of each
-        // staying (lib/body-stats-merge.js), at the day's edit time. An
-        // empty one changes nothing (#81). The phone says which it changed
-        // (body_stats_changed); an app before that changed all it sends.
+        // Server state → merge with client state. `row`: the day here, or
+        // the empty day a deleted one comes back as (below).
         const dayAt = editAt(d.updated_at);
-        const bs = mergeBodyStats(existingRow, d.body_stats, {
-          at: Number.isFinite(dayAt) ? dayAt : receivedAt, changed: changedList(d.body_stats_changed),
-          fieldAt: editsAt(d.body_stats_edits),
-        });
-        const bsJson = bs ? bs.json : (existingRow?.body_stats ?? '{}');
-        const dayTimes = bs ? JSON.stringify(bs.times) : (existingRow?.field_times ?? null);
-
-        const itemsJson = JSON.stringify(mergedItems);
-        const waterJson = JSON.stringify(mergedWater);
-
-        // The day's note: the newer edit wins, a cleared note included
-        // (lib/sync-clock.js resolveNote). A phone sends it only when it
-        // edited the note, with the time it did. A note sent without that
-        // time is dated by the day's own edit time. Pushes with no note at
-        // all (every app before this, or a day whose note wasn't touched)
-        // keep the server's: they used to write null over it.
-        const hasNoteTime = Number.isFinite(parseUtc(d.notes_updated_at));
-        const note = resolveNote(existingRow, {
-          has: hasNoteTime || Object.prototype.hasOwnProperty.call(d, 'notes'),
-          notes: d.notes,
-          at: hasNoteTime ? d.notes_updated_at : (d.updated_at || null),
-        }, clock);
-        const dNotes = note.notes, dNotesAt = note.at;
+        const mergeInto = (row, sent) => {
+          const serverItems = row ? JSON.parse(row.items || '[]') : [];
+          const serverWater = row ? JSON.parse(row.water || '[]') : [];
+          const items = mergeEntries(serverItems, sent.items || [], deletedItemUuids, priorItemTombstones);
+          const water = mergeEntries(serverWater, sent.water || [], deletedWaterUuids, priorWaterTombstones);
+          // body_stats: each measurement on its own, the newer edit of each
+          // staying (lib/body-stats-merge.js), at the day's edit time. An
+          // empty one changes nothing (#81). The phone says which it changed
+          // (body_stats_changed); an app before that changed all it sends.
+          const bs = mergeBodyStats(row, sent.body_stats, {
+            at: Number.isFinite(dayAt) ? dayAt : receivedAt, changed: changedList(d.body_stats_changed),
+            fieldAt: editsAt(d.body_stats_edits),
+          });
+          // The day's note: the newer edit wins, a cleared note included
+          // (lib/sync-clock.js resolveNote). A phone sends it only when it
+          // edited the note, with the time it did. A note sent without that
+          // time is dated by the day's own edit time. Pushes with no note at
+          // all (every app before this, or a day whose note wasn't touched)
+          // keep the server's: they used to write null over it.
+          const hasNoteTime = Number.isFinite(parseUtc(d.notes_updated_at));
+          const note = resolveNote(row, {
+            has: hasNoteTime || Object.prototype.hasOwnProperty.call(d, 'notes'),
+            notes: sent.notes,
+            at: hasNoteTime ? d.notes_updated_at : (d.updated_at || null),
+          }, clock);
+          return {
+            mergedItems: items.merged, newItemTombstones: items.newTombstoneUuids,
+            mergedWater: water.merged, newWaterTombstones: water.newTombstoneUuids,
+            bs, bsJson: bs ? bs.json : (row?.body_stats ?? '{}'),
+            dayTimes: bs ? JSON.stringify(bs.times) : (row?.field_times ?? null),
+            dNotes: note.notes, dNotesAt: note.at,
+          };
+        };
+        const loadedItems = existingRow ? JSON.parse(existingRow.items || '[]') : [];
+        const loadedWater = existingRow ? JSON.parse(existingRow.water || '[]') : [];
+        let m = mergeInto(existingRow, d);
 
         // #207: completion mark. Preserve-if-incoming-null semantics
         // (same shape as the notes/body_stats empty guard): an offline
@@ -654,14 +658,30 @@ router.post('/push', wrap(async (req, res) => {
         // so the phone's next pull takes the delete.
         const revives = !existingRow?.deleted_at || (() => {
           const after = ms => Number.isFinite(ms) && editRevives({ existing: existingRow, at: ms });
-          const was = new Map([...serverItems, ...serverWater].filter(e => e && e.uuid).map(e => [e.uuid, valueKey(e, true)]));
+          const was = new Map([...loadedItems, ...loadedWater].filter(e => e && e.uuid).map(e => [e.uuid, valueKey(e, true)]));
           const gone = new Set([...deletedItemUuids, ...deletedWaterUuids, ...priorItemTombstones, ...priorWaterTombstones]);
           const changedEntries = [...(Array.isArray(d.items) ? d.items : []), ...(Array.isArray(d.water) ? d.water : [])]
             .filter(e => e && typeof e === 'object' && !gone.has(e.uuid) && was.get(e.uuid) !== valueKey(e, true));
           if (changedEntries.some(e => after(editAt(typeof (e.updatedAt || e.addedAt) === 'string' ? (e.updatedAt || e.addedAt) : null)))) return true;
-          const changes = changedEntries.length > 0 || (bs?.applied?.length > 0) || (dNotes ?? null) !== (existingRow.notes ?? null);
+          const changes = changedEntries.length > 0 || (m.bs?.applied?.length > 0) || (m.dNotes ?? null) !== (existingRow.notes ?? null);
           return changes && after(dayAt);
         })();
+        // Brought back: from an empty day, as a save on the web brings it
+        // (lib/diary-revive.js), with only what was logged or changed after
+        // the delete. The deleted day's own entries stay deleted
+        // (tombstoned), and so do its measurements, note and completion
+        // marks, unless changed or made after the delete.
+        const revived = revives && existingRow?.deleted_at
+          ? fromEmptyDay(existingRow, { items: d.items, water: d.water, body_stats: d.body_stats, changed: changedList(d.body_stats_changed), notes: d.notes, notesAt: d.notes_updated_at }, clock, receivedAt)
+          : null;
+        if (revived) {
+          m = mergeInto(revived.row, { ...d, items: revived.items.kept, water: revived.water.kept, body_stats: revived.body_stats, notes: revived.notes });
+          for (const x of revived.items.gone) if (!m.newItemTombstones.includes(x)) m.newItemTombstones.push(x);
+          for (const x of revived.water.gone) if (!m.newWaterTombstones.includes(x)) m.newWaterTombstones.push(x);
+        }
+        const { mergedItems, newItemTombstones, mergedWater, newWaterTombstones, bsJson, dayTimes, dNotes, dNotesAt } = m;
+        const itemsJson = JSON.stringify(mergedItems);
+        const waterJson = JSON.stringify(mergedWater);
         if (!revives) {
           touchDay();
         } else if (u == null) {
@@ -696,6 +716,7 @@ router.post('/push', wrap(async (req, res) => {
         );
         for (const uuid of newItemTombstones) insertTombstone.run(u, d.date, 'item', uuid);
         for (const uuid of newWaterTombstones) insertTombstone.run(u, d.date, 'water', uuid);
+        if (revived) dropMarksBeforeDelete(db, existingRow, { completed_at: d.completed_at, completed_meals: d.completed_meals, clock, now: receivedAt });
       }
       const row = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
         .get(d.date, ...(u != null ? [u] : []));
