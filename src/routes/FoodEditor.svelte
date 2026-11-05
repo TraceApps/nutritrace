@@ -893,6 +893,8 @@
     // then re-enable after Svelte's tick has settled.
     _draftReady = false;
     if (_serverBaseline) food = { ..._serverBaseline };
+    // Nothing is changed here any more: a sync fills in every field again.
+    if (_opened) _opened = JSON.parse(JSON.stringify(food));
     clearDraft(_draftKey);
     _draftRestored = false;
     tick().then(() => { _draftReady = true; });

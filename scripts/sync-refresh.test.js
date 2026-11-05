@@ -211,7 +211,7 @@ test('open editors take in what a sync changed, and a row deleted elsewhere turn
   assert.match(diary, /if \(cur\) loadEntry\(cur\)\.then\(_takeSyncedEditItem\)/);
   assert.match(diary, /const i = items\.findIndex\(it => it\?\.uuid === _editKey\.uuid\);\n      if \(i >= 0\) fresh = \{ \.\.\.items\[i\], _i: i \};/);
   assert.match(diary, /if \(!fresh\) \{ _editGone = true; return; \}/);
-  assert.match(diary, /if \(!editItem \|\| _editGone\) return;/);
+  assert.match(diary, /if \(!editItem \|\| _editGone\) return;\n[^\n]*\n[^\n]*\n    _takeSyncedEditItem\(\$currentEntry, \{ save: true \}\);\n    if \(_editGone\) return;/, 'a save finds its item by uuid in the day as it is now');
   assert.equal((diary.match(/on:click=\{saveEditItem\} disabled=\{_editGone\}/g) || []).length, 2);
   const act = src('components/diary/AddActivitySheet.svelte');
   assert.match(act, /onSynced\(\['activity'\], \(\) => \{ _takeSynced\(\); \}\)/);

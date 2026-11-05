@@ -26,8 +26,8 @@ import { fillIfSetupAnswers } from '../lib/profile-fields.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
 import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
-import { clientClock, parseUtc, editMs, resolveNote, sqlTime } from '../lib/sync-clock.js';
-import { mergeEdit, deleteLoses, editRevives, rowTimes, readTimes, instantMs, stampTimes, createdTimes, isoTime } from '../lib/field-sync.js';
+import { clientClock, parseUtc, editMs, resolveNote, sqlTime, onServerClock } from '../lib/sync-clock.js';
+import { mergeEdit, deleteLoses, editRevives, rowTimes, readTimes, instantMs, stampTimes, createdTimes, isoTime, valueKey } from '../lib/field-sync.js';
 import { SYNC_FIELDS, SYNC_GROUPS, SYNC_JSON } from '../lib/sync-fields.js';
 import { mergeBodyStats, changedList } from '../lib/body-stats-merge.js';
 import { readablePairingIds, createMessage, deleteMessage, messageOut, notifyMessage, pairingById } from '../lib/coaching-messages.js';
@@ -552,9 +552,11 @@ router.post('/push', wrap(async (req, res) => {
       const touchDay = () => db.prepare(`UPDATE diary SET updated_at = datetime('now') WHERE ${dayWhere}`).run(...dayArgs);
       if (d.deleted_at) {
         // A delete made before the day's last write here (a food logged on
-        // the web since) loses; one with no readable time is made now.
+        // the web since) loses. One with no readable time is made now, and
+        // so is one whose clock the server can't put right (no client_now):
+        // its time can't be set against the server's writes.
         const live = db.prepare(`SELECT updated_at, deleted_at FROM diary WHERE ${dayWhere}`).get(...dayArgs);
-        const delAt = editAt(d.updated_at);
+        const delAt = (clock.known || onServerClock(d.updated_at)) ? editAt(d.updated_at) : NaN;
         if (live && !live.deleted_at && Number.isFinite(delAt) && deleteLoses({ existing: live, fields: [], at: delAt, times: { _base: live.updated_at } }) != null) touchDay();
         else db.prepare(`UPDATE diary SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE ${dayWhere} AND deleted_at IS NULL`).run(...dayArgs);
       } else {
@@ -644,17 +646,18 @@ router.post('/push', wrap(async (req, res) => {
 
         // A day deleted here comes back only for a change made after the
         // delete (lib/field-sync.js editRevives): the day's edit time, or
-        // an item or water entry's own (updatedAt, else addedAt), so one
-        // logged after the delete is never lost. A push made before the
+        // an item's own (updatedAt, else addedAt), so one logged after the
+        // delete is never lost (water has no time of its own: the day's
+        // moves with it). A push made before the
         // delete, one with no readable time, or one that changes nothing
         // (an item deleted offline) leaves the day deleted; it is touched
         // so the phone's next pull takes the delete.
         const revives = !existingRow?.deleted_at || (() => {
           const after = ms => Number.isFinite(ms) && editRevives({ existing: existingRow, at: ms });
-          const was = new Map([...serverItems, ...serverWater].filter(e => e && e.uuid).map(e => [e.uuid, JSON.stringify(e)]));
+          const was = new Map([...serverItems, ...serverWater].filter(e => e && e.uuid).map(e => [e.uuid, valueKey(e, true)]));
           const gone = new Set([...deletedItemUuids, ...deletedWaterUuids, ...priorItemTombstones, ...priorWaterTombstones]);
           const changedEntries = [...(Array.isArray(d.items) ? d.items : []), ...(Array.isArray(d.water) ? d.water : [])]
-            .filter(e => e && typeof e === 'object' && !gone.has(e.uuid) && was.get(e.uuid) !== JSON.stringify(e));
+            .filter(e => e && typeof e === 'object' && !gone.has(e.uuid) && was.get(e.uuid) !== valueKey(e, true));
           if (changedEntries.some(e => after(editAt(typeof (e.updatedAt || e.addedAt) === 'string' ? (e.updatedAt || e.addedAt) : null)))) return true;
           const changes = changedEntries.length > 0 || (bs?.applied?.length > 0) || (dNotes ?? null) !== (existingRow.notes ?? null);
           return changes && after(dayAt);

@@ -27,6 +27,7 @@
   import { decimalInput, parseDecimal } from '../../lib/decimal-input.js';
   import TimePicker from '../ui/TimePicker.svelte';
   import { takeUntouched } from '../../lib/sync-refresh.js';
+  import { isNative } from '../../lib/platform.js';
 
   const BUILTIN_PRESETS = [
     { label: '14:10', hours: 14 },
@@ -211,7 +212,9 @@
   function _followActive(a) {
     if (!a || a.id !== _editFastId) {
       _editingStart = false;
-      showError($_('fasting.gone'));
+      // Said on the phone, where only a sync changes it under you (the
+      // browser reads the server, and a failed read shows no fast).
+      if (isNative) showError($_('fasting.gone'));
       return;
     }
     const took = takeUntouched({ date: _editStartDate, time: _editStartTime }, _editOpened, _startFields(a));
@@ -233,8 +236,8 @@
     }
     try {
       await NtApi.patch(`/api/fasts/${_active.id}`, { start_at: newStart.toISOString() });
-      await loadFasting();
       _editingStart = false;
+      await loadFasting();
       showSuccess('Start time updated');
     } catch (e) { showError(e?.message || 'Could not update'); }
   }

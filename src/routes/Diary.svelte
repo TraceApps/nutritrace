@@ -315,7 +315,8 @@
     _editGone = false;
     _editOpened = key ? JSON.parse(JSON.stringify(_editFields())) : null;
   }
-  function _takeSyncedEditItem(entry) {
+  // `save`: only finding it again, for a save (what the sheet shows stays).
+  function _takeSyncedEditItem(entry, { save = false } = {}) {
     if (!showEditSheet || !editItem || !_editKey || _editGone || !entry) return;
     const items = entry.items || [];
     let fresh = null, ctx = null;
@@ -333,6 +334,10 @@
       if (i >= 0) fresh = { ...items[i], _i: i };
     }
     if (!fresh) { _editGone = true; return; }
+    if (save) {
+      if (ctx) _editChildContext = ctx; else editItem = { ...editItem, _i: fresh._i };
+      return;
+    }
     const took = takeUntouched(_editFields(), _editOpened, _editFieldsOf(fresh, !!ctx));
     editItem = fresh;
     if (ctx) { _editChildContext = ctx; _editKey = { ..._editKey, child: JSON.stringify(fresh) }; }
@@ -359,6 +364,10 @@
 
   async function saveEditItem() {
     if (!editItem || _editGone) return;
+    // The day may have been read again since the sheet opened (a sync, a
+    // copy or move): save into the item by its uuid, never by its place.
+    _takeSyncedEditItem($currentEntry, { save: true });
+    if (_editGone) return;
     // Quick Calories items skip portion math entirely — nutrition is written
     // straight from the edit fields. Blank optional macros drop the key so
     // daily totals don't pick up zero-filled phantoms (same shape as

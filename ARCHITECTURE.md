@@ -231,14 +231,16 @@ merge by uuid and its note by its own time, as before.
   longer replaces a newer one.
   A diary day deleted here comes back the same way: a push of it made after
   the delete that changes something (an item or water entry, a
-  measurement, the note) brings it back, and an item or water entry
-  changed or logged after the delete (its own `updatedAt`, else `addedAt`)
-  brings it back whatever the day's time says, so nothing logged offline
-  after the delete is lost. A push made before the delete, or one that
+  measurement, the note) brings it back, and an item changed or logged
+  after the delete (its own `updatedAt`, else `addedAt`) brings it back
+  whatever the day's time says, so nothing logged offline after the delete
+  is lost (water has no time of its own; the day's moves with it). A push made before the delete, or one that
   changes nothing (a phone's tombstone-only row for an item deleted
   offline), leaves it deleted and touches it (`updated_at`), so the phone's
   next pull takes the delete. A pushed delete of a day made before the
-  day's last write here (a food logged on the web since) loses.
+  day's last write here (a food logged on the web since) loses, when the
+  server can put its time on its own clock (`client_now`, or a `+00:00`
+  stamp); otherwise it counts as made now, as before.
   A pushed row with no readable `updated_at` (missing, null, empty or not
   a time) says nothing of when it was made: it never brings back a deleted
   food, meal, activity, fast, setting or day (as LiftTrace). A row that

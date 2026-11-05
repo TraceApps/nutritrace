@@ -411,6 +411,8 @@
       recipeYields    = _serverBaseline.recipeYields;
       isRecipe        = _serverBaseline.isRecipe;
     }
+    // Nothing is changed here any more: a sync fills in every field again.
+    if (_opened) _opened = JSON.parse(JSON.stringify(_formNow()));
     clearDraft(_draftKey);
     _draftRestored = false;
     tick().then(() => { _draftReady = true; });

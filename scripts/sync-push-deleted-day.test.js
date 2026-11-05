@@ -162,6 +162,12 @@ test("a pushed delete of a day made before a later edit there loses; one made af
   assert.equal(day(D).deleted_at, null, 'the later edit stays');
   await push({ client_now: iso(Date.now()), diary: [{ date: D, updated_at: iso(Date.now()), deleted_at: iso(Date.now()) }] });
   assert.ok(day(D).deleted_at, 'a newer delete goes ahead');
+  // A client that doesn't send its clock: its time can't be set against the
+  // server's writes, so its delete counts as made now, as before.
+  const E = '2026-06-15';
+  await api('PUT', `/api/diary/${E}`, { items: [item(`${E}-a`)], body_stats: {}, water: [] });
+  await push({ diary: [{ date: E, updated_at: iso(Date.now() - 3_600_000), deleted_at: iso(Date.now()) }] });
+  assert.ok(day(E).deleted_at, 'no client_now: made now');
 });
 
 test('a setting deleted on the server stays deleted for a push with no readable time', async (t) => {
