@@ -1749,6 +1749,11 @@ async function _afterEdit(db, table, id, before, stampOf = null) {
     const rest = before.sync_status === 'pending' && before.server_base == null && !t._rest && before.updated_at ? before.updated_at : null;
     if (!changed.length && !rest) return changed;
     if (rest) t._rest = rest;
+    // A recipe's first change since it was last as the server has it: the
+    // time it had then (_server). A link filled in later into ingredients
+    // not changed here since takes that time, not this change's
+    // (dbLinkDiaryItems), so it loses to an edit of them made elsewhere.
+    if (table === 'meals' && before.sync_status === 'synced' && typeof before.updated_at === 'string') t._server = before.updated_at;
     // `stampOf(field, time it had)`: a change that isn't an edit made now (a link filled in) says its own time.
     for (const f of changed) {
       const k = table === 'diary' ? `body_stats.${f}` : f;
@@ -1999,8 +2004,14 @@ export async function dbLinkDiaryItems(created = [], live = () => true, skipMeal
     // The ingredients' edit time keeps the time the items last changed here,
     // a millisecond on, when it has one (a later edit of another field, say
     // the name, doesn't make the items newer).
-    await _afterEdit(db, 'meals', meal.id, before, (f, was) => (f === 'items' && typeof was === 'string' && !Number.isFinite(opts.notBefore)
-      ? relinkStamp(was, opts) : at));
+    // Items with no time of their own here (not changed since the server's
+    // copy, which a later rename doesn't change) take that copy's time.
+    const had = _parseJson(before?.edit_times, {})?._server;
+    await _afterEdit(db, 'meals', meal.id, before, (f, was) => {
+      if (f !== 'items' || Number.isFinite(opts.notBefore)) return at;
+      if (typeof was === 'string') return relinkStamp(was, opts);
+      return typeof had === 'string' ? relinkStamp(had, opts) : at;
+    });
   }
   return changed;
 }

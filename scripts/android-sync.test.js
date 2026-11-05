@@ -2970,6 +2970,46 @@ test('a link takes the time the row already had: the items\' own edit time, not 
   assert.equal(sec(r.dayAfter.updated_at), sec(r.dayBefore.updated_at), "the day's time stays in its second");
 });
 
+// A recipe pulled with an ingredient the phone has yet to link, renamed here
+// later: the items have no edit time of their own here, so the link takes the
+// time the recipe had when it was last as the server has it (the pull), not
+// the rename's. A web edit of the items made between the pull and the rename
+// used to be written over.
+test("a link on a recipe renamed here doesn't undo a web edit of its items made before the rename", async (t) => {
+  if (skip(t)) return;
+  const first = phone('relink-Ren', A, `
+    await p.offline(async () => { await p.api.createFood({ name: 'Ren Kale', nutrition: { calories: 30 }, portion: 100, unit: 'g' }); });
+    await p.sync();
+    const k = (await p.api.getFoods()).find(f => f.name === 'Ren Kale');
+    p.done({ id: k.id, server_id: k.server_id, install: await p.dbn.dbInstallId() });`);
+  assert.ok(first.server_id, 'the food went up');
+  const oats = await http(A, 'POST', '/api/foods', { name: 'Ren Oats', nutrition: { calories: 50 }, portion: 100, unit: 'g' });
+  const bowl = await http(A, 'POST', '/api/meals', { name: 'Ren Bowl', is_recipe: 1, portion: 100, unit: 'g', nutrition: {},
+    items: [{ id: oats.id, name: 'Ren Oats', portion: 100, unit: 'g', quantity: 1, nutrition: { calories: 50 } },
+      { id: first.id, name: 'Ren Kale', portion: 100, unit: 'g', quantity: 1, nutrition: { calories: 30 }, server_id: null, food_device: first.install }] });
+  const pulled = phone('relink-Ren', A, `
+    await p.sync();
+    p.done((await p.api.getRecipes()).find(x => x.server_id === ${bowl.id}).items.map(i => i.server_id === undefined ? 'none' : i.server_id));`);
+  assert.deepEqual(pulled, ['none', null], 'pulled with the link not filled in');
+  await sleep(1100);
+  // The web changes the oats' amount, then the phone renames the recipe offline.
+  const now = await http(A, 'GET', `/api/meals/${bowl.id}`);
+  await http(A, 'PUT', `/api/meals/${bowl.id}`, { items: now.items.map(i => (i.id === oats.id ? { ...i, quantity: 3 } : i)), changed_fields: ['items'] });
+  await sleep(1100);
+  phone('relink-Ren', A, `
+    await p.offline(async () => { const x = (await p.api.getRecipes()).find(y => y.server_id === ${bowl.id}); await p.api.updateMeal(x.id, { ...x, name: 'Ren Bowl Renamed' }); });
+    p.done();`);
+  const onPhone = phone('relink-Ren', A, `
+    await p.sync(); await p.sync(); await p.sync();
+    const r = (await p.api.getRecipes()).find(x => x.server_id === ${bowl.id});
+    p.done({ name: r.name, items: r.items.map(i => [i.name, i.quantity, i.server_id ?? 'none']) });`);
+  const items = serverItems(bowl.id);
+  assert.equal(q('SELECT name FROM meals WHERE id = ?', bowl.id)[0].name, 'Ren Bowl Renamed', 'the rename went up');
+  assert.equal(items.find(i => i.id === oats.id).quantity, 3, "the web's edit of the items stayed");
+  assert.equal(items.find(i => i.name === 'Ren Kale').server_id, first.server_id, 'and the link got there');
+  assert.deepEqual(onPhone, { name: 'Ren Bowl Renamed', items: [['Ren Oats', 3, 'none'], ['Ren Kale', 1, first.server_id]] }, 'the phone has the same');
+});
+
 // Save a Copy of an item its owner deleted: the server says it is gone (404).
 // The app used to answer any failure by copying its own row of that number,
 // a different food, as it does when the server can't be reached.
