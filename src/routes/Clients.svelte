@@ -3,6 +3,7 @@
   // answer) and one client opened. Side by side once there is room for both
   // (720 px of content, the shared rule), one at a time on a phone.
   import { onMount } from 'svelte';
+  import { onComeBack } from '../lib/sync-refresh.js';
   import { _ } from 'svelte-i18n';
   import { push, replace } from 'svelte-spa-router';
   import { NtApi } from '../lib/api.js';
@@ -35,6 +36,9 @@
     await Promise.all([loadList(), refreshCoaching()]);
     loaded = true;
   });
+  // Your clients come from the server only (a sync doesn't bring them):
+  // back in front, the list is read again, quietly.
+  onMount(() => onComeBack(() => { if (loaded && !needsServer) { loadList({ quiet: true }); refreshCoaching(); } }));
   // No longer coaching anyone (the Coach role taken away, an admin's last
   // client gone): back to Goals rather than an empty page.
   $: if (loaded && !needsServer && $coachingState && !$clientsTab) replace('/goals');
@@ -47,14 +51,15 @@
     if (!first) loadList();
   }
 
-  async function loadList() {
-    listErr = '';
+  // `quiet`: read again on coming back; a failed read keeps what is shown.
+  async function loadList({ quiet = false } = {}) {
+    if (!quiet) listErr = '';
     try {
       rows = await NtApi.get(`/api/coaching/clients?today=${todayLocal()}`);
       // Copies kept for a dead zone go with a client who is no longer yours.
       NtApi.forgetCoachingReads(rows.filter(r => r.status === 'active').map(r => r.client.id)).catch(() => {});
     }
-    catch (e) { listErr = coachingErrorText(e, $_); rows = rows || []; }
+    catch (e) { if (!quiet) listErr = coachingErrorText(e, $_); rows = rows || []; }
   }
 
   async function end(row, { pending = false } = {}) {

@@ -1,5 +1,7 @@
 <script>
   import { slide } from 'svelte/transition';
+  import { onMount } from 'svelte';
+  import { onComeBack } from '../../lib/sync-refresh.js';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
@@ -118,9 +120,10 @@
   let inviteLoading = false;
   let inviteResult = null; // { inviteUrl, sent }
   let pendingInvites = []; // { token, email, role, expires_at }
-  async function loadPendingInvites() {
+  // `quiet`: read again on coming back; a failed read keeps what is shown.
+  async function loadPendingInvites({ quiet = false } = {}) {
     try { pendingInvites = await NtApi.get('/api/auth/invites'); }
-    catch { pendingInvites = []; }
+    catch { if (!quiet) pendingInvites = []; }
   }
   async function revokeInvite(token) {
     if (!await confirmDialog({
@@ -154,11 +157,19 @@
   $: inviteCoaches = umUsers.filter(u => u.role === 'coach' || u.role === 'admin');
   let pairings = [];
   let coachSomeoneOpen = false;
-  async function loadPairings() {
+  async function loadPairings({ quiet = false } = {}) {
     if (!$coachingSupported) { pairings = []; return; }
     try { pairings = await NtApi.get('/api/coaching/admin/pairings'); }
-    catch { pairings = []; }
+    catch { if (!quiet) pairings = []; }
   }
+  // Users, invites and coaching pairs live on the server only (a sync
+  // doesn't bring them): back in front, they are read again, quietly, unless
+  // a user is being added or a sheet is open here.
+  onMount(() => onComeBack(() => {
+    if (!$userMgmtActive || umLoading || _tsOpen || _delOpen || coachSomeoneOpen) return;
+    loadUsers({ quiet: true });
+    if ($currentUser?.role === 'admin') { loadPendingInvites({ quiet: true }); loadPairings({ quiet: true }); }
+  }));
   async function endPairing(p) {
     if (!await confirmDialog({
       title: $_('settings.users.coaching_end_title'),
@@ -307,10 +318,10 @@
     enableUmLoading = false;
   }
 
-  async function loadUsers() {
+  async function loadUsers({ quiet = false } = {}) {
     try {
       umUsers = await NtApi.get('/api/auth/users');
-    } catch(e) { umError = e.message; }
+    } catch(e) { if (!quiet) umError = e.message; }
   }
 
   async function addUser() {

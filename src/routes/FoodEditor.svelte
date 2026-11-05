@@ -31,6 +31,7 @@
   import { acquireScreenWakeLock } from '../lib/wake-lock.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { snapshotOf, scaledFood } from '../lib/proportional-scale.js';
+  import { onSynced, takeUntouched } from '../lib/sync-refresh.js';
 
   // ── Photo capture / upload ─────────────────────────────────
   let fileInput;
@@ -143,6 +144,8 @@
     // survives reloads.
     _derived: {},
   };
+  // The empty form, for a newer copy of the food a sync brings.
+  const _blankFood = JSON.parse(JSON.stringify(food));
   let store = 'foodList';
   let saving = false;
   let showAllNutrients = false;
@@ -683,6 +686,9 @@
     // reset the form to what actually came from the server (or empty,
     // for the "add new" path).
     _serverBaseline = { ...food };
+    // What the form opened with: a field that differs from it was changed
+    // here (a draft brought back counts as changed).
+    if (typeof food.id === 'number' && !food._shared_by) _opened = JSON.parse(JSON.stringify(food));
     try {
       const _draft = loadDraft(_draftKey);
       // A scan of an unknown barcode shares the blank-item draft (#157: a
@@ -723,6 +729,36 @@
     // see the link-btn click handler.
 
   });
+
+  // Android: a sync that changed this food (on the web, another phone)
+  // fills in the fields not changed here; what you changed stays yours.
+  // Deleted elsewhere, it says so, and Save is off (it would bring back a
+  // food deleted on purpose).
+  let _opened = null;
+  let _gone = false;
+  let _syncSeq = 0;
+  function _formOfFood(row) {
+    const flat = row.nutrition && typeof row.nutrition === 'object' ? { ...row.nutrition } : {};
+    return { ...JSON.parse(JSON.stringify(_blankFood)), ...row, ...flat };
+  }
+  async function _takeSynced() {
+    if (!_opened || _gone || saving || typeof food.id !== 'number') return;
+    const seq = ++_syncSeq;
+    let row;
+    try { row = await NtApi.getFood(food.id); } catch { return; /* what is shown stays */ }
+    if (seq !== _syncSeq || saving || !_opened) return;
+    if (!row || row.deleted_at) { _gone = true; return; }
+    const fresh = _formOfFood(row);
+    const took = takeUntouched(food, _opened, fresh);
+    food = took.form;
+    _opened = took.opened;
+    // Discarding a restored draft goes back to this copy.
+    if (_serverBaseline) _serverBaseline = { ...fresh };
+    // The amounts the link scales from follow, unless you changed one.
+    const scaled = new Set(['portion', 'unit', ..._allNuts().map(n => n.id)]);
+    if (linked && !took.touched.some(k => scaled.has(k))) takeSnapshot();
+  }
+  onMount(() => onSynced(['foods'], () => { _takeSynced(); }));
 
   // Read-only when viewing someone else's shared food. Server returns 403 on
   // PUT regardless, but locking the UI prevents the user from typing into a
@@ -768,6 +804,7 @@
   }
 
   async function save() {
+    if (_gone) return;
     if (!food.name.trim()) {
       showError($_('food_editor.errors.name_required'));
       return;
@@ -925,7 +962,7 @@
       </button>
     {:else}
       <button class="btn btn-primary" style="height:36px;padding:0 16px;font-size:13px"
-        on:click={save} disabled={saving}>
+        on:click={save} disabled={saving || _gone}>
         {saving ? 'Saving…' : 'Save'}
       </button>
     {/if}
@@ -1030,6 +1067,12 @@
     <!-- Restored-draft banner (#157 followup). Only visible when a
          draft was overlaid at mount; Discard resets the form to the
          server-loaded (or empty) baseline and clears the draft store. -->
+    {#if _gone}
+      <div class="draft-restored-banner" role="status">
+        <span class="material-symbols-rounded">delete</span>
+        <span class="draft-restored-text">{$_('food_editor.gone')}</span>
+      </div>
+    {/if}
     {#if _draftRestored}
       <div class="draft-restored-banner">
         <span class="material-symbols-rounded">history</span>

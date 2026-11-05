@@ -3,6 +3,7 @@
   // Coach, then requests to answer. Nothing about the client is visible to the
   // coach before Accept.
   import { onMount } from 'svelte';
+  import { onComeBack } from '../lib/sync-refresh.js';
   import { _ } from 'svelte-i18n';
   import { replace } from 'svelte-spa-router';
   import { NtApi } from '../lib/api.js';
@@ -37,6 +38,13 @@
     loaded = true;
     if (!needsServer) loadCoachRecommendations({ refresh: true }).catch(() => {});
   });
+  // Your coach and what they recommended come from the server: back in
+  // front, they are read again, quietly (offline keeps what is known).
+  onMount(() => onComeBack(() => {
+    if (!loaded || needsServer) return;
+    refreshCoaching();
+    loadCoachRecommendations({ refresh: true }).catch(() => {});
+  }));
   // Waiting for an answer: pinned on top. Answered: history, below.
   // A day plan past its date is Expired: history.
   const waiting = (r, pid, day) => r.pairing_id === pid && shownStatus(r, day) === 'pending';

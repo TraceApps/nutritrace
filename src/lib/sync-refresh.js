@@ -56,3 +56,57 @@ export function onSynced(kinds, fn) {
   window.addEventListener('nt:sync-complete', handler);
   return () => window.removeEventListener('nt:sync-complete', handler);
 }
+
+// ── An editor open on a row a sync changed ──────────────────────────────
+
+const _same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * The fields of an editor's form changed since it opened: `now` and
+ * `opened` are the form's values now and as it opened (or as it last took
+ * a newer copy), in the same shape.
+ */
+export function touchedFields(now, opened) {
+  return [...new Set([...Object.keys(now || {}), ...Object.keys(opened || {})])]
+    .filter(k => !_same(now?.[k], opened?.[k]));
+}
+
+/**
+ * An editor whose form is one object: `now` takes `fresh` (the newer copy,
+ * as a form) in every field not changed since `opened`. Returns the form,
+ * what it now counts as opened (a copy: a form's fields are changed in
+ * place) and the fields kept.
+ */
+export function takeUntouched(now, opened, fresh) {
+  const touched = touchedFields(now, opened);
+  const form = {}, nextOpened = {};
+  for (const k of new Set([...Object.keys(now || {}), ...Object.keys(fresh || {})])) {
+    const keep = touched.includes(k);
+    form[k] = keep ? now[k] : fresh?.[k];
+    nextOpened[k] = keep ? opened?.[k] : fresh?.[k];
+  }
+  return { form, opened: JSON.parse(JSON.stringify(nextOpened)), touched };
+}
+
+/**
+ * Calls `fn()` when the app comes back to the front: the page shown again
+ * (back from the background, or another tab) or the window focused again.
+ * For a view read from the server only, that no sync brings (a coach's
+ * clients, a client's page, your coach, users). Only after it was away, so
+ * coming back once reads once. Returns the function that stops listening.
+ */
+export function onComeBack(fn) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
+  let away = false;
+  const leave = () => { away = true; };
+  const back = () => { if (away && document.visibilityState !== 'hidden') { away = false; fn(); } };
+  const onVisibility = () => { if (document.visibilityState === 'hidden') leave(); else back(); };
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('blur', leave);
+  window.addEventListener('focus', back);
+  return () => {
+    document.removeEventListener('visibilitychange', onVisibility);
+    window.removeEventListener('blur', leave);
+    window.removeEventListener('focus', back);
+  };
+}

@@ -842,6 +842,7 @@
       "remove": "Remove"
     },
     "edit_item": {
+      "gone": "This item was deleted on another device, so changes here can't be saved.",
       "save": "Save",
       "remove_ingredient": "Remove ingredient",
       "remove_qc_entry": "Remove entry",
@@ -861,6 +862,7 @@
       "activity_delete_failed": "Could not delete activity"
     },
     "activity": {
+      "gone": "This activity was deleted or moved to another day on another device, so changes here can't be saved.",
       "section": "Activity",
       "tap_to_add": "Tap to Add Activity",
       "add": "Add Activity",
@@ -1193,6 +1195,7 @@
     }
   },
   "goals": {
+    "gone": "This goal was removed on another device, so changes here can't be saved.",
     "save_goal": "Save Goal",
     "toast": {
       "goal_saved": "Goal saved",
@@ -1435,6 +1438,7 @@
     "cancel": "Cancel"
   },
   "fasting": {
+    "gone": "This fast was ended or deleted on another device.",
     "start_fasting": "Start Fasting",
     "hours_ph": "Hours",
     "name_ph": "Name (optional)",
@@ -1633,6 +1637,7 @@
     "crop_hint": "Drag the box to reposition; drag the corner to resize",
     "draft_restored": "Restored unsaved changes from earlier.",
     "draft_discard": "Discard",
+    "gone": "This food was deleted on another device, so changes here can't be saved.",
     "field_brand": "Brand",
     "field_serving_size": "Serving Size",
     "field_unit": "Unit",
@@ -1693,6 +1698,8 @@
     "card_photo": "Photo",
     "draft_restored": "Restored unsaved changes from earlier.",
     "draft_discard": "Discard",
+    "gone": "This meal was deleted on another device, so changes here can't be saved.",
+    "gone_recipe": "This recipe was deleted on another device, so changes here can't be saved.",
     "card_categories": "Categories",
     "card_notes": "Notes",
     "card_nutrition_totals": "Nutrition Totals",

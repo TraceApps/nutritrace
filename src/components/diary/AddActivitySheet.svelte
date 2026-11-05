@@ -1,5 +1,6 @@
 <script>
-  import { createEventDispatcher, tick } from 'svelte';
+  import { createEventDispatcher, tick, onMount } from 'svelte';
+  import { onSynced, takeUntouched } from '../../lib/sync-refresh.js';
   import { _ } from 'svelte-i18n';
   import Sheet from '../ui/Sheet.svelte';
   import { addActivity, updateActivity } from '../../stores/activity.js';
@@ -50,6 +51,8 @@
       isTemplate  = !!entry?.is_template;
       error       = '';
       userKcalOverridden = !!entry;      // editing an existing row = user's own number
+      _opened = entry?.id != null ? _fieldsOf(entry) : null;
+      gone = false;
       showSuggestions = false;
       // Weight source for the MET → kcal preview. Priority chain (#99):
       //   1. freshest of {body_stats.weight, wellness_data.weight_kg} — the
@@ -224,7 +227,40 @@
     showBrowse = false;
   }
 
+  // Android: a sync that changed the activity open here (on the web, another
+  // phone) fills in the fields not changed here; what you changed stays
+  // yours. Deleted elsewhere (or moved to another day), it says so, and
+  // Save is off.
+  let _opened = null;
+  let gone = false;
+  let _syncSeq = 0;
+  function _fieldsOf(e) {
+    return {
+      name: e?.name ?? '',
+      kcal: e?.kcal != null ? String($energyUnit === 'kJ' ? Math.round(e.kcal * 4.184) : e.kcal) : '',
+      durationMin: e?.duration_min != null ? String(e.duration_min) : '',
+      distance: e?.distance ?? '',
+      met: e?.met ?? null,
+      isTemplate: !!e?.is_template,
+    };
+  }
+  async function _takeSynced() {
+    if (!open || entry?.id == null || !_opened || gone || saving) return;
+    const seq = ++_syncSeq;
+    const id = entry.id;
+    let rows;
+    try { rows = await NtApi.get(`/api/activity/${entry.date || date}`); } catch { return; /* what is shown stays */ }
+    if (seq !== _syncSeq || !open || saving || entry?.id !== id || !_opened) return;
+    const row = (Array.isArray(rows) ? rows : []).find(r => r?.id === id);
+    if (!row) { gone = true; return; }
+    const took = takeUntouched({ name, kcal, durationMin, distance, met, isTemplate }, _opened, _fieldsOf(row));
+    ({ name, kcal, durationMin, distance, met, isTemplate } = took.form);
+    _opened = took.opened;
+  }
+  onMount(() => onSynced(['activity'], () => { _takeSynced(); }));
+
   async function save() {
+    if (gone) return;
     error = '';
     const trimmed = name.trim();
     if (!trimmed) { error = $_('diary.activity.errors.name_required'); return; }
@@ -346,12 +382,15 @@
       <span>{$_('diary.activity.save_as_template')} <span class="hint">{$_('diary.activity.save_as_template_hint')}</span></span>
     </label>
 
+    {#if gone}
+      <div class="error" role="status">{$_('diary.activity.gone')}</div>
+    {/if}
     {#if error}
       <div class="error">{error}</div>
     {/if}
 
     <div class="actions">
-      <button class="btn btn-primary btn-block" on:click={save} disabled={saving}>
+      <button class="btn btn-primary btn-block" on:click={save} disabled={saving || gone}>
         {saving ? $_('diary.activity.saving') : (entry ? $_('diary.activity.save_changes') : $_('diary.activity.add_to_diary'))}
       </button>
     </div>

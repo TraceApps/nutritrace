@@ -21,7 +21,7 @@ The important reads:
 - `src/lib/db.js`, IndexedDB abstraction for PWA
 - `src/lib/db-native.js`, on-device SQLite for Android local mode
 - `src/lib/sync.js`, differential push/pull orchestrator for Android server mode
-- `src/lib/sync-refresh.js`, what a sync changed (`nt:sync-complete` carries `kinds`) and `onSynced(kinds, fn)`, which an open page uses to read its rows again
+- `src/lib/sync-refresh.js`, what a sync changed (`nt:sync-complete` carries `kinds`) and `onSynced(kinds, fn)`, which an open page uses to read its rows again. An open editor (food, meal or recipe, a diary item, an activity, the running fast's start, a goal) takes a synced change into the fields not changed in it (`takeUntouched`) and says so, with Save off, when its row was deleted elsewhere; the diary's edit sheet finds its item by uuid. Views read only from the server (a coach's clients and a client's page, your coach, users) read again when the app is back in front (`onComeBack`), and the adaptive and dynamic calorie goals after a sync that changed the diary or wellness rows
 - `src/lib/aiChat.js`, multi-provider AI (Claude/OpenAI/Gemini) with tool-use loop
 - `src/stores/diary.js`, `currentDate`, `currentEntry`, `diaryTotals`, mutations
 - `src/stores/settings.js`, all settings as `createSettingStore` instances

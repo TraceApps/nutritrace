@@ -29,11 +29,13 @@
   import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { foldText } from '../lib/search-text.js';
+  import { onSynced, takeUntouched } from '../lib/sync-refresh.js';
 
 
   export let params = {};
 
   let meal   = { name: '', notes: '', categories: [], items: [], imgUrl: '' };
+  const _blankMeal = JSON.parse(JSON.stringify(meal));
   let store  = 'meals';
   let saving = false;
   let isRecipe = false;
@@ -220,8 +222,62 @@
     // banner when CT is confirmed newer AND the setting is on. User
     // consents to overwrite via the banner's Refresh button; no forced
     // sync.
+    // What the form opened with (before any draft brought back): a field
+    // that differs from it was changed here.
+    if (typeof meal.id === 'number' && !meal._shared_by) _opened = _formOfMeal(_serverBaseline.meal);
+
     _checkForCtUpdates();
   });
+
+  // Android: a sync that changed this meal or recipe (on the web, another
+  // phone) fills in the fields not changed here, its ingredients and its
+  // photo, size and servings included; what you changed stays yours.
+  // Deleted elsewhere, it says so, and Save is off (it would bring back
+  // what was deleted on purpose).
+  let _opened = null;
+  let _gone = false;
+  let _syncSeq = 0;
+  // The form as one object: the meal's fields, and the photo, size and
+  // servings the editor keeps beside it (as onMount works them out).
+  function _formOfMeal(row) {
+    const f = { ...JSON.parse(JSON.stringify(_blankMeal)), ...JSON.parse(JSON.stringify(row)), _photo: row.imgUrl || '' };
+    if (isRecipe) {
+      const explicit = row.servings != null;
+      const eff = explicit ? Math.max(1, parseInt(row.servings) || 1) : 1;
+      f._yields = explicit ? eff : '';
+      f._amount = row.portion ? (parseFloat(row.portion) || 0) * eff : '';
+      f._unit = row.unit || 'g';
+    }
+    return f;
+  }
+  function _formNow() {
+    const f = { ...meal, _photo: photoPreviewUrl };
+    if (isRecipe) { f._yields = recipeYields; f._amount = recipeAmount; f._unit = recipeUnit; }
+    return f;
+  }
+  function _split(form) {
+    const { _photo, _yields, _amount, _unit, ...rest } = form;
+    return { meal: rest, photo: _photo, yields: _yields, amount: _amount, unit: _unit };
+  }
+  async function _takeSynced() {
+    if (!_opened || _gone || saving || typeof meal.id !== 'number') return;
+    const seq = ++_syncSeq;
+    let row;
+    try { row = await NtApi.getMeal(meal.id); } catch { return; /* what is shown stays */ }
+    if (seq !== _syncSeq || saving || !_opened) return;
+    if (!row || row.deleted_at) { _gone = true; return; }
+    const fresh = _formOfMeal(row);
+    const took = takeUntouched(_formNow(), _opened, fresh);
+    _opened = took.opened;
+    const next = _split(took.form);
+    meal = next.meal;
+    photoPreviewUrl = next.photo || '';
+    if (isRecipe) { recipeYields = next.yields; recipeAmount = next.amount; recipeUnit = next.unit; }
+    // Discarding a restored draft goes back to this copy.
+    const base = _split(fresh);
+    if (_serverBaseline) _serverBaseline = { ..._serverBaseline, meal: base.meal, photoPreviewUrl: base.photo || '', ...(isRecipe ? { recipeAmount: base.amount, recipeUnit: base.unit, recipeYields: base.yields } : {}) };
+  }
+  onMount(() => onSynced(['meals'], () => { _takeSynced(); }));
 
   // Detected upstream refresh; the banner reads this to render.
   let _ctUpdateAvailable = null;
@@ -840,6 +896,7 @@
 
   // ── Save ──────────────────────────────────────────────────────────────────
   async function save() {
+    if (_gone) return;
     if (!meal.name.trim()) { showError($_('food_editor.errors.name_required')); return; }
     if (!meal.items.length) { showError($_('meal_editor.errors.no_ingredients')); return; }
     saving = true;
@@ -966,7 +1023,7 @@
       </button>
     {:else}
       <button class="btn btn-primary hdr-save" style="height:36px;font-size:13px"
-        on:click={save} disabled={saving}>
+        on:click={save} disabled={saving || _gone}>
         {saving ? 'Saving…' : 'Save'}
       </button>
     {/if}
@@ -991,6 +1048,12 @@
 
     <!-- Restored-draft banner (#157 followup). Same treatment as
          FoodEditor; sits above the first card. -->
+    {#if _gone}
+      <div class="draft-restored-banner" role="status">
+        <span class="material-symbols-rounded">delete</span>
+        <span class="draft-restored-text">{$_(isRecipe ? 'meal_editor.gone_recipe' : 'meal_editor.gone')}</span>
+      </div>
+    {/if}
     {#if _draftRestored}
       <div class="draft-restored-banner">
         <span class="material-symbols-rounded">history</span>

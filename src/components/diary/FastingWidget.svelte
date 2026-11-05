@@ -26,6 +26,7 @@
   import DateInput from '../ui/DateInput.svelte';
   import { decimalInput, parseDecimal } from '../../lib/decimal-input.js';
   import TimePicker from '../ui/TimePicker.svelte';
+  import { takeUntouched } from '../../lib/sync-refresh.js';
 
   const BUILTIN_PRESETS = [
     { label: '14:10', hours: 14 },
@@ -162,6 +163,7 @@
       confirmText: 'End Fast',
     });
     if (!ok) return;
+    _editingStart = false; // ended here: nothing to say
     await endFast();
   }
 
@@ -183,17 +185,43 @@
     fastingCustomPresets.set(next);
   }
 
+  function _startFields(fast) {
+    const d = new Date(fast.start_at);
+    const pad = n => String(n).padStart(2, '0');
+    return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
+  }
   function _openEditStart() {
     if (!_active) return;
-    const d = new Date(_active.start_at);
-    const pad = n => String(n).padStart(2, '0');
-    _editStartDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    _editStartTime = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const f = _startFields(_active);
+    _editStartDate = f.date;
+    _editStartTime = f.time;
+    _editFastId = _active.id;
+    _editOpened = f;
     _editingStart = true;
   }
 
+  // The running fast changes under the open start-time editor when a sync
+  // brings a change from the web or another phone (Diary reads it again).
+  // A new start time fills in the field you haven't changed; a fast ended
+  // or deleted elsewhere says so and closes the editor, which never saves
+  // into another fast.
+  let _editFastId = null;
+  let _editOpened = null;
+  $: if (_editingStart) _followActive(_active);
+  function _followActive(a) {
+    if (!a || a.id !== _editFastId) {
+      _editingStart = false;
+      showError($_('fasting.gone'));
+      return;
+    }
+    const took = takeUntouched({ date: _editStartDate, time: _editStartTime }, _editOpened, _startFields(a));
+    _editStartDate = took.form.date;
+    _editStartTime = took.form.time;
+    _editOpened = took.opened;
+  }
+
   async function _saveEditStart() {
-    if (!_active || !_editStartDate || !_editStartTime) return;
+    if (!_active || _active.id !== _editFastId || !_editStartDate || !_editStartTime) return;
     // Compose a local Date from the date + time strings then send as ISO UTC.
     const [yy, mm, dd] = _editStartDate.split('-').map(n => parseInt(n));
     const [hh, mi]     = _editStartTime.split(':').map(n => parseInt(n));

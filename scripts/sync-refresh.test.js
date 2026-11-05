@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { pullKinds, syncTouched, onSynced, SYNC_KINDS } from '../src/lib/sync-refresh.js';
+import { pullKinds, syncTouched, onSynced, SYNC_KINDS, touchedFields, takeUntouched, onComeBack } from '../src/lib/sync-refresh.js';
 
 const src = f => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 
@@ -116,6 +116,127 @@ test('every page that lists rows a sync can change reloads them when it does', (
   assert.match(src('routes/Statistics.svelte'), /onSynced\(\['diary', 'wellness'\], \(\) => \{ if \(canvasEl\) loadData\(\); \}\)/);
   assert.match(src('components/diary/FastingInsights.svelte'), /onSynced\(\['fasts'\], \(\) => \{ loadFasting\(\); \}\)/);
   const goals = src('routes/Goals.svelte');
-  assert.match(goals, /onSynced\(\['diary'\], \(\) => \{ loadDiaryData\(\); \}\)/);
+  assert.match(goals, /onSynced\(\['diary', 'wellness'\], \(d\) => \{\n    if \(syncTouched\(d, \['diary'\]\)\) loadDiaryData\(\);/);
   assert.match(goals, /await loadDiaryData\(\);/);
+});
+
+// The calorie goal worked out from diary days and wellness values (adaptive:
+// recent intake and weights; dynamic: yesterday's burn) was read once, so a
+// scale's weight or a day's food that a sync brought left it as it was.
+test('the adaptive and dynamic calorie goals are read again after a sync that changed what they come from', () => {
+  const diary = src('routes/Diary.svelte');
+  assert.match(diary, /\$calorieGoalMode === 'adaptive' && syncTouched\(d, \['diary', 'wellness'\]\)\) _loadAdaptiveTdee\(\{ quiet: true \}\)/);
+  assert.match(diary, /\$calorieGoalMode === 'dynamic' && cur && syncTouched\(d, \['wellness'\]\)\) \{ _dynamicGoalDate = null; _loadDynamicGoal\(cur, \{ quiet: true \}\); \}/);
+  assert.match(diary, /catch \{ if \(!quiet\) _adaptiveTdee = null; \}/, 'a failed read after a sync keeps the goal shown');
+  const goals = src('routes/Goals.svelte');
+  assert.match(goals, /loadAdaptive\(\{ quiet: true \}\);\n    if \(syncTouched\(d, \['wellness'\]\)\) loadDynamicGoal\(\{ quiet: true \}\);/);
+  assert.match(goals, /\.catch\(\(\) => \{ if \(!quiet\) _adaptive = null; _adaptiveLoaded = true; \}\)/);
+});
+
+test('an open editor takes a newer copy into the fields not changed in it', () => {
+  const opened = { name: 'Oats', kcal: '380', items: [{ id: 1, q: 1 }], notes: '' };
+  // Changed here: the name. Changed elsewhere: the calories, the items, a new field.
+  const now = { ...opened, name: 'My Oats' };
+  const fresh = { name: 'Rolled Oats', kcal: '390', items: [{ id: 1, q: 2 }], notes: '', brand: 'Mill' };
+  assert.deepEqual(touchedFields(now, opened), ['name']);
+  const took = takeUntouched(now, opened, fresh);
+  assert.deepEqual(took.form, { name: 'My Oats', kcal: '390', items: [{ id: 1, q: 2 }], notes: '', brand: 'Mill' });
+  assert.deepEqual(took.touched, ['name']);
+  // What it counts as opened now: the fields taken in as they came, the
+  // kept one as it opened, so it still counts as changed here.
+  assert.deepEqual(took.opened, { name: 'Oats', kcal: '390', items: [{ id: 1, q: 2 }], notes: '', brand: 'Mill' });
+  assert.deepEqual(touchedFields(took.form, took.opened), ['name']);
+  // A copy: changing the form in place doesn't change what it opened with.
+  took.form.items[0].q = 5;
+  assert.equal(took.opened.items[0].q, 2);
+  // A field changed back to what it opened with counts as not changed.
+  assert.deepEqual(takeUntouched({ ...opened }, opened, fresh).form, fresh);
+  // A field taken away elsewhere goes, unless it was changed here.
+  assert.equal('notes' in takeUntouched(opened, opened, { name: 'Oats' }).form, true);
+  assert.equal(takeUntouched(opened, opened, { name: 'Oats' }).form.notes, undefined);
+  assert.equal(takeUntouched({ ...opened, notes: 'mine' }, opened, { name: 'Oats' }).form.notes, 'mine');
+});
+
+test('onComeBack reads again when the app is back in front, once, and only after it was away', () => {
+  const win = new EventTarget(), doc = new EventTarget();
+  doc.visibilityState = 'visible';
+  const hadW = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const hadD = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'window', { value: win, configurable: true, writable: true });
+  Object.defineProperty(globalThis, 'document', { value: doc, configurable: true, writable: true });
+  try {
+    let n = 0;
+    const off = onComeBack(() => { n++; });
+    win.dispatchEvent(new Event('focus'));
+    assert.equal(n, 0, 'focused without having been away');
+    // To the background and back: hidden, shown, then focused.
+    doc.visibilityState = 'hidden'; doc.dispatchEvent(new Event('visibilitychange'));
+    doc.visibilityState = 'visible'; doc.dispatchEvent(new Event('visibilitychange'));
+    win.dispatchEvent(new Event('focus'));
+    assert.equal(n, 1, 'once for one return');
+    // Another window in front, and back.
+    win.dispatchEvent(new Event('blur'));
+    win.dispatchEvent(new Event('focus'));
+    assert.equal(n, 2);
+    off();
+    win.dispatchEvent(new Event('blur'));
+    win.dispatchEvent(new Event('focus'));
+    assert.equal(n, 2, 'a page that has gone is not called');
+  } finally {
+    if (hadW) Object.defineProperty(globalThis, 'window', hadW); else delete globalThis.window;
+    if (hadD) Object.defineProperty(globalThis, 'document', hadD); else delete globalThis.document;
+  }
+  assert.equal(typeof onComeBack(() => {}), 'function');
+});
+
+// An editor open when a sync changed its row kept the copy it opened with,
+// and saving put that copy back over the change; one deleted elsewhere
+// saved into the deleted row (or, in the diary, into whichever item had
+// moved into its place).
+test('open editors take in what a sync changed, and a row deleted elsewhere turns Save off', () => {
+  const food = src('routes/FoodEditor.svelte');
+  assert.match(food, /onSynced\(\['foods'\], \(\) => \{ _takeSynced\(\); \}\)/);
+  assert.match(food, /const took = takeUntouched\(food, _opened, fresh\);/);
+  assert.match(food, /if \(!row \|\| row\.deleted_at\) \{ _gone = true; return; \}/);
+  assert.match(food, /async function save\(\) \{\r?\n    if \(_gone\) return;/);
+  assert.match(food, /on:click=\{save\} disabled=\{saving \|\| _gone\}/);
+  const meal = src('routes/MealEditor.svelte');
+  assert.match(meal, /onSynced\(\['meals'\], \(\) => \{ _takeSynced\(\); \}\)/);
+  assert.match(meal, /const took = takeUntouched\(_formNow\(\), _opened, fresh\);/);
+  assert.match(meal, /if \(!row \|\| row\.deleted_at\) \{ _gone = true; return; \}/);
+  assert.match(meal, /async function save\(\) \{\r?\n    if \(_gone\) return;/);
+  assert.match(meal, /on:click=\{save\} disabled=\{saving \|\| _gone\}/);
+  // The diary's edit sheet keeps to its item by uuid, never by its place.
+  const diary = src('routes/Diary.svelte');
+  assert.match(diary, /if \(cur\) loadEntry\(cur\)\.then\(_takeSyncedEditItem\)/);
+  assert.match(diary, /const i = items\.findIndex\(it => it\?\.uuid === _editKey\.uuid\);\n      if \(i >= 0\) fresh = \{ \.\.\.items\[i\], _i: i \};/);
+  assert.match(diary, /if \(!fresh\) \{ _editGone = true; return; \}/);
+  assert.match(diary, /if \(!editItem \|\| _editGone\) return;/);
+  assert.equal((diary.match(/on:click=\{saveEditItem\} disabled=\{_editGone\}/g) || []).length, 2);
+  const act = src('components/diary/AddActivitySheet.svelte');
+  assert.match(act, /onSynced\(\['activity'\], \(\) => \{ _takeSynced\(\); \}\)/);
+  assert.match(act, /if \(!row\) \{ gone = true; return; \}/);
+  assert.match(act, /disabled=\{saving \|\| gone\}/);
+  const fast = src('components/diary/FastingWidget.svelte');
+  assert.match(fast, /\$: if \(_editingStart\) _followActive\(_active\);/);
+  assert.match(fast, /if \(!_active \|\| _active\.id !== _editFastId/, 'never saved into another fast');
+  const goals = src('routes/Goals.svelte');
+  assert.match(goals, /onSynced\(\['settings'\], \(\) => \{/);
+  assert.match(goals, /if \(_goalHad && !g\) _goalGone = true;/);
+  assert.match(goals, /if \(!editStat \|\| _goalGone\) return;/);
+  // Every string a notice says is in English.
+  const en = JSON.parse(src('i18n/en.json'));
+  for (const v of [en.food_editor.gone, en.meal_editor.gone, en.meal_editor.gone_recipe, en.diary.edit_item.gone, en.diary.activity.gone, en.goals.gone, en.fasting.gone]) assert.ok(typeof v === 'string' && v.length > 10);
+});
+
+test('views read from the server only are read again on coming back, quietly', () => {
+  assert.match(src('routes/Clients.svelte'), /onComeBack\(\(\) => \{ if \(loaded && !needsServer\) \{ loadList\(\{ quiet: true \}\); refreshCoaching\(\); \} \}\)/);
+  assert.match(src('routes/Coach.svelte'), /onComeBack\(\(\) => \{\n    if \(!loaded \|\| needsServer\) return;\n    refreshCoaching\(\);/);
+  const detail = src('components/coaching/ClientDetail.svelte');
+  assert.match(detail, /onComeBack\(\(\) => \{\n    if \(!clientId\) return;\n    loadOverview\(\{ quiet: true \}\);/);
+  assert.match(detail, /if \(!quiet\) \{ overview = null; overviewErr = ''; \}/, 'what is shown stays while it is read');
+  const users = src('components/settings/SettingsUserManagement.svelte');
+  assert.match(users, /onComeBack\(\(\) => \{\n    if \(!\$userMgmtActive \|\| umLoading/);
+  // No timers: only coming back reads again.
+  for (const f of ['routes/Clients.svelte', 'routes/Coach.svelte', 'components/coaching/ClientDetail.svelte']) assert.doesNotMatch(src(f), /setInterval/);
 });

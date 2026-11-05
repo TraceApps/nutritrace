@@ -66,7 +66,7 @@
            forceMobileLayout } from '../stores/settings.js';
   import { dayActivity, activitySummary, loadActivity, deleteActivity } from '../stores/activity.js';
   import { loadFasting } from '../stores/fasting.js';
-  import { syncTouched } from '../lib/sync-refresh.js';
+  import { syncTouched, takeUntouched } from '../lib/sync-refresh.js';
   import WaterBanner  from '../components/banners/WaterBanner.svelte';
   import DiaryCoachCard from '../components/coaching/DiaryCoachCard.svelte';
   import DiaryPlanCard from '../components/coaching/DiaryPlanCard.svelte';
@@ -264,25 +264,80 @@
     showSuccess($_('diary.toast.body_stats_saved'));
   }
 
-  function openEditItem(item) {
-    editItem     = item;
-    editPortion  = item.portion || item.amount || 100;
-    editUnit     = item.unit || 'g';
-    editQuantity = item.quantity || 1;
-    editLoggedTime = _isoToHm(item.addedAt || item.dateTime);
-    _editChildContext = null;
+  // The edit sheet's fields for an item (a split recipe's ingredient has no
+  // time of its own, nor Quick Calories fields).
+  function _editFieldsOf(item, child = false) {
+    const f = { portion: item.portion || item.amount || 100, unit: item.unit || 'g', quantity: item.quantity || 1 };
+    if (child) return f;
+    f.at = _isoToHm(item.addedAt || item.dateTime);
     if (item?.type === 'quick_calories') {
       const storedKcal = Math.round(item.nutrition?.calories || 0);
       // Display in user's current energy unit; saved back to kcal.
-      editKcalDisplay = $energyUnit === 'kJ'
-        ? String(Math.round(storedKcal * 4.184))
-        : String(storedKcal);
-      editName    = (item.name && item.name !== 'Quick Calories') ? item.name : '';
-      editProtein = item.nutrition?.proteins      != null ? String(item.nutrition.proteins)      : '';
-      editCarbs   = item.nutrition?.carbohydrates != null ? String(item.nutrition.carbohydrates) : '';
-      editFat     = item.nutrition?.fat           != null ? String(item.nutrition.fat)           : '';
+      f.kcal = $energyUnit === 'kJ' ? String(Math.round(storedKcal * 4.184)) : String(storedKcal);
+      f.name = (item.name && item.name !== 'Quick Calories') ? item.name : '';
+      f.p = item.nutrition?.proteins      != null ? String(item.nutrition.proteins)      : '';
+      f.c = item.nutrition?.carbohydrates != null ? String(item.nutrition.carbohydrates) : '';
+      f.f = item.nutrition?.fat           != null ? String(item.nutrition.fat)           : '';
     }
+    return f;
+  }
+  function _editFields() {
+    const f = { portion: editPortion, unit: editUnit, quantity: editQuantity };
+    if (_editChildContext) return f;
+    f.at = editLoggedTime;
+    if (editItem?.type === 'quick_calories') Object.assign(f, { kcal: editKcalDisplay, name: editName, p: editProtein, c: editCarbs, f: editFat });
+    return f;
+  }
+  function _setEditFields(f) {
+    editPortion = f.portion; editUnit = f.unit; editQuantity = f.quantity;
+    if ('at' in f) editLoggedTime = f.at;
+    if ('kcal' in f) { editKcalDisplay = f.kcal; editName = f.name; editProtein = f.p; editCarbs = f.c; editFat = f.f; }
+  }
+
+  function openEditItem(item) {
+    editItem     = item;
+    _editChildContext = null;
+    _setEditFields(_editFieldsOf(item));
+    _editOpenedAs(item.uuid ? { uuid: item.uuid } : null);
     _lockAndOpen(() => showEditSheet = true);
+  }
+
+  // Android: a sync reads the day again under the open edit sheet (an item
+  // added, changed or deleted on the web moves the others). The sheet keeps
+  // to its own item, by its uuid, and each field you haven't changed takes
+  // the newer value; the ones you have keep yours. An item deleted
+  // elsewhere says so, and Save is off.
+  let _editOpened = null;   // the fields as the sheet opened, or last took a newer copy
+  let _editKey = null;      // { uuid } or, for an ingredient, { parentUuid, child }
+  let _editGone = false;
+  function _editOpenedAs(key) {
+    _editKey = key;
+    _editGone = false;
+    _editOpened = key ? JSON.parse(JSON.stringify(_editFields())) : null;
+  }
+  function _takeSyncedEditItem(entry) {
+    if (!showEditSheet || !editItem || !_editKey || _editGone || !entry) return;
+    const items = entry.items || [];
+    let fresh = null, ctx = null;
+    if (_editKey.parentUuid) {
+      const pi = items.findIndex(it => it?.uuid === _editKey.parentUuid);
+      const kids = pi >= 0 && Array.isArray(items[pi]._splitItems) ? items[pi]._splitItems : null;
+      let ci = kids ? kids.findIndex(k => JSON.stringify(k) === _editKey.child) : -1;
+      if (kids && ci < 0) {
+        const like = kids.map((k, i) => [k, i]).filter(([k]) => k?.id === editItem.id && k?.name === editItem.name);
+        if (like.length === 1) ci = like[0][1];
+      }
+      if (ci >= 0) { fresh = kids[ci]; ctx = { parentIdx: pi, childIdx: ci }; }
+    } else {
+      const i = items.findIndex(it => it?.uuid === _editKey.uuid);
+      if (i >= 0) fresh = { ...items[i], _i: i };
+    }
+    if (!fresh) { _editGone = true; return; }
+    const took = takeUntouched(_editFields(), _editOpened, _editFieldsOf(fresh, !!ctx));
+    editItem = fresh;
+    if (ctx) { _editChildContext = ctx; _editKey = { ..._editKey, child: JSON.stringify(fresh) }; }
+    _setEditFields(took.form);
+    _editOpened = took.opened;
   }
 
   // Open the same edit sheet but bound to a single ingredient inside a
@@ -291,10 +346,10 @@
   // recompute via Nutrition.calculate sum-of-children).
   function openEditChild(parentIdx, childIdx, child) {
     editItem     = child;
-    editPortion  = child.portion || child.amount || 100;
-    editUnit     = child.unit || 'g';
-    editQuantity = child.quantity || 1;
     _editChildContext = { parentIdx, childIdx };
+    _setEditFields(_editFieldsOf(child, true));
+    const parentUuid = $currentEntry?.items?.[parentIdx]?.uuid;
+    _editOpenedAs(parentUuid ? { parentUuid, child: JSON.stringify(child) } : null);
     _lockAndOpen(() => showEditSheet = true);
   }
 
@@ -303,7 +358,7 @@
   let _editChildContext = null;
 
   async function saveEditItem() {
-    if (!editItem) return;
+    if (!editItem || _editGone) return;
     // Quick Calories items skip portion math entirely — nutrition is written
     // straight from the edit fields. Blank optional macros drop the key so
     // daily totals don't pick up zero-filled phantoms (same shape as
@@ -473,20 +528,21 @@
        : ($calorieGoalMode === 'adaptive' && _adaptiveTdee != null)
          ? Math.round(_adaptiveTdee * $calorieGoalFactor)
        : _fixedGoal;
-  async function _loadDynamicGoal(date) {
+  // `quiet`: read again after a sync; a failed read keeps what is shown.
+  async function _loadDynamicGoal(date, { quiet = false } = {}) {
     if ($calorieGoalMode !== 'dynamic') return;
     if (_dynamicGoalDate === date) return;
     _dynamicGoalDate = date;
     try {
       const r = await NtApi.get(`/api/wellness/calories-out?date=${date}`);
-      _dynamicCaloriesOut = r.calories_out;
-    } catch { _dynamicCaloriesOut = null; }
+      if (_dynamicGoalDate === date) _dynamicCaloriesOut = r.calories_out;
+    } catch { if (!quiet) _dynamicCaloriesOut = null; }
   }
-  async function _loadAdaptiveTdee() {
+  async function _loadAdaptiveTdee({ quiet = false } = {}) {
     try {
       const r = await NtApi.get('/api/goals/adaptive-tdee');
       _adaptiveTdee = r?.ready ? r.tdee : null;
-    } catch { _adaptiveTdee = null; }
+    } catch { if (!quiet) _adaptiveTdee = null; }
   }
 
   $: if ($calorieGoalMode === 'dynamic' && $currentDate) _loadDynamicGoal($currentDate);
@@ -1947,7 +2003,8 @@
       if (e?.detail?.changed === false) return; // nothing new
       let cur = null;
       currentDate.subscribe(v => cur = v)();
-      if (cur) loadEntry(cur);
+      // The item open in the edit sheet follows (_takeSyncedEditItem).
+      if (cur) loadEntry(cur).then(_takeSyncedEditItem).catch(() => {});
       // The rest of the page reads the phone's database too: what the sync
       // changed (a day's activity or a fast deleted, ended or started on
       // the web, another day of the week strip) is read again. Wearable
@@ -1956,6 +2013,11 @@
       if (cur && $diaryShowActivity && syncTouched(d, ['activity', 'wellness'])) loadActivity(cur);
       if ($fastingEnabled && syncTouched(d, ['fasts'])) loadFasting();
       if (syncTouched(d, ['diary', 'activity'])) _weekStripRefreshKey += 1;
+      // The calorie goal worked out from them: the adaptive one from the
+      // intake and weights of recent days (a weight from a scale arrives
+      // with the wellness rows), the dynamic one from yesterday's burn.
+      if ($calorieGoalMode === 'adaptive' && syncTouched(d, ['diary', 'wellness'])) _loadAdaptiveTdee({ quiet: true });
+      if ($calorieGoalMode === 'dynamic' && cur && syncTouched(d, ['wellness'])) { _dynamicGoalDate = null; _loadDynamicGoal(cur, { quiet: true }); }
     };
     window.addEventListener('nt:sync-complete', onSyncComplete);
     return () => window.removeEventListener('nt:sync-complete', onSyncComplete);
@@ -3038,6 +3100,12 @@
 <Sheet bind:open={showEditSheet} title={editItem ? editItem.name : ''} on:close={() => showEditSheet = false}>
   {#if editItem}
     <div class="edit-sheet-body" bind:this={_editSheetEl} on:keydown={_onEditSheetKey}>
+      {#if _editGone}
+        <div class="edit-gone" role="status">
+          <span class="material-symbols-rounded" aria-hidden="true">delete</span>
+          <span>{$_('diary.edit_item.gone')}</span>
+        </div>
+      {/if}
       {#if editItem.type === 'quick_calories'}
         <!-- Quick Calories edit — mirrors the create sheet (kcal pill + 3-up
              macros + optional name). No Serving Size / Unit / Number of
@@ -3092,7 +3160,7 @@
             <div style="width:130px"><TimePicker bind:value={editLoggedTime} /></div>
           </div>
         {/if}
-        <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveEditItem}>{$_('diary.edit_item.save')}</button>
+        <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveEditItem} disabled={_editGone}>{$_('diary.edit_item.save')}</button>
       {:else}
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
@@ -3138,7 +3206,7 @@
           <span class="edit-macro-label">fat</span>
         </div>
       </div>
-      <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveEditItem}>{$_('diary.edit_item.save')}</button>
+      <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveEditItem} disabled={_editGone}>{$_('diary.edit_item.save')}</button>
       {/if}
     </div>
   {/if}
@@ -4666,6 +4734,15 @@
   .split-child-del:hover { color: var(--danger, #ef4444); }
 
   .edit-sheet-body { padding: 16px; }
+  .edit-gone {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; margin-bottom: 12px;
+    background: var(--accent-dim, rgba(59,130,246,0.10));
+    border: 1px solid var(--accent, #3b82f6);
+    border-radius: var(--radius-md);
+    color: var(--text-1); font-size: 13px;
+  }
+  .edit-gone .material-symbols-rounded { font-size: 20px; color: var(--accent, #3b82f6); }
   .edit-macros { display: flex; gap: 8px; flex-wrap: wrap; }
   .edit-macro-pill {
     flex: 1;

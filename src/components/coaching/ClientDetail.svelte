@@ -2,7 +2,8 @@
   // One client, as their coach sees them: Overview (the last 7 days against
   // their targets, and their weight), Diary (their days, read-only), Plans
   // (day plans), Targets and the conversation.
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
+  import { onComeBack } from '../../lib/sync-refresh.js';
   import { _ } from 'svelte-i18n';
   import { NtApi } from '../../lib/api.js';
   import { Nutrition } from '../../lib/nutrition.js';
@@ -46,28 +47,39 @@
   $: if (tab !== 'targets' && tab !== 'chat' && tab !== 'plans') _recTab = null;
   $: if (tab === 'diary' && clientId && (!day || day.date !== dayDate || day._for !== clientId)) loadDay();
 
-  async function loadOverview() {
+  // A client's page comes from the server only (a sync doesn't bring it):
+  // back in front, what it shows is read again, quietly (`quiet`: what is
+  // shown stays until the answer comes, and stays if it fails).
+  onMount(() => onComeBack(() => {
+    if (!clientId) return;
+    loadOverview({ quiet: true });
+    loadRecs();
+    if (tab === 'diary' && day && !day.failed) loadDay({ quiet: true });
+  }));
+
+  async function loadOverview({ quiet = false } = {}) {
     const id = clientId;
-    overview = null; overviewErr = '';
+    if (!quiet) { overview = null; overviewErr = ''; }
     try {
       const r = await NtApi.get(`/api/coaching/clients/${id}/overview?today=${todayLocal()}`);
-      if (id === clientId) overview = r;
+      if (id === clientId) { overview = r; overviewErr = ''; }
     } catch (e) {
+      if (quiet && overview) return;
       if (id === clientId) overviewErr = coachingErrorText(e, $_);
       // No longer this coach's client: the copies kept for a dead zone go.
       if (!e?.offline && /not found/i.test(String(e?.message))) NtApi.forgetCoachingReads([]).catch(() => {});
     }
   }
 
-  async function loadDay() {
+  async function loadDay({ quiet = false } = {}) {
     const id = clientId, date = dayDate;
     if (dayLoading === `${id}:${date}`) return;
-    dayLoading = `${id}:${date}`; dayErr = '';
+    dayLoading = `${id}:${date}`; if (!quiet) dayErr = '';
     try {
       const r = await NtApi.get(`/api/coaching/clients/${id}/diary/${date}`);
       if (id === clientId && date === dayDate) day = { ...r, _for: id };
     } catch (e) {
-      if (id === clientId && date === dayDate) { day = { date, _for: id, failed: true }; dayErr = coachingErrorText(e, $_); }
+      if (!quiet && id === clientId && date === dayDate) { day = { date, _for: id, failed: true }; dayErr = coachingErrorText(e, $_); }
     }
     dayLoading = false;
   }

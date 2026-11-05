@@ -23,7 +23,7 @@
   import TargetsCard from '../components/coaching/TargetsCard.svelte';
   import { coachTab, coachingState, coachRecommendations, loadCoachRecommendations } from '../stores/coaching.js';
   import { coachNameFor, goalsCardRecommendation } from '../lib/coaching-view.js';
-  import { onSynced } from '../lib/sync-refresh.js';
+  import { onSynced, syncTouched, takeUntouched } from '../lib/sync-refresh.js';
 
   // A coach's recommended targets: only for someone with a coach (nobody
   // else asks for anything, and Goals looks as it always did for them).
@@ -288,23 +288,38 @@
     } catch {}
   }
 
-  onMount(() => onSynced(['diary'], () => { loadDiaryData(); }));
+  // `quiet`: read again after a sync; a failed read keeps what is shown.
+  function loadDynamicGoal({ quiet = false } = {}) {
+    if ($calorieGoalMode !== 'dynamic') return;
+    NtApi.get(`/api/wellness/calories-out?date=${today}`)
+      .then(r => { _dynamicCaloriesOut = r.calories_out; })
+      .catch(() => { if (!quiet) _dynamicCaloriesOut = null; });
+  }
+  function loadAdaptive({ quiet = false } = {}) {
+    NtApi.get('/api/goals/adaptive-tdee')
+      .then(r => { _adaptive = r; _adaptiveLoaded = true; })
+      .catch(() => { if (!quiet) _adaptive = null; _adaptiveLoaded = true; });
+  }
+
+  // A sync that changed diary days or wellness values: the day's numbers,
+  // and the calorie goal worked out from them (the adaptive one from recent
+  // intake and weights, a scale's weight arriving with the wellness rows;
+  // the dynamic one from yesterday's burn).
+  onMount(() => onSynced(['diary', 'wellness'], (d) => {
+    if (syncTouched(d, ['diary'])) loadDiaryData();
+    loadAdaptive({ quiet: true });
+    if (syncTouched(d, ['wellness'])) loadDynamicGoal({ quiet: true });
+  }));
 
   onMount(async () => {
     // #146 migration on page load. See _migrateKilojoulesGoal above.
     goals.update(_migrateKilojoulesGoal);
     await loadDiaryData();
-    // Dynamic goal from server — non-blocking
-    if ($calorieGoalMode === 'dynamic') {
-      NtApi.get(`/api/wellness/calories-out?date=${today}`)
-        .then(r => { _dynamicCaloriesOut = r.calories_out; })
-        .catch(() => { _dynamicCaloriesOut = null; });
-    }
-    // Adaptive TDEE — fetch even when not the active mode so the readiness
+    // Dynamic goal from server, non-blocking.
+    loadDynamicGoal();
+    // Adaptive TDEE: fetch even when not the active mode so the readiness
     // card shows progress while a user is building up data toward enabling it.
-    NtApi.get('/api/goals/adaptive-tdee')
-      .then(r => { _adaptive = r; _adaptiveLoaded = true; })
-      .catch(() => { _adaptive = null; _adaptiveLoaded = true; });
+    loadAdaptive();
   });
 
   // ── Water goal helpers ────────────────────────────────────────────────────
@@ -345,6 +360,7 @@
   }
   function openEditWater() {
     editWaterVal = String(mlToDisplay($waterGoalMl, $waterUnit));
+    _waterOpened = editWaterVal;
     editWaterOpen = true;
   }
   function saveWaterGoal() {
@@ -410,33 +426,68 @@
     const id = _statsIdForGoal(stat);
     if (id) push('#/statistics?metric=' + id + '&range=1M');
   }
-  function openEdit(stat) {
-    editStat = stat;
-    const storageId = _goalStorageId(stat.id);
-    const g = $goals[storageId];
+  // The edit sheet's fields for a goal as it is stored (none: a new one).
+  function _goalFieldsOf(stat, g) {
     const kj = (stat.id === 'kilojoules') ||
                (stat.id === 'calories_out' && $energyUnit === 'kJ');
     const toDisp = (v) => kj && v != null && v !== '' ? Math.round(Nutrition.kcalToKj(parseFloat(v))) : v;
-    if (g) {
-      editShared  = g.sharedGoal !== false;
-      editIsMin   = g.isMin || false;
-      editShowDiary  = g.showInDiary  !== false;
-      editShowStats  = g.showInStats  !== false;
-      editIsPercent  = g.isPercent    || false;
-      editAutoAdjust = g.autoAdjust   || false;
-      if (editShared) {
-        editVal0 = String(toDisp(g.max ?? g.min ?? ''));
-      } else {
-        editDayVals = g.days ? g.days.map(v => v != null ? String(toDisp(v)) : '') : ['','','','','','',''];
-        // The first day shown (the week's first day, #232) seeds One Target.
-        editVal0 = String(editDayVals[$weekStartDay]);
-      }
-    } else {
-      editShared  = true; editIsMin = false;
-      editVal0 = ''; editDayVals = ['','','','','','',''];
-      editShowDiary = true; editShowStats = true;
-      editIsPercent = false; editAutoAdjust = false;
+    if (!g) {
+      return { shared: true, isMin: false, val0: '', dayVals: ['','','','','','',''],
+        showDiary: true, showStats: true, isPercent: false, autoAdjust: false };
     }
+    const f = {
+      shared: g.sharedGoal !== false, isMin: g.isMin || false,
+      showDiary: g.showInDiary !== false, showStats: g.showInStats !== false,
+      isPercent: g.isPercent || false, autoAdjust: g.autoAdjust || false,
+      // Kept as the sheet had them when the goal is one target.
+      dayVals: editDayVals, val0: '',
+    };
+    if (f.shared) {
+      f.val0 = String(toDisp(g.max ?? g.min ?? ''));
+    } else {
+      f.dayVals = g.days ? g.days.map(v => v != null ? String(toDisp(v)) : '') : ['','','','','','',''];
+      // The first day shown (the week's first day, #232) seeds One Target.
+      f.val0 = String(f.dayVals[$weekStartDay]);
+    }
+    return f;
+  }
+  const _goalFields = () => ({ shared: editShared, isMin: editIsMin, val0: editVal0, dayVals: editDayVals,
+    showDiary: editShowDiary, showStats: editShowStats, isPercent: editIsPercent, autoAdjust: editAutoAdjust });
+  function _setGoalFields(f) {
+    editShared = f.shared; editIsMin = f.isMin; editVal0 = f.val0; editDayVals = f.dayVals;
+    editShowDiary = f.showDiary; editShowStats = f.showStats; editIsPercent = f.isPercent; editAutoAdjust = f.autoAdjust;
+  }
+
+  // Android: goals come down with a sync's settings. A goal open in the
+  // sheet takes the newer values into the fields you haven't changed; the
+  // ones you have keep yours. One removed elsewhere says so, and Save is
+  // off. The water goal's sheet the same way.
+  let _goalOpened = null, _goalHad = false, _goalGone = false;
+  let _waterOpened = null;
+  onMount(() => onSynced(['settings'], () => {
+    if (editOpen && editStat && _goalOpened && !_goalGone) {
+      const g = $goals[_goalStorageId(editStat.id)];
+      if (_goalHad && !g) _goalGone = true;
+      else {
+        const took = takeUntouched(_goalFields(), _goalOpened, _goalFieldsOf(editStat, g));
+        _setGoalFields(took.form);
+        _goalOpened = took.opened;
+      }
+    }
+    if (editWaterOpen && _waterOpened != null) {
+      const fresh = String(mlToDisplay($waterGoalMl, $waterUnit));
+      if (editWaterVal === _waterOpened) editWaterVal = fresh;
+      _waterOpened = fresh;
+    }
+  }));
+
+  function openEdit(stat) {
+    editStat = stat;
+    const g = $goals[_goalStorageId(stat.id)];
+    _setGoalFields(_goalFieldsOf(stat, g));
+    _goalOpened = JSON.parse(JSON.stringify(_goalFields()));
+    _goalHad = !!g;
+    _goalGone = false;
     clearTimeout(_gLockTimer);
     _gLock = true;
     editOpen = true;
@@ -444,7 +495,7 @@
   }
 
   function saveGoal() {
-    if (!editStat) return;
+    if (!editStat || _goalGone) return;
     const kj = (editStat.id === 'kilojoules') ||
                (editStat.id === 'calories_out' && $energyUnit === 'kJ');
     const toStore = (n) => kj && n != null ? n / 4.184 : n;
@@ -1324,6 +1375,12 @@
         <h3 class="sheet-title">{editStat.label} {_editUnit ? '('+_editUnit+')' : ''}</h3>
       </div>
       <div class="sheet-body" bind:this={_editGoalSheetEl} on:keydown={_onEditGoalKey}>
+        {#if _goalGone}
+          <div class="goal-gone" role="status">
+            <span class="material-symbols-rounded" aria-hidden="true">delete</span>
+            <span>{$_('goals.gone')}</span>
+          </div>
+        {/if}
 
         <!-- Display options -->
         {#if !editStat?.isWellness}
@@ -1412,7 +1469,7 @@
             {$_('goals_page.editor.remove_goal')}
           </button>
         {/if}
-        <button class="btn btn-primary w-full" on:click={saveGoal}>{$_('goals.save_goal')}</button>
+        <button class="btn btn-primary w-full" on:click={saveGoal} disabled={_goalGone}>{$_('goals.save_goal')}</button>
       </div>
     </div>
   </div>
@@ -1643,6 +1700,15 @@
   .sheet-header { padding: 12px 20px 4px; }
   .sheet-title  { font-size: 16px; font-weight: 700; }
   .sheet-body   { flex: 1; overflow-y: auto; padding: 8px 20px 0; display: flex; flex-direction: column; gap: 8px; }
+  .goal-gone {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    background: var(--accent-dim, rgba(59,130,246,0.10));
+    border: 1px solid var(--accent, #3b82f6);
+    border-radius: var(--radius-md);
+    color: var(--text-1); font-size: 13px;
+  }
+  .goal-gone .material-symbols-rounded { font-size: 20px; color: var(--accent, #3b82f6); }
   .sheet-footer { padding: 16px 20px; }
 
   /* Section labels */
