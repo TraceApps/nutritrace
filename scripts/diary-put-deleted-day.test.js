@@ -210,3 +210,14 @@ test('an item stored without a uuid comes back from its echo only when changed a
   await api('PUT', `/api/diary/${D}`, { items: [{ name: 'Mcp Toast', nutrition: { calories: 90 }, quantity: 1, meal: 0, addedAt: at }, item(`${D}-new`, { addedAt: iso(Date.now()) })], body_stats: {}, water: [] });
   assert.deepEqual(JSON.parse(day(D).items).map(i => i.name), [`${D}-new`]);
 });
+
+test('a completion mark made after the delete stays when the day comes back', async (t) => {
+  if (skip(t)) return;
+  const D = '2026-07-10';
+  await deletedDay(D);
+  await api('PUT', `/api/diary/${D}/completion`, { completed: true });
+  await api('PUT', `/api/diary/${D}/meal-completion`, { slot: 2, completed: true });
+  await api('PUT', `/api/diary/${D}`, { items: [], body_stats: {}, water: [{ uuid: `${D}-w-new`, amount: 300 }] });
+  assert.ok(day(D).completed_at, 'the day mark made after the delete stays');
+  assert.deepEqual(JSON.parse(day(D).completed_meals), [2]);
+});

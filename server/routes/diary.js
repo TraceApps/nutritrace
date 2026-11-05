@@ -265,15 +265,22 @@ router.put('/:date', wrap((req, res) => {
     for (const uuid of newItemTombstones) insertTombstone.run(u, date, 'item', uuid);
     for (const uuid of newWaterTombstones) insertTombstone.run(u, date, 'water', uuid);
     // Brought back: the deleted day's completion marks stay deleted, taken
-    // away at the delete's time, so an older mark sent later loses.
+    // away at the delete's time, so an older mark sent later loses. A mark
+    // made after the delete (the completion routes take a deleted day too)
+    // stays, with its own time.
     if (fromEmpty) {
-      const at = loadedRow.deleted_at;
-      const slots = _parseSlotArray(loadedRow.completed_meals);
+      const at = loadedRow.deleted_at, delMs = parseUtc(at);
+      const madeBefore = t => !Number.isFinite(parseUtc(t)) || !Number.isFinite(delMs) || parseUtc(t) <= delMs;
+      const dayGone = !!loadedRow.completed_at && madeBefore(loadedRow.completion_marked_at);
       let marks = {};
       try { marks = JSON.parse(loadedRow.meal_marks_at || '{}') || {}; } catch { /* none */ }
-      for (const sl of slots) marks[sl] = at;
-      db.prepare(`UPDATE diary SET completed_at = NULL, completed_meals = NULL, completion_marked_at = ?, meal_marks_at = ? WHERE id = ?`)
-        .run(loadedRow.completed_at ? at : loadedRow.completion_marked_at ?? null, Object.keys(marks).length ? JSON.stringify(marks) : null, loadedRow.id);
+      const keep = [];
+      for (const sl of _parseSlotArray(loadedRow.completed_meals)) {
+        if (madeBefore(marks[sl])) marks[sl] = at; else keep.push(sl);
+      }
+      db.prepare(`UPDATE diary SET completed_at = ?, completed_meals = ?, completion_marked_at = ?, meal_marks_at = ? WHERE id = ?`)
+        .run(dayGone ? null : (loadedRow.completed_at ?? null), keep.length ? JSON.stringify(keep) : null,
+          dayGone ? at : (loadedRow.completion_marked_at ?? null), Object.keys(marks).length ? JSON.stringify(marks) : null, loadedRow.id);
     }
   })();
 
