@@ -142,6 +142,16 @@ export function _applySetting(key, value) {
   DB.setSetting(key, value);
   _suppressSync = false;
 }
+/** A setting reset on the server: back to its default here, the stores
+ *  following (wl:setting), nothing pushed back. */
+export function _resetSetting(key) {
+  if (DEVICE_PREFS.has(key)) return;
+  _suppressSync = true;
+  try {
+    DB.removeSetting(key);
+    window.dispatchEvent(new CustomEvent('wl:setting', { detail: { key } }));
+  } finally { _suppressSync = false; }
+}
 function _isLoggedIn() { return !!localStorage.getItem('wl:userId'); }
 function _shouldSyncToServer() { return _isLoggedIn() && !(isNative && !getServerUrl()); }
 async function _serverRequestDeferred() {

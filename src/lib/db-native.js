@@ -2655,12 +2655,16 @@ export async function dbUpsertSettingFromServer(record) {
   const db = await getDb();
   const { key, value, updated_at, deleted_at } = record;
 
+  // Reset on the server (Clear All Settings). True when the phone had a
+  // copy, so the screen goes back to the default too (lib/sync.js); one set
+  // here before it ever synced is left as it is.
   if (deleted_at) {
+    const had = _row(await db.query(`SELECT 1 AS had FROM user_settings WHERE key = ? AND user_id = ?`, [key, LOCAL_USER_ID]));
     await db.run(
       `DELETE FROM user_settings WHERE key = ? AND user_id = ?`,
       [key, LOCAL_USER_ID]
     );
-    return;
+    return !!had;
   }
 
   // Don't overwrite pending local changes

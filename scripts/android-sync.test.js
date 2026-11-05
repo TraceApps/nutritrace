@@ -200,6 +200,49 @@ test('a setting changed on the phone and not sent yet survives settings coming d
   assert.deepEqual(q(`SELECT value FROM user_settings WHERE user_id = ? AND key = 'waterGoalMl'`, K.id), [{ value: '2500' }]);
 });
 
+// Settings > Clear All Settings on the web: the phone goes back to its
+// defaults at its next sync, on screen too. A change made on the phone
+// after the reset, not sent yet, stays and goes up.
+test('Clear All Settings on the web resets the phone too, and a change made on the phone after it stays', async (t) => {
+  if (skip(t)) return;
+  const resetter = await account('resetcook', A);
+  const L = (await http(resetter, 'GET', '/api/auth/me')).user;
+  await http(resetter, 'PUT', '/api/settings', { key: 'waterGoalMl', value: 1800 });
+  await http(resetter, 'PUT', '/api/settings', { key: 'energyUnit', value: 'kJ' });
+  const r = phone('settingsreset', resetter, `
+    const la = await import(p.src + 'lib/local-account.js');
+    localStorage.setItem('nt:nativeMode', 'server');
+    localStorage.setItem('wl:userId', '${L.id}');
+    await la.ensureLocalAccount(${JSON.stringify(L)}, { confirm: async () => true });
+    const { DB } = await import(p.src + 'lib/db.js');
+    const settings = await import(p.src + 'stores/settings.js');
+    const { get } = await import('svelte/store');
+    await p.sync();
+    const before = { water: DB.getSetting('waterGoalMl', null), energy: get(settings.energyUnit) };
+    const web = (method, path) => fetch(process.env.NT_SERVER + path, { method, headers: { Authorization: 'Bearer ' + process.env.NT_TOKEN } }).then(r => r.json());
+    await web('DELETE', '/api/settings');
+    await p.sleep(1100);
+    // Changed on the phone after the reset, its push still waiting.
+    localStorage.setItem(DB._settingKey('energyUnit'), JSON.stringify('kcal'));
+    await p.dbn.dbUpsertSetting('energyUnit', 'kcal');
+    await p.sleep(1100);
+    await p.sync();
+    const db = await p.dbn.getDb();
+    p.done({
+      before,
+      after: { water: DB.getSetting('waterGoalMl', null), waterStore: get(settings.waterGoalMl), energy: DB.getSetting('energyUnit', null) },
+      rows: (await db.query("SELECT key, sync_status FROM user_settings WHERE key IN ('waterGoalMl', 'energyUnit') ORDER BY key", [])).values,
+      server: await web('GET', '/api/settings'),
+    });`);
+  assert.deepEqual(r.before, { water: 1800, energy: 'kJ' });
+  assert.equal(r.after.water, null, 'back to the default');
+  assert.equal(r.after.waterStore, 2000, 'on screen too');
+  assert.equal(r.after.energy, 'kcal', 'a change made on the phone after the reset stays');
+  assert.deepEqual(r.rows, [{ key: 'energyUnit', sync_status: 'synced' }]);
+  assert.equal(r.server.energyUnit, 'kcal', 'and goes up');
+  assert.equal(r.server.waterGoalMl, undefined);
+});
+
 // Settings coming down for one account can still be writing when another
 // signs in: none of them may land in the new account's copy.
 test("settings still coming down for the last account write nothing into the next account's copy", async (t) => {

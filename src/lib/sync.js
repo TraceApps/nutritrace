@@ -909,8 +909,10 @@ async function pullChanges({ signal = null, gen = accountGeneration() } = {}) {
       continue;
     }
     try {
-      await dbUpsertSettingFromServer(s);
-      if (!s.deleted_at && live()) {
+      const hadCopy = await dbUpsertSettingFromServer(s);
+      if (s.deleted_at) {
+        if (hadCopy && live()) settingsMod._resetSetting(s.key);
+      } else if (live()) {
         const { DB } = await import('./db.js');
         const val = typeof s.value === 'string' ? _parseJson(s.value) : s.value;
         settingsMod._applySetting(s.key, val);
