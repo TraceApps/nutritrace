@@ -255,6 +255,15 @@ merge by uuid and its note by its own time, as before.
   the save changes only those, so a form opened before an edit made
   elsewhere doesn't put it back (`lib/rest-merge.js`). Without them they
   write what they're sent, as before.
+  A diary day deleted elsewhere: `PUT /api/diary/:date` is made now, so it
+  brings the day back (`editRevives`), but starts from an empty day: only
+  the items and water it sends that were logged or changed after the
+  delete (their own `updatedAt`, else `addedAt`; one with no time that the
+  deleted day didn't hold counts as new), and the measurements and note it
+  sends, come back. The deleted day's own entries (also as a form opened
+  before the delete sends them) stay deleted and are tombstoned, so an
+  older push of the day can't put them back (`_sinceDelete` in
+  `routes/diary.js`).
   Foods, meals and recipes deleted elsewhere: a save is made now, so it
   follows the rule a push of the same change follows (`editRevives`). One
   that changes something brings the row back (`deleted_at` cleared, stamped

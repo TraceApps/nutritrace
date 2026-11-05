@@ -10,7 +10,8 @@ import { getGoalsCore } from '../lib/mcp/tools/goals.js';
 import { dailyTotalsCore } from '../lib/mcp/tools/daily-totals.js';
 import { checkNutritionGoalCrossing, checkWaterGoalCrossing } from '../lib/goal-webhook.js';
 import { Nutrition } from '../../src/lib/nutrition.js';
-import { clientClock, parseUtc, pushWins, editStamp, resolveNote, sqlTime } from '../lib/sync-clock.js';
+import { clientClock, parseUtc, pushWins, editStamp, resolveNote, sqlTime, editMs } from '../lib/sync-clock.js';
+import { editRevives } from '../lib/field-sync.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -109,6 +110,31 @@ function _stripDataUrlImages(items) {
 //
 // The whole write runs inside a single db.transaction so a crash mid-merge
 // leaves the row untouched.
+// A save into a day deleted here brings the day back (it is made now:
+// lib/field-sync.js editRevives), but only with what was made after the
+// delete. Of the entries it sends, one logged or changed since (its own
+// updatedAt, else addedAt) comes back, and so does one with no time of its
+// own that the deleted day didn't hold (a new one from a client that sets
+// none). The rest (the deleted day's own, as a form opened before the
+// delete still holds them) stay deleted, tombstoned so an older push of
+// the day from a phone can't put them back. Returns { kept, gone: uuids }.
+function _sinceDelete(deletedRow, field, entries, clock, now) {
+  let had = [];
+  try { had = JSON.parse(deletedRow[field] || '[]'); } catch { /* none */ }
+  const hadUuids = new Set((Array.isArray(had) ? had : []).map(e => e?.uuid).filter(Boolean));
+  const kept = [], gone = new Set(hadUuids);
+  for (const e of Array.isArray(entries) ? entries : []) {
+    if (!e || typeof e !== 'object') continue;
+    const t = e.updatedAt || e.addedAt;
+    const at = typeof t === 'string' ? editMs(t, clock, now) : NaN;
+    const after = Number.isFinite(at) ? editRevives({ existing: deletedRow, at }) : !hadUuids.has(e.uuid);
+    if (after) { kept.push(e); if (e.uuid) gone.delete(e.uuid); }
+    else if (typeof e.uuid === 'string' && e.uuid) gone.add(e.uuid);
+  }
+  for (const e of kept) if (e.uuid) gone.delete(e.uuid);
+  return { kept, gone: [...gone] };
+}
+
 router.put('/:date', wrap((req, res) => {
   const receivedAt = Date.now();
   const { body_stats, water, notes } = req.body;
@@ -127,9 +153,16 @@ router.put('/:date', wrap((req, res) => {
   const deletedWaterUuids = Array.isArray(deletedRaw?.water) ? deletedRaw.water : [];
 
   // Load current server state (may not exist yet — new day).
-  const existingRow = u == null
+  const loadedRow = u == null
     ? db.prepare('SELECT * FROM diary WHERE date = ? AND user_id IS NULL').get(date)
     : db.prepare('SELECT * FROM diary WHERE date = ? AND user_id = ?').get(date, u);
+  const clock = clientClock(req.body.client_now, receivedAt);
+  // Deleted here: the save starts from an empty day (_sinceDelete).
+  const sinceItems = loadedRow?.deleted_at ? _sinceDelete(loadedRow, 'items', items, clock, receivedAt) : null;
+  const sinceWater = loadedRow?.deleted_at ? _sinceDelete(loadedRow, 'water', water, clock, receivedAt) : null;
+  const existingRow = loadedRow?.deleted_at
+    ? { ...loadedRow, items: '[]', water: '[]', body_stats: '{}', notes: null, notes_updated_at: loadedRow.deleted_at }
+    : loadedRow;
   const serverItems = existingRow ? JSON.parse(existingRow.items || '[]') : [];
   const serverWater = existingRow ? JSON.parse(existingRow.water || '[]') : [];
 
@@ -141,9 +174,11 @@ router.put('/:date', wrap((req, res) => {
   // Merge. Any client entry with a uuid we've already tombstoned is
   // dropped; any server entry not mentioned by the client is preserved.
   const { merged: mergedItems, newTombstoneUuids: newItemTombstones } =
-    mergeEntries(serverItems, items || [], deletedItemUuids, priorItemTombstones);
+    mergeEntries(serverItems, sinceItems ? sinceItems.kept : (items || []), deletedItemUuids, priorItemTombstones);
   const { merged: mergedWater, newTombstoneUuids: newWaterTombstones } =
-    mergeEntries(serverWater, water || [], deletedWaterUuids, priorWaterTombstones);
+    mergeEntries(serverWater, sinceWater ? sinceWater.kept : (water || []), deletedWaterUuids, priorWaterTombstones);
+  if (sinceItems) newItemTombstones.push(...sinceItems.gone.filter(x => !newItemTombstones.includes(x)));
+  if (sinceWater) newWaterTombstones.push(...sinceWater.gone.filter(x => !newWaterTombstones.includes(x)));
 
   // body_stats: each measurement on its own (lib/body-stats-merge.js),
   // made now; an empty one changes nothing (issue #81). A save that says
@@ -158,8 +193,10 @@ router.put('/:date', wrap((req, res) => {
   const note = resolveNote(existingRow, {
     has: Object.prototype.hasOwnProperty.call(req.body || {}, 'notes'),
     notes, at: req.body.notes_updated_at,
-  }, clientClock(req.body.client_now, receivedAt), receivedAt);
-  const notesVal = note.notes, notesAt = note.at;
+  }, clock, receivedAt);
+  const notesVal = note.notes;
+  // No note on a day brought back: no note time either (it was the delete's).
+  const notesAt = notesVal == null && loadedRow?.deleted_at ? null : note.at;
 
   const insertTombstone = db.prepare(
     `INSERT OR IGNORE INTO diary_tombstones (user_id, date, kind, uuid, deleted_at)
