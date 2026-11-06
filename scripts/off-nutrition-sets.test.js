@@ -15,13 +15,14 @@ import { readFileSync } from 'node:fs';
 import { asSoldNutriments } from '../src/lib/off-nutrition-sets.js';
 import { offNutritionStatus } from '../src/lib/off-nutrition.js';
 import { Nutrition } from '../src/lib/nutrition.js';
-import { offProductName } from '../src/lib/off-name.js';
+import { mapOffProduct, mapFullOffProduct } from '../src/lib/off-map.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const { products: P } = JSON.parse(read('./fixtures/off-nutrition-sets.json'));
 
-// The real mapper, registry and full lookup, lifted out of api.js (which
-// needs Vite to load), with the network stubbed.
+// The real mapper and full lookup (off-map.js) behind api.js's own wrappers
+// and registry, lifted out of api.js (which needs Vite to load), with the
+// network stubbed.
 function realApi({ perServing = false, fetchSets = async () => ({ ok: false }) } = {}) {
   const src = read('../src/lib/api.js');
   const body = (sig, end) => {
@@ -29,20 +30,17 @@ function realApi({ perServing = false, fetchSets = async () => ({ ok: false }) }
     assert.ok(a > 0 && b > a, `api.js still has ${sig.trim()}`);
     return src.slice(a + sig.length, b);
   };
-  const table = src.slice(src.indexOf('const _OFF_NUTRIENTS = ['), src.indexOf('];', src.indexOf('const _OFF_NUTRIENTS = [')) + 2);
   const registry = src.slice(src.indexOf('const _OFF_INFO_MAX'), src.indexOf('const API = {'));
-  const success = src.slice(src.indexOf('function _isOffSuccess'), src.indexOf('\n}\n', src.indexOf('function _isOffSuccess')) + 3);
   const calls = [];
-  const localStorage = { getItem: (k) => (perServing && /offImportPortion/.test(k) ? '"perServing"' : null) };
-  const make = new Function('offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', 'asSoldNutriments', '_extFetch', 'settingPrefix',
-    `${table}\n${registry}\n${success}\nreturn {
+  const make = new Function('mapOffProduct', 'mapFullOffProduct', '_getOffSearchLanguage', '_getOffImportPortion', '_extFetch',
+    `${registry}\nreturn {
       OFF_BASE: 'https://world.openfoodfacts.org',
       _mapOFFProduct(p, { full = false } = {}) { ${body('  _mapOFFProduct(p, { full = false } = {}) {', '\n  }\n')} },
       async _mapFullOFFProduct(product, code, { live = false } = {}) { ${body('  async _mapFullOFFProduct(product, code, { live = false } = {}) {', '\n  },\n')} },
       info: (code) => _offInfo.get(String(code)) || null,
     };`);
-  const api = make(offProductName, () => 'en', localStorage, Nutrition, asSoldNutriments,
-    async (url, opts) => { calls.push({ url, live: !!opts?.live }); return fetchSets(url); }, () => 'wl_');
+  const api = make(mapOffProduct, mapFullOffProduct, () => 'en', () => (perServing ? 'perServing' : 'per100g'),
+    async (url, opts) => { calls.push({ url, live: !!opts?.live }); return fetchSets(url); });
   return { api, calls };
 }
 const reply = (body) => async () => ({ ok: true, json: async () => body });
@@ -193,7 +191,8 @@ test('a set per a quantity with no unit is read as grams, as in OFF', () => {
 });
 
 test('the local mirror answers v3.5 lookups like any other version', () => {
-  const proxy = read('../server/routes/proxy.js');
+  // The mirror dispatch lives in lib/external-api.js since #314 (the proxy and MCP share it).
+  const proxy = read('../server/lib/external-api.js');
   const re = new RegExp(proxy.match(/if \(host === 'world\.openfoodfacts\.org' && \/(.+?)\/\.test\(path\)\)/)[1]);
   for (const p of ['/api/v3/product/123', '/api/v3.5/product/123', '/api/v2/product/123.json', '/api/v0/product/1.json']) assert.ok(re.test(p), p);
   assert.ok(!re.test('/api/v3.x/product/1'));

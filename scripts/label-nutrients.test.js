@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { NUTRIMENTS, Nutrition } from '../src/lib/nutrition.js';
-import { offProductName } from '../src/lib/off-name.js';
+import { mapOffProduct } from '../src/lib/off-map.js';
 import { USDA_NUTRIENT_MAP } from '../src/lib/usda-map.js';
 import { parseCronometer } from '../server/lib/nutrition-import/cronometer.js';
 
@@ -51,14 +51,6 @@ test('the new nutrients carry the label unit and the FDA Daily Value', () => {
   assert.equal(new Set(ids).size, ids.length, 'ids are unique');
 });
 
-// api.js needs Vite to load, so lift the tables and the mapper out of it.
-const api = read('../src/lib/api.js');
-const table = (name) => {
-  const a = api.indexOf(`const ${name} = `);
-  assert.ok(a > 0, name);
-  return api.slice(a, api.indexOf('\n};', a) + 3).replace(/^const \w+ = /, '').replace(/;$/, '');
-};
-
 test('USDA ids map to the new nutrients', () => {
   const map = USDA_NUTRIENT_MAP;
   assert.deepEqual(
@@ -70,17 +62,9 @@ test('USDA ids map to the new nutrients', () => {
   }
 });
 
+// The app's OFF mapper (off-map.js, which api.js and the server both use).
 function mapOff(nutriments) {
-  const a = api.indexOf('const _OFF_NUTRIENTS = [');
-  const tbl = api.slice(a, api.indexOf('];', a) + 2);
-  const sig = '  _mapOFFProduct(p, { full = false } = {}) {';
-  const s = api.indexOf(sig), e = api.indexOf('\n  }\n', s);
-  const r = api.indexOf('const _OFF_INFO_MAX');
-  const registry = api.slice(r, api.indexOf('const API = {', r));
-  const make = new Function('offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', 'settingPrefix',
-    `${tbl}\n${registry}\nreturn { map(p, full) { ${api.slice(s + sig.length, e)} } };`);
-  const m = make(offProductName, () => 'en', { getItem: () => null }, Nutrition, () => 'wl_');
-  return m.map({ code: '1', product_name: 'Test', nutrition_data_per: '100g', nutriments }, true);
+  return mapOffProduct({ code: '1', product_name: 'Test', nutrition_data_per: '100g', nutriments }, { lang: 'en' });
 }
 
 test('Open Food Facts values arrive in our units', () => {

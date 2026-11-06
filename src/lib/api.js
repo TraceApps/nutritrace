@@ -2,9 +2,7 @@
  * api.js - External API calls (Open Food Facts)
  */
 import { settingPrefix } from './setting-key.js';
-import { rankOFFResults } from './off-rank.js';
-import { offProductName } from './off-name.js';
-import { asSoldNutriments } from './off-nutrition-sets.js';
+import { OFF_BASE, offLanguage, offCountryTag, offSearchUrl, offProductUrl, isOffSuccess, mapOffProduct, mapFullOffProduct, rankOffSearch } from './off-map.js';
 import { shareWithOff, OffShareError } from './off-contribute.js';
 
 // In native mode, call external APIs directly (no CORS in WebView).
@@ -71,46 +69,15 @@ function _getOffSearchCountry() {
     const setKey = settingPrefix() + 'offSearchCountry';
     const raw = localStorage.getItem(setKey);
     if (!raw) return null;
-    const country = JSON.parse(raw);
-    if (!country || country === 'World') return null;
-    const slug = country.toLowerCase().replace(/\s+/g, '-');
-    return slug.startsWith('en:') ? slug : `en:${slug}`;
+    return offCountryTag(JSON.parse(raw));
   } catch { return null; }
 }
 
-// Escape user-typed query text for search-a-licious. Lucene reserves
-// `+ - && || ! ( ) { } [ ] ^ " ~ * ? : \ /` and interpreting them as
-// query operators on raw user input can 500 the request (e.g. a user
-// typing "Ben & Jerry's" or "M&M's" would trip the parser). Backslash-
-// prefixing each reserved char (including `"`) keeps user intent intact
-// and prevents an unbalanced quote inside user text from closing the
-// country-filter quoted-term appended later in the query builder.
-function _luceneEscape(s) {
-  return String(s || '')
-    .replace(/[+\-!(){}\[\]^"~*?:\\\/]/g, '\\$&')
-    .replace(/&&/g, '\\&\\&')
-    .replace(/\|\|/g, '\\|\\|');
-}
-
-// Build the search-a-licious URL. OFF's canonical text-search endpoint,
-// backed by ElasticSearch. Supports typo tolerance, fuzzy matching, and
-// multilingual analysis vs the deprecated v2 API's substring MongoDB
-// query. Country filter goes inline into `q` as Lucene syntax rather
-// than a separate query param (v2's `countries_tags=` is a no-op here).
-// Language filter uses `langs=` (v2 used `lc=`, ignored by search-a-licious).
+// The search-a-licious URL for the user's OFF country and language. The
+// query escaping and the URL itself live in off-map.js, shared with the
+// server's MCP tools (#314).
 function _offSearchUrl(query, page, pageSize) {
-  const country = _getOffSearchCountry();
-  const escaped  = _luceneEscape(query);
-  const qWithFilter = country
-    ? `${escaped} +countries_tags:"${country}"`
-    : escaped;
-  const params = new URLSearchParams({
-    q: qWithFilter,
-    page_size: String(pageSize),
-    page: String(page),
-    langs: _getOffSearchLanguage(),
-  });
-  return `https://search.openfoodfacts.org/search?${params.toString()}`;
+  return offSearchUrl(query, { page, pageSize, country: _getOffSearchCountry(), lang: _getOffSearchLanguage() });
 }
 
 // Read the user's saved OFF language preference (short ISO 639-1 code
@@ -125,78 +92,25 @@ function _getOffSearchLanguage() {
     const setKey = settingPrefix() + 'offSearchLanguage';
     const raw = localStorage.getItem(setKey);
     if (!raw) return 'en';
-    const lang = JSON.parse(raw);
-    if (!lang || typeof lang !== 'string') return 'en';
-    return lang.slice(0, 2).toLowerCase();
+    return offLanguage(JSON.parse(raw));
   } catch { return 'en'; }
+}
+
+// The user's Import Portion As setting for OFF ('per100g' or 'perServing').
+function _getOffImportPortion() {
+  let importPortion = 'per100g';
+  try {
+    const raw = localStorage.getItem(settingPrefix() + 'offImportPortion');
+    if (raw) importPortion = JSON.parse(raw);
+  } catch {}
+  return importPortion;
 }
 
 // Search result ordering (OFF relevance groups, then photos, completeness
 // and Nutri-Score) lives in off-rank.js. #192, #213.
 
-// Accept every "product was found" flavor OFF returns across API generations
-// and mirror paths:
-//   v3 live: { status: "success" }
-//   v3 live with data warnings: { status: "success_with_warnings" }
-//   v3 live with recoverable errors on some fields: { status: "success_with_errors" }
-//   v2 live + local OFF mirror: { status: 1 }
-// Falling back to a truthy `product` object handles any future envelope
-// wording change without a false-negative on real hits. Only outright
-// "no product" replies (status: "failure" / status: 0, or missing product
-// object) drop through as null.
-function _isOffSuccess(data) {
-  if (!data) return false;
-  const s = data.status;
-  if (s === 1) return true;
-  if (typeof s === 'string' && s.startsWith('success')) return true;
-  return !!data.product;
-}
-
-// OFF nutriment keys behind each NutriTrace nutrient, with the factor that
-// turns OFF's unit into ours (g to mg is 1000, g to mcg 1000000). Calories
-// are handled separately (kcal, or kJ / 4.184).
-const _OFF_NUTRIENTS = [
-  ['kilojoules', 'energy'],
-  ['fat', 'fat'],
-  ['saturated-fat', 'saturated-fat'],
-  ['trans-fat', 'trans-fat'],
-  ['polyunsaturated-fat', 'polyunsaturated-fat'],
-  ['monounsaturated-fat', 'monounsaturated-fat'],
-  ['carbohydrates', 'carbohydrates'],
-  ['sugars', 'sugars'],
-  ['added-sugars', 'added-sugars'],
-  ['fiber', 'fiber'],
-  ['proteins', 'proteins'],
-  ['salt', 'salt'],
-  ['sodium', 'sodium', 1000],
-  ['potassium', 'potassium', 1000],
-  ['cholesterol', 'cholesterol', 1000],
-  ['caffeine', 'caffeine', 1000],
-  ['alcohol', 'alcohol'],
-  ['calcium', 'calcium', 1000],
-  ['iron', 'iron', 1000],
-  ['magnesium', 'magnesium', 1000],
-  ['vitamin-c', 'vitamin-c', 1000],
-  ['vitamin-a', 'vitamin-a', 1000000],
-  ['vitamin-d', 'vitamin-d', 1000000],
-  ['vitamin-e', 'vitamin-e', 1000],
-  ['vitamin-k', 'vitamin-k', 1000000],
-  ['b1', 'vitamin-b1', 1000],
-  ['b2', 'vitamin-b2', 1000],
-  ['b3', 'vitamin-b3', 1000],
-  ['b6', 'vitamin-b6', 1000],
-  ['b9', 'vitamin-b9', 1000000],
-  ['b12', 'vitamin-b12', 1000000],
-  ['zinc', 'zinc', 1000],
-  ['phosphorus', 'phosphorus', 1000],
-  ['starch', 'starch'],
-  ['b5', 'pantothenic-acid', 1000],
-  ['iodine', 'iodine', 1000000],
-  ['selenium', 'selenium', 1000000],
-  ['copper', 'copper', 1000],
-  ['manganese', 'manganese', 1000],
-  ['choline', 'choline', 1000],
-];
+// Whether a reply found a product (isOffSuccess), the nutrient table and the
+// mapper itself are in off-map.js, shared with the server (#314).
 
 // #241: what Open Food Facts actually has for each product seen this session,
 // by barcode. The OFF mapper turns missing values into 0, so a product with no
@@ -217,7 +131,7 @@ function _rememberOffInfo(code, info) {
 }
 
 const API = {
-  OFF_BASE: 'https://world.openfoodfacts.org',
+  OFF_BASE,
 
   /** What OFF has for a product seen this session, or null (see _offInfo). */
   // #241: a full product lookup, with the product's "as sold" values when
@@ -228,26 +142,13 @@ const API = {
   // calories (a formula listing only "sugars 0"): 0 kcal is worse than the
   // "as prepared" values the user is offered then.
   async _mapFullOFFProduct(product, code, { live = false } = {}) {
-    const mapped = this._mapOFFProduct(product, { full: true });
-    if (!mapped || !mapped._offPreparedOnly) return mapped;
-    try {
-      const url = `${this.OFF_BASE}/api/v3.5/product/${code}?fields=nutrition`;
-      const res = await _extFetch(url, { live });
-      if (!res.ok) return mapped;
-      const data = await res.json();
-      const asSold = _isOffSuccess(data) ? asSoldNutriments(data.product?.nutrition, product.serving_quantity) : null;
-      if (!asSold) return mapped;
-      const merged = this._mapOFFProduct({
-        ...product,
-        nutriments: { ...(product.nutriments || {}), ...asSold.nutriments },
-        nutrition_data_per: asSold.per,
-      }, { full: true });
-      if (merged && merged._offPresent.includes('calories')) return merged;
-      // The merge registered its own reading of the product; put back v3's.
-      return this._mapOFFProduct(product, { full: true });
-    } catch {
-      return mapped;
-    }
+    return mapFullOffProduct(product, code, {
+      map: (p) => this._mapOFFProduct(p, { full: true }),
+      fetchJson: async (url) => {
+        const res = await _extFetch(url, { live });
+        return res.ok ? await res.json() : null;
+      },
+    });
   },
 
   offNutritionInfo(barcode) {
@@ -264,11 +165,11 @@ const API = {
       // differs: v3 returns { status: "success" }, v2/mirror returns
       // { status: 1 } — accept both so a mirror hit and a live v3 hit
       // are treated the same.
-      const url = `${this.OFF_BASE}/api/v3/product/${barcode}?lc=${encodeURIComponent(lc)}`;
+      const url = offProductUrl(barcode, lc);
       const res = await _extFetch(url, { live });
       if (!res.ok) return null;
       const data = await res.json();
-      if (!_isOffSuccess(data)) return null;
+      if (!isOffSuccess(data)) return null;
       return await this._mapFullOFFProduct(data.product, barcode, { live });
     } catch(e) {
       console.error('Barcode lookup failed:', e);
@@ -303,11 +204,11 @@ const API = {
     }
     try {
       const lc = _getOffSearchLanguage();
-      const url = `${this.OFF_BASE}/api/v3/product/${code}?lc=${encodeURIComponent(lc)}`;
+      const url = offProductUrl(code, lc);
       const res = await _extFetch(url);
       if (!res.ok) return null;
       const data = await res.json();
-      if (!_isOffSuccess(data)) return null;
+      if (!isOffSuccess(data)) return null;
       const mapped = await this._mapFullOFFProduct(data.product, code);
       if (mapped) {
         if (this._offHydrateCache.size >= this._OFF_HYDRATE_MAX) {
@@ -321,15 +222,6 @@ const API = {
       console.warn('OFF hydrate failed:', e);
       return null;
     }
-  },
-
-  // Map a name-search response to { food, score } pairs for rankOFFResults.
-  // #213: public OFF hits carry a relevance `_score`; it rides beside the
-  // food rather than on it so it never gets copied into a diary entry.
-  _offSearchEntries(data) {
-    return (data.hits || data.products || [])
-      .map(p => ({ food: this._mapOFFProduct(p), score: p ? p._score : undefined }))
-      .filter(e => e.food);
   },
 
   async searchByName(query, page) {
@@ -347,8 +239,7 @@ const API = {
       // #192: local OFF mirror populates `data.hits`; public OFF v2
       // populates `data.products`. Feed the source hint into the
       // ranker so mirror pages don't get the photos-first tier.
-      const fromMirror = Array.isArray(data.hits);
-      return rankOFFResults(this._offSearchEntries(data), { fromMirror });
+      return rankOffSearch(data, p => this._mapOFFProduct(p)).items;
     } catch(e) {
       console.error('Search failed:', e);
       return [];
@@ -373,11 +264,10 @@ const API = {
       // reading `hits` only, which silently returned empty for the majority
       // of self-hosters who don't run the mirror. #133 (@JacosVerksted).
       // #192, #213: same source hint and scores as searchByName. See off-rank.js.
-      const fromMirror = Array.isArray(data.hits);
-      const entries = this._offSearchEntries(data);
-      const totalHits = typeof data.count === 'number' ? data.count : entries.length;
+      const { items, count } = rankOffSearch(data, p => this._mapOFFProduct(p));
+      const totalHits = typeof data.count === 'number' ? data.count : count;
       const hasMore = page * pageSize < totalHits;
-      return { items: rankOFFResults(entries, { fromMirror }), totalHits, page, hasMore };
+      return { items, totalHits, page, hasMore };
     } catch(e) {
       console.error('Search failed:', e);
       return { items: [], totalHits: 0, page, hasMore: false };
@@ -497,199 +387,23 @@ const API = {
     }
   },
 
+  // The mapper is off-map.js's, shared with the server (#314). This adds the
+  // user's settings and remembers what OFF has for the product (#241).
   _mapOFFProduct(p, { full = false } = {}) {
-    // #238: product_name is blank on products whose main language has no
-    // name, even when other languages do. See off-name.js for the order.
-    const name = offProductName(p, _getOffSearchLanguage());
-    if (!p || !name) return null;
-    const n = p.nutriments || {};
-    // Per-serving import: enabled by the user via Settings → Connected Services →
-    // Open Food Facts → Import Portion As, and only when the product actually
-    // exposes serving_quantity + at least one *_serving nutriment. Otherwise the
-    // 100g path is used unchanged.
-    const setKey = settingPrefix() + 'offImportPortion';
-    let importPortion = 'per100g';
-    try {
-      const raw = localStorage.getItem(setKey);
-      if (raw) importPortion = JSON.parse(raw);
-    } catch {}
-    const servingQty = parseFloat(p.serving_quantity);
-    const useServing = importPortion === 'perServing'
-      && Number.isFinite(servingQty) && servingQty > 0
-      && (n['energy-kcal_serving'] != null || n.energy_serving != null);
-    const suffix = useServing ? '_serving' : '_100g';
-    const portion = useServing ? servingQty : 100;
-    const unit    = useServing ? (p.serving_quantity_unit || 'g') : 'g';
-    const g = (baseKey, mult) => {
-      // Skip values OFF flags as "approximately/estimated" via the _modifier
-      // field. These don't appear on the product label table and are usually
-      // OFF-generated estimates from similar products or contributor guesses
-      // (saturated fat, fiber, added sugars often have this). Importing them
-      // as if they were measured values misled users into thinking a product
-      // had verified data when OFF itself doesn't display it.
-      if (n[baseKey + '_modifier'] === '~') return 0;
-      const v = n[baseKey + suffix];
-      if (v === undefined || v === null || v === '') return 0;
-      return (parseFloat(v) || 0) * (mult || 1);
-    };
-    const kcal = g('energy-kcal')
-      || (n['energy' + suffix] ? (parseFloat(n['energy' + suffix])||0) / 4.184 : 0);
-    // Issues #69 + #70: capture nutrition_basis + first alt_units entry from
-    // OFF's serving metadata. Both fields are nullable; downstream code
-    // falls back to existing behavior when they're absent.
-    //   nutrition_basis = 'g' or 'ml' per p.nutrition_data_per ('100g' /
-    //     '100ml' / 'serving'). For 'serving' we can't know the basis without
-    //     a unit on serving_quantity, so we treat the unit field on the
-    //     serving as the hint; default null when unclear.
-    //   alt_units = first row built from serving_size + serving_quantity.
-    //     e.g. "1 slice (35 g)" with serving_quantity=35 + serving_size
-    //     "1 slice" → {abbr: "slice", grams: 35}. We only add the row when
-    //     the parsed abbr is a recognizable discrete portion (not "g"/"ml").
-    const basis = (() => {
-      const raw = String(p.nutrition_data_per || '').toLowerCase();
-      if (raw === '100g') return 'g';
-      if (raw === '100ml') return 'ml';
-      // Per-serving — fall back to the unit on serving_quantity if present.
-      const su = String(p.serving_quantity_unit || '').toLowerCase();
-      if (su === 'g' || su === 'kg') return 'g';
-      if (su === 'ml' || su === 'l') return 'ml';
-      return null;
-    })();
-    const altUnits = (() => {
-      const ss = String(p.serving_size || '').trim();
-      const sq = parseFloat(p.serving_quantity);
-      if (!ss || !Number.isFinite(sq) || sq <= 0) return null;
-      // OFF serving_size strings look like "1 slice (35 g)" or "2 biscuits
-      // (24 g)". Extract the discrete-portion label: first non-numeric word
-      // before any open paren. Skip if it's a base mass/volume unit (the
-      // serving_quantity itself already carries that case).
-      const m = ss.match(/^\s*\d+\s*([a-zA-ZÀ-ÿ]+)/);
-      const label = m ? m[1].toLowerCase() : '';
-      const BASE_UNITS = new Set(['g','mg','kg','ml','l','oz','lb','cup','tbsp','tsp']);
-      if (!label || BASE_UNITS.has(label)) return null;
-      return [{ abbr: label, grams: Math.round(sq * 10) / 10 }];
-    })();
-    // Quality signals lifted from the OFF product/hit shape. Used by the
-    // Foods search UI to rank results (more complete + graded entries
-    // surface higher than sparse ones) and to render a small quality dot
-    // next to each result so the user can pick informed. All fields are
-    // optional; anything missing degrades gracefully to null / undefined.
-    // #241: which nutrients OFF actually has for this product. g() turns a
-    // missing value into 0, and Refresh from OFF must not write that 0 over
-    // a real number, so the refresh only updates what is listed here.
-    const has = (baseKey) => n[baseKey + '_modifier'] !== '~'
-      && n[baseKey + suffix] !== undefined && n[baseKey + suffix] !== null && n[baseKey + suffix] !== '';
-    const nutrition = { calories: Math.round(kcal * 10) / 10 };
-    const present = new Set();
-    if (has('energy-kcal') || has('energy')) present.add('calories');
-    for (const [id, key, mult] of _OFF_NUTRIENTS) {
-      nutrition[id] = g(key, mult);
-      if (has(key)) present.add(id);
-    }
-    // Salt and sodium are one datum; deriveSodiumSalt fills either from the other.
-    if (present.has('salt') || present.has('sodium')) { present.add('salt'); present.add('sodium'); }
-    // No as-sold values at all, but "as prepared" ones: say so rather than
-    // reporting an empty product.
-    const preparedOnly = present.size === 0
-      && Object.keys(n).some(k => k.endsWith('_prepared' + suffix) && n[k] !== '' && n[k] != null);
-    // Only for a product with no "as sold" values at all: its "as prepared"
-    // ones, so the user can choose them. Never used unasked: for a drink
-    // powder they describe the finished drink, not the powder you weigh.
-    let prepared = null;
-    if (preparedOnly) {
-      const pn = (key) => n[key + '_prepared_100g'];
-      const pHas = (key) => n[key + '_prepared_modifier'] !== '~' && pn(key) !== undefined && pn(key) !== null && pn(key) !== '';
-      const pg = (key, mult) => pHas(key) ? (parseFloat(pn(key)) || 0) * (mult || 1) : 0;
-      const pNutrition = { calories: 0 };
-      const pPresent = new Set();
-      const pKcal = pHas('energy-kcal') ? pg('energy-kcal') : (pHas('energy') ? pg('energy') / 4.184 : 0);
-      pNutrition.calories = Math.round(pKcal * 10) / 10;
-      if (pHas('energy-kcal') || pHas('energy')) pPresent.add('calories');
-      for (const [id, key, mult] of _OFF_NUTRIENTS) {
-        pNutrition[id] = pg(key, mult);
-        if (pHas(key)) pPresent.add(id);
-      }
-      if (pPresent.has('salt') || pPresent.has('sodium')) { pPresent.add('salt'); pPresent.add('sodium'); }
-      if (pPresent.size) {
-        const per = String(p.nutrition_data_prepared_per || '').toLowerCase();
-        prepared = {
-          nutrition: Nutrition.deriveSodiumSalt(pNutrition),
-          present: [...pPresent],
-          portion: 100,
-          unit: per === '100ml' ? 'ml' : 'g',
-        };
-      }
-    }
-    const completeness = typeof p.completeness === 'number' ? p.completeness : null;
-    const nutriscore   = (p.nutriscore_grade || p.nutrition_grades || '').toLowerCase() || null;
-    const nova         = typeof p.nova_group === 'number' ? p.nova_group : null;
-    // Origin country tag for the small flag emoji shown on OFF result rows.
-    // Prefer `origins_tags` (actual manufacturing origin per OFF's taxonomy)
-    // and fall back to `manufacturing_places_tags`. `countries_tags` is NOT
-    // used because that field means "where sold", not "where from" — showing
-    // a US flag on a French product just because it's sold at Trader Joe's
-    // would be misleading. When neither field is populated the flag doesn't
-    // render (many OFF entries lack this metadata; that's honest).
-    const originTag = (Array.isArray(p.origins_tags) && p.origins_tags[0])
-                   || (Array.isArray(p.manufacturing_places_tags) && p.manufacturing_places_tags[0])
-                   || null;
-    const mapped = {
-      name,
-      brand:     (Array.isArray(p.brands) ? (p.brands[0] || '') : (p.brands || '').split(',')[0] || '').trim(),
-      barcode:   p.code || p._id || p.id || '',
-      unit,
-      portion,
-      quantity:  1,
-      imgUrl: p.image_front_display_url || p.image_front_url || p.image_url || p.image_front_small_url || '',
-      dateTime:  new Date().toISOString(),
-      categories: [],
-      nutrition_basis: basis,
-      alt_units:       altUnits,
-      completeness,
-      nutriscore,
-      nova,
-      originTag,
-      nutrition: Nutrition.deriveSodiumSalt(nutrition),
-    };
-    Object.defineProperty(mapped, '_offPresent', { value: [...present], enumerable: false });
-    Object.defineProperty(mapped, '_offPreparedOnly', { value: preparedOnly, enumerable: false });
-    Object.defineProperty(mapped, '_offPrepared', { value: prepared, enumerable: false });
-    _rememberOffInfo(mapped.barcode, { present: [...present], preparedOnly, prepared, full });
+    const mapped = mapOffProduct(p, { lang: _getOffSearchLanguage(), importPortion: _getOffImportPortion() });
+    if (!mapped) return null;
+    _rememberOffInfo(mapped.barcode, {
+      present: [...mapped._offPresent],
+      preparedOnly: mapped._offPreparedOnly,
+      prepared: mapped._offPrepared,
+      full,
+    });
     return mapped;
   }
 };
-const _USDA_BASE = 'https://api.nal.usda.gov/fdc/v1';
 
-// USDA data-type priority (lower = higher quality, surface first).
-// Foundation Foods are laboratory-analyzed staples like "Chicken, broiler,
-// breast, meat only, roasted" — the gold standard. SR Legacy is the classic
-// USDA Standard Reference, well-established. Survey (FNDDS) is dietary
-// composite data. Branded is manufacturer-submitted and dominates search
-// volume but varies wildly in quality. Experimental is tiny research data.
-// Unknown/null types sink to the bottom so newer/older records that lack
-// the field don't push curated entries down.
-const _USDA_TYPE_PRIORITY = {
-  'Foundation':      1,
-  'SR Legacy':       2,
-  'Survey (FNDDS)':  3,
-  'Branded':         4,
-  'Experimental':    5,
-};
-
-// Re-rank USDA search results within each fetched page so the higher-quality
-// tiers (Foundation, SR Legacy) surface above manufacturer-submitted Branded
-// entries. USDA's server-side relevance is text-match based and doesn't
-// consider tier quality, so a search for "chicken" returns 50 branded chicken
-// products before the one curated Foundation entry. Keeps USDA's relevance
-// for the initial page selection; re-orders within the batch.
-function _rankUSDAResults(items) {
-  if (!Array.isArray(items) || items.length < 2) return items;
-  return items.slice().sort((a, b) => {
-    const aP = _USDA_TYPE_PRIORITY[a.dataType] || 99;
-    const bP = _USDA_TYPE_PRIORITY[b.dataType] || 99;
-    return aP - bP;
-  });
-}
+// USDA results are re-ranked by data type (Foundation and SR Legacy first)
+// with rankUsdaResults in usda-map.js, shared with the server (#314).
 
 const USDA = {
   // Per 100 g (or 100 ml) as USDA gives it; servingSize is never a factor (#290).
@@ -705,14 +419,12 @@ const USDA = {
       // matches Android app behaviour. pageSize=50 matches SparkyFitness'
       // default (USDA's own max is 200); 20 was too sparse on common queries
       // like "chicken" that have 20k+ hits. #96.
-      const url = _USDA_BASE + '/foods/search?query=' + encodeURIComponent(query) +
-        '&pageSize=50&pageNumber=' + page +
-        '&api_key=' + encodeURIComponent(apiKey);
+      const url = usdaSearchUrl(query, { page, pageSize: 50, apiKey });
       const res = await _extFetch(url);
       if (!res.ok) return [];
       const data = await res.json();
       const items = (data.foods || []).map(f => this._mapProduct(f)).filter(f => f.name);
-      return _rankUSDAResults(items);
+      return rankUsdaResults(items);
     } catch(e) {
       console.error('[USDA] Search failed:', e);
       return [];
@@ -726,9 +438,7 @@ const USDA = {
     page = page || 1;
     if (!apiKey) return { items: [], totalHits: 0, page, hasMore: false };
     try {
-      const url = _USDA_BASE + '/foods/search?query=' + encodeURIComponent(query) +
-        '&pageSize=' + pageSize + '&pageNumber=' + page +
-        '&api_key=' + encodeURIComponent(apiKey);
+      const url = usdaSearchUrl(query, { page, pageSize, apiKey });
       const res = await _extFetch(url);
       if (!res.ok) return { items: [], totalHits: 0, page, hasMore: false };
       const data = await res.json();
@@ -736,7 +446,7 @@ const USDA = {
       const totalHits = typeof data.totalHits === 'number' ? data.totalHits : items.length;
       const totalPages = typeof data.totalPages === 'number' ? data.totalPages : Math.ceil(totalHits / pageSize);
       const hasMore = page < totalPages;
-      return { items: _rankUSDAResults(items), totalHits, page, hasMore };
+      return { items: rankUsdaResults(items), totalHits, page, hasMore };
     } catch(e) {
       console.error('[USDA] Search failed:', e);
       return { items: [], totalHits: 0, page, hasMore: false };
@@ -747,15 +457,11 @@ const USDA = {
     if (!apiKey || !barcode) return null;
     try {
       // Branded only (only branded products have GTINs/UPCs)
-      const url = _USDA_BASE + '/foods/search?query=' + encodeURIComponent(barcode) +
-        '&dataType=Branded&pageSize=10&api_key=' + encodeURIComponent(apiKey);
+      const url = usdaBarcodeSearchUrl(barcode, apiKey);
       const res = await _extFetch(url);
       if (!res.ok) return null;
       const data = await res.json();
-      // Match on exact UPC or UPC without leading zeros
-      const match = (data.foods || []).find(f =>
-        f.gtinUpc && (f.gtinUpc === barcode || f.gtinUpc === barcode.replace(/^0+/, ''))
-      );
+      const match = usdaBarcodeMatch(data.foods, barcode);
       if (!match) return null;
       return this._mapProduct(match);
     } catch(e) {
@@ -769,8 +475,7 @@ const USDA = {
   // request fails, so the editor can tell the two apart.
   async lookupFdcId(fdcId, apiKey) {
     if (!apiKey || !fdcId) return null;
-    const url = _USDA_BASE + '/food/' + encodeURIComponent(fdcId) +
-      '?api_key=' + encodeURIComponent(apiKey);
+    const url = usdaFoodUrl(fdcId, apiKey);
     const res = await _extFetch(url);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error('USDA ' + res.status);
@@ -786,7 +491,7 @@ const USDA = {
 // or native with a server URL configured) this HTTP implementation is used.
 import { isNative, getServerUrl, getAuthToken, resolveAssetUrl, apiUrl } from './platform.js';
 import { Nutrition } from './nutrition.js';
-import { mapUsdaFood } from './usda-map.js';
+import { mapUsdaFood, rankUsdaResults, usdaSearchUrl, usdaBarcodeSearchUrl, usdaFoodUrl, usdaBarcodeMatch } from './usda-map.js';
 
 const _NtApiHttp = {
   // Core fetch — apiUrl() handles the server URL prefix (native server mode)

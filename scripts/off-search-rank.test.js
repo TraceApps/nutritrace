@@ -125,11 +125,14 @@ test('empty and single results pass through', () => {
   assert.deepEqual(rankOFFResults([{ food: { barcode: 'x' }, score: 3 }]).map((f) => f.barcode), ['x']);
 });
 
-test('api.js passes each hit\'s score beside its food, not on it', () => {
+test('the shared search passes each hit\'s score beside its food, not on it', () => {
+  // off-map.js's rankOffSearch, used by api.js and the server (#314).
+  const shared = read('../src/lib/off-map.js');
+  assert.match(shared, /import \{ rankOFFResults \} from '\.\/off-rank\.js';/);
+  assert.match(shared, /map\(p => \(\{ food: map\(p\), score: p \? p\._score : undefined \}\)\)/);
+  assert.match(shared, /rankOFFResults\(entries, \{ fromMirror \}\)/);
   const api = read('../src/lib/api.js');
-  assert.match(api, /import \{ rankOFFResults \} from '\.\/off-rank\.js';/);
-  assert.match(api, /map\(p => \(\{ food: this\._mapOFFProduct\(p\), score: p \? p\._score : undefined \}\)\)/);
-  assert.equal((api.match(/rankOFFResults\(entries, \{ fromMirror \}\)|rankOFFResults\(this\._offSearchEntries\(data\), \{ fromMirror \}\)/g) || []).length, 2,
+  assert.equal((api.match(/rankOffSearch\(data, p => this\._mapOFFProduct\(p\)\)/g) || []).length, 2,
     'both name-search paths use the ranker');
   assert.doesNotMatch(api, /_rankOFFResults/);
 });

@@ -102,7 +102,7 @@ test('api.js maps every USDA path through mapUsdaFood, with no serving factor', 
   const api = read('../src/lib/api.js');
   assert.doesNotMatch(api, /100 \/ servingSize/);
   assert.doesNotMatch(api, /_mapProduct\([^)]*,/);
-  assert.match(api, /import \{ mapUsdaFood \} from '\.\/usda-map\.js'/);
+  assert.match(api, /import \{ mapUsdaFood, [^}]*\} from '\.\/usda-map\.js'/);
   assert.match(api, /async lookupFdcId\(fdcId, apiKey\)/);
 });
 

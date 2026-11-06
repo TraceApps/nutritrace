@@ -20,25 +20,25 @@ import { readFileSync } from 'node:fs';
 import { offNutritionStatus, needsFullLookup, applyOffPrepared, MAX_KCAL_PER_100 } from '../src/lib/off-nutrition.js';
 import { NUTRIMENTS, Nutrition } from '../src/lib/nutrition.js';
 import { offProductName } from '../src/lib/off-name.js';
+import { mapOffProduct } from '../src/lib/off-map.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const IDS = NUTRIMENTS.map(n => n.id);
 const { products: REAL } = JSON.parse(read('./fixtures/off-prepared-samples.json'));
 const { product: BEANS } = JSON.parse(read('./fixtures/off-241-prepared-only.json'));
 
-// The real mapper and registry, lifted out of api.js (which needs Vite to load).
+// The real mapper (off-map.js) behind api.js's own wrapper and registry,
+// lifted out of api.js (which needs Vite to load).
 function realApi() {
   const src = read('../src/lib/api.js');
   const sig = '  _mapOFFProduct(p, { full = false } = {}) {';
   const a = src.indexOf(sig), b = src.indexOf('\n  }\n', a);
-  const t = src.indexOf('const _OFF_NUTRIENTS = [');
   const r = src.indexOf('const _OFF_INFO_MAX');
-  assert.ok(a > 0 && t > 0 && r > 0, 'api.js still has the mapper, the table and the registry');
-  const table = src.slice(t, src.indexOf('];', t) + 2);
+  assert.ok(a > 0 && r > 0, 'api.js still has the wrapper and the registry');
   const registry = src.slice(r, src.indexOf('const API = {', r));
-  const make = new Function('offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', 'settingPrefix',
-    `${table}\n${registry}\nreturn { map(p, full) { ${src.slice(a + sig.length, b)} }, info: (code) => _offInfo.get(String(code)) || null };`);
-  return make(offProductName, () => 'en', { getItem: () => null }, Nutrition, () => 'wl_');
+  const make = new Function('mapOffProduct', '_getOffSearchLanguage', '_getOffImportPortion',
+    `${registry}\nreturn { map(p, full) { ${src.slice(a + sig.length, b)} }, info: (code) => _offInfo.get(String(code)) || null };`);
+  return make(mapOffProduct, () => 'en', () => 'per100g');
 }
 
 test('real products: each "as prepared" case is found and kept apart from the saved food', () => {

@@ -20,11 +20,13 @@ import { registerListDiaryRange } from './list-diary-range.js';
 import { registerDailyTotals } from './daily-totals.js';
 import { registerDailyTotalsRange } from './daily-totals-range.js';
 import { registerSearchFoods } from './search-foods.js';
+import { registerSearchExternalFoods } from './search-external-foods.js';
 import { registerRecentFoods } from './recent-foods.js';
 import { registerSearchMeals } from './search-meals.js';
 import { registerRecentMeals } from './recent-meals.js';
 import { registerGetMealDetails } from './get-meal-details.js';
 import { registerLogFood } from './log-food.js';
+import { registerLogExternalFood } from './log-external-food.js';
 import { registerLogWater } from './log-water.js';
 import { registerLogMeal } from './log-meal.js';
 import { registerLogBodyStat } from './log-body-stat.js';
@@ -42,6 +44,7 @@ export function registerReadTools(server, ctx) {
   registerDailyTotals(server, ctx);
   registerDailyTotalsRange(server, ctx);
   registerSearchFoods(server, ctx);
+  registerSearchExternalFoods(server, ctx);
   registerRecentFoods(server, ctx);
   registerSearchMeals(server, ctx);
   registerRecentMeals(server, ctx);
@@ -50,6 +53,7 @@ export function registerReadTools(server, ctx) {
 
 export function registerWriteTools(server, ctx) {
   registerLogFood(server, ctx);
+  registerLogExternalFood(server, ctx);
   registerLogWater(server, ctx);
   registerLogMeal(server, ctx);
   registerLogBodyStat(server, ctx);

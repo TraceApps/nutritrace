@@ -77,9 +77,12 @@ test('fields that only look like language names are ignored', () => {
 });
 
 test('the OFF mapper uses it for both the check and the name it stores', () => {
+  // The mapper is off-map.js's, shared by api.js and the server (#314).
+  const src = readFileSync(new URL('../src/lib/off-map.js', import.meta.url), 'utf8');
+  const fn = src.slice(src.indexOf('export function mapOffProduct('));
+  assert.match(fn, /const name = offProductName\(p, lang\);\s*if \(!p \|\| !name\) return null;/);
+  assert.match(fn, /\n    name,\n/);
+  assert.doesNotMatch(fn.slice(0, fn.indexOf('\n}\n')), /p\.product_name/, 'nothing reads product_name directly any more');
   const api = readFileSync(new URL('../src/lib/api.js', import.meta.url), 'utf8');
-  const fn = api.slice(api.indexOf('  _mapOFFProduct(p'));
-  assert.match(fn, /const name = offProductName\(p, _getOffSearchLanguage\(\)\);\s*if \(!p \|\| !name\) return null;/);
-  assert.match(fn, /\n      name,\n/);
-  assert.doesNotMatch(fn.slice(0, fn.indexOf('\n  }\n')), /p\.product_name/, 'nothing reads product_name directly any more');
+  assert.match(api, /mapOffProduct\(p, \{ lang: _getOffSearchLanguage\(\), importPortion: _getOffImportPortion\(\) \}\)/, "the app passes the user's OFF language");
 });

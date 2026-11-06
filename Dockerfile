@@ -53,6 +53,13 @@ COPY src/lib/coach-targets.js /src/lib/coach-targets.js
 COPY src/lib/coach-plans.js /src/lib/coach-plans.js
 # The weekly summary covers a week the way the app counts one (#232).
 COPY src/lib/week.js /src/lib/week.js
+# The MCP food tools search and map Open Food Facts and USDA with the app's
+# own code, so an assistant gets the numbers the Foods page shows (#314).
+COPY src/lib/off-map.js /src/lib/off-map.js
+COPY src/lib/off-name.js /src/lib/off-name.js
+COPY src/lib/off-rank.js /src/lib/off-rank.js
+COPY src/lib/off-nutrition-sets.js /src/lib/off-nutrition-sets.js
+COPY src/lib/usda-map.js /src/lib/usda-map.js
 # Also ship the root package.json so the server can read APP_VERSION from
 # it at runtime when TRACEAPPS_APP_VERSION isn't injected via ARG below.
 # Keeps versioning working even for builds that don't pass the build-arg.

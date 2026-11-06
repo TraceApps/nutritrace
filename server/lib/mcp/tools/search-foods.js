@@ -5,10 +5,8 @@
  * /api/v1/foods federation endpoint but returned via MCP.
  *
  * External sources (OFF, USDA) are intentionally NOT queried here
- * to keep the tool response fast + deterministic. Agents can call
- * search_foods for the user's own catalog and log via other tools
- * once write scopes exist; OFF / USDA lookups happen in the client
- * UI via the Foods picker.
+ * to keep the tool response fast + deterministic. They have their own
+ * tool, search_external_foods (#314), and log_external_food logs one.
  */
 import { z } from 'zod';
 import db from '../../../db.js';
@@ -26,7 +24,8 @@ export function registerSearchFoods(server, { userId }) {
       description:
         "Text-search the user's local foods catalog by name or brand. Returns id, " +
         'name, brand, barcode, portion, unit, and per-portion nutrition for each match. ' +
-        'Does not query external sources (OFF, USDA). Default limit 20, max 50.',
+        'Does not query external sources: for Open Food Facts or USDA products the user ' +
+        'has not saved yet, use search_external_foods. Default limit 20, max 50.',
       inputSchema: {
         query: z.string().min(1),
         limit: z.number().int().min(1).max(MAX_LIMIT).optional(),

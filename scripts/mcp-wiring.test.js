@@ -89,6 +89,7 @@ test('All Phase 1 read tools are registered', () => {
     'registerDailyTotals',
     'registerDailyTotalsRange',
     'registerSearchFoods',
+    'registerSearchExternalFoods',
     'registerRecentFoods',
   ];
   for (const fn of expected) {
@@ -99,6 +100,7 @@ test('All Phase 1 read tools are registered', () => {
 test('All Phase 2 write tools are registered in registerWriteTools', () => {
   const expected = [
     'registerLogFood',
+    'registerLogExternalFood',
     'registerLogWater',
     'registerLogMeal',
     'registerLogBodyStat',
@@ -106,6 +108,14 @@ test('All Phase 2 write tools are registered in registerWriteTools', () => {
   for (const fn of expected) {
     assert.match(mcpTools, new RegExp(`\\b${fn}\\s*\\(`), `expected ${fn}() call in tools/index.js`);
   }
+});
+
+test('#314: the external food search is a read tool and its log a write tool, behind the write gate', () => {
+  const body = (fn) => mcpTools.slice(mcpTools.indexOf(`export function ${fn}(`), mcpTools.indexOf('\n}\n', mcpTools.indexOf(`export function ${fn}(`)));
+  assert.match(body('registerReadTools'), /registerSearchExternalFoods\(server, ctx\)/);
+  assert.doesNotMatch(body('registerReadTools'), /registerLogExternalFood/);
+  assert.match(body('registerWriteTools'), /registerLogExternalFood\(server, ctx\)/);
+  assert.match(apiTokens, /log an Open Food Facts or USDA product/, 'the mcp:write scope says so');
 });
 
 test('All Phase 3 destructive tools are registered in registerDestroyTools', () => {

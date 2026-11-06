@@ -4,23 +4,19 @@ import { redactUrl } from '../lib/redact-url.js';
 import { fetchChecked, readBody } from '../lib/ssrf-guard.js';
 import { frameAncestorsDirective } from '../lib/frame-ancestors.js';
 import { makeRateLimiter } from '../middleware/rate-limit.js';
-import { isLocalOffEnabled, isLocalOffOnly, lookupByBarcode, searchByName } from '../lib/off-local.js';
+import { isLocalOffEnabled, isLocalOffOnly } from '../lib/off-local.js';
+import { API_ALLOWED, EXTERNAL_USER_AGENT, hostMatches, tryLocalOff } from '../lib/external-api.js';
 
 const router = Router();
 const proxyLimit = makeRateLimiter({ max: 60, windowMs: 60_000, label: 'proxy' });
 router.use(proxyLimit);
 
-// Whitelist: hosts allowed for API proxy (JSON responses)
-const API_ALLOWED = ['world.openfoodfacts.org', 'search.openfoodfacts.org', 'api.nal.usda.gov'];
+// Hosts allowed for API proxy (JSON responses): API_ALLOWED in
+// lib/external-api.js, shared with the MCP food tools (#314).
 
 // Image proxy: allowed hosts for image passthrough (binary responses)
 const IMG_ALLOWED = ['external-content.duckduckgo.com', 'i5.walmartimages.com', 'images.openfoodfacts.org',
   'i.imgur.com', 'upload.wikimedia.org', 'www.kroger.com', 'target.scene7.com'];
-
-// Strict host match: equal OR proper subdomain. Rejects 'i.imgur.com.evil.tld'.
-function _hostMatches(hostname, allowed) {
-  return hostname === allowed || hostname.endsWith('.' + allowed);
-}
 
 router.get('/', async (req, res) => {
   const { url } = req.query;
@@ -30,8 +26,8 @@ router.get('/', async (req, res) => {
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
       return res.status(403).json({ error: 'Protocol not allowed' });
     }
-    const isApiHost = API_ALLOWED.some(h => _hostMatches(parsed.hostname, h));
-    const isImgHost = IMG_ALLOWED.some(h => _hostMatches(parsed.hostname, h));
+    const isApiHost = API_ALLOWED.some(h => hostMatches(parsed.hostname, h));
+    const isImgHost = IMG_ALLOWED.some(h => hostMatches(parsed.hostname, h));
 
     if (!isApiHost && !isImgHost) {
       return res.status(403).json({ error: 'Domain not allowed' });
@@ -48,7 +44,7 @@ router.get('/', async (req, res) => {
     // An air-gapped server still answers from the mirror.
     const wantLive = req.query.live === '1' && !isLocalOffOnly();
     if (isLocalOffEnabled() && isApiHost && !wantLive) {
-      const local = await _tryLocalOff(parsed);
+      const local = await tryLocalOff(parsed);
       if (local !== undefined) {
         return res.json(local);
       }
@@ -65,7 +61,7 @@ router.get('/', async (req, res) => {
     // server's own network or to cloud metadata.
     const response = await fetchChecked(url, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NutriTrace/1.0)' },
+      headers: { 'User-Agent': EXTERNAL_USER_AGENT },
     }, { maxRedirects: 3 });
 
     if (!response.ok) {
@@ -103,68 +99,5 @@ router.get('/', async (req, res) => {
     res.status(503).json({ error: 'Could not reach that service' });
   }
 });
-
-/** Pattern-match OFF URLs and dispatch to the local mirror. Returns:
- *  - parsed JSON object (use it as the response)
- *  - undefined (URL didn't match a known OFF shape, OR mirror returned an
- *               error / empty result and we should fall through to remote)
- *
- *  Known shapes:
- *    https://world.openfoodfacts.org/api/v{N}/product/<barcode>(.json)?
- *    https://search.openfoodfacts.org/search?q=<query>&page=<n>&page_size=<m>
- *
- *  Stale-mirror fallback: when the mirror cleanly returns "no match" (barcode
- *  not in the local DB, or search hits empty) AND air-gap mode is off, we
- *  treat that as a cache miss and fall through to the live OFF API. This
- *  auto-heals the common case where a product was added to OFF after the
- *  last mirror refresh — without it, scans of recently-added products would
- *  give false negatives until the next snapshot pull. Air-gap mode keeps the
- *  old behavior: trust the mirror as authoritative.
- */
-async function _tryLocalOff(parsedUrl) {
-  const host = parsedUrl.hostname;
-  const path = parsedUrl.pathname;
-  const airGap = isLocalOffOnly();
-  // Barcode lookup: /api/vN/product/CODE.json (also handle .json-less), and
-  // point versions like v3.5 (#241), which the mirror answers the same way.
-  if (host === 'world.openfoodfacts.org' && /^\/api\/v\d+(?:\.\d+)?\/product\//.test(path)) {
-    const m = path.match(/^\/api\/v\d+(?:\.\d+)?\/product\/([^/.]+)/);
-    if (!m) return undefined;
-    const code = m[1];
-    const result = await lookupByBarcode(code);
-    if (result == null) {
-      logger.debug(`[off-local] barcode ${code} → mirror error, falling through to remote OFF`);
-      return undefined;
-    }
-    if (result.status === 0 && !airGap) {
-      logger.debug(`[off-local] barcode ${code} → miss, falling through to remote OFF`);
-      return undefined;
-    }
-    logger.debug(`[off-local] barcode ${code} → hit from local mirror${airGap && result.status === 0 ? ' (air-gap, returning empty)' : ''}`);
-    return result;
-  }
-  // Name search: legacy /search?q=... and v2 /api/v2/search?search_terms=...
-  if ((host === 'search.openfoodfacts.org' && path === '/search') ||
-      (host === 'world.openfoodfacts.org' && path === '/api/v2/search')) {
-    const q = parsedUrl.searchParams.get('q') || parsedUrl.searchParams.get('search_terms') || '';
-    const page = parseInt(parsedUrl.searchParams.get('page') || '1', 10);
-    const pageSize = parseInt(parsedUrl.searchParams.get('page_size') || '20', 10);
-    const result = await searchByName(q, { page, pageSize });
-    if (result == null) {
-      logger.debug(`[off-local] search "${q}" → mirror error, falling through to remote OFF`);
-      return undefined;
-    }
-    const hitCount = result.hits?.length ?? 0;
-    if (hitCount === 0 && !airGap) {
-      logger.debug(`[off-local] search "${q}" → 0 hits, falling through to remote OFF`);
-      return undefined;
-    }
-    logger.debug(`[off-local] search "${q}" → ${hitCount} hits from local mirror${airGap && hitCount === 0 ? ' (air-gap, returning empty)' : ''}`);
-    return result;
-  }
-  // Any other OFF endpoint (CGI scripts for product upload, images, etc.):
-  // no local equivalent, let it fall through to remote.
-  return undefined;
-}
 
 export default router;

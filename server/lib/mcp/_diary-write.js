@@ -34,6 +34,13 @@ export class DiaryTombstonedError extends Error {
   }
 }
 
+/** Whether the day was erased in the app, so a write would be refused.
+ *  For callers that must know before doing anything else (#314). */
+export function isDiaryDayTombstoned(userId, date) {
+  const row = db.prepare('SELECT deleted_at FROM diary WHERE user_id = ? AND date = ?').get(userId, date);
+  return !!(row && row.deleted_at);
+}
+
 /**
  * Load a diary day, hand its parsed contents to `mutator`, and save
  * the result back. Runs inside a transaction so concurrent MCP write

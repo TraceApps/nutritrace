@@ -57,6 +57,68 @@ export const USDA_NUTRIENT_MAP = {
   1180: 'choline',         // mg (Choline, total)
 };
 
+export const USDA_BASE = 'https://api.nal.usda.gov/fdc/v1';
+
+/** A FoodData Central name search, as the Foods page asks for it. No
+ *  dataType filter: all of Branded, Foundation, SR Legacy and Survey. */
+export function usdaSearchUrl(query, { page = 1, pageSize = 50, apiKey = '' } = {}) {
+  return USDA_BASE + '/foods/search?query=' + encodeURIComponent(query) +
+    '&pageSize=' + pageSize + '&pageNumber=' + page +
+    '&api_key=' + encodeURIComponent(apiKey);
+}
+
+/** A barcode search: Branded only (only branded products have GTINs/UPCs). */
+export function usdaBarcodeSearchUrl(barcode, apiKey = '') {
+  return USDA_BASE + '/foods/search?query=' + encodeURIComponent(barcode) +
+    '&dataType=Branded&pageSize=10&api_key=' + encodeURIComponent(apiKey);
+}
+
+/** One food by its FoodData Central id. */
+export function usdaFoodUrl(fdcId, apiKey = '') {
+  return USDA_BASE + '/food/' + encodeURIComponent(fdcId) +
+    '?api_key=' + encodeURIComponent(apiKey);
+}
+
+/** The food in a barcode search whose UPC is the barcode, exactly or
+ *  without its leading zeros; undefined when none is. */
+export function usdaBarcodeMatch(foods, barcode) {
+  const code = String(barcode || '');
+  return (foods || []).find(f =>
+    f.gtinUpc && (f.gtinUpc === code || f.gtinUpc === code.replace(/^0+/, ''))
+  );
+}
+
+// USDA data-type priority (lower = higher quality, surface first).
+// Foundation Foods are laboratory-analyzed staples like "Chicken, broiler,
+// breast, meat only, roasted", the gold standard. SR Legacy is the classic
+// USDA Standard Reference, well-established. Survey (FNDDS) is dietary
+// composite data. Branded is manufacturer-submitted and dominates search
+// volume but varies wildly in quality. Experimental is tiny research data.
+// Unknown/null types sink to the bottom so newer/older records that lack
+// the field don't push curated entries down.
+export const USDA_TYPE_PRIORITY = {
+  'Foundation':      1,
+  'SR Legacy':       2,
+  'Survey (FNDDS)':  3,
+  'Branded':         4,
+  'Experimental':    5,
+};
+
+// Re-rank USDA search results within each fetched page so the higher-quality
+// tiers (Foundation, SR Legacy) surface above manufacturer-submitted Branded
+// entries. USDA's server-side relevance is text-match based and doesn't
+// consider tier quality, so a search for "chicken" returns 50 branded chicken
+// products before the one curated Foundation entry. Keeps USDA's relevance
+// for the initial page selection; re-orders within the batch.
+export function rankUsdaResults(items) {
+  if (!Array.isArray(items) || items.length < 2) return items;
+  return items.slice().sort((a, b) => {
+    const aP = USDA_TYPE_PRIORITY[a.dataType] || 99;
+    const bP = USDA_TYPE_PRIORITY[b.dataType] || 99;
+    return aP - bP;
+  });
+}
+
 /** The fdcId in a food's barcode ("fdcId_2607245"), or null. */
 export function usdaFdcId(barcode) {
   const m = /^fdcId_(\d+)$/.exec(String(barcode || '').trim());

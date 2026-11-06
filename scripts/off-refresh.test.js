@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { applyOffRefresh } from '../src/lib/off-refresh.js';
 import { NUTRIMENTS, Nutrition } from '../src/lib/nutrition.js';
-import { offProductName } from '../src/lib/off-name.js';
+import { mapOffProduct } from '../src/lib/off-map.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const IDS = NUTRIMENTS.map(n => n.id);
@@ -102,20 +102,10 @@ test('the food passed in is not modified', () => {
   assert.equal(JSON.stringify(saved), before);
 });
 
-// The real mapper, run on the reported product. api.js needs Vite to load, so
-// the method is lifted out of its source; if its shape changes this fails
-// loudly rather than passing quietly.
+// The real mapper, run on the reported product: off-map.js's, which api.js
+// and the server both use (#314).
 function realMapper() {
-  const src = read('../src/lib/api.js');
-  const head = src.match(/\n  _mapOFFProduct\(p[^)]*\) \{/);
-  assert.ok(head, 'api.js still has _mapOFFProduct');
-  const a = head.index + head[0].length;
-  const b = src.indexOf('\n  }\n', a);
-  const t = src.indexOf('const _OFF_NUTRIENTS = [');
-  assert.ok(b > a && t > 0, 'and _OFF_NUTRIENTS');
-  const table = src.slice(t, src.indexOf('];', t) + 2);
-  const fn = new Function('p', 'full', 'offProductName', '_getOffSearchLanguage', 'localStorage', 'Nutrition', '_rememberOffInfo', 'settingPrefix', table + '\n' + src.slice(a, b));
-  return (p) => fn(p, true, offProductName, () => 'en', { getItem: () => null }, Nutrition, () => {}, () => 'wl_');
+  return (p) => mapOffProduct(p, { lang: 'en' });
 }
 
 test('the reported product: the mapper sees no as-sold values and flags "as prepared"', () => {

@@ -6,10 +6,9 @@
  * and confirmed the portion prompt.
  *
  * The food must exist in the user's foods table (search_foods returns
- * ids that are valid inputs here). External-source foods (OFF/USDA)
- * must be saved to the catalog by the user first — this tool won't
- * silently pull from OFF and create a food row, because that would let
- * an agent bloat the catalog without any UI feedback.
+ * ids that are valid inputs here). Products from Open Food Facts or USDA
+ * go through log_external_food instead (#314), which saves the product to
+ * the catalog once and then logs it here.
  */
 import { z } from 'zod';
 import db from '../../../db.js';
@@ -24,8 +23,14 @@ import { dailyTotalsCore } from './daily-totals.js';
  * Core write, shared by the MCP tool below and the public REST API at
  * POST /api/v1/diary/:date/food. Throws a plain Error on bad input or a
  * tombstoned day so callers on either side can decide how to surface it.
+ *
+ * `sameUnitPortion` (log_external_food, #314): a food with alt-units may
+ * still take a portion in its own unit. With both sides in the same unit the
+ * app's scaleFactor (src/lib/units.js) is portion / food portion, exactly the
+ * scale used here, so "200 g" of a per-100 g product with a "1 pot" unit
+ * logs what the app would. Any other unit is still refused below.
  */
-export function logFoodCore(userId, { food_id, date, meal, quantity, portion, unit, notes } = {}) {
+export function logFoodCore(userId, { food_id, date, meal, quantity, portion, unit, notes } = {}, { sameUnitPortion = false } = {}) {
   const day = date || todayLocal();
   if (!isCalendarDate(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
 
@@ -38,7 +43,7 @@ export function logFoodCore(userId, { food_id, date, meal, quantity, portion, un
 
   const parsedAlt = food.alt_units ? safeJson(food.alt_units, null) : null;
   const hasAltUnits = Array.isArray(parsedAlt) && parsedAlt.length > 0;
-  if (Number.isFinite(portion) && hasAltUnits) {
+  if (Number.isFinite(portion) && hasAltUnits && !sameUnitPortion) {
     throw new Error(
       `Food '${food.name}' has alt-units defined (custom per-unit conversions). ` +
       "Portion override isn't supported for these foods because the numeric scale " +
@@ -152,7 +157,8 @@ export function registerLogFood(server, { userId }) {
       title: 'Log Food',
       description:
         "Add a food from the user's catalog to a diary day. Requires food_id from " +
-        'the user\'s local catalog (search with search_foods first). Portion + unit ' +
+        'the user\'s local catalog (search with search_foods first; for a product found ' +
+        'with search_external_foods use log_external_food). Portion + unit ' +
         "default to the food's stored serving; override to log a different amount. " +
         'Date defaults to today in the server timezone. Meal slot is 0-indexed ' +
         '(0=Breakfast, 1=Lunch, 2=Dinner, 3=Snacks by default; user may have ' +

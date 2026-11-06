@@ -33,8 +33,8 @@ export const SCOPE_DESCRIPTIONS = {
   'read:body-measurements': "Read the token owner's persisted weight and body-composition measurements. Used by LiftTrace federation.",
   'write:workouts':  "Post workouts into the token owner's wellness history. Used by LiftTrace federation.",
   'write:activity':  "Log manual activity entries into the diary Activity section. Used by external trackers and headless integrations (issue #154).",
-  'mcp:read':        'MCP: read the diary, goals, daily totals, daily steps, body composition, profile (gender, date of birth), and the foods and meals catalog. Also unlocks the equivalent /api/v1 read routes when PUBLIC_API_ENABLED=1.',
-  'mcp:write':       'MCP: log food / water / meals / body stats (4 additive tools). Requires MCP_WRITE_ENABLED=1 on the server. Also unlocks the equivalent /api/v1 write routes when PUBLIC_API_WRITE_ENABLED=1.',
+  'mcp:read':        'MCP: read the diary, goals, daily totals, daily steps, body composition, profile (gender, date of birth), and the foods and meals catalog, and search Open Food Facts and USDA (USDA with a USDA API key saved in Settings). Also unlocks the equivalent /api/v1 read routes when PUBLIC_API_ENABLED=1.',
+  'mcp:write':       'MCP: log food / water / meals / body stats, and log an Open Food Facts or USDA product, saving it to the catalog once (5 additive tools). Requires MCP_WRITE_ENABLED=1 on the server. Also unlocks the equivalent /api/v1 write routes when PUBLIC_API_WRITE_ENABLED=1.',
   'mcp:destroy':     'MCP: delete or edit diary entries, create catalog foods (3 tools). Requires MCP_DESTROY_ENABLED=1 AND every call to include confirm=true.',
 };
 
