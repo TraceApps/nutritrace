@@ -1,5 +1,13 @@
 import db from './db.js';
 
+// Kept identical to src/lib/aiChat.js (scripts/ai-models.test.js checks).
+// Used when no model is chosen; an admin who set one keeps it.
+export const AI_DEFAULT_MODELS = {
+  claude: 'claude-haiku-5-5',
+  openai: 'gpt-5.6-luna',
+  gemini: 'gemini-3.8-flash',
+};
+
 /** Seed AI config from env vars at startup — env vars take priority over UI */
 export function seedAiFromEnv() {
   const map = {
