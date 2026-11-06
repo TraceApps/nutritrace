@@ -209,6 +209,25 @@ db.exec(`
     garmin_user_id TEXT
   );
 
+  -- Garmin Personal API (#279): the person's own API key and the access
+  -- token it buys, both encrypted (lib/token-crypto.js). One row per user
+  -- (0 in single-user mode), no FK like the other wearable token tables.
+  CREATE TABLE IF NOT EXISTS garmin_personal (
+    user_id          INTEGER PRIMARY KEY,
+    api_key          TEXT NOT NULL,
+    region           TEXT NOT NULL DEFAULT 'global',
+    access_token     TEXT,
+    token_expires_at TEXT,
+    key_expires_at   TEXT,
+    state            TEXT NOT NULL DEFAULT 'ok',
+    last_error       TEXT,
+    last_attempt_at  TEXT,
+    last_sync_at     TEXT,
+    backfilled_at    TEXT,
+    expiry_notice    TEXT,
+    created_at       TEXT DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS ai_chat_history (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,

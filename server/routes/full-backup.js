@@ -654,7 +654,8 @@ function dumpDatabase() {
   // ── Coverage audit (2026-07) ─────────────────────────────────────────────
   // Every user-content table in server/db.js is included below. Deliberate
   // exclusions and their rationale:
-  //   fitbit_tokens, google_health_tokens, withings_tokens, garmin_tokens
+  //   fitbit_tokens, google_health_tokens, withings_tokens, garmin_tokens,
+  //   garmin_personal (the Garmin Personal API key and its token)
   //     — OAuth access/refresh tokens encrypted at rest with the deploy's
   //       JWT_SECRET (see server/lib/token-crypto.js). A restore into a
   //       different deploy cannot decrypt them, and re-linking the wearable

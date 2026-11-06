@@ -314,6 +314,119 @@
   let disconnectingGarmin    = false;
   let connectingGarmin       = false;
 
+  // ── Garmin Personal API key (#279) ─────────────────────────────────────────
+  // 'personal' (own key, no approval) or 'partner' (Health API partnership).
+  let garminChoice = null;
+  let gpKey = '';
+  let gpShowKey = false;
+  let gpExpiry = '';
+  let gpRegion = 'global';
+  let gpError = '';
+  let gpConnecting = false;
+  let gpReplacing = false;
+  let gpEditingExpiry = false;
+  let gpExpiryDraft = '';
+  let gpSyncing = false;
+  const GARMIN_KEY_PAGE = 'https://connect.garmin.com/app/settings/personalApiToken';
+  $: gpStatus = garminConnectionStatus?.personal || null;
+  // A server from before #279 has no Personal API key routes: its status
+  // has no `personal` field at all (null means "none connected").
+  $: gpSupported = !!garminConnectionStatus && 'personal' in garminConnectionStatus;
+  $: gpPartnerConnected = garminConnectionStatus?.partnerConnected ?? (!gpSupported && !!garminConnectionStatus?.connected);
+  $: if (garminConnectionStatus && (garminChoice === null || !gpSupported)) {
+    garminChoice = !gpSupported ? 'partner'
+      : gpStatus ? 'personal'
+      : (gpPartnerConnected || garminConnectionStatus.configured) ? 'partner' : 'personal';
+  }
+  // The key form: before a key is connected, when Garmin turned it down, or
+  // when replacing it.
+  $: gpShowForm = !gpStatus || gpStatus.state === 'needs_key' || gpReplacing;
+  // Connected, synced, and still nothing from a watch: a normal state.
+  $: gpNoDataYet = !!gpStatus?.connected && !!gpStatus?.lastSyncAt && !garminConnectionStatus?.lastSyncedAt;
+
+  function _addDays(n) {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function _fmtDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso + 'T12:00:00');
+    return isNaN(d) ? iso : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+  const GP_ERRORS = {
+    bad_format:   'settings_wellness.garmin_personal.err_bad_format',
+    bad_key:      'settings_wellness.garmin_personal.err_bad_key',
+    rate_limited: 'settings_wellness.garmin_personal.err_rate_limited',
+    timeout:      'settings_wellness.garmin_personal.err_timeout',
+    unavailable:  'settings_wellness.garmin_personal.err_unavailable',
+    bad_response: 'settings_wellness.garmin_personal.err_unavailable',
+    bad_expiry:   'settings_wellness.garmin_personal.err_bad_expiry',
+    partial:      'settings_wellness.garmin_personal.err_partial',
+  };
+  function _gpErr(code, fallback) {
+    return GP_ERRORS[code] ? $_(GP_ERRORS[code]) : (fallback || $_(GP_ERRORS.unavailable));
+  }
+  async function _refreshGarminStatus() {
+    try { garminConnectionStatus = await NtApi.get('/api/wellness/garmin/status'); } catch {}
+  }
+
+  async function connectGarminPersonal() {
+    if (gpConnecting) return;
+    gpError = '';
+    const key = gpKey.trim();
+    if (key.length < 16 || /\s/.test(key)) { gpError = _gpErr('bad_format'); return; }
+    gpConnecting = true;
+    try {
+      await NtApi.post('/api/wellness/garmin/personal/connect', {
+        api_key: key, region: gpRegion, key_expires_at: gpExpiry || null,
+      });
+      gpKey = ''; gpShowKey = false; gpReplacing = false; gpExpiry = '';
+      showSuccess($_('settings_wellness.garmin_personal.connected_toast'));
+      await _refreshGarminStatus();
+      gpConnecting = false;
+      await syncGarminPersonal({ quiet: true, force: true });
+    } catch (e) {
+      gpError = _gpErr(e?.code, e?.message);
+      gpConnecting = false;
+    }
+  }
+
+  async function syncGarminPersonal({ quiet = false, force = false } = {}) {
+    if (gpSyncing) return;
+    gpSyncing = true;
+    try {
+      const today = _todayStr();
+      const r = await NtApi.post('/api/wellness/garmin/sync', { from: today, to: today, force });
+      if (r?.skipped === 'recent') { if (!quiet) showSuccess($_('settings_wellness.garmin_personal.sync_skipped')); }
+      else if (!quiet || r?.synced) showSuccess($_('settings_wellness.garmin_personal.synced_days', { values: { count: r?.synced ?? 0 } }));
+    } catch (e) {
+      if (!quiet) showError(e?.code === "bad_key" ? $_("settings_wellness.garmin_personal.needs_key") : _gpErr(e?.code, e?.message));
+    }
+    gpSyncing = false;
+    await _refreshGarminStatus();
+  }
+
+  async function saveGarminExpiry() {
+    try {
+      await NtApi.put('/api/wellness/garmin/personal', { key_expires_at: gpExpiryDraft || null });
+      gpEditingExpiry = false;
+      showSuccess($_('settings_wellness.garmin_personal.expiry_saved'));
+      await _refreshGarminStatus();
+    } catch (e) { showError(_gpErr(e?.code, e?.message)); }
+  }
+
+  async function disconnectGarminPersonal() {
+    disconnectingGarmin = true;
+    try {
+      await NtApi.del('/api/wellness/garmin/personal');
+      gpReplacing = false; gpKey = ''; gpError = '';
+      showSuccess($_('settings_wellness.garmin_personal.disconnected'));
+      await _refreshGarminStatus();
+    } catch (e) { showError(e.message); }
+    disconnectingGarmin = false;
+  }
+
   // Format a timestamp as "X minutes/hours/days ago"
   function _timeAgo(isoStr) {
     if (!isoStr) return null;
@@ -626,7 +739,7 @@
       <div class="setting-row">
         <div>
           <span class="setting-label">Mirror wellness weight to Body Stats</span>
-          <div class="setting-desc">Also write scale readings from Health Connect into that day's Body Stats weight so the Weight goal on Goals and the Body Stats widget on Diary reflect your scale. Manual Body Stats entries are never overwritten. Withings applies this by default independently of this toggle.</div>
+          <div class="setting-desc">Also write scale readings from Health Connect and a Garmin Personal API Key into that day's Body Stats weight so the Weight goal on Goals and the Body Stats widget on Diary reflect your scale. Manual Body Stats entries are never overwritten. Withings applies this by default independently of this toggle.</div>
         </div>
         <Toggle checked={mirrorWellnessWeightVal}
           on:change={e => { mirrorWellnessWeightVal = e.detail; mirrorWellnessWeight.set(e.detail); }} />
@@ -886,7 +999,27 @@
       {$_('settings_wellness.garmin.title')}
     </p>
     <div class="card settings-card">
-      {#if !isNativeLocal && garminEnabledVal && garminConnectionStatus?.connected}
+      {#if !isNativeLocal && garminEnabledVal && gpStatus}
+        <ConnectionStatus
+          status={gpStatus.state === 'needs_key' || gpStatus.keyExpired || gpStatus.keyExpiringSoon ? 'warn' : 'ok'}
+          okLabel={gpStatus.state === 'needs_key' ? $_('settings_wellness.garmin_personal.needs_key_label') : $_('settings_wellness.common.linked')}
+          subtext={
+            $_('settings_wellness.garmin_personal.linked_subtext') + ' · '
+            + (gpStatus.lastSyncAt ? $_('settings_wellness.garmin_personal.last_synced', { values: { when: _timeAgo(gpStatus.lastSyncAt) } }) : $_('settings_wellness.garmin_personal.never_synced'))
+          }
+        >
+          <svelte:fragment slot="action">
+            {#if gpStatus.state === 'ok'}
+              <button class="status-retest" on:click={() => syncGarminPersonal({ force: true })} disabled={gpSyncing}>
+                {gpSyncing ? $_('settings_wellness.common.syncing') : $_('settings_wellness.common.sync')}
+              </button>
+            {/if}
+            <button class="status-retest status-danger" on:click={disconnectGarminPersonal} disabled={disconnectingGarmin}>
+              {disconnectingGarmin ? $_('settings_wellness.common.disconnecting') : $_('settings_wellness.common.disconnect')}
+            </button>
+          </svelte:fragment>
+        </ConnectionStatus>
+      {:else if !isNativeLocal && garminEnabledVal && garminConnectionStatus?.connected}
         <ConnectionStatus
           status="ok"
           okLabel={$_('settings_wellness.common.linked')}
@@ -916,16 +1049,160 @@
       <div class="setting-row">
         <div>
           <span class="setting-label">{$_('settings_wellness.garmin.enable')}</span>
-          <div class="setting-desc">
-            {$_('settings_wellness.garmin_deep.metrics_desc')}
-            <a href="https://developer.garmin.com/gc-developer-program/health-api/" target="_blank" rel="noopener" class="about-link">Apply for access →</a>
-          </div>
+          <div class="setting-desc">{$_('settings_wellness.garmin_personal.enable_desc')}</div>
         </div>
         <Toggle checked={garminEnabledVal} on:change={e => { garminEnabledVal = e.detail; garminEnabled.set(e.detail); loadWellnessConfig(); }} />
       </div>
       {/if}
 
       {#if garminEnabledVal && !isNativeLocal}
+        <!-- How to connect: own Personal API key (#279) or the partner Health API. -->
+        {#if gpSupported && !gpStatus && !gpPartnerConnected}
+          <div class="setting-divider"></div>
+          <div class="setting-row gp-col">
+            <span class="setting-label">{$_('settings_wellness.garmin_personal.how_label')}</span>
+            <div class="gp-choice" role="radiogroup" aria-label={$_('settings_wellness.garmin_personal.how_label')}>
+              <button type="button" role="radio" aria-checked={garminChoice === 'personal'} class="gp-option" class:gp-option-on={garminChoice === 'personal'} on:click={() => garminChoice = 'personal'}>
+                <span class="gp-option-title">{$_('settings_wellness.garmin_personal.choice_personal')} <span class="gp-tag">{$_('settings_wellness.garmin_personal.recommended')}</span></span>
+                <span class="gp-option-desc">{$_('settings_wellness.garmin_personal.choice_personal_desc')}</span>
+              </button>
+              <button type="button" role="radio" aria-checked={garminChoice === 'partner'} class="gp-option" class:gp-option-on={garminChoice === 'partner'} on:click={() => garminChoice = 'partner'}>
+                <span class="gp-option-title">{$_('settings_wellness.garmin_personal.choice_partner')}</span>
+                <span class="gp-option-desc">{$_('settings_wellness.garmin_personal.choice_partner_desc')}</span>
+              </button>
+            </div>
+          </div>
+        {/if}
+
+        {#if gpSupported && (garminChoice === 'personal' || gpStatus)}
+          {#if gpStatus?.state === 'ok'}
+            <div class="setting-divider"></div>
+            <div class="setting-row gp-col">
+              <div class="gp-expiry-row">
+                <span class="setting-label">{$_('settings_wellness.garmin_personal.key_expires')}</span>
+                {#if !gpEditingExpiry}
+                  <span class="setting-desc gp-expiry-val">
+                    {#if gpStatus.keyExpiresAt}
+                      {gpStatus.keyDaysLeft === 0
+                        ? $_('settings_wellness.garmin_personal.expires_today', { values: { date: _fmtDate(gpStatus.keyExpiresAt) } })
+                        : gpStatus.keyDaysLeft > 0
+                          ? $_('settings_wellness.garmin_personal.expires_on', { values: { date: _fmtDate(gpStatus.keyExpiresAt), days: gpStatus.keyDaysLeft } })
+                          : _fmtDate(gpStatus.keyExpiresAt)}
+                    {:else}
+                      {$_('settings_wellness.garmin_personal.expiry_unknown')}
+                    {/if}
+                  </span>
+                {/if}
+              </div>
+              {#if gpEditingExpiry}
+                <div class="gp-expiry-edit">
+                  <input class="input gp-date" type="date" bind:value={gpExpiryDraft} aria-label={$_('settings_wellness.garmin_personal.expiry_label')} />
+                  <div class="chip-group">
+                    <button class="chip" on:click={() => gpExpiryDraft = _addDays(30)}>{$_('settings_wellness.garmin_personal.expiry_30')}</button>
+                    <button class="chip" on:click={() => gpExpiryDraft = _addDays(90)}>{$_('settings_wellness.garmin_personal.expiry_90')}</button>
+                    <button class="chip" on:click={() => gpExpiryDraft = _addDays(180)}>{$_('settings_wellness.garmin_personal.expiry_180')}</button>
+                    <button class="chip" on:click={() => gpExpiryDraft = _addDays(365)}>{$_('settings_wellness.garmin_personal.expiry_365')}</button>
+                  </div>
+                  <div class="gp-actions">
+                    <button class="btn btn-ghost gp-small-btn" on:click={() => gpEditingExpiry = false}>{$_('settings_wellness.garmin_personal.cancel')}</button>
+                    <button class="btn btn-primary gp-small-btn" on:click={saveGarminExpiry}>{$_('settings_wellness.garmin_personal.save')}</button>
+                  </div>
+                </div>
+              {/if}
+              {#if gpStatus.keyExpired}
+                <div class="gp-note gp-note-warn" role="status">{$_('settings_wellness.garmin_personal.expired')}</div>
+              {:else if gpStatus.keyExpiringSoon}
+                <div class="gp-note gp-note-warn" role="status">{$_('settings_wellness.garmin_personal.expiring_soon', { values: { days: gpStatus.keyDaysLeft } })}</div>
+              {/if}
+              {#if gpNoDataYet}
+                <div class="gp-note" role="status">{$_('settings_wellness.garmin_personal.no_data_yet')}</div>
+              {:else if gpStatus.lastError && gpStatus.lastError !== 'bad_key'}
+                <div class="gp-note" role="status">{_gpErr(gpStatus.lastError)}</div>
+              {/if}
+              {#if gpPartnerConnected}
+                <div class="setting-desc">{$_('settings_wellness.garmin_personal.partner_connected_note')}</div>
+              {/if}
+              {#if !gpReplacing && !gpEditingExpiry}
+                <div class="gp-actions gp-actions-start">
+                  <button class="btn btn-ghost gp-small-btn" on:click={() => { gpExpiryDraft = gpStatus.keyExpiresAt || ''; gpEditingExpiry = true; }}>
+                    {gpStatus.keyExpiresAt ? $_('settings_wellness.garmin_personal.edit_expiry') : $_('settings_wellness.garmin_personal.set_expiry')}
+                  </button>
+                  <button class="btn btn-ghost gp-small-btn" on:click={() => { gpReplacing = true; gpError = ''; }}>{$_('settings_wellness.garmin_personal.replace_key')}</button>
+                </div>
+              {/if}
+            </div>
+          {/if}
+
+          {#if gpShowForm}
+            <div class="setting-divider"></div>
+            <div class="setting-row gp-col">
+              {#if gpStatus?.state === 'needs_key'}
+                <div class="gp-note gp-note-warn" role="alert">{$_('settings_wellness.garmin_personal.needs_key')}</div>
+              {:else if gpReplacing}
+                <span class="setting-label">{$_('settings_wellness.garmin_personal.replace_key')}</span>
+              {/if}
+              <ol class="gp-steps">
+                <li>
+                  {$_('settings_wellness.garmin_personal.step_1')}
+                  <a href={GARMIN_KEY_PAGE} target="_blank" rel="noopener noreferrer" class="about-link">{$_('settings_wellness.garmin_personal.step_1_link')} →</a>
+                </li>
+                <li>{$_('settings_wellness.garmin_personal.step_2')}</li>
+                <li>{$_('settings_wellness.garmin_personal.step_3')}</li>
+              </ol>
+              <form class="gp-form" on:submit|preventDefault={connectGarminPersonal} autocomplete="off">
+                <div class="form-group">
+                  <label class="form-label" for="gp-key">{$_('settings_wellness.garmin_personal.key_label')}</label>
+                  <div class="gp-key-row">
+                    {#if gpShowKey}
+                      <input id="gp-key" class="input" type="text" autocomplete="off" spellcheck="false" autocapitalize="off"
+                        placeholder={$_('settings_wellness.garmin_personal.key_placeholder')} bind:value={gpKey}
+                        aria-invalid={!!gpError} aria-describedby={gpError ? 'gp-key-err' : undefined} />
+                    {:else}
+                      <input id="gp-key" class="input" type="password" autocomplete="new-password" spellcheck="false" autocapitalize="off"
+                        placeholder={$_('settings_wellness.garmin_personal.key_placeholder')} bind:value={gpKey}
+                        aria-invalid={!!gpError} aria-describedby={gpError ? 'gp-key-err' : undefined} />
+                    {/if}
+                    <button type="button" class="btn-icon" on:click={() => gpShowKey = !gpShowKey} title={gpShowKey ? $_('settings_wellness.common.hide') : $_('settings_wellness.common.show')} aria-label={gpShowKey ? $_('settings_wellness.common.hide') : $_('settings_wellness.common.show')}>
+                      <span class="material-symbols-rounded">{gpShowKey ? 'visibility_off' : 'visibility'}</span>
+                    </button>
+                  </div>
+                  {#if gpError}<div id="gp-key-err" class="gp-error" role="alert">{gpError}</div>{/if}
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="gp-expiry">{$_('settings_wellness.garmin_personal.expiry_label')}</label>
+                  <div class="setting-desc">{$_('settings_wellness.garmin_personal.expiry_desc')}</div>
+                  <div class="gp-expiry-edit">
+                    <input id="gp-expiry" class="input gp-date" type="date" bind:value={gpExpiry} />
+                    <div class="chip-group">
+                      <button type="button" class="chip" class:chip-active={gpExpiry === _addDays(30)} on:click={() => gpExpiry = _addDays(30)}>{$_('settings_wellness.garmin_personal.expiry_30')}</button>
+                      <button type="button" class="chip" class:chip-active={gpExpiry === _addDays(90)} on:click={() => gpExpiry = _addDays(90)}>{$_('settings_wellness.garmin_personal.expiry_90')}</button>
+                      <button type="button" class="chip" class:chip-active={gpExpiry === _addDays(180)} on:click={() => gpExpiry = _addDays(180)}>{$_('settings_wellness.garmin_personal.expiry_180')}</button>
+                      <button type="button" class="chip" class:chip-active={gpExpiry === _addDays(365)} on:click={() => gpExpiry = _addDays(365)}>{$_('settings_wellness.garmin_personal.expiry_365')}</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="gp-region">{$_('settings_wellness.garmin_personal.region_label')}</label>
+                  <div class="select-wrap gp-region">
+                    <select id="gp-region" class="select sel-sm" bind:value={gpRegion}>
+                      <option value="global">{$_('settings_wellness.garmin_personal.region_global')}</option>
+                      <option value="cn">{$_('settings_wellness.garmin_personal.region_cn')}</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="gp-actions">
+                  {#if gpReplacing}
+                    <button type="button" class="btn btn-ghost" on:click={() => { gpReplacing = false; gpKey = ''; gpError = ''; }}>{$_('settings_wellness.garmin_personal.cancel')}</button>
+                  {/if}
+                  <button type="submit" class="btn btn-primary" disabled={gpConnecting || !gpKey.trim()}>
+                    {gpConnecting ? $_('settings_wellness.garmin_personal.connecting') : $_('settings_wellness.garmin_personal.connect')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          {/if}
+        {/if}
+
         <div class="setting-divider"></div>
         <div class="setting-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div>
@@ -999,14 +1276,17 @@
             </div>
           {/if}
         {/if}
-        <div class="setting-divider"></div>
         {#if garminConnectionStatus === null}
+          <div class="setting-divider"></div>
           <div class="setting-row">
             <span class="setting-desc">{$_('settings_wellness.common.loading_status')}</span>
           </div>
+        {:else if gpStatus || garminChoice !== 'partner'}
+          <!-- Personal API key flow above. -->
         {:else if garminConnectionStatus.connected}
           <!-- Connected state rendered as the top-of-card banner; nothing else here. -->
         {:else if garminConnectionStatus.configured && !garminEditingCreds}
+          <div class="setting-divider"></div>
           <div class="setting-row">
             <div>
               <span class="setting-label">{$_('settings_wellness.common.not_connected')}</span>
@@ -1022,6 +1302,7 @@
             </div>
           </div>
         {:else}
+          <div class="setting-divider"></div>
           <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:12px">
             <div>
               <span class="setting-label">{$_('settings_wellness.common.api_credentials')}</span>
@@ -1524,4 +1805,43 @@
     flex-wrap: wrap;
   }
   .hc-bg-read span { flex: 1 1 200px; min-width: 0; }
+
+  /* Garmin Personal API key (#279) */
+  .gp-col { flex-direction: column; align-items: stretch; gap: 10px; }
+  .gp-choice { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+  .gp-option {
+    display: flex; flex-direction: column; gap: 4px; text-align: left;
+    padding: 10px 12px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); background: transparent; color: var(--text-1);
+    cursor: pointer; font: inherit; transition: border-color 0.15s, background 0.15s;
+  }
+  .gp-option:hover { border-color: var(--accent); }
+  .gp-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .gp-option-on { border-color: var(--accent); background: var(--accent-dim); }
+  .gp-option-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .gp-option-desc { font-size: 12px; color: var(--text-2); line-height: 1.4; }
+  .gp-tag {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 1px 6px; border-radius: 99px; background: var(--accent); color: var(--on-accent, #fff);
+  }
+  .gp-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-2); line-height: 1.45; }
+  .gp-form { display: flex; flex-direction: column; gap: 12px; }
+  .gp-key-row { display: flex; gap: 6px; }
+  .gp-key-row .input { flex: 1; min-width: 0; font-family: var(--font-mono, ui-monospace, monospace); font-size: 13px; }
+  .gp-error { font-size: 12px; color: var(--danger); line-height: 1.4; }
+  .gp-expiry-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .gp-expiry-row .setting-label { flex: 0 0 auto; }
+  .gp-expiry-val { flex: 1 1 auto; margin: 0; }
+  .gp-expiry-edit { display: flex; flex-direction: column; gap: 8px; }
+  .gp-date { max-width: 200px; height: 36px; }
+  .gp-region { max-width: 220px; }
+  .gp-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .gp-small-btn { height: 32px; padding: 0 12px; font-size: 13px; align-self: flex-start; }
+  .gp-actions .gp-small-btn { align-self: auto; }
+  .gp-actions-start { justify-content: flex-start; }
+  .gp-note {
+    font-size: 13px; line-height: 1.45; color: var(--text-2);
+    padding: 8px 12px; border-radius: var(--radius-md); background: var(--surface-2);
+  }
+  .gp-note-warn { color: var(--text-1); border-left: 3px solid var(--warning); }
 </style>

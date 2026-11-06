@@ -232,19 +232,29 @@ async function _syncWellness(userId) {
     }
   }
 
-  // Garmin
-  const hasGarmin = db.prepare('SELECT 1 FROM garmin_tokens WHERE user_id=?').get(userId);
+  // Garmin: the Personal API key (#279) when connected, else the partner
+  // Health API. Key expiry notices go out whatever the sync mode is.
+  const garminPersonal = db.prepare('SELECT state FROM garmin_personal WHERE user_id=?').get(userId);
+  if (garminPersonal) {
+    try { const { checkKeyNotices } = await import('./garmin-personal.js'); await checkKeyNotices(userId); } catch {}
+  }
+  const hasGarmin = garminPersonal
+    ? garminPersonal.state === 'ok'   // a key Garmin turned down waits for a new one
+    : db.prepare('SELECT 1 FROM garmin_tokens WHERE user_id=?').get(userId);
   if (hasGarmin && _shouldDeviceSync(userId, 'garmin', local)
       && !_ranRecently(userId, 'garmin_sync', _dedupWindow(userId, 'garmin'))) {
     const from = _fromDate('garmin');
     try {
-      const { syncRange } = await import('../routes/garmin.js');
+      const { syncGarmin } = await import('../routes/garmin.js');
       logger.info(`[scheduler] Garmin sync for user ${userId}: ${from} → ${today}`);
-      const result = await syncRange(userId, from, today);
+      const result = await syncGarmin(userId, from, today);
       logger.info(`[scheduler] Garmin sync done: ${result?.synced || 0} synced`);
     } catch (e) {
       logger.warn(`[scheduler] Garmin sync error for user ${userId}: ${e.message}`);
-      try { const { alertSyncFailure } = await import('./push-notify.js'); alertSyncFailure(userId, `Scheduled Garmin sync failed: ${e.message}`); } catch {}
+      // A key Garmin turned down has its own notice (checkKeyNotices).
+      if (e.code !== 'bad_key') {
+        try { const { alertSyncFailure } = await import('./push-notify.js'); alertSyncFailure(userId, `Scheduled Garmin sync failed: ${e.message}`); } catch {}
+      }
     }
   }
 
@@ -663,12 +673,15 @@ export async function forceSync(userId) {
     } catch (e) { logger.warn(`[scheduler] Withings error: ${e.message}`); }
   }
 
-  const hasGarmin = db.prepare('SELECT 1 FROM garmin_tokens WHERE user_id=?').get(userId);
+  const garminPersonal = db.prepare('SELECT state FROM garmin_personal WHERE user_id=?').get(userId);
+  const hasGarmin = garminPersonal
+    ? garminPersonal.state === 'ok'
+    : db.prepare('SELECT 1 FROM garmin_tokens WHERE user_id=?').get(userId);
   if (hasGarmin) {
     try {
-      const { syncRange } = await import('../routes/garmin.js');
+      const { syncGarmin } = await import('../routes/garmin.js');
       logger.info(`[scheduler] forced Garmin sync for user ${userId}`);
-      await syncRange(userId, today, today);
+      await syncGarmin(userId, today, today);
       logger.info(`[scheduler] Garmin sync done`);
     } catch (e) { logger.warn(`[scheduler] Garmin error: ${e.message}`); }
   }

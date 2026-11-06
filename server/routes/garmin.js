@@ -4,6 +4,10 @@
  * Requires a Garmin Health API partnership (not a free developer program).
  * Submit a partnership request at: https://developer.garmin.com/health-api/overview/
  *
+ * The Personal API key connector (lib/garmin-personal.js, #279) lives under
+ * /personal here. When a person has a Personal API key connected, /status,
+ * /sync and the scheduler use it; the partner setup stays as it was.
+ *
  * Credentials stored per-user in user_settings (multi-user) or app_config (single-user).
  */
 import { Router } from 'express';
@@ -33,6 +37,32 @@ function _userCfg(key, userId) {
 }
 
 import { encrypt, decrypt } from '../lib/token-crypto.js';
+import * as personal from '../lib/garmin-personal.js';
+import { makeRateLimiter } from '../middleware/rate-limit.js';
+
+// Each try is a call to Garmin: a few a minute is plenty for a person.
+const personalConnectLimit = makeRateLimiter({ max: 6, windowMs: 60_000, label: 'garmin-personal-connect' });
+const syncLimit = makeRateLimiter({ max: 20, windowMs: 60_000, label: 'garmin-sync' });
+
+// Plain answers for the Personal API connector's failures.
+const PERSONAL_ERRORS = {
+  bad_key:       [400, 'Garmin did not accept this key. Check that you copied all of it and that it has not expired or been deleted.'],
+  not_connected: [400, 'No Garmin Personal API key is connected.'],
+  rate_limited:  [429, 'Garmin is limiting requests right now. Try again in a few minutes.'],
+  timeout:       [504, 'Garmin did not answer in time. Try again in a moment.'],
+  unavailable:   [502, 'Could not reach Garmin. Try again in a moment.'],
+  bad_response:  [502, 'Garmin sent an answer NutriTrace could not read. Try again in a moment.'],
+};
+function _personalFail(res, e, { syncing = false } = {}) {
+  const code = e instanceof personal.GarminPersonalError ? e.code : 'unavailable';
+  if (!(e instanceof personal.GarminPersonalError)) logger.warn('[garmin-personal] request failed:', e?.message);
+  let [status, error] = PERSONAL_ERRORS[code] || PERSONAL_ERRORS.unavailable;
+  if (syncing && code === 'bad_key') {
+    status = 409;
+    error = 'Garmin no longer accepts your Personal API key. Add a new key in Settings > Wellness > Garmin.';
+  }
+  return res.status(status).json({ error, code });
+}
 
 function _getTokens(userId) {
   const row = db.prepare('SELECT * FROM garmin_tokens WHERE user_id = ?').get(userId);
@@ -132,12 +162,52 @@ router.get('/status', wrap((req, res) => {
   const tokens = _getTokens(u);
   const consumerKey = _userCfg('garmin_consumer_key', u);
   const lastSync = db.prepare('SELECT MAX(synced_at) as ts FROM wellness_data WHERE user_id=? AND source=?').get(u, 'garmin');
+  const p = personal.publicStatus(personal.getRow(u));
+  // The Personal API key decides when there is one (sync uses it, not the
+  // partner tokens), so a key waiting to be replaced reads as not connected.
+  const hasWeight = !!db.prepare(`SELECT 1 FROM wellness_data WHERE user_id=? AND source='garmin' AND metric_type='weight_kg' LIMIT 1`).get(u);
   res.json({
-    connected:    !!tokens,
+    connected:    p ? p.connected : !!tokens,
     configured:   !!consumerKey,
-    garminUserId: tokens?.garmin_user_id || null,
+    hasWeight,
+    // Which way Garmin is connected: the Personal API key wins when both are.
+    mode:         p ? 'personal' : tokens ? 'partner' : null,
+    partnerConnected: !!tokens,
+    garminUserId: p ? null : (tokens?.garmin_user_id || null),
     lastSyncedAt: lastSync?.ts           || null,
+    personal:     p,
   });
+}));
+
+// ── Personal API key (#279) ─────────────────────────────────────────────────
+// POST /personal/connect { api_key, region?, key_expires_at? }: checks the
+// key with Garmin right away, then stores it encrypted for this account.
+router.post('/personal/connect', personalConnectLimit, wrap(async (req, res) => {
+  const u = uid(req);
+  const apiKey = personal.cleanKey(req.body?.api_key);
+  if (!apiKey) return res.status(400).json({ error: 'Paste the whole Personal API key from Garmin Connect.', code: 'bad_format' });
+  const keyExpiresAt = personal.cleanExpiry(req.body?.key_expires_at);
+  if (keyExpiresAt === undefined) return res.status(400).json({ error: 'The expiry date is not a valid date.', code: 'bad_expiry' });
+  try {
+    const row = await personal.connect(u, { apiKey, region: personal.cleanRegion(req.body?.region), keyExpiresAt });
+    logger.info(`[garmin-personal] user ${u} connected a Personal API key`);
+    res.json({ ok: true, personal: personal.publicStatus(row) });
+  } catch (e) { _personalFail(res, e); }
+}));
+
+// PUT /personal { key_expires_at }: the date Garmin shows for the key.
+router.put('/personal', wrap((req, res) => {
+  const u = uid(req);
+  const keyExpiresAt = personal.cleanExpiry(req.body?.key_expires_at);
+  if (keyExpiresAt === undefined) return res.status(400).json({ error: 'The expiry date is not a valid date.', code: 'bad_expiry' });
+  if (!personal.setKeyExpiry(u, keyExpiresAt)) return _personalFail(res, new personal.GarminPersonalError('not_connected'));
+  res.json({ ok: true, personal: personal.publicStatus(personal.getRow(u)) });
+}));
+
+// DELETE /personal: forget the key and token. Synced readings stay.
+router.delete('/personal', wrap((req, res) => {
+  personal.disconnect(uid(req));
+  res.json({ ok: true });
 }));
 
 // ── GET /authorize — step 1: get request token, redirect to Garmin ──────────
@@ -415,7 +485,7 @@ function _epochToDate(epochSeconds) {
 }
 
 // ── POST /sync ────────────────────────────────────────────────────────────────
-router.post('/sync', wrap(async (req, res) => {
+router.post('/sync', syncLimit, wrap(async (req, res) => {
   const u = uid(req);
   const today = new Date().toISOString().slice(0, 10);
   let { date, from, to } = req.body;
@@ -428,6 +498,13 @@ router.post('/sync', wrap(async (req, res) => {
   }
   const dayDiff = Math.round((end - start) / 86400000);
   if (dayDiff > 365) return res.status(400).json({ error: 'Range cannot exceed 365 days' });
+
+  if (personal.getRow(u)) {
+    try {
+      const result = await personal.syncPersonal(u, { from, to, force: req.body?.force === true });
+      return res.json({ ok: true, mode: 'personal', ...result });
+    } catch (e) { return _personalFail(res, e, { syncing: true }); }
+  }
 
   const result = await _syncRange(u, from, to);
   res.json({ ok: true, from, to, ...result });
@@ -454,10 +531,33 @@ router.get('/data', wrap((req, res) => {
 }));
 
 // ── DELETE /disconnect ────────────────────────────────────────────────────────
+// Disconnects Garmin whichever way it is connected (partner tokens and the
+// Personal API key); ?mode=partner or ?mode=personal picks one.
 router.delete('/disconnect', wrap((req, res) => {
-  db.prepare('DELETE FROM garmin_tokens WHERE user_id=?').run(uid(req));
+  const u = uid(req);
+  const mode = req.query.mode;
+  if (mode !== 'personal') db.prepare('DELETE FROM garmin_tokens WHERE user_id=?').run(u);
+  if (mode !== 'partner') personal.disconnect(u);
   res.json({ ok: true });
 }));
+
+/**
+ * Sync for the scheduler: the Personal API key when connected (its own
+ * window and gentleness rules), the partner Health API otherwise.
+ */
+export async function syncGarmin(u, from, to) {
+  if (personal.getRow(u)) {
+    try {
+      const r = await personal.syncPersonal(u, { from, to });
+      return { synced: r.synced, errors: r.errors, mode: 'personal' };
+    } catch (e) {
+      // Plain words for the sync-failure notification, the code kept.
+      const code = e instanceof personal.GarminPersonalError ? e.code : 'unavailable';
+      throw Object.assign(new Error((PERSONAL_ERRORS[code] || PERSONAL_ERRORS.unavailable)[1]), { code });
+    }
+  }
+  return _syncRange(u, from, to);
+}
 
 export { _syncRange as syncRange };
 export default router;

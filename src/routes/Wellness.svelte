@@ -442,7 +442,9 @@
         start.setDate(start.getDate() - (range - 1));
         from = start.toLocaleDateString('sv-SE');
       }
-      const result = await NtApi.post('/api/wellness/garmin/sync', { from, to });
+      // A tap on Sync always asks (a Personal API key otherwise waits a little
+      // between pulls); the silent sync on open may be skipped.
+      const result = await NtApi.post('/api/wellness/garmin/sync', { from, to, force: !silent });
       await _pullWellnessToLocal();
       if (isNative) {
         await loadLocalWellnessData();
@@ -1003,6 +1005,9 @@
   $: fitbitAvailable   = $fitbitEnabled;
   $: withingsAvailable = $withingsEnabled;
   $: garminAvailable   = $garminEnabled;
+  // Garmin's Personal API key also reads a Garmin scale's weight (#279):
+  // the Body tab shows once there is some.
+  $: garminBodyAvailable = garminAvailable && !!garminStatus?.hasWeight;
   // Health Connect is Android-only as a SOURCE, but its synced data lives on
   // the server now (rc.22+), so the web Wellness page must also recognize it
   // as an available integration to render the data. The setting itself is
@@ -1020,7 +1025,7 @@
   // Garmin contributes to activity/sleep/heart tabs alongside Fitbit
   $: _wlTabList = [
     ...(fitbitAvailable || garminAvailable || healthConnectAvailable ? ['activity', 'sleep', 'heart'] : []),
-    ...(withingsAvailable ? ['body'] : []),
+    ...(withingsAvailable || healthConnectAvailable || garminBodyAvailable ? ['body'] : []),
   ];
   $: _wlActiveIdx  = Math.max(0, _wlTabList.indexOf(activeTab));
   // Pill position: measure actual tab button positions for pixel-perfect alignment
@@ -1044,7 +1049,7 @@
   $: if (status !== null && withingsStatus !== null && garminStatus !== null) {
     const isActivityTab = activeTab === 'activity' || activeTab === 'sleep' || activeTab === 'heart';
     if (isActivityTab && !fitbitAvailable && !garminAvailable && !healthConnectAvailable) activeTab = withingsAvailable ? 'body' : 'activity';
-    if (activeTab === 'body' && !withingsAvailable && !healthConnectAvailable) activeTab = (fitbitAvailable || garminAvailable || healthConnectAvailable) ? 'activity' : 'body';
+    if (activeTab === 'body' && !withingsAvailable && !healthConnectAvailable && !garminBodyAvailable) activeTab = (fitbitAvailable || garminAvailable || healthConnectAvailable) ? 'activity' : 'body';
   }
 
   // ── Date navigation ────────────────────────────────────────────────────────
@@ -1689,7 +1694,7 @@
             <span class="material-symbols-rounded tab-icon">favorite</span> {$_('wellness_page.chip.heart')}
           </button>
         {/if}
-        {#if withingsAvailable || healthConnectAvailable}
+        {#if withingsAvailable || healthConnectAvailable || garminBodyAvailable}
           <button class="tab-btn" class:active={activeTab === 'body'} on:click={() => activeTab = 'body'}>
             <span class="material-symbols-rounded tab-icon">monitor_weight</span> {$_('wellness_page.chip.body')}
           </button>
@@ -2190,10 +2195,10 @@
 
       <!-- ── Body tab (Withings) ── -->
       {:else if activeTab === 'body'}
-        {#if withingsStatus.connected || $fitbitFamilyEnabled || (isNative && _hasLocalData)}
+        {#if withingsStatus.connected || $fitbitFamilyEnabled || garminBodyAvailable || (isNative && _hasLocalData)}
           <div class="metric-grid">
             {#each BODY_METRICS.filter(m => isVisible(m.id)) as m}
-              {@const raw = withingsData[m.id] ?? data[m.id] ?? null}
+              {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? null}
               {@const formatted = fmtBodyMetric(m, raw)}
               <div class="metric-card" class:no-data={formatted == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
                 <div class="metric-icon-wrap">
@@ -2213,7 +2218,7 @@
             {/each}
           </div>
 
-          {#if BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id]) != null)}
+          {#if BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id] ?? garminData[m.id]) != null)}
             <div class="card wl-center-only" style="margin-top:12px;padding:16px">
               <div class="sleep-stages-header" style="margin-bottom:12px">
                 <span class="material-symbols-rounded" style="color:var(--accent)">biotech</span>
@@ -2221,7 +2226,7 @@
               </div>
               <div class="metric-grid">
                 {#each BODY_SCORE_METRICS.filter(m => isVisible(m.id)) as m}
-                  {@const raw = withingsData[m.id] ?? data[m.id] ?? null}
+                  {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? null}
                   {#if raw != null}
                     <div class="metric-card" title={m.desc}>
                       <div class="metric-icon-wrap">
@@ -2275,7 +2280,7 @@
             </div>
           {/if}
 
-          {#if !loadingData && Object.keys(withingsData).length === 0 && !BODY_METRICS.some(m => data[m.id] != null)}
+          {#if !loadingData && Object.keys(withingsData).length === 0 && !BODY_METRICS.some(m => data[m.id] != null || garminData[m.id] != null)}
             <div class="empty-state">
               <span class="material-symbols-rounded" style="font-size:48px;opacity:0.18">scale</span>
               <p>No body composition data for {isToday ? 'today' : fmtDate(dateStr)}.</p>
@@ -2593,7 +2598,7 @@
             {/if}
           {:else if activeTab === 'body'}
             <!-- Body Scan Scores (rail duplicate) -->
-            {#if (withingsStatus.connected || $fitbitFamilyEnabled || (isNative && _hasLocalData)) && BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id]) != null)}
+            {#if (withingsStatus.connected || $fitbitFamilyEnabled || garminBodyAvailable || (isNative && _hasLocalData)) && BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id] ?? garminData[m.id]) != null)}
               <div class="wl-rail-only">
                 <div class="card" style="padding:16px">
                   <div class="sleep-stages-header" style="margin-bottom:12px">
@@ -2602,7 +2607,7 @@
                   </div>
                   <div class="metric-grid">
                     {#each BODY_SCORE_METRICS.filter(m => isVisible(m.id)) as m}
-                      {@const raw = withingsData[m.id] ?? data[m.id] ?? null}
+                      {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? null}
                       {#if raw != null}
                         <div class="metric-card" title={m.desc}>
                           <div class="metric-icon-wrap">

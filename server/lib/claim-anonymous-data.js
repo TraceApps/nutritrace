@@ -36,6 +36,7 @@ export const CLAIM_NULL = [
 ];
 export const CLAIM_ZERO = [
   'fitbit_tokens', 'google_health_tokens', 'withings_tokens', 'garmin_tokens',
+  'garmin_personal',
 ];
 export const CLAIM_BOTH = ['wellness_data', 'workouts'];
 
@@ -107,6 +108,7 @@ export function repairOrphanedData() {
 const NO_CASCADE_TABLES = [
   'wellness_data', 'workouts',
   'fitbit_tokens', 'google_health_tokens', 'withings_tokens', 'garmin_tokens',
+  'garmin_personal',
   'oauth_state',
 ];
 

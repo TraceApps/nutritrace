@@ -55,7 +55,7 @@ test('every table that can hold anonymous rows is claimed on first registration'
 
 test('the wearable-token tables are claimed from the 0 sentinel, not NULL', () => {
   // routes/fitbit.js et al. use `userMgmtActive() ? req.user.id : 0`.
-  for (const t of ['fitbit_tokens', 'google_health_tokens', 'withings_tokens', 'garmin_tokens']) {
+  for (const t of ['fitbit_tokens', 'google_health_tokens', 'withings_tokens', 'garmin_tokens', 'garmin_personal']) {
     assert.ok(claimList('CLAIM_ZERO').includes(t), `${t} must be claimed from user_id = 0`);
   }
 });

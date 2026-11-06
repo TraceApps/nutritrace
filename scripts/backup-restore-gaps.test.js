@@ -285,7 +285,7 @@ test('a backup from before these columns restores', { skip }, async () => {
 // (changed_at, and updated_at where the restore sets it to now), and
 // short-lived, cache or server-kept tables. Wearable tokens are locked with
 // this server's key (see dumpDatabase).
-const NOT_BACKED_UP = new Set(['oauth_state', 'sync_deletions', 'password_reset_tokens', 'fitbit_tokens', 'garmin_tokens', 'google_health_tokens', 'withings_tokens', 'create_keys', 'user_email_changes', 'oidc_link_grants']);
+const NOT_BACKED_UP = new Set(['oauth_state', 'sync_deletions', 'password_reset_tokens', 'fitbit_tokens', 'garmin_tokens', 'garmin_personal', 'google_health_tokens', 'withings_tokens', 'create_keys', 'user_email_changes', 'oidc_link_grants']);
 const NOT_WRITTEN = {
   changed_at: ['foods', 'meals', 'activity_log', 'fasts'],
   session_version: ['users'],
