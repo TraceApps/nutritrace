@@ -285,6 +285,10 @@ merge by uuid and its note by its own time, as before.
   with no readable time, and a pushed meal (no time of its own), never undo
   an unmark here. A push without a mark keeps the mark here; unmarks go
   through the completion routes, with their time.
+  On the phone those marks wait in `diary_completion_ops` (an app tap, and
+  the bedtime notification's Close Today, `DiaryCompletionReceiver`) and
+  replay oldest first; a pull keeps the ones still waiting on top of the
+  server's copy (`dbUpsertDiaryFromServer`).
   Foods, meals and recipes deleted elsewhere: a save is made now, so it
   follows the rule a push of the same change follows (`editRevives`). One
   that changes something brings the row back (`deleted_at` cleared, stamped

@@ -1171,6 +1171,73 @@ test('a completion mark the server asks to retry (429, 408) is sent again, and a
   assert.deepEqual(q(`SELECT completed_at IS NOT NULL AS c FROM diary WHERE user_id = (SELECT id FROM users WHERE username = 'bob') AND date = ?`, E), [{ c: 0 }]);
 });
 
+test("a completion mark still waiting for the server isn't taken away by a pull", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-08-14';
+  await http(B, 'PUT', `/api/diary/${D}`, { items: [{ uuid: 'w1', name: 'Rice', nutrition: {}, portion: 100, unit: 'g', quantity: 1, meal: 0 }], body_stats: {}, water: [] });
+  // The completion calls fail for now (a server restarting); the diary
+  // push and the pull still go through.
+  const px = await proxy(req => (req.method === 'PUT' && /\/(meal-)?completion$/.test(req.url) ? { status: 503 } : null));
+  let r;
+  try {
+    r = await phoneAsync('markwait', B, `
+      await p.sync();
+      await p.api.setDiaryCompletion('${D}', true);
+      await p.api.setDiaryMealCompletion('${D}', 1, true);
+      await p.sleep(800);
+      await p.sync(); await p.sync();
+      const x = await p.api.getDiaryDate('${D}');
+      p.done({ day: !!x.completed_at, meals: x.completed_meals, queued: (await p.dbn.dbGetCompletionOps()).length });`, { NT_SERVER: px.url });
+  } finally { await px.close(); }
+  assert.deepEqual(r, { day: true, meals: [1], queued: 2 });
+  // Once the server takes them, they are there and stay on the phone.
+  const after = phone('markwait', B, `
+    await p.sync(); await p.sync();
+    const x = await p.api.getDiaryDate('${D}');
+    p.done({ day: !!x.completed_at, meals: x.completed_meals, queued: (await p.dbn.dbGetCompletionOps()).length });`);
+  assert.deepEqual(after, { day: true, meals: [1], queued: 0 });
+  assert.deepEqual(q(`SELECT completed_at IS NOT NULL AS c, completed_meals FROM diary WHERE user_id = (SELECT id FROM users WHERE username = 'bob') AND date = ?`, D), [{ c: 1, completed_meals: '[1]' }]);
+});
+
+test("the bedtime notification's Close Today reaches the server and stays (as DiaryCompletionReceiver writes it)", async (t) => {
+  if (skip(t)) return;
+  const D = '2026-08-15';
+  // The first sync after the tap can't send the mark (the server answers
+  // 503 to the completion call); the pull of that sync keeps it.
+  const px = await proxy(req => (req.method === 'PUT' && req.url.endsWith('/completion') ? { status: 503 } : null));
+  let r;
+  try {
+    r = await phoneAsync('closetoday', B, `
+      await p.sync();
+      const db = await p.dbn.getDb();
+      // DiaryCompletionReceiver.onReceive, while the app is closed: today's
+      // row marked and, signed in, the mark queued, both in UTC; \`at\` on
+      // the server's clock when the app has learned its offset.
+      const meta = async k => (await db.query('SELECT value FROM sync_meta WHERE key = ?', [k])).values?.[0]?.value;
+      // The server and sign-in the app mirrors here on a phone
+      // (platform.js _mirrorAuthToSyncMeta; this test app has no mirror).
+      for (const [k, v] of [['server_url', process.env.NT_SERVER], ['auth_token', process.env.NT_TOKEN]]) {
+        await db.run('INSERT INTO sync_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v]);
+      }
+      const signedIn = !!(await meta('server_url')) && !!(await meta('auth_token'));
+      const now = new Date().toISOString();
+      const off = await meta('clock_offset_ms');
+      const at = off != null ? new Date(Date.now() + Math.round(Number(off))).toISOString().replace(/Z$/, '+00:00') : now;
+      await db.run("INSERT INTO diary (user_id, date, items, body_stats, water, completed_at, updated_at, sync_status) VALUES (1, ?, '[]', '{}', '[]', ?, ?, 'pending')", ['${D}', now, now]);
+      if (signedIn) await db.run('INSERT INTO diary_completion_ops (user_id, date, slot, completed, at) VALUES (1, ?, NULL, 1, ?)', ['${D}', at]);
+      await p.sync(); await p.sync();
+      const x = await p.api.getDiaryDate('${D}');
+      p.done({ signedIn, offset: off != null, day: !!x.completed_at, queued: (await p.dbn.dbGetCompletionOps()).length });`, { NT_SERVER: px.url });
+  } finally { await px.close(); }
+  assert.deepEqual(r, { signedIn: true, offset: true, day: true, queued: 1 });
+  const after = phone('closetoday', B, `
+    await p.sync(); await p.sync();
+    const x = await p.api.getDiaryDate('${D}');
+    p.done({ day: !!x.completed_at, queued: (await p.dbn.dbGetCompletionOps()).length });`);
+  assert.deepEqual(after, { day: true, queued: 0 });
+  assert.deepEqual(q(`SELECT completed_at IS NOT NULL AS c FROM diary WHERE user_id = (SELECT id FROM users WHERE username = 'bob') AND date = ?`, D), [{ c: 1 }]);
+});
+
 test("the day's note: the newer edit wins either way, and a note cleared offline stays cleared", async (t) => {
   if (skip(t)) return;
   const D1 = '2026-08-21', D2 = '2026-08-22', D3 = '2026-08-23';

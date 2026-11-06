@@ -2394,9 +2394,26 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
   }
 
   // #207: normalize completed_meals to JSON string on disk.
-  const completedMealsJson = Array.isArray(completed_meals)
+  let completedMealsJson = Array.isArray(completed_meals)
     ? (completed_meals.length ? JSON.stringify(completed_meals) : null)
     : (typeof completed_meals === 'string' && completed_meals ? completed_meals : null);
+  // Marks made here and still queued for the server (diary_completion_ops,
+  // an app tap or the bedtime notification's Close Today) stay on top of
+  // the server's copy until they are sent, oldest first.
+  let completedAt = completed_at || null;
+  const ops = _rows(await db.query(
+    `SELECT slot, completed, at FROM diary_completion_ops WHERE user_id = ? AND date = ? ORDER BY id`,
+    [LOCAL_USER_ID, date]));
+  if (ops.length) {
+    const mine = local ? _row(await db.query(`SELECT completed_at FROM diary WHERE id = ?`, [local.id]))?.completed_at : null;
+    const meals = new Set(_parseSlotArrayLocal(completedMealsJson));
+    for (const op of ops) {
+      if (op.slot == null) completedAt = op.completed ? (completedAt || mine || op.at || _now()) : null;
+      else if (op.completed) meals.add(Number(op.slot)); else meals.delete(Number(op.slot));
+    }
+    const next = [...meals].sort((a, b) => a - b);
+    completedMealsJson = next.length ? JSON.stringify(next) : null;
+  }
 
   await db.run(
     `INSERT INTO diary (server_id, user_id, date, items, body_stats, water, notes, notes_updated_at, completed_at, completed_meals, updated_at, server_base, sync_status)
@@ -2412,7 +2429,7 @@ export async function dbUpsertDiaryFromServer(serverRecord) {
      typeof water === 'string' ? water : JSON.stringify(water || []),
      (typeof notes === 'string' && notes.trim()) ? notes : null,
      notes_updated_at || null,
-     completed_at || null,
+     completedAt,
      completedMealsJson,
      updated_at, statsBase(body_stats)]
   );

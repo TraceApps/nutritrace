@@ -260,3 +260,20 @@ test('#207: en.json carries the new day_complete strings + action labels', () =>
   assert.ok(status.closed_headline, 'diary.day_complete.status.closed_headline missing');
   assert.ok(status.reopen,          'diary.day_complete.status.reopen missing');
 });
+
+test("#207: the bedtime notification's Close Today queues its mark for the server, as a tap in the app does", () => {
+  const rx = readFileSync(new URL('../android/app/src/main/java/com/nutritrace/app/DiaryCompletionReceiver.java', import.meta.url), 'utf8');
+  // The diary push never carries marks: a mark only on the row never left the phone.
+  assert.match(rx, /insertOrThrow\("diary_completion_ops", null, op\)/);
+  // Only when signed in to a server: local-only mode never sends the queue.
+  assert.match(rx, /if \(marked && signedIn\(db\)\)/);
+  assert.match(rx, /key IN \('server_url', 'auth_token'\)/);
+  assert.match(rx, /op\.put\("completed", 1\)/);
+  assert.match(rx, /op\.putNull\("slot"\)/);
+  assert.match(rx, /op\.put\("at", markTime\(db, nowMs, nowIso\)\)/);
+  // Times in UTC with their zone, the server's clock when the app knows it.
+  assert.match(rx, /setTimeZone\(TimeZone\.getTimeZone\("UTC"\)\)/);
+  assert.match(rx, /String nowIso = utc\(nowMs\) \+ "Z";/);
+  assert.match(rx, /clock_offset_ms[\s\S]*\+ "\+00:00"/);
+  assert.doesNotMatch(rx, /"yyyy-MM-dd HH:mm:ss"/);
+});
