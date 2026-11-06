@@ -776,6 +776,35 @@ const USDA = {
     if (!res.ok) throw new Error('USDA ' + res.status);
     const item = await res.json();
     return item && item.fdcId ? this._mapProduct(item) : null;
+  },
+
+  // SR Legacy and Foundation search hits carry no household portions, so
+  // they came in per 100 g with no "1 large" to pick (#289). Their detail
+  // has them; Foods fetches it on tap, like OFF's fetchProductByCode, and
+  // keeps the alt_units. LRU-capped and cached in-session by fdcId; a
+  // failed request isn't cached, so the next tap tries again.
+  _altUnitsCache: new Map(),
+  _ALT_UNITS_CACHE_MAX: 200,
+  async fetchAltUnits(fdcId, apiKey) {
+    if (!fdcId || !apiKey) return null;
+    if (this._altUnitsCache.has(fdcId)) {
+      const cached = this._altUnitsCache.get(fdcId);
+      this._altUnitsCache.delete(fdcId);
+      this._altUnitsCache.set(fdcId, cached);
+      return cached;
+    }
+    try {
+      const full = await this.lookupFdcId(fdcId, apiKey);
+      const altUnits = full ? full.alt_units : null;
+      if (this._altUnitsCache.size >= this._ALT_UNITS_CACHE_MAX) {
+        this._altUnitsCache.delete(this._altUnitsCache.keys().next().value);
+      }
+      this._altUnitsCache.set(fdcId, altUnits);
+      return altUnits;
+    } catch(e) {
+      console.warn('[USDA] Portion lookup failed:', e);
+      return null;
+    }
   }
 };
 
