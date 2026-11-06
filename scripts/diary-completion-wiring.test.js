@@ -56,8 +56,9 @@ test('#207: sync-push carries completed_at into the diary upsert', () => {
 });
 
 test('#207: sync-push preserves existing completed_at when incoming is null (offline-clobber guard)', () => {
-  // preserve-if-incoming-null: `incoming || existing`
-  assert.match(syncRoute, /incomingCompletedAt\s*\|\|\s*\(existingRow\?\.completed_at/);
+  // The mark here stays; a pushed one goes in only when newer than an
+  // unmark here (on a real server: sync-push-completion-marks.test.js).
+  assert.match(syncRoute, /existingRow\?\.completed_at\s*\|\|\s*\(markWins/);
 });
 
 // ── Store + UI ────────────────────────────────────────────────────────────

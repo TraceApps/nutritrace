@@ -44,6 +44,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Logging a food into a day you deleted no longer brings back what you deleted.** Saving a day in the web app, or in the Android app online or at its next sync, after the day had been deleted brought back every food, water entry, measurement, note and completion mark deleted with it. Now the day comes back with only what you logged or changed after the delete; the rest stays deleted, also when a phone later sends its older copy of the day.
 - **Clear All Settings on the web resets the Android app too.** The app kept using your old settings. Now each setting goes back to its default at the next sync, on screen too. A setting you changed on the phone after the reset, not yet sent, stays as you set it.
 - **The connection banner in Settings follows your language.** Connected, Not connected, Test and Testing were always in English.
+- **A day or meal unmarked as complete stays unmarked when an older mark is synced** ([#207](https://github.com/TraceApps/nutritrace/issues/207)). A day or meal marked complete in `/api/sync/push` was marked again even when it had been unmarked on the web since. Now the newer mark or unmark stays; a meal unmarked here stays unmarked, since a pushed meal mark says nothing about when it was made.
 
 ---
 

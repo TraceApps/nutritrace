@@ -278,6 +278,13 @@ merge by uuid and its note by its own time, as before.
   drops a phone's edit of one of them made after the delete when the save
   reaches the server first. The app's Upload (`history_upload`) puts a
   deleted day back whole, as before.
+  A day's completion marks in a push (`completed_at`, `completed_meals`)
+  follow the times the completion routes keep (`completion_marked_at`,
+  `meal_marks_at`): a pushed day mark (`completed_at` is when it was made)
+  goes in only when made after an unmark here, and stamps its time; one
+  with no readable time, and a pushed meal (no time of its own), never undo
+  an unmark here. A push without a mark keeps the mark here; unmarks go
+  through the completion routes, with their time.
   Foods, meals and recipes deleted elsewhere: a save is made now, so it
   follows the rule a push of the same change follows (`editRevives`). One
   that changes something brings the row back (`deleted_at` cleared, stamped

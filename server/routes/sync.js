@@ -27,7 +27,7 @@ import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
 import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
 import { clientClock, parseUtc, editMs, resolveNote, sqlTime, onServerClock } from '../lib/sync-clock.js';
-import { mergeEdit, deleteLoses, editRevives, rowTimes, readTimes, instantMs, stampTimes, createdTimes, isoTime, valueKey } from '../lib/field-sync.js';
+import { mergeEdit, deleteLoses, editRevives, rowTimes, readTimes, instantMs, stampTimes, createdTimes, isoTime, valueKey, laterThan } from '../lib/field-sync.js';
 import { SYNC_FIELDS, SYNC_GROUPS, SYNC_JSON } from '../lib/sync-fields.js';
 import { mergeBodyStats, changedList } from '../lib/body-stats-merge.js';
 import { readablePairingIds, createMessage, deleteMessage, messageOut, notifyMessage, pairingById } from '../lib/coaching-messages.js';
@@ -70,7 +70,7 @@ function _loadTombstonesSince(u, sinceSql) {
 
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
 import { mergeEntries } from '../lib/diary-merge.js';
-import { fromEmptyDay, dropMarksBeforeDelete } from '../lib/diary-revive.js';
+import { fromEmptyDay, dropMarksBeforeDelete, parseSlotArray } from '../lib/diary-revive.js';
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
 
 // Issues #69 + #70: normalize alt_units before storing. Accepts null /
@@ -617,35 +617,32 @@ router.post('/push', wrap(async (req, res) => {
         const loadedWater = existingRow ? JSON.parse(existingRow.water || '[]') : [];
         let m = mergeInto(existingRow, d);
 
-        // #207: completion mark. Preserve-if-incoming-null semantics
-        // (same shape as the notes/body_stats empty guard): an offline
-        // client that syncs before receiving another device's mark must
-        // not clobber the mark by pushing its stale null. Explicit
-        // unmarking still works via PUT /api/diary/:date/completion,
-        // which sets completed_at=NULL directly.
+        // #207: completion marks, the newer mark or unmark staying (as the
+        // completion routes keep them: completion_marked_at, meal_marks_at).
+        // A push carries the day's mark (completed_at is when it was made)
+        // and its marked meals. A push without a mark (an offline phone that
+        // hasn't heard of another device's) keeps the mark here: a phone's
+        // unmark goes through the completion routes, with its time. A mark
+        // goes in unless unmarked here after it was made; one with no
+        // readable time, and a meal (no time of its own), don't undo an
+        // unmark here, so an older push can't mark again what the web
+        // unmarked; a tie keeps the unmark. A day or meal never unmarked at
+        // a known time here takes the push's mark, as before.
         const incomingCompletedAt = (typeof d.completed_at === 'string' && d.completed_at) ? d.completed_at : null;
-        const completedAt = incomingCompletedAt || (existingRow?.completed_at || null);
-
-        // #207 (per-meal): union-merge the meal completion sets across
-        // the two sides. A slot marked on either device stays marked,
-        // so an offline client pushing an older empty array cannot wipe
-        // marks the other device just set. Explicit un-mark of a slot
-        // still works via PUT /api/diary/:date/meal-completion with
-        // completed=false, which writes the array directly.
-        const _pickIntArray = v => {
-          if (!Array.isArray(v)) return [];
-          return v.filter(n => Number.isInteger(n) && n >= 0 && n <= 31);
-        };
-        const incomingMeals = _pickIntArray(d.completed_meals);
-        let existingMeals = [];
-        if (existingRow?.completed_meals) {
-          try {
-            const arr = JSON.parse(existingRow.completed_meals);
-            existingMeals = _pickIntArray(arr);
-          } catch {}
-        }
-        const mealSet = new Set([...existingMeals, ...incomingMeals]);
-        const mergedMeals = Array.from(mealSet).sort((a, b) => a - b);
+        // The earlier of the mark's time as sent and set by the phone's
+        // clock: a mark pulled from here comes back in the server's time,
+        // which the phone's clock offset would move later than it was.
+        const markMs = incomingCompletedAt ? Math.min(editMs(incomingCompletedAt, clock, receivedAt), parseUtc(incomingCompletedAt)) : NaN;
+        const unmarkAt = existingRow?.completion_marked_at;
+        const markWins = !!incomingCompletedAt && !existingRow?.completed_at
+          && (!Number.isFinite(parseUtc(unmarkAt)) || laterThan(markMs, parseUtc(unmarkAt)));
+        const completedAt = existingRow?.completed_at || (markWins ? incomingCompletedAt : null);
+        let mealMarks = {};
+        try { mealMarks = JSON.parse(existingRow?.meal_marks_at || '{}') || {}; } catch { /* none */ }
+        const existingMeals = parseSlotArray(existingRow?.completed_meals);
+        const incomingMeals = (Array.isArray(d.completed_meals) ? d.completed_meals : [])
+          .filter(sl => Number.isInteger(sl) && sl >= 0 && sl <= 31 && !existingMeals.includes(sl) && !Number.isFinite(parseUtc(mealMarks[sl])));
+        const mergedMeals = [...new Set([...existingMeals, ...incomingMeals])].sort((a, b) => a - b);
         const completedMealsJson = mergedMeals.length ? JSON.stringify(mergedMeals) : null;
 
         // A day deleted here comes back only for a change made after the
@@ -717,6 +714,8 @@ router.post('/push', wrap(async (req, res) => {
         for (const uuid of newItemTombstones) insertTombstone.run(u, d.date, 'item', uuid);
         for (const uuid of newWaterTombstones) insertTombstone.run(u, d.date, 'water', uuid);
         if (revived) dropMarksBeforeDelete(db, existingRow, { completed_at: d.completed_at, completed_meals: d.completed_meals, clock, now: receivedAt });
+        // The push's mark that went in keeps when it was made.
+        else if (revives && markWins && Number.isFinite(markMs)) db.prepare(`UPDATE diary SET completion_marked_at = ? WHERE date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`).run(sqlTime(markMs), d.date, ...(u != null ? [u] : []));
       }
       const row = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id ${u != null ? '= ?' : 'IS NULL'}`)
         .get(d.date, ...(u != null ? [u] : []));
