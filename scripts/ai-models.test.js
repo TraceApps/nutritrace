@@ -91,3 +91,22 @@ test('Settings search finds the AI section by the new model names', () => {
   const ai = settings.match(/^\s*ai:\s*\[([^\]]*)\]/m)[1];
   for (const kw of ['fable', 'luna', 'sol', 'terra', 'flash']) assert.match(ai, new RegExp(`'${kw}'`), kw);
 });
+
+test('Custom Model ID sits above its field, so the label stays on one line at phone width', () => {
+  const trace = readFileSync(new URL('../src/components/settings/SettingsTrace.svelte', import.meta.url), 'utf8');
+  const block = trace.slice(trace.indexOf("{#if aiModelSelectVal === '__custom__'}"), trace.indexOf('custom_model_hint'));
+  assert.match(block, /<label class="form-label" for="ai-custom-model">\{\$_\('settings_trace\.labels\.custom_model_id'\)\}<\/label>/);
+  assert.match(block, /<input id="ai-custom-model" class="input" style="width:100%"/);
+  assert.doesNotMatch(block, /setting-label|width:220px/);
+});
+
+test('Provider and Model keep their label on one line and let the picker beside it give way', () => {
+  const trace = readFileSync(new URL('../src/components/settings/SettingsTrace.svelte', import.meta.url), 'utf8');
+  for (const key of ['provider', 'model']) {
+    const rows = trace.match(new RegExp(`<span class="setting-label[^"]*">\\{\\$_\\('settings_trace\\.labels\\.${key}'\\)\\}</span>\\s*<(?:select|input) class="[^"]*"`, 'g'));
+    assert.ok(rows?.length, key);
+    for (const r of rows) assert.match(r, /setting-label pick-label">[\s\S]*class="[^"]*\bpick"/, r);
+  }
+  assert.match(trace, /\.setting-row > \.pick-label \{ flex: 0 0 auto; \}/);
+  assert.match(trace, /\.setting-row > \.pick \{ flex: 0 1 auto; min-width: 0;/);
+});

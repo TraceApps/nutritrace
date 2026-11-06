@@ -286,8 +286,8 @@
     {#if _displayedAiEnabled}
       <div class="setting-divider"></div>
       <div class="setting-row">
-        <span class="setting-label">{$_('settings_trace.labels.provider')}</span>
-        <select class="select sel-sm" style="width:auto" bind:value={aiProviderVal} on:change={_onProviderChange} disabled={envLocks.ai}>
+        <span class="setting-label pick-label">{$_('settings_trace.labels.provider')}</span>
+        <select class="select sel-sm pick" style="width:auto" bind:value={aiProviderVal} on:change={_onProviderChange} disabled={envLocks.ai}>
           {#each AI_PROVIDERS as p}
             <option value={p.value}>{p.label}</option>
           {/each}
@@ -310,8 +310,8 @@
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row">
-          <span class="setting-label">{$_('settings_trace.labels.model')}</span>
-          <input class="input" style="width:220px;text-align:right"
+          <span class="setting-label pick-label">{$_('settings_trace.labels.model')}</span>
+          <input class="input pick" style="width:220px;text-align:right"
             placeholder="llama3.1:8b"
             bind:value={aiModelVal} on:change={_autoTest} disabled={envLocks.ai} />
         </div>
@@ -324,8 +324,8 @@
         </div>
       {:else}
         <div class="setting-row">
-          <span class="setting-label">{$_('settings_trace.labels.model')}</span>
-          <select class="select sel-sm" style="width:auto" bind:value={aiModelSelectVal} on:change={() => { _syncModelFromSelect(); _autoTest(); }} disabled={envLocks.ai}>
+          <span class="setting-label pick-label">{$_('settings_trace.labels.model')}</span>
+          <select class="select sel-sm pick" style="width:auto" bind:value={aiModelSelectVal} on:change={() => { _syncModelFromSelect(); _autoTest(); }} disabled={envLocks.ai}>
             {#each (AI_MODELS[aiProviderVal] || []) as m}
               <option value={m.value}>{m.label}</option>
             {/each}
@@ -333,9 +333,11 @@
         </div>
         {#if aiModelSelectVal === '__custom__'}
           <div class="setting-divider"></div>
-          <div class="setting-row">
-            <span class="setting-label">{$_('settings_trace.labels.custom_model_id')}</span>
-            <input class="input" style="width:220px;text-align:right"
+          <!-- Above its field, as Base URL and API Key: beside it, the
+               label wrapped onto two lines at phone width. -->
+          <div class="form-group" style="padding:10px 16px">
+            <label class="form-label" for="ai-custom-model">{$_('settings_trace.labels.custom_model_id')}</label>
+            <input id="ai-custom-model" class="input" style="width:100%" autocomplete="off"
               placeholder={aiProviderVal === 'gemini' ? 'gemini-3.8-flash' : aiProviderVal === 'claude' ? 'claude-sonnet-5-5' : 'gpt-5.6-terra'}
               bind:value={aiCustomModelVal} on:input={_syncModelFromSelect} on:change={_autoTest} disabled={envLocks.ai} />
           </div>
@@ -494,6 +496,11 @@
   .setting-label { font-size: 14px; font-weight: 500; flex: 1; }
   .setting-divider { height: 1px; background: var(--border); margin: 0 16px; }
   .sel-sm { height: 36px; font-size: 13px; width: auto; max-width: 100%; }
+  /* Provider and Model: the label keeps its words on one line and the
+     picker beside it gives way (its widest model name set its width, so
+     at phone width "Model" broke onto two lines). */
+  .setting-row > .pick-label { flex: 0 0 auto; }
+  .setting-row > .pick { flex: 0 1 auto; min-width: 0; }
 
   .form-group { display: flex; flex-direction: column; gap: 6px; }
   .form-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
