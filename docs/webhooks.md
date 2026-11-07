@@ -28,6 +28,12 @@ subscribe to. A secret is generated automatically (or you can supply
 your own), shown exactly once, save it, it is needed to verify
 signatures on the receiving end and cannot be retrieved again later.
 
+Webhooks are part of a full backup, so restoring one keeps them; a
+webhook removed after the backup comes back with it, so remove it
+again. The secret is locked with the server's `TOKEN_ENC_KEY` (or
+`JWT_SECRET` when that isn't set): restored onto a server with another
+key, a webhook's deliveries fail until you make it again.
+
 ## Events
 
 | Event | Fires when |
