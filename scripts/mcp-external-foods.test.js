@@ -465,6 +465,29 @@ test('USDA: saved as the app saves it (fdcId_<id>), then reused; an app-saved US
   assert.equal(r.food.reused_by, 'barcode');
 });
 
+test('a Foundation food with only Atwater energy (2047/2048) shows and logs its calories', async () => {
+  // "Yogurt, Greek, plain, whole milk" has no 1008, only 2047 and 2048, and
+  // ranks first among USDA results. It came in at 0 kcal and was refused.
+  const s = json(await toolsFor(alice).call('search_external_foods', { query: 'greek yogurt plain', source: 'usda', limit: 25 }));
+  const hit = s.items.find(i => i.ref === 'usda:2259794');
+  assert.ok(hit, 'in the results');
+  assert.equal(hit.data_type, 'Foundation');
+  assert.equal(hit.nutrition.calories, 94.5, 'Atwater Specific Factors');
+  assert.ok(hit.nutrients_reported.includes('calories'));
+  const app = client({}, [{ kind: 'usdaFdc', id: '2259794', key: USDA_GOOD_KEY }]).results[0];
+  assert.equal(app.nutrition.calories, 94.5071, 'the app reads the same food by id (USDA gives 94.507135 there)');
+
+  const t = toolsFor(alice);
+  const out = await t.call('log_external_food', { ref: 'usda:2259794', portion: 150, date: '2026-11-06' });
+  assert.ok(!out.isError, text(out));
+  const row = db.prepare('SELECT * FROM foods WHERE id = ?').get(json(out).food.id);
+  assert.equal(row.barcode, 'fdcId_2259794');
+  assert.deepEqual(JSON.parse(row.nutrition), app.nutrition);
+  const item = dayItems(alice, '2026-11-06').find(i => i.name === app.name);
+  assert.ok(item, 'logged');
+  assert.equal(item.portion, 150);
+});
+
 test('USDA logging needs the key, like searching', async () => {
   const count = foodsOf(bob).length;
   const r = await toolsFor(bob).call('log_external_food', { ref: 'usda:171688' });

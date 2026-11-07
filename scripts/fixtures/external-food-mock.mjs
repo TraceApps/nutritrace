@@ -1,7 +1,7 @@
 /**
  * Open Food Facts and USDA FoodData Central, answered from replies recorded
  * from the real services (mcp-external-foods.json, off-nutrition-sets.json,
- * usda-290-responses.json). Used by the #314 tests for both the server's
+ * usda-290-responses.json, usda-energy-responses.json). Used by the #314 tests for both the server's
  * MCP tools and the app's own api.js, so both read the same answers and
  * neither reaches the network.
  */
@@ -11,6 +11,7 @@ const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), 'utf8')
 const FX = read('./mcp-external-foods.json');
 const SETS = read('./off-nutrition-sets.json').products;
 const USDA290 = read('./usda-290-responses.json');
+const ENERGY = read('./usda-energy-responses.json');
 
 export const USDA_GOOD_KEY = 'TESTKEY';
 export const USDA_BAD_KEY = 'BADKEY';
@@ -68,6 +69,7 @@ export function answer(urlString) {
     }
     const m = /^\/fdc\/v1\/food\/(\d+)$/.exec(path);
     if (m && USDA290[`food_${m[1]}`]) return json(200, USDA290[`food_${m[1]}`]);
+    if (m && ENERGY[`food_${m[1]}`]) return json(200, ENERGY[`food_${m[1]}`]);
     return json(404, { error: 'not found' });
   }
   return json(404, {});
