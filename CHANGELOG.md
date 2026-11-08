@@ -22,6 +22,8 @@ Fourth dev pre-release of the 1.5.0 minor. Two-step sign-in, Garmin with your ow
 
 ### Fixed
 
+- **Trace's button comes back after a failed connection.** The Trace button appeared only if the server's first answer about AI arrived, and a failed request hid it for the whole session. The app now retries until it gets the answer, tries again when the connection returns, and keeps the last answer so the button still shows on a start with no connection.
+
 - **Newer USDA Foundation foods have their calories.** Many give their energy only as Atwater figures, which weren't read, so they showed and saved 0 kcal, often at the top of the USDA results. Food search, Refresh from USDA and `log_external_food` now read them. A food already saved at 0 kcal stays as it is until you open it in Foods, tap **Refresh from USDA**, then Save; diary entries, meals and recipes keep their old values.
 - **Turning on Health Connect asks for every data type at once, heart rate and workouts included.** Heart rate and workouts were never asked for, so they read nothing unless you allowed them in Health Connect yourself. A day without heart rate readings now shows no average instead of 0 bpm.
 - **Trace's review cards can be brought back** ([#309](https://github.com/TraceApps/nutritrace/issues/309)). Asking Trace for a card you had already discarded, saved or added showed nothing, and some models then said it was there. That reply now has a Show Card Again button. Thanks @jsapede.

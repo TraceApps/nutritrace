@@ -20,6 +20,7 @@
   import { currentUser, userMgmtActive, setupRequired, loadAuthState, handleOidcCallback } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
   import { describeConnectionIssue } from './lib/connection-message.js';
+  import { envLocksRetryDelay, envLocksShouldRetry, readCachedEnvLocks, writeCachedEnvLocks } from './lib/env-locks-retry.js';
   import { writable, get as getStore } from 'svelte/store';
   import { accountGate, ensureLocalAccount, accountReadyFor } from './lib/local-account.js';
 
@@ -636,6 +637,8 @@
     // FAB knows about env-set AI_ENABLED without waiting for Settings to
     // load. Mirrors NutriTrace #36. Signed out it would only be refused;
     // signing in loads it (see _wasNeedsLogin below).
+    const cachedLocks = readCachedEnvLocks(localStorage);
+    if (cachedLocks) (await import('./stores/settings.js')).envLocks.update(v => ({ ...v, ...cachedLocks }));
     if (!($userMgmtActive && !$currentUser)) loadEnvLocks();
 
     // Show wizard on first launch:
@@ -843,17 +846,40 @@
    * Sends the Android app's token: cookies alone were refused there, which
    * left Trace looking unconfigured even with AI_* set on the server.
    */
+  // Retried until it succeeds (see lib/env-locks-retry.js). Coming back online
+  // or to the foreground also tries again at once.
+  let _envLocksAttempt = 0;
+  let _envLocksTimer = null;
+  let _envLocksLoaded = false;
   async function loadEnvLocks() {
     if (isNative && !getServerUrl()) return;
+    clearTimeout(_envLocksTimer);
+    _envLocksTimer = null;
+    let status = 0;
     try {
       const headers = {};
       const token = isNative ? getAuthToken() : null;
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers });
-      if (!res.ok) return;
-      const { envLocks } = await import('./stores/settings.js');
-      envLocks.set(await res.json());
-    } catch { /* defaults stay: Trace waits for a key in Settings */ }
+      status = res.status;
+      if (res.ok) {
+        const locks = await res.json();
+        const { envLocks } = await import('./stores/settings.js');
+        envLocks.set(locks);
+        writeCachedEnvLocks(localStorage, locks);
+        _envLocksLoaded = true;
+        _envLocksAttempt = 0;
+        return;
+      }
+    } catch { /* no connection: retried below */ }
+    if (!envLocksShouldRetry(status)) return;
+    _envLocksTimer = setTimeout(loadEnvLocks, envLocksRetryDelay(_envLocksAttempt++));
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => { if (!_envLocksLoaded) loadEnvLocks(); });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !_envLocksLoaded) loadEnvLocks();
+    });
   }
 
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];
