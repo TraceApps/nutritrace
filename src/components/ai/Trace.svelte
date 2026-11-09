@@ -1970,6 +1970,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     const file = Array.from(e.clipboardData?.files || [])
       .find(file => file.type.startsWith('image/'));
     if (!file) return;
+    // Spreadsheets and word processors copy text with a picture of it.
+    // Paste the text then; attach only a clipboard that is just an image.
+    if (e.clipboardData.getData('text/plain')) return;
     e.preventDefault();
     _useImageFiles([file]);
   }
