@@ -95,6 +95,16 @@ function geminiModelFor(model) {
   return GEMINI_RETIRED.has(m) ? AI_DEFAULT_MODELS.gemini : m;
 }
 
+// The model the proxy sends for a saved config, renames and shut-down
+// Gemini models applied. Settings shows this when AI is env-locked (#308).
+export function sentModel(cfg) {
+  const provider = cfg.ai_provider || 'claude';
+  const model = cfg.ai_model || AI_DEFAULT_MODELS[provider] || '';
+  if (provider === 'openai') return renamedModel(model);
+  if (provider === 'gemini') return geminiModelFor(model);
+  return model;
+}
+
 /**
  * POST /api/ai/chat
  * Server-side proxy for AI calls — used when AI config is env-locked.

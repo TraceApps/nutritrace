@@ -4,7 +4,8 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, requireAdmin, userMgmtActive } from '../middleware/auth.js';
 import { testSmtp, isSmtpEnvLocked } from '../email.js';
-import { AI_DEFAULT_MODELS, getAiConfig, isAiEnvLocked } from '../ai.js';
+import { getAiConfig, isAiEnvLocked } from '../ai.js';
+import { sentModel } from './ai.js';
 
 const router = Router();
 
@@ -36,7 +37,7 @@ router.get('/env-locks', requireAuth, wrap(async (req, res) => {
   const aiLocked = isAiEnvLocked();
   const aiConfig = aiLocked ? getAiConfig() : {};
   const ai_provider = aiLocked ? (aiConfig.ai_provider || 'claude') : '';
-  const ai_model = aiLocked ? (aiConfig.ai_model || AI_DEFAULT_MODELS[ai_provider] || '') : '';
+  const ai_model = aiLocked ? sentModel(aiConfig) : '';
   const ai_enabled = aiConfig.ai_enabled === 'true';
   // off_local: signals to the Android client that the server has a local
   // OFF mirror configured (OFF_LOCAL_DB set). The native client uses this

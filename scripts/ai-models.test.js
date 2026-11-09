@@ -103,7 +103,7 @@ test('Custom Model ID sits above its field, so the label stays on one line at ph
 test('Provider and Model keep their label on one line and let the picker beside it give way', () => {
   const trace = readFileSync(new URL('../src/components/settings/SettingsTrace.svelte', import.meta.url), 'utf8');
   for (const key of ['provider', 'model']) {
-    const rows = trace.match(new RegExp(`<span class="setting-label[^"]*">\\{\\$_\\('settings_trace\\.labels\\.${key}'\\)\\}</span>\\s*<(?:select|input) class="[^"]*"`, 'g'));
+    const rows = trace.match(new RegExp(`<span class="setting-label[^"]*">\\{\\$_\\('settings_trace\\.labels\\.${key}'\\)\\}</span>\\s*(?:\\{#if envLocks\\.ai\\}\\s*)?<(?:select|input) class="[^"]*"`, 'g'));
     assert.ok(rows?.length, key);
     for (const r of rows) assert.match(r, /setting-label pick-label">[\s\S]*class="[^"]*\bpick"/, r);
   }
