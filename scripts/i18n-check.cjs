@@ -203,7 +203,14 @@ function main() {
   }
 
   const { direct, indirect } = collectKeyRefs(topLevel);
-  const unresolved = [...direct.values(), ...indirect.values()].filter(r => !enKeys.has(r.key));
+  // Indirect literals can name an existing namespace passed to a helper
+  // (e.g. tr('statistics_page.desktop', id)). Only direct $_() arguments
+  // must point to a leaf string.
+  const hasNamespace = key => key.split('.').reduce((value, part) => value?.[part], en) != null;
+  const unresolved = [
+    ...[...direct.values()].filter(r => !enKeys.has(r.key)),
+    ...[...indirect.values()].filter(r => !enKeys.has(r.key) && !hasNamespace(r.key)),
+  ];
   if (unresolved.length) {
     errors.push(`${unresolved.length} code-referenced key(s) missing from ${SOURCE_FILE}`);
     console.log(`  ✗ keys referenced in code but absent from ${SOURCE_FILE}:`);
