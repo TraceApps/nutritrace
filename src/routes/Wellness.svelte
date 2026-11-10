@@ -1,7 +1,8 @@
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../lib/i18n-label.js';
   import { push } from 'svelte-spa-router';
   import DatePicker from '../components/ui/DatePicker.svelte';
   import { wellnessMetrics, wellnessSyncRange, distUnit, tempUnit, pageBanners, bannerStyle, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, googleHealthEnabled, fitbitFamilyEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations,
@@ -16,6 +17,23 @@
   import HealthConnectIcon from '../components/icons/HealthConnectIcon.svelte';
   import WithingsIcon from '../components/icons/WithingsIcon.svelte';
   import GarminIcon from '../components/icons/GarminIcon.svelte';
+
+  function metricLabel(m) { return tr('wellness_metric', m.id, m.label, $locale); }
+  function metricHelp(m) { return tr('wellness_metric_help', m.id, m.desc, $locale); }
+  function chronotypeName(c) {
+    if (!c?.label) return tr('wellness_page.details', 'building_profile', 'Building Profile…', $locale);
+    return tr('wellness_page.chronotypes', c.label.toLowerCase().replaceAll(' ', '_'), c.label, $locale);
+  }
+  function chronotypeDescription(c) {
+    if (!c?.label) return '';
+    return tr('wellness_page.chronotypes', `${c.label.toLowerCase().replaceAll(' ', '_')}_desc`, c.desc, $locale);
+  }
+  function readinessLevel(value) {
+    return value ? tr('wellness_page.readiness_level', String(value).toLowerCase(), value, $locale) : '';
+  }
+  function resilienceText(value) {
+    return value ? tr('wellness_page.resilience_text', String(value).toLowerCase(), value, $locale) : '';
+  }
 
   // ── Metric definitions ─────────────────────────────────────────────────────
   // sources: which integrations can supply this metric. Used to hide metrics
@@ -212,15 +230,15 @@
   function _fmtRelative(ms, _tick) {
     if (!ms) return '';
     const s = Math.floor((Date.now() - ms) / 1000);
-    if (s < 30) return 'just now';
-    if (s < 60) return `${s}s ago`;
+    if (s < 30) return tr('wellness_page.relative', 'just_now', 'just now', $locale);
+    if (s < 60) return tr('wellness_page.relative', 'seconds_ago', '%n s ago', $locale).replace('%n', s);
     const m = Math.floor(s / 60);
-    if (m < 60) return `${m}m ago`;
+    if (m < 60) return tr('wellness_page.relative', 'minutes_ago', '%n min ago', $locale).replace('%n', m);
     const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h ago`;
+    if (h < 24) return tr('wellness_page.relative', 'hours_ago', '%n h ago', $locale).replace('%n', h);
     const d = Math.floor(h / 24);
-    if (d === 1) return 'yesterday';
-    if (d < 7) return `${d}d ago`;
+    if (d === 1) return tr('wellness_page.relative', 'yesterday', 'yesterday', $locale);
+    if (d < 7) return tr('wellness_page.relative', 'days_ago', '%n d ago', $locale).replace('%n', d);
     return new Date(ms).toLocaleDateString();
   }
   // ── Unit helpers ───────────────────────────────────────────────────────────
@@ -908,10 +926,10 @@
     if (!r || r.calibrating) return null;
 
     const lead =
-      r.score >= 80 ? "You're well-recovered today."
-    : r.score >= 65 ? "Solid recovery — you can train normally."
-    : r.score >= 50 ? "Moderate recovery — go lighter than usual today."
-    :                 "Recovery is low. Treat this as a deload day.";
+      r.score >= 80 ? $_('wellness_page.readiness_insight.lead_optimal')
+    : r.score >= 65 ? $_('wellness_page.readiness_insight.lead_good')
+    : r.score >= 50 ? $_('wellness_page.readiness_insight.lead_fair')
+    :                 $_('wellness_page.readiness_insight.lead_low');
 
     const totalPen = (r.activity_penalty || 0) + (r.interaction_penalty || 0);
     const subs = [
@@ -924,29 +942,29 @@
 
     let driver;
     if (totalPen >= 8) {
-      driver = `Yesterday's activity load is the main drag (penalty −${totalPen}) — your body's still paying it back from a hard effort.`;
+      driver = $_('wellness_page.readiness_insight.activity_penalty', { values: { penalty: totalPen } });
     } else if (lowest.val < 50) {
       if (lowest.key === 'hrv') {
-        driver = `Your HRV (${r.hrv_today}ms) is well below your ${r.hrv_baseline}ms baseline — recovery is the priority. Hydrate, eat enough, and prioritize sleep tonight.`;
+        driver = $_('wellness_page.readiness_insight.hrv_very_low', { values: { today: r.hrv_today, baseline: r.hrv_baseline } });
       } else if (lowest.key === 'rhr') {
-        driver = `Resting HR is elevated (${r.rhr_today} vs ${r.rhr_baseline} baseline) — possible early sign of illness or under-recovery.`;
+        driver = $_('wellness_page.readiness_insight.rhr_very_high', { values: { today: r.rhr_today, baseline: r.rhr_baseline } });
       } else {
-        driver = `Last night's sleep (${r.sleep_score_used}) is dragging this down. Cap caffeine after noon and aim for an earlier bedtime.`;
+        driver = $_('wellness_page.readiness_insight.sleep_very_low', { values: { score: r.sleep_score_used } });
       }
     } else if (lowest.val < 65) {
       if (lowest.key === 'hrv') {
-        driver = `HRV (${r.hrv_today}ms) is below your ${r.hrv_baseline}ms baseline — the dominant signal here. Light activity will help recovery more than a hard session.`;
+        driver = $_('wellness_page.readiness_insight.hrv_low', { values: { today: r.hrv_today, baseline: r.hrv_baseline } });
       } else if (lowest.key === 'rhr') {
-        driver = `Resting HR (${r.rhr_today}) is up from your ${r.rhr_baseline} baseline. Watch for early illness signs and keep intensity in check.`;
+        driver = $_('wellness_page.readiness_insight.rhr_high', { values: { today: r.rhr_today, baseline: r.rhr_baseline } });
       } else {
-        driver = `Sleep (${r.sleep_score_used}) is the weakest signal today. An earlier bedtime tonight will pay back tomorrow.`;
+        driver = $_('wellness_page.readiness_insight.sleep_low', { values: { score: r.sleep_score_used } });
       }
     } else if (r.score >= 80) {
-      driver = "Every component is strong. Good day for harder training, longer sessions, or a PR attempt.";
+      driver = $_('wellness_page.readiness_insight.all_optimal');
     } else if (r.score >= 65) {
-      driver = "All signals are healthy — train as planned.";
+      driver = $_('wellness_page.readiness_insight.all_good');
     } else {
-      driver = "Components look fine individually — likely cumulative fatigue from the week. A lighter session today still makes sense.";
+      driver = $_('wellness_page.readiness_insight.all_fair');
     }
 
     return { lead, driver };
@@ -1072,9 +1090,9 @@
     const dt   = new Date(ds + 'T12:00:00');
     const today = localDateStr();
     const yest  = (() => { const d = new Date(Date.now() - 86400000); return localDateStr(d); })();
-    if (ds === today) return 'Today';
-    if (ds === yest)  return 'Yesterday';
-    return dt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    if (ds === today) return tr('diary.day_complete.status', 'today', 'Today', $locale);
+    if (ds === yest)  return tr('diary.day_complete.status', 'yesterday', 'Yesterday', $locale);
+    return dt.toLocaleDateString($locale || undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
   function fmtDateSub(ds) {
@@ -1580,7 +1598,7 @@
         <!-- ── Left rail: providers list + Sync All (desktop only; replaces .wl-topbar-actions) ── -->
         <aside class="wl-left-rail">
           {#if _providerCount > 1}
-            <div class="wl-rail-heading">Providers</div>
+            <div class="wl-rail-heading">{$_('wellness_page.desktop.providers')}</div>
           {/if}
 
           {#if $healthConnectEnabled && isNative}
@@ -1588,7 +1606,7 @@
               <span class="wl-brand-icon wl-provider-icon"><HealthConnectIcon /></span>
               <span class="wl-provider-name">Health Connect</span>
               <span class="wl-status-pill" class:pill-syncing={hcSyncing} class:pill-connected={!hcSyncing}>
-                {hcSyncing ? 'Syncing…' : 'Connected'}
+                {hcSyncing ? $_('wellness_page.desktop.syncing') : $_('wellness_page.desktop.connected')}
               </span>
               <button class="wl-rail-sync-btn" on:click={syncHealthConnectManual} disabled={hcSyncing}
                 title={$_('wellness_page.sync.health_connect')} aria-label={$_('wellness_page.sync.health_connect')}>
@@ -1601,7 +1619,7 @@
               <span class="wl-brand-icon wl-provider-icon"><FitbitIcon /></span>
               <span class="wl-provider-name">Fitbit</span>
               <span class="wl-status-pill" class:pill-syncing={syncing} class:pill-connected={!syncing}>
-                {syncing ? 'Syncing…' : 'Connected'}
+                {syncing ? $_('wellness_page.desktop.syncing') : $_('wellness_page.desktop.connected')}
               </span>
               <button class="wl-rail-sync-btn" on:click={() => sync()} disabled={syncing}
                 title={status.fitbitUserId ? $_('wellness_page.sync.fitbit_with_user', { values: { user: status.fitbitUserId } }) : $_('wellness_page.sync.fitbit')}
@@ -1615,7 +1633,7 @@
               <span class="wl-brand-icon wl-provider-icon"><GarminIcon /></span>
               <span class="wl-provider-name">Garmin</span>
               <span class="wl-status-pill" class:pill-syncing={garminSyncing} class:pill-connected={!garminSyncing}>
-                {garminSyncing ? 'Syncing…' : 'Connected'}
+                {garminSyncing ? $_('wellness_page.desktop.syncing') : $_('wellness_page.desktop.connected')}
               </span>
               <button class="wl-rail-sync-btn" on:click={() => syncGarmin()} disabled={garminSyncing}
                 title={garminStatus.garminUserId ? $_('wellness_page.sync.garmin_with_user', { values: { user: garminStatus.garminUserId } }) : $_('wellness_page.sync.garmin')}
@@ -1629,7 +1647,7 @@
               <span class="wl-brand-icon wl-provider-icon"><WithingsIcon /></span>
               <span class="wl-provider-name">Withings</span>
               <span class="wl-status-pill" class:pill-syncing={withingsSyncing} class:pill-connected={!withingsSyncing}>
-                {withingsSyncing ? 'Syncing…' : 'Connected'}
+                {withingsSyncing ? $_('wellness_page.desktop.syncing') : $_('wellness_page.desktop.connected')}
               </span>
               <button class="wl-rail-sync-btn" on:click={() => syncWithings()} disabled={withingsSyncing}
                 title={withingsStatus.withingsUserId ? $_('wellness_page.sync.withings_with_user', { values: { user: withingsStatus.withingsUserId } }) : $_('wellness_page.sync.withings')}
@@ -1650,7 +1668,7 @@
               }}
               disabled={syncing || garminSyncing || withingsSyncing || hcSyncing}>
               <span class="material-symbols-rounded" class:wl-spin-icon={syncing || garminSyncing || withingsSyncing || hcSyncing}>autorenew</span>
-              Sync All
+              {$_('wellness_page.desktop.sync_all')}
             </button>
           {/if}
           <!-- Last-synced footer. _lastSyncedAt is bumped by
@@ -1664,7 +1682,7 @@
             <div class="wl-last-synced">
               <span class="material-symbols-rounded">history</span>
               <span>
-                {_lastSyncedProvider || 'Synced'}
+                {_lastSyncedProvider || $_('wellness_page.desktop.synced')}
                 <span class="wl-last-synced-time">{_fmtRelative(_lastSyncedAt, _lastSyncedTick)}</span>
               </span>
             </div>
@@ -1674,7 +1692,7 @@
                sidebar to reach Settings → Wellness. -->
           <a class="wl-manage-link" href="#/settings/wellness">
             <span class="material-symbols-rounded">tune</span>
-            Manage Providers
+            {$_('wellness_page.desktop.manage_providers')}
           </a>
         </aside>
 
@@ -1755,7 +1773,7 @@
                 {@const fmt = fmtMetric(m, displayData[m.id])}
                 {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
                 {@const _statsKey = _statsMetricFor(m.id)}
-                <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
+                <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={metricHelp(m)}>
                   {#if _statsKey && fmt}
                     <button class="metric-trend" title="View trend" aria-label="View trend in Statistics"
                       on:click|stopPropagation={() => _openStatsFor(m.id)}>
@@ -1766,7 +1784,7 @@
                     <span class="material-symbols-rounded metric-icon">{m.icon}</span>
                   </div>
                   <div class="metric-body">
-                    <span class="metric-label">{m.label}</span>
+                    <span class="metric-label">{metricLabel(m)}</span>
                     {#if loadingData}
                       <span class="metric-value skeleton">—</span>
                     {:else if fmt}
@@ -1795,7 +1813,7 @@
               <div class="wl-center-only wl-center-workouts">
               <div class="section-title" style="margin-top:20px">
                 <span class="material-symbols-rounded" style="font-size:18px;vertical-align:middle;margin-right:4px">fitness_center</span>
-                Today's Workouts
+                {$_('wellness_page.desktop.todays_workouts')}
               </div>
               <div class="workout-list">
                 {#each _workouts as w}
@@ -1892,7 +1910,7 @@
                 {@const fmt = fmtMetric(m, displayData[m.id])}
                 {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
                 {@const _statsKey = _statsMetricFor(m.id)}
-                <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
+                <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={metricHelp(m)}>
                   {#if _statsKey && fmt}
                     <button class="metric-trend" title="View trend" aria-label="View trend in Statistics"
                       on:click|stopPropagation={() => _openStatsFor(m.id)}>
@@ -1903,7 +1921,7 @@
                     <span class="material-symbols-rounded metric-icon">{m.icon}</span>
                   </div>
                   <div class="metric-body">
-                    <span class="metric-label">{m.label}</span>
+                    <span class="metric-label">{metricLabel(m)}</span>
                     {#if loadingData}
                       <span class="metric-value skeleton">—</span>
                     {:else if fmt}
@@ -1928,19 +1946,19 @@
             {#if _sqHasAny}
               <div class="section-title" style="margin-top:20px">
                 <span class="material-symbols-rounded" style="font-size:18px;vertical-align:middle;margin-right:4px">spa</span>
-                Sleep Quality
+                {$_('wellness_page.desktop.sleep_quality')}
               </div>
               <div class="metric-grid">
                 {#each _sqMetrics as m}
                   {@const fmt = fmtMetric(m, displayData[m.id])}
                   {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
                   {@const _interruptCount = m.id === 'sleep_interruptions_min' ? displayData['sleep_full_awakenings'] : null}
-                  <div class="metric-card" class:no-data={fmt == null && !loadingData} title={m.desc}>
+                  <div class="metric-card" class:no-data={fmt == null && !loadingData} title={metricHelp(m)}>
                     <div class="metric-icon-wrap">
                       <span class="material-symbols-rounded metric-icon">{m.icon}</span>
                     </div>
                     <div class="metric-body">
-                      <span class="metric-label">{m.label}</span>
+                      <span class="metric-label">{metricLabel(m)}</span>
                       {#if loadingData}
                         <span class="metric-value skeleton">—</span>
                       {:else if fmt}
@@ -1964,28 +1982,28 @@
 
             <!-- Sleep Debt card -->
             {#if sleepDebt != null}
-              <div class="card sleep-insight-card wl-center-only" style="margin-bottom:10px" title="Sleep Debt — the total sleep you've missed relative to your goal over the selected window. Calculated as a rolling total from today backwards — always reflects the most recent nights, not the date you're viewing."  >
+              <div class="card sleep-insight-card wl-center-only" style="margin-bottom:10px" title={$_('wellness_page.details.sleep_debt_hint')}>
                 <div class="si-header">
                   <span class="material-symbols-rounded si-icon">battery_low</span>
                   <div class="si-title-wrap">
                     <span class="si-title">{$_('wellness_page.metric_group.sleep_debt')}</span>
-                    <span class="si-sub">Last {sleepDebt.nights} nights</span>
+                    <span class="si-sub">{$_('wellness_page.details.last_n_nights', { values: { n: sleepDebt.nights } })}</span>
                   </div>
                   <span class="si-value {sleepDebt.debtMin === 0 ? 'si-good' : sleepDebt.debtMin < 120 ? 'si-warn' : 'si-bad'}">
-                    {sleepDebt.debtMin === 0 ? 'On track' : fmtSleepStr(sleepDebt.debtMin)}
+                    {sleepDebt.debtMin === 0 ? $_('wellness_page.details.on_track') : fmtSleepStr(sleepDebt.debtMin)}
                   </span>
                 </div>
                 {#if sleepDebt.debtMin > 0}
                   <p class="si-desc">
-                    You're {fmtSleepStr(sleepDebt.debtMin)} short of your {fmtSleepStr(sleepDebt.goalMin)} sleep goal across the last {sleepDebt.nights} nights.
-                    {#if sleepDebt.debtMin >= 120}Prioritize early bedtimes this week to recover.{:else}A consistent schedule should close the gap quickly.{/if}
+                    {$_('wellness_page.details.sleep_shortfall', { values: { missing: fmtSleepStr(sleepDebt.debtMin), goal: fmtSleepStr(sleepDebt.goalMin), n: sleepDebt.nights } })}
+                    {#if sleepDebt.debtMin >= 120}{$_('wellness_page.details.early_bedtimes')}{:else}{$_('wellness_page.details.consistent_schedule')}{/if}
                   </p>
                 {:else}
-                  <p class="si-desc">You're meeting your sleep goal. Keep it up!</p>
+                  <p class="si-desc">{$_('wellness_page.details.sleep_goal_met')}</p>
                 {/if}
                 <div class="si-range-chips">
                   {#each [7, 14, 30] as n}
-                    <button class="chip" class:chip-active={sleepInsightsRange === n} on:click={() => sleepInsightsRange = n}>{n}d</button>
+                    <button class="chip" class:chip-active={sleepInsightsRange === n} on:click={() => sleepInsightsRange = n}>{n} {$_('wellness_page.details.days_abbrev')}</button>
                   {/each}
                 </div>
               </div>
@@ -1993,21 +2011,21 @@
 
             <!-- Chronotype card -->
             {#if chronotype != null}
-              <div class="card sleep-insight-card wl-center-only" title="Chronotype — your natural sleep timing preference, derived from your average sleep midpoint over all available nights. This is a long-term trait that updates as more nights are synced — it always reflects your full history, not the specific date you're viewing."  >
+              <div class="card sleep-insight-card wl-center-only" title={$_('wellness_page.details.chronotype_hint')}>
                 <div class="si-header">
                   <span class="si-emoji">{chronotype.emoji ?? '⏳'}</span>
                   <div class="si-title-wrap">
-                    <span class="si-title">{chronotype.label ?? 'Building Profile…'}</span>
+                    <span class="si-title">{chronotypeName(chronotype)}</span>
                     <span class="si-sub">
-                      {#if chronotype.label}Avg sleep midpoint: {fmtTimeMin(chronotype.midpointMin)} · {chronotype.nights} nights
-                      {:else}{chronotype.nights}/{chronotype.needed} nights collected{/if}
+                      {#if chronotype.label}{$_('wellness_page.details.sleep_midpoint', { values: { time: fmtTimeMin(chronotype.midpointMin), n: chronotype.nights } })}
+                      {:else}{$_('wellness_page.details.nights_collected', { values: { n: chronotype.nights, needed: chronotype.needed } })}{/if}
                     </span>
                   </div>
                 </div>
                 {#if chronotype.label}
-                  <p class="si-desc">{chronotype.desc}</p>
+                  <p class="si-desc">{chronotypeDescription(chronotype)}</p>
                 {:else}
-                  <p class="si-desc">Syncing more nights will unlock your chronotype. Once {chronotype.needed} nights of sleep timing are available your profile will appear here.</p>
+                  <p class="si-desc">{$_('wellness_page.details.chronotype_wait', { values: { needed: chronotype.needed } })}</p>
                 {/if}
               </div>
             {/if}
@@ -2019,7 +2037,7 @@
                 {@const fmt = fmtMetric(m, displayData[m.id])}
                 {@const spark = sparklinePath(_sparklineData[m.id] ?? [])}
                 {@const _statsKey = _statsMetricFor(m.id)}
-                <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
+                <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={metricHelp(m)}>
                   {#if _statsKey && fmt}
                     <button class="metric-trend" title="View trend" aria-label="View trend in Statistics"
                       on:click|stopPropagation={() => _openStatsFor(m.id)}>
@@ -2030,7 +2048,7 @@
                     <span class="material-symbols-rounded metric-icon" style="color:#ef4444">{m.icon}</span>
                   </div>
                   <div class="metric-body">
-                    <span class="metric-label">{m.label}</span>
+                    <span class="metric-label">{metricLabel(m)}</span>
                     {#if loadingData}
                       <span class="metric-value skeleton">—</span>
                     {:else if fmt}
@@ -2058,12 +2076,12 @@
                   {#each GARMIN_METRICS.filter(m => isVisible(m.id)) as m}
                     {@const raw = garminData[m.id]}
                     {#if raw != null}
-                      <div class="metric-card" title={m.desc}>
+                      <div class="metric-card" title={metricHelp(m)}>
                         <div class="metric-icon-wrap">
                           <span class="material-symbols-rounded metric-icon">{m.icon}</span>
                         </div>
                         <div class="metric-body">
-                          <span class="metric-label">{m.label}</span>
+                          <span class="metric-label">{metricLabel(m)}</span>
                           <span class="metric-value">{m.fmt(raw)}<span class="metric-unit">{m.unit}</span></span>
                         </div>
                       </div>
@@ -2075,16 +2093,16 @@
 
             <!-- Daily Readiness card -->
             {#if readiness != null}
-              <div class="card sleep-insight-card readiness-card wl-center-only" style="margin-top:10px" title="Daily Readiness — how recovered and prepared your body is for today, scored 1–100. Calculated from today's HRV and RHR compared to your 30-day personal baseline, plus last night's sleep score. Always reflects today's data — not the date you're viewing."  >
+              <div class="card sleep-insight-card readiness-card wl-center-only" style="margin-top:10px" title={$_('wellness_page.details.readiness_hint')}>
                 {#if readiness.calibrating}
                   <div class="si-header">
                     <span class="material-symbols-rounded si-icon">battery_charging_full</span>
                     <div class="si-title-wrap">
                       <span class="si-title">{$_('wellness_deep.daily_readiness')}</span>
-                      <span class="si-sub">Calibrating… {readiness.data_days}/{readiness.needed} nights with HRV data</span>
+                      <span class="si-sub">{$_('wellness_page.details.calibrating', { values: { days: readiness.data_days, needed: readiness.needed } })}</span>
                     </div>
                   </div>
-                  <p class="si-desc">Needs {readiness.needed} nights where your device recorded HRV during sleep. Fitbit only captures HRV on nights with a clean optical reading — wearing the device snugly helps.</p>
+                  <p class="si-desc">{$_('wellness_page.details.calibrating_hint', { values: { needed: readiness.needed } })}</p>
                 {:else}
                   <div class="readiness-header">
                     <div class="readiness-header-left">
@@ -2092,13 +2110,13 @@
                       <div class="si-title-wrap">
                         <span class="si-title">{$_('wellness_deep.daily_readiness')}</span>
                         <span class="si-sub">
-                          HRV baseline {readiness.hrv_baseline} ms{readiness.rhr_baseline != null ? ` · RHR baseline ${readiness.rhr_baseline} bpm` : ''} · {readiness.data_days} days
+                          {$_('wellness_page.details.hrv_baseline', { values: { value: readiness.hrv_baseline } })}{#if readiness.rhr_baseline != null} · {$_('wellness_page.details.rhr_baseline', { values: { value: readiness.rhr_baseline } })}{/if} · {$_('wellness_page.details.n_days', { values: { n: readiness.data_days } })}
                         </span>
                       </div>
                     </div>
                     <div class="readiness-score-wrap">
                       <span class="readiness-score" style="color:{readiness.color}">{readiness.score}</span>
-                      <span class="readiness-label" style="color:{readiness.color}">{readiness.label}</span>
+                      <span class="readiness-label" style="color:{readiness.color}">{readinessLevel(readiness.label)}</span>
                     </div>
                   </div>
                   <div class="readiness-drivers">
@@ -2131,7 +2149,7 @@
                   {#if readiness.data_days < 30}
                     <div class="si-calibration-note">
                       <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
-                      Based on {readiness.data_days} days — accuracy improves as more data is collected.
+                      {$_('wellness_page.details.calibration_note', { values: { days: readiness.data_days } })}
                     </div>
                   {/if}
                 {/if}
@@ -2142,22 +2160,19 @@
             {@const _resCat       = displayData.resilience_category}
             {@const _resCatLabel  = _resCat === 3 ? 'Optimal' : _resCat === 2 ? 'Balanced' : _resCat === 1 ? 'Low' : null}
             {@const _resColor     = _resCatLabel === 'Optimal' ? 'var(--accent)' : _resCatLabel === 'Balanced' ? '#f59e0b' : _resCatLabel === 'Low' ? '#ef4444' : 'var(--text-3)'}
-            {@const _resText      = _resCatLabel === 'Optimal' ? "Your body is showing strong signs of recovery and balance. A great day to take on what matters to you."
-                                  : _resCatLabel === 'Balanced' ? "Your body is in a steady state today. A good day to maintain your routine and stay consistent."
-                                  : _resCatLabel === 'Low' ? "Your body is asking for a bit more rest today. Taking it easier is a kind way to help yourself recharge."
-                                  : null}
+            {@const _resText      = resilienceText(_resCatLabel)}
             {#if _resCatLabel}
-              <div class="card sleep-insight-card readiness-card wl-center-only" style="margin-top:10px" title="Resilience — how your body is handling daily stress, classified as Optimal, Balanced, or Low. Combines physical calmness (HRV + resting heart rate), activity balance (step + active-minute target adherence), and sleep patterns (last night plus 7-day reservoir).">
+              <div class="card sleep-insight-card readiness-card wl-center-only" style="margin-top:10px" title={$_('wellness_page.details.resilience_hint')}>
                 <div class="readiness-header">
                   <div class="readiness-header-left">
                     <span class="material-symbols-rounded si-icon">self_improvement</span>
                     <div class="si-title-wrap">
                       <span class="si-title">{$_('wellness_deep.resilience')}</span>
-                      <span class="si-sub">Score: {Math.round(displayData.resilience_score ?? 0)} / 100</span>
+                      <span class="si-sub">{$_('wellness_page.details.score')}: {Math.round(displayData.resilience_score ?? 0)} / 100</span>
                     </div>
                   </div>
                   <div class="readiness-score-wrap">
-                    <span class="readiness-label" style="color:{_resColor};font-size:22px;font-weight:700">{_resCatLabel}</span>
+                    <span class="readiness-label" style="color:{_resColor};font-size:22px;font-weight:700">{readinessLevel(_resCatLabel)}</span>
                   </div>
                 </div>
                 <p class="resilience-text">{_resText}</p>
@@ -2183,11 +2198,11 @@
           {#if !loadingData && Object.keys(displayData).length === 0}
             <div class="empty-state">
               <span class="material-symbols-rounded" style="font-size:48px;opacity:0.18">monitor_heart</span>
-              <p>No data for {isToday ? 'today' : fmtDate(dateStr)}.</p>
+              <p>{isToday ? $_('wellness_page.desktop.no_data_today') : $_('wellness_page.desktop.no_data_date', { values: { date: fmtDate(dateStr) } })}</p>
               {#if $offlineState.online === false}
                 <p class="text-3 text-sm">{$_('wellness_page.empty.offline')}</p>
               {:else}
-                <p class="text-3 text-sm">Tap <strong>Sync</strong> to pull the latest from your device.</p>
+                <p class="text-3 text-sm">{$_('wellness_page.details.no_recent_data')}</p>
               {/if}
             </div>
           {/if}
@@ -2200,12 +2215,12 @@
             {#each BODY_METRICS.filter(m => isVisible(m.id)) as m}
               {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? null}
               {@const formatted = fmtBodyMetric(m, raw)}
-              <div class="metric-card" class:no-data={formatted == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
+              <div class="metric-card" class:no-data={formatted == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={metricHelp(m)}>
                 <div class="metric-icon-wrap">
                   <span class="material-symbols-rounded metric-icon">{m.icon}</span>
                 </div>
                 <div class="metric-body">
-                  <span class="metric-label">{m.label}</span>
+                  <span class="metric-label">{metricLabel(m)}</span>
                   {#if loadingData}
                     <span class="metric-value skeleton">—</span>
                   {:else if formatted}
@@ -2228,12 +2243,12 @@
                 {#each BODY_SCORE_METRICS.filter(m => isVisible(m.id)) as m}
                   {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? null}
                   {#if raw != null}
-                    <div class="metric-card" title={m.desc}>
+                    <div class="metric-card" title={metricHelp(m)}>
                       <div class="metric-icon-wrap">
                         <span class="material-symbols-rounded metric-icon">{m.icon}</span>
                       </div>
                       <div class="metric-body">
-                        <span class="metric-label">{m.label}</span>
+                        <span class="metric-label">{metricLabel(m)}</span>
                         <span class="metric-value">{m.fmt(raw)}<span class="metric-unit">{m.unit}</span></span>
                       </div>
                     </div>
@@ -2257,7 +2272,7 @@
                 <div class="seg-header">
                   <span></span>
                   <span>{$_('wellness_deep.muscle')}</span>
-                  <span>Lean</span>
+                  <span>{$_('wellness_page.details.lean')}</span>
                 </div>
                 {#each [
                   { label: 'Left Arm',  muscle: 'muscle_mass_left_arm_kg',  lean: 'lean_mass_left_arm_kg'  },
@@ -2283,11 +2298,11 @@
           {#if !loadingData && Object.keys(withingsData).length === 0 && !BODY_METRICS.some(m => data[m.id] != null || garminData[m.id] != null)}
             <div class="empty-state">
               <span class="material-symbols-rounded" style="font-size:48px;opacity:0.18">scale</span>
-              <p>No body composition data for {isToday ? 'today' : fmtDate(dateStr)}.</p>
+              <p>{isToday ? $_('wellness_page.desktop.no_body_today') : $_('wellness_page.desktop.no_body_date', { values: { date: fmtDate(dateStr) } })}</p>
               {#if $offlineState.online === false}
                 <p class="text-3 text-sm">{$_('wellness_page.empty.offline')}</p>
               {:else}
-                <p class="text-3 text-sm">Sync your scale or fitness tracker to see body stats here.</p>
+                <p class="text-3 text-sm">{$_('wellness_page.details.no_body_data')}</p>
               {/if}
             </div>
           {/if}
@@ -2299,21 +2314,21 @@
             </div>
             <h2 class="connect-title">{$_('wellness_deep.connect_withings')}</h2>
             <p class="connect-desc">
-              Sync body composition from your Withings scale. Weight, body fat %, muscle mass, bone mass, and more — automatically filled into your diary.
+              {$_('wellness_page.details.withings_desc')}
             </p>
             <div class="connect-chips">
-              <span class="connect-chip"><span class="material-symbols-rounded">monitor_weight</span> Weight</span>
-              <span class="connect-chip"><span class="material-symbols-rounded">percent</span> Body Fat %</span>
-              <span class="connect-chip"><span class="material-symbols-rounded">fitness_center</span> Muscle Mass</span>
-              <span class="connect-chip"><span class="material-symbols-rounded">water_drop</span> Body Water</span>
-              <span class="connect-chip"><span class="material-symbols-rounded">emergency</span> Bone Mass</span>
-              <span class="connect-chip"><span class="material-symbols-rounded">ecg_heart</span> ECG &amp; AFib</span>
+              <span class="connect-chip"><span class="material-symbols-rounded">monitor_weight</span> {$_('wellness_metric.weight_kg')}</span>
+              <span class="connect-chip"><span class="material-symbols-rounded">percent</span> {$_('wellness_metric.body_fat_pct')}</span>
+              <span class="connect-chip"><span class="material-symbols-rounded">fitness_center</span> {$_('wellness_metric.muscle_mass_kg')}</span>
+              <span class="connect-chip"><span class="material-symbols-rounded">water_drop</span> {$_('wellness_metric.body_water_pct')}</span>
+              <span class="connect-chip"><span class="material-symbols-rounded">emergency</span> {$_('wellness_metric.bone_mass_kg')}</span>
+              <span class="connect-chip"><span class="material-symbols-rounded">ecg_heart</span> {$_('wellness_page.details.ecg_afib')}</span>
             </div>
             <button class="btn btn-primary connect-btn" on:click={connectWithings} disabled={withingsConnecting}>
               {#if withingsConnecting}
-                <span class="material-symbols-rounded spin">autorenew</span> Connecting…
+                <span class="material-symbols-rounded spin">autorenew</span> {$_('wellness_page.connect.connecting')}
               {:else}
-                <span class="material-symbols-rounded">link</span> Connect Withings
+                <span class="material-symbols-rounded">link</span> {$_('wellness_page.details.connect_withings')}
               {/if}
             </button>
           </div>
@@ -2334,19 +2349,19 @@
           {#if readiness != null && !readiness.calibrating && readiness.score != null}
             <button type="button" class="wl-readiness-strip"
               on:click={() => activeTab = 'heart'}
-              title="Daily Readiness — how recovered and prepared your body is for today. Tap for details.">
+              title={$_('wellness_page.details.readiness_short_hint')}>
               <div class="wl-rs-icon" style="background:{readiness.color || 'var(--accent)'}22;color:{readiness.color || 'var(--accent)'}">
                 <span class="material-symbols-rounded">bolt</span>
               </div>
               <div class="wl-rs-copy">
-                <span class="wl-rs-label">Today's Readiness</span>
-                <span class="wl-rs-band">{readiness.band || ''}</span>
+                <span class="wl-rs-label">{$_('wellness_page.desktop.todays_readiness')}</span>
+                <span class="wl-rs-band">{readinessLevel(readiness.band)}</span>
               </div>
               <span class="wl-rs-score" style="color:{readiness.color || 'var(--accent)'}">{Math.round(readiness.score)}</span>
             </button>
           {/if}
 
-          <div class="wl-rail-heading">Insights</div>
+          <div class="wl-rail-heading">{$_('wellness_page.desktop.insights')}</div>
 
           {#if activeTab === 'activity'}
             <!-- Activity rail: derived weekly aggregates from the
@@ -2363,35 +2378,35 @@
             {@const _goalHits   = _stepSeries.filter(v => (Number(v) || 0) >= 10000).length}
             {#if _stepSeries.some(v => v != null) || _amSeries.some(v => v != null)}
               <div class="wl-rail-only">
-                <div class="card sleep-insight-card" style="margin-bottom:10px" title="7-day activity totals from your synced data.">
+                <div class="card sleep-insight-card" style="margin-bottom:10px" title={$_('wellness_page.desktop.week_hint')}>
                   <div class="si-header">
                     <span class="material-symbols-rounded si-icon">calendar_view_week</span>
                     <div class="si-title-wrap">
-                      <span class="si-title">This Week</span>
-                      <span class="si-sub">Last 7 days</span>
+                      <span class="si-title">{$_('wellness_page.desktop.this_week')}</span>
+                      <span class="si-sub">{$_('wellness_page.desktop.last_7_days')}</span>
                     </div>
                   </div>
                   <div class="wl-rail-stat-grid">
                     <div class="wl-rail-stat">
                       <span class="wl-rail-stat-val">{_stepsTotal.toLocaleString()}</span>
-                      <span class="wl-rail-stat-lbl">Total steps</span>
+                      <span class="wl-rail-stat-lbl">{$_('wellness_page.desktop.total_steps')}</span>
                     </div>
                     <div class="wl-rail-stat">
                       <span class="wl-rail-stat-val">{_stepsAvg.toLocaleString()}</span>
-                      <span class="wl-rail-stat-lbl">Daily avg</span>
+                      <span class="wl-rail-stat-lbl">{$_('wellness_page.desktop.daily_average')}</span>
                     </div>
                     <div class="wl-rail-stat">
                       <span class="wl-rail-stat-val">{_goalHits}/7</span>
-                      <span class="wl-rail-stat-lbl">≥ 10k days</span>
+                      <span class="wl-rail-stat-lbl">{$_('wellness_page.desktop.days_10k')}</span>
                     </div>
                     <div class="wl-rail-stat">
                       <span class="wl-rail-stat-val">{Math.round(_amTotal).toLocaleString()}</span>
-                      <span class="wl-rail-stat-lbl">Active min</span>
+                      <span class="wl-rail-stat-lbl">{$_('wellness_page.desktop.active_minutes')}</span>
                     </div>
                   </div>
                   {#if _calTotal > 0}
                     <p class="si-desc" style="margin-top:8px">
-                      Burned <strong>{Math.round(_calTotal).toLocaleString()} kcal</strong> total this week.
+                      {$_('wellness_page.desktop.burned')} <strong>{Math.round(_calTotal).toLocaleString()} kcal</strong> {$_('wellness_page.desktop.total_this_week')}
                     </p>
                   {/if}
                 </div>
@@ -2407,7 +2422,7 @@
                   <div class="si-header">
                     <span class="material-symbols-rounded si-icon">fitness_center</span>
                     <div class="si-title-wrap">
-                      <span class="si-title">Today's Workouts</span>
+                      <span class="si-title">{$_('wellness_page.desktop.todays_workouts')}</span>
                       <span class="si-sub">{_workouts.length} {_workouts.length === 1 ? 'session' : 'sessions'}</span>
                     </div>
                   </div>
@@ -2439,28 +2454,28 @@
             <!-- Sleep Debt (rail duplicate) -->
             {#if sleepDebt != null}
               <div class="wl-rail-only">
-                <div class="card sleep-insight-card" style="margin-bottom:10px" title="Sleep Debt — the total sleep you've missed relative to your goal over the selected window. Calculated as a rolling total from today backwards — always reflects the most recent nights, not the date you're viewing.">
+                <div class="card sleep-insight-card" style="margin-bottom:10px" title={$_('wellness_page.details.sleep_debt_hint')}>
                   <div class="si-header">
                     <span class="material-symbols-rounded si-icon">battery_low</span>
                     <div class="si-title-wrap">
                       <span class="si-title">{$_('wellness_page.metric_group.sleep_debt')}</span>
-                      <span class="si-sub">Last {sleepDebt.nights} nights</span>
+                      <span class="si-sub">{$_('wellness_page.details.last_n_nights', { values: { n: sleepDebt.nights } })}</span>
                     </div>
                     <span class="si-value {sleepDebt.debtMin === 0 ? 'si-good' : sleepDebt.debtMin < 120 ? 'si-warn' : 'si-bad'}">
-                      {sleepDebt.debtMin === 0 ? 'On track' : fmtSleepStr(sleepDebt.debtMin)}
+                      {sleepDebt.debtMin === 0 ? $_('wellness_page.details.on_track') : fmtSleepStr(sleepDebt.debtMin)}
                     </span>
                   </div>
                   {#if sleepDebt.debtMin > 0}
                     <p class="si-desc">
-                      You're {fmtSleepStr(sleepDebt.debtMin)} short of your {fmtSleepStr(sleepDebt.goalMin)} sleep goal across the last {sleepDebt.nights} nights.
-                      {#if sleepDebt.debtMin >= 120}Prioritize early bedtimes this week to recover.{:else}A consistent schedule should close the gap quickly.{/if}
+                      {$_('wellness_page.details.sleep_shortfall', { values: { missing: fmtSleepStr(sleepDebt.debtMin), goal: fmtSleepStr(sleepDebt.goalMin), n: sleepDebt.nights } })}
+                      {#if sleepDebt.debtMin >= 120}{$_('wellness_page.details.early_bedtimes')}{:else}{$_('wellness_page.details.consistent_schedule')}{/if}
                     </p>
                   {:else}
-                    <p class="si-desc">You're meeting your sleep goal. Keep it up!</p>
+                    <p class="si-desc">{$_('wellness_page.details.sleep_goal_met')}</p>
                   {/if}
                   <div class="si-range-chips">
                     {#each [7, 14, 30] as n}
-                      <button class="chip" class:chip-active={sleepInsightsRange === n} on:click={() => sleepInsightsRange = n}>{n}d</button>
+                      <button class="chip" class:chip-active={sleepInsightsRange === n} on:click={() => sleepInsightsRange = n}>{n} {$_('wellness_page.details.days_abbrev')}</button>
                     {/each}
                   </div>
                 </div>
@@ -2469,21 +2484,21 @@
             <!-- Chronotype (rail duplicate) -->
             {#if chronotype != null}
               <div class="wl-rail-only">
-                <div class="card sleep-insight-card" title="Chronotype — your natural sleep timing preference, derived from your average sleep midpoint over all available nights. This is a long-term trait that updates as more nights are synced — it always reflects your full history, not the specific date you're viewing.">
+                <div class="card sleep-insight-card" title={$_('wellness_page.details.chronotype_hint')}>
                   <div class="si-header">
                     <span class="si-emoji">{chronotype.emoji ?? '⏳'}</span>
                     <div class="si-title-wrap">
-                      <span class="si-title">{chronotype.label ?? 'Building Profile…'}</span>
+                      <span class="si-title">{chronotypeName(chronotype)}</span>
                       <span class="si-sub">
-                        {#if chronotype.label}Avg sleep midpoint: {fmtTimeMin(chronotype.midpointMin)} · {chronotype.nights} nights
-                        {:else}{chronotype.nights}/{chronotype.needed} nights collected{/if}
+                        {#if chronotype.label}{$_('wellness_page.details.sleep_midpoint', { values: { time: fmtTimeMin(chronotype.midpointMin), n: chronotype.nights } })}
+                        {:else}{$_('wellness_page.details.nights_collected', { values: { n: chronotype.nights, needed: chronotype.needed } })}{/if}
                       </span>
                     </div>
                   </div>
                   {#if chronotype.label}
-                    <p class="si-desc">{chronotype.desc}</p>
+                    <p class="si-desc">{chronotypeDescription(chronotype)}</p>
                   {:else}
-                    <p class="si-desc">Syncing more nights will unlock your chronotype. Once {chronotype.needed} nights of sleep timing are available your profile will appear here.</p>
+                    <p class="si-desc">{$_('wellness_page.details.chronotype_wait', { values: { needed: chronotype.needed } })}</p>
                   {/if}
                 </div>
               </div>
@@ -2492,16 +2507,16 @@
             <!-- Daily Readiness (rail duplicate) -->
             {#if readiness != null}
               <div class="wl-rail-only">
-                <div class="card sleep-insight-card readiness-card" style="margin-top:0" title="Daily Readiness — how recovered and prepared your body is for today, scored 1–100. Calculated from today's HRV and RHR compared to your 30-day personal baseline, plus last night's sleep score. Always reflects today's data — not the date you're viewing.">
+                <div class="card sleep-insight-card readiness-card" style="margin-top:0" title={$_('wellness_page.details.readiness_hint')}>
                   {#if readiness.calibrating}
                     <div class="si-header">
                       <span class="material-symbols-rounded si-icon">battery_charging_full</span>
                       <div class="si-title-wrap">
                         <span class="si-title">{$_('wellness_deep.daily_readiness')}</span>
-                        <span class="si-sub">Calibrating… {readiness.data_days}/{readiness.needed} nights with HRV data</span>
+                        <span class="si-sub">{$_('wellness_page.details.calibrating', { values: { days: readiness.data_days, needed: readiness.needed } })}</span>
                       </div>
                     </div>
-                    <p class="si-desc">Needs {readiness.needed} nights where your device recorded HRV during sleep. Fitbit only captures HRV on nights with a clean optical reading — wearing the device snugly helps.</p>
+                    <p class="si-desc">{$_('wellness_page.details.calibrating_hint', { values: { needed: readiness.needed } })}</p>
                   {:else}
                     <div class="readiness-header">
                       <div class="readiness-header-left">
@@ -2509,13 +2524,13 @@
                         <div class="si-title-wrap">
                           <span class="si-title">{$_('wellness_deep.daily_readiness')}</span>
                           <span class="si-sub">
-                            HRV baseline {readiness.hrv_baseline} ms{readiness.rhr_baseline != null ? ` · RHR baseline ${readiness.rhr_baseline} bpm` : ''} · {readiness.data_days} days
+                            {$_('wellness_page.details.hrv_baseline', { values: { value: readiness.hrv_baseline } })}{#if readiness.rhr_baseline != null} · {$_('wellness_page.details.rhr_baseline', { values: { value: readiness.rhr_baseline } })}{/if} · {$_('wellness_page.details.n_days', { values: { n: readiness.data_days } })}
                           </span>
                         </div>
                       </div>
                       <div class="readiness-score-wrap">
                         <span class="readiness-score" style="color:{readiness.color}">{readiness.score}</span>
-                        <span class="readiness-label" style="color:{readiness.color}">{readiness.label}</span>
+                        <span class="readiness-label" style="color:{readiness.color}">{readinessLevel(readiness.label)}</span>
                       </div>
                     </div>
                     <div class="readiness-drivers">
@@ -2548,7 +2563,7 @@
                     {#if readiness.data_days < 30}
                       <div class="si-calibration-note">
                         <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
-                        Based on {readiness.data_days} days — accuracy improves as more data is collected.
+                        {$_('wellness_page.details.calibration_note', { values: { days: readiness.data_days } })}
                       </div>
                     {/if}
                   {/if}
@@ -2559,23 +2574,20 @@
             {@const _resCatR      = displayData.resilience_category}
             {@const _resCatLabelR = _resCatR === 3 ? 'Optimal' : _resCatR === 2 ? 'Balanced' : _resCatR === 1 ? 'Low' : null}
             {@const _resColorR    = _resCatLabelR === 'Optimal' ? 'var(--accent)' : _resCatLabelR === 'Balanced' ? '#f59e0b' : _resCatLabelR === 'Low' ? '#ef4444' : 'var(--text-3)'}
-            {@const _resTextR     = _resCatLabelR === 'Optimal' ? "Your body is showing strong signs of recovery and balance. A great day to take on what matters to you."
-                                  : _resCatLabelR === 'Balanced' ? "Your body is in a steady state today. A good day to maintain your routine and stay consistent."
-                                  : _resCatLabelR === 'Low' ? "Your body is asking for a bit more rest today. Taking it easier is a kind way to help yourself recharge."
-                                  : null}
+            {@const _resTextR     = resilienceText(_resCatLabelR)}
             {#if _resCatLabelR}
               <div class="wl-rail-only">
-                <div class="card sleep-insight-card readiness-card" style="margin-top:10px" title="Resilience — how your body is handling daily stress, classified as Optimal, Balanced, or Low. Combines physical calmness (HRV + resting heart rate), activity balance (step + active-minute target adherence), and sleep patterns (last night plus 7-day reservoir).">
+                <div class="card sleep-insight-card readiness-card" style="margin-top:10px" title={$_('wellness_page.details.resilience_hint')}>
                   <div class="readiness-header">
                     <div class="readiness-header-left">
                       <span class="material-symbols-rounded si-icon">self_improvement</span>
                       <div class="si-title-wrap">
                         <span class="si-title">{$_('wellness_deep.resilience')}</span>
-                        <span class="si-sub">Score: {Math.round(displayData.resilience_score ?? 0)} / 100</span>
+                        <span class="si-sub">{$_('wellness_page.details.score')}: {Math.round(displayData.resilience_score ?? 0)} / 100</span>
                       </div>
                     </div>
                     <div class="readiness-score-wrap">
-                      <span class="readiness-label" style="color:{_resColorR};font-size:22px;font-weight:700">{_resCatLabelR}</span>
+                      <span class="readiness-label" style="color:{_resColorR};font-size:22px;font-weight:700">{readinessLevel(_resCatLabelR)}</span>
                     </div>
                   </div>
                   <p class="resilience-text">{_resTextR}</p>
@@ -2609,12 +2621,12 @@
                     {#each BODY_SCORE_METRICS.filter(m => isVisible(m.id)) as m}
                       {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? null}
                       {#if raw != null}
-                        <div class="metric-card" title={m.desc}>
+                        <div class="metric-card" title={metricHelp(m)}>
                           <div class="metric-icon-wrap">
                             <span class="material-symbols-rounded metric-icon">{m.icon}</span>
                           </div>
                           <div class="metric-body">
-                            <span class="metric-label">{m.label}</span>
+                            <span class="metric-label">{metricLabel(m)}</span>
                             <span class="metric-value">{m.fmt(raw)}<span class="metric-unit">{m.unit}</span></span>
                           </div>
                         </div>
@@ -2669,7 +2681,7 @@
       {#if _loadingGps}
         <div class="workout-map-placeholder">
           <span class="material-symbols-rounded spin">autorenew</span>
-          <span>Loading route…</span>
+          <span>{$_('wellness_page.details.loading_route')}</span>
         </div>
       {:else if _workoutGps && _workoutGps.length > 1}
         <div class="workout-map" id="workout-map-container"></div>
@@ -2708,7 +2720,7 @@
           <span class="material-symbols-rounded">map</span>
           <span>{$_('wellness_deep.no_gps')}</span>
           <button class="btn btn-ghost" style="margin-top:8px;font-size:13px" on:click={() => _loadGpsData(w)}>
-            <span class="material-symbols-rounded" style="font-size:16px">refresh</span> Retry
+            <span class="material-symbols-rounded" style="font-size:16px">refresh</span> {$_('wellness_page.details.retry')}
           </button>
         </div>
       {/if}

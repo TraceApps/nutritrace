@@ -501,7 +501,9 @@
       "disabling": "Disabling…",
       "failed": "Recovery failed",
       "success": "User management disabled — you are now in single-user mode",
-      "done": "User management has been disabled.<br>Redirecting…"
+      "done": "User management has been disabled.<br>Redirecting…",
+      "confirm": "This will delete all user accounts. Your food & diary data will be kept. Continue?",
+      "explainer": "If you never set up user accounts intentionally, you can disable user management. <strong>This will delete all user accounts.</strong> Your food &amp; diary data will be kept."
     }
   },
   "forgot_password": {
@@ -925,6 +927,9 @@
       "adjusted_for_activity": "Adjusted for activity",
       "expand_panel": "Expand nutrition panel",
       "collapse_panel": "Collapse nutrition panel"
+    },
+    "desktop": {
+      "todays_log": "Today's Log"
     }
   },
   "foods": {
@@ -1054,6 +1059,13 @@
       "add_food": "Add Food",
       "add_meal": "Add Meal",
       "add_recipe": "Add Recipe"
+    },
+    "desktop": {
+      "sources": "Sources",
+      "categories": "Categories",
+      "no_filters": "No filters available for this tab.",
+      "no_matches": "No matches for \"{query}\"",
+      "pick_food_preview": "Pick a food from the list to preview."
     }
   },
   "trace": {
@@ -1131,7 +1143,8 @@
       "daily_water_goal": "Daily Water Goal"
     },
     "all_fields": {
-      "intro": "Tap any field to set or edit its goal."
+      "intro": "Tap any field to set or edit its goal.",
+      "filter": "Filter nutrients…"
     },
     "templates": {
       "intro": "Save your current goals as a named template to reuse later.",
@@ -1188,10 +1201,28 @@
       "name_keto": "Keto",
       "name_high_protein": "High-Protein",
       "name_custom": "Custom",
-      "carbohydrates": "Carbohydrates"
+      "carbohydrates": "Carbohydrates",
+      "set_done": "Macros set"
     },
     "rail": {
-      "navigate": "Navigate"
+      "navigate": "Navigate",
+      "preview": "Preview",
+      "notes": "Notes",
+      "reset_all": "Reset all",
+      "reset_confirm": "Remove ALL goals? This clears every configured goal and cannot be undone.",
+      "reset_done": "Goals cleared",
+      "macro_split": "Macro split by kcal",
+      "connect_wearable": "Connect a wearable in Wellness first",
+      "learned_tdee": "Learned TDEE",
+      "days": "{count} days",
+      "warning_low_calories": "Extreme calorie target ({value} kcal). Most guidelines suggest 1,200 kcal minimum.",
+      "warning_high_calories": "Extreme calorie target ({value} kcal). Double-check this is intentional.",
+      "warning_macro_sum": "Macros sum to {sum} kcal, calorie goal is {goal} kcal.",
+      "warning_no_macros": "Set protein / carbs / fat goals to see the macro breakdown."
+    },
+    "trend": {
+      "view": "View trend",
+      "view_in_statistics": "View trend in Statistics"
     }
   },
   "goals": {
@@ -2650,6 +2681,113 @@
     },
     "hint": {
       "tap_sync": "Tap Sync to pull the latest data from your connected device."
+    },
+    "desktop": {
+      "providers": "Providers",
+      "syncing": "Syncing…",
+      "connected": "Connected",
+      "synced": "Synced",
+      "sync_all": "Sync All",
+      "manage_providers": "Manage Providers",
+      "insights": "Insights",
+      "week_hint": "7-day activity totals from your synced data.",
+      "this_week": "This Week",
+      "last_7_days": "Last 7 days",
+      "total_steps": "Total steps",
+      "daily_average": "Daily avg",
+      "days_10k": "≥ 10k days",
+      "active_minutes": "Active min",
+      "burned": "Burned",
+      "total_this_week": "total this week.",
+      "todays_workouts": "Today's Workouts",
+      "sleep_quality": "Sleep Quality",
+      "no_data_today": "No data for today.",
+      "no_data_date": "No data for {date}.",
+      "no_body_today": "No body composition data for today.",
+      "no_body_date": "No body composition data for {date}.",
+      "todays_readiness": "Today's Readiness"
+    },
+    "relative": {
+      "just_now": "just now",
+      "seconds_ago": "%n s ago",
+      "minutes_ago": "%n min ago",
+      "hours_ago": "%n h ago",
+      "yesterday": "yesterday",
+      "days_ago": "%n d ago"
+    },
+    "details": {
+      "sleep_debt_hint": "Sleep Debt — the total sleep you've missed relative to your goal over the selected window. Calculated as a rolling total from today backwards — always reflects the most recent nights, not the date you're viewing.",
+      "last_n_nights": "Last {n} nights",
+      "on_track": "On track",
+      "days_abbrev": "d",
+      "sleep_shortfall": "You're {missing} short of your {goal} sleep goal across the last {n} nights.",
+      "early_bedtimes": "Prioritize early bedtimes this week to recover.",
+      "consistent_schedule": "A consistent schedule should close the gap quickly.",
+      "sleep_goal_met": "You're meeting your sleep goal. Keep it up!",
+      "chronotype_hint": "Chronotype — your natural sleep timing preference, derived from your average sleep midpoint over all available nights. This is a long-term trait that updates as more nights are synced — it always reflects your full history, not the specific date you're viewing.",
+      "building_profile": "Building Profile…",
+      "sleep_midpoint": "Avg sleep midpoint: {time} · {n} nights",
+      "nights_collected": "{n}/{needed} nights collected",
+      "chronotype_wait": "Syncing more nights will unlock your chronotype. Once {needed} nights of sleep timing are available your profile will appear here.",
+      "no_recent_data": "Tap Sync to pull the latest from your device.",
+      "no_body_data": "Sync your scale or fitness tracker to see body stats here.",
+      "withings_desc": "Sync body composition from your Withings scale. Weight, body fat %, muscle mass, bone mass, and more — automatically filled into your diary.",
+      "connect_withings": "Connect Withings",
+      "lean": "Lean",
+      "ecg_afib": "ECG & AFib",
+      "loading_route": "Loading route…",
+      "retry": "Retry",
+      "readiness_hint": "Daily Readiness — how recovered and prepared your body is for today, scored 1–100. Calculated from today's HRV and RHR compared to your 30-day personal baseline, plus last night's sleep score. Always reflects today's data — not the date you're viewing.",
+      "readiness_short_hint": "Daily Readiness — how recovered and prepared your body is for today. Tap for details.",
+      "calibrating": "Calibrating… {days}/{needed} nights with HRV data",
+      "calibrating_hint": "Needs {needed} nights where your device recorded HRV during sleep. Fitbit only captures HRV on nights with a clean optical reading — wearing the device snugly helps.",
+      "hrv_baseline": "HRV baseline {value} ms",
+      "rhr_baseline": "RHR baseline {value} bpm",
+      "n_days": "{n} days",
+      "calibration_note": "Based on {days} days — accuracy improves as more data is collected.",
+      "resilience_hint": "Resilience — how your body is handling daily stress, classified as Optimal, Balanced, or Low.",
+      "score": "Score"
+    },
+    "chronotypes": {
+      "early_bird": "Early Bird",
+      "early_bird_desc": "You naturally wake early and feel most energized in the morning. Your body clock runs ahead of most — mornings are your prime time.",
+      "morning_type": "Morning Type",
+      "morning_type_desc": "You do your best work in the first half of the day and tend to wake up feeling refreshed. Most schedules suit you well.",
+      "intermediate": "Intermediate",
+      "intermediate_desc": "Your body clock is well-aligned with typical schedules — you adapt easily between early mornings and late evenings.",
+      "evening_type": "Evening Type",
+      "evening_type_desc": "You come alive in the afternoon and evening. Mornings can be a challenge — your peak energy arrives later in the day.",
+      "night_owl": "Night Owl",
+      "night_owl_desc": "Your body clock runs late. You're at your sharpest in the evening and may struggle with early alarms. Late nights feel natural."
+    },
+    "readiness_level": {
+      "optimal": "Optimal",
+      "balanced": "Balanced",
+      "good": "Good",
+      "fair": "Fair",
+      "low": "Low",
+      "poor": "Poor"
+    },
+    "readiness_insight": {
+      "lead_optimal": "You're well-recovered today.",
+      "lead_good": "Solid recovery — you can train normally.",
+      "lead_fair": "Moderate recovery — go lighter than usual today.",
+      "lead_low": "Recovery is low. Treat this as a deload day.",
+      "activity_penalty": "Yesterday's activity load is the main drag (penalty −{penalty}) — your body's still paying it back from a hard effort.",
+      "hrv_very_low": "Your HRV ({today}ms) is well below your {baseline}ms baseline — recovery is the priority. Hydrate, eat enough, and prioritize sleep tonight.",
+      "rhr_very_high": "Resting HR is elevated ({today} vs {baseline} baseline) — possible early sign of illness or under-recovery.",
+      "sleep_very_low": "Last night's sleep ({score}) is dragging this down. Cap caffeine after noon and aim for an earlier bedtime.",
+      "hrv_low": "HRV ({today}ms) is below your {baseline}ms baseline — the dominant signal here. Light activity will help recovery more than a hard session.",
+      "rhr_high": "Resting HR ({today}) is up from your {baseline} baseline. Watch for early illness signs and keep intensity in check.",
+      "sleep_low": "Sleep ({score}) is the weakest signal today. An earlier bedtime tonight will pay back tomorrow.",
+      "all_optimal": "Every component is strong. Good day for harder training, longer sessions, or a PR attempt.",
+      "all_good": "All signals are healthy — train as planned.",
+      "all_fair": "Components look fine individually — likely cumulative fatigue from the week. A lighter session today still makes sense."
+    },
+    "resilience_text": {
+      "optimal": "Your body is showing strong signs of recovery and balance. A great day to take on what matters to you.",
+      "balanced": "Your body is in a steady state today. A good day to maintain your routine and stay consistent.",
+      "low": "Your body is asking for a bit more rest today. Taking it easier is a kind way to help yourself recharge."
     }
   },
   "statistics_page": {
@@ -2687,7 +2825,26 @@
       "all": "All",
       "custom": "Custom"
     },
-    "toggle_chart_type": "Toggle chart type"
+    "toggle_chart_type": "Toggle chart type",
+    "desktop": {
+      "metrics": "Metrics",
+      "filter_metrics": "Filter metrics…",
+      "nutrition": "Nutrition",
+      "body": "Body",
+      "water": "Water",
+      "wellness": "Wellness",
+      "custom": "Custom",
+      "export_csv": "Export CSV",
+      "summary": "Summary",
+      "goal": "Goal",
+      "base_goal": "Base Goal",
+      "trend": "Trend",
+      "marked_complete": "Marked complete",
+      "marked_complete_hint": "Days marked complete over the viewed range.",
+      "weekly_trend": "Weekly trend",
+      "weekly_trend_hint": "Last 7-day average vs the previous 7 days.",
+      "overlays": "Overlays"
+    }
   },
   "accept_invite": {
     "title": "Create Account",
@@ -3274,5 +3431,109 @@
       "confirmed": "Email confirmed"
     },
     "reset_password_done": "Your password was changed. Two-step sign-in is on for this account, so sign in with your new password and your code."
+  },
+  "wellness_metric": {
+    "steps": "Steps",
+    "distance_km": "Distance",
+    "floors": "Floors Climbed",
+    "active_minutes": "Active Minutes",
+    "calories_out": "Calories Burned",
+    "active_zone_minutes": "Active Zone Min",
+    "moderate_intensity_min": "Moderate Intensity",
+    "vigorous_intensity_min": "Vigorous Intensity",
+    "sleep_duration_min": "Sleep Duration",
+    "sleep_deep_min": "Deep Sleep",
+    "sleep_light_min": "Light Sleep",
+    "sleep_rem_min": "REM Sleep",
+    "sleep_wake_min": "Awake",
+    "sleep_efficiency": "Sleep Efficiency",
+    "sleep_score": "Sleep Score",
+    "sleep_time_to_fall_asleep_min": "Time to Sound Sleep",
+    "sleep_sound_sleep_min": "Sound Sleep",
+    "sleep_restlessness_min": "Restlessness",
+    "sleep_interruptions_min": "Interruptions",
+    "sleep_full_awakenings": "Full Awakenings",
+    "resting_hr": "Resting Heart Rate",
+    "avg_heart_rate": "Average Heart Rate",
+    "spo2_avg": "SpO2",
+    "respiratory_rate": "Respiratory Rate",
+    "hrv_daily_rmssd": "HRV (RMSSD)",
+    "skin_temp_variation": "Skin Temp Var.",
+    "vo2_max": "Cardio Fitness",
+    "max_hr": "Max Heart Rate",
+    "weight_kg": "Weight",
+    "body_fat_pct": "Body Fat",
+    "muscle_mass_kg": "Muscle Mass",
+    "bone_mass_kg": "Bone Mass",
+    "body_water_pct": "Body Water",
+    "lean_mass_kg": "Lean Mass",
+    "fat_mass_kg": "Fat Mass",
+    "visceral_fat": "Visceral Fat",
+    "visceral_fat_index": "Visceral Fat Index",
+    "extracellular_water_kg": "Extracellular Water",
+    "intracellular_water_kg": "Intracellular Water",
+    "vascular_age": "Vascular Age",
+    "metabolic_age": "Metabolic Age",
+    "basal_metabolic_rate": "Basal Metabolic Rate",
+    "nerve_health_score": "Nerve Health Score",
+    "eda_feet": "EDA (Daily)",
+    "pulse_wave_velocity": "Pulse Wave Vel.",
+    "ecg_heart_rate": "Heart Rate",
+    "ecg_afib": "AFib Detection",
+    "body_battery_high": "Body Battery (Peak)",
+    "body_battery_low": "Body Battery (Low)",
+    "stress_avg": "Avg Stress"
+  },
+  "wellness_metric_help": {
+    "steps": "Total steps taken today.",
+    "distance_km": "Total distance covered today.",
+    "floors": "Floors climbed based on elevation gain detected by your device.",
+    "active_minutes": "Time spent at a moderate or higher activity level.",
+    "calories_out": "Total calories burned including your resting metabolic rate.",
+    "active_zone_minutes": "Minutes spent in Fat Burn, Cardio, or Peak heart rate zones — counts double for Cardio and Peak.",
+    "moderate_intensity_min": "Time at moderate intensity (brisk walking, light cycling). WHO recommends 150–300 min/week.",
+    "vigorous_intensity_min": "Time at high intensity (running, hard effort). Counts double toward weekly activity targets.",
+    "sleep_duration_min": "Total time asleep last night. Adults generally need 7–9 hours.",
+    "sleep_deep_min": "Deep (slow-wave) sleep — the most restorative stage. Critical for physical recovery and immune function.",
+    "sleep_light_min": "Light sleep is the transition between wakefulness and deeper stages. Makes up the majority of most sleep cycles.",
+    "sleep_rem_min": "REM sleep supports memory consolidation, learning, and emotional regulation. Increases in later sleep cycles.",
+    "sleep_wake_min": "Time spent awake or restless during the night. Brief awakenings are normal; frequent ones may signal poor sleep quality.",
+    "sleep_efficiency": "Percentage of time in bed actually spent asleep. Above 85% is generally considered good.",
+    "sleep_score": "Overall sleep quality score out of 100. Factors in duration, sleep stage balance, SpO2, and HRV.",
+    "sleep_time_to_fall_asleep_min": "How long it took to settle into deep sleep after first falling asleep. Lower is generally better.",
+    "sleep_sound_sleep_min": "Longest stretch of uninterrupted sleep (LIGHT, DEEP, and REM with no wake events). Approximation of Fitbit's Sound Sleep metric — Fitbit's exact algorithm is proprietary and may use motion data the API does not expose.",
+    "sleep_restlessness_min": "Brief stirring during the night — short AWAKE segments under 5 minutes. Approximation of Fitbit's Restlessness metric, which also incorporates motion data the API does not expose.",
+    "sleep_interruptions_min": "Wake events of 5 minutes or longer that you're likely to remember. Card shows total minutes and the count of awakenings.",
+    "sleep_full_awakenings": "Number of distinct wake events of 5 minutes or longer. Shown alongside Interruptions on the same card.",
+    "resting_hr": "Heart rate when fully at rest. Lower is generally better — a downward trend over time reflects improving cardiovascular fitness.",
+    "avg_heart_rate": "Average heart rate across the day from your wearable. Rises with activity, stress, and elevated body temperature; useful for spotting an unusually high or low day at a glance.",
+    "spo2_avg": "Blood oxygen saturation measured overnight. Healthy range is typically 95–100%. Dips below 90% may indicate sleep apnea.",
+    "respiratory_rate": "Average breaths per minute during sleep. Normal adult range is 12–20 breaths/min. Elevated values may signal illness or stress.",
+    "hrv_daily_rmssd": "Heart rate variability — the variation between heartbeats. Higher values indicate better recovery and autonomic nervous system balance.",
+    "skin_temp_variation": "Nightly skin temperature variation from your personal baseline. Elevated readings can indicate illness or hormonal changes.",
+    "vo2_max": "Estimated VO₂ Max — the maximum oxygen your body can use during exercise. Fitbit shows this as a range (e.g. 39–43 mL/kg/min). A key indicator of long-term cardiovascular health.",
+    "max_hr": "Highest heart rate recorded during the day. Useful for tracking workout intensity and your true max effort.",
+    "weight_kg": "Current body weight from your scale.",
+    "body_fat_pct": "Percentage of total body weight that is fat tissue. Healthy ranges vary by age and sex.",
+    "muscle_mass_kg": "Total skeletal muscle mass. Higher values indicate better strength and metabolic health.",
+    "bone_mass_kg": "Estimated bone mineral content. Stable values are normal; significant drops may warrant discussion with your doctor.",
+    "body_water_pct": "Total body water as a percentage of weight. Normal range is 45–65% depending on age and sex.",
+    "lean_mass_kg": "Everything except fat — includes muscle, bone, organs, and water.",
+    "fat_mass_kg": "Total fat tissue weight. Tracking trends is more useful than individual readings.",
+    "visceral_fat": "Fat stored around internal organs. Higher levels are linked to increased metabolic and cardiovascular risk.",
+    "visceral_fat_index": "Indexed rating of visceral fat. Lower is better — a score under 13 is generally considered healthy.",
+    "extracellular_water_kg": "Water outside cells (blood, lymph, interstitial fluid). Elevated levels may indicate inflammation or fluid retention.",
+    "intracellular_water_kg": "Water inside cells. Reflects hydration at the cellular level — higher relative to extracellular is generally healthier.",
+    "vascular_age": "Estimated age of your arteries based on pulse wave velocity. Lower than your actual age indicates healthier blood vessels.",
+    "metabolic_age": "Your body's metabolic efficiency compared to age norms. Lower than your actual age means your metabolism is performing well.",
+    "basal_metabolic_rate": "Calories your body burns at complete rest over 24 hours. Influenced by muscle mass, age, and body composition.",
+    "nerve_health_score": "Monthly nerve health score from your Withings scale. Calculated from daily EDA readings over the month. Above 50 = Normal, below 50 = Low. Final score confirmed at month-end.",
+    "eda_feet": "Daily electrodermal activity reading from your Withings scale. Measures sweat gland nerve conductance in your feet. These daily readings feed into the monthly Nerve Health Score.",
+    "pulse_wave_velocity": "Speed of blood pressure pulse along arteries. Lower values indicate more elastic, healthier blood vessels.",
+    "ecg_heart_rate": "Heart rate measured during ECG recording on your scale. More accurate than optical wrist sensors.",
+    "ecg_afib": "Atrial fibrillation screening from ECG recording. \"Normal\" means no irregular rhythm detected during this reading.",
+    "body_battery_high": "Highest Body Battery level today (0–100). Charges during rest and sleep, drains during activity and stress.",
+    "body_battery_low": "Lowest Body Battery level today. If it drops below 20, your body may need rest or recovery.",
+    "stress_avg": "Average stress level from Garmin (0–100). Measured via heart rate variability throughout the day. Lower is calmer."
   }
 }

@@ -333,7 +333,7 @@
            we just prompt the user to select something. -->
       <div class="detail-embedded-empty">
         <span class="material-symbols-rounded">restaurant_menu</span>
-        <p>Pick a food from the list to preview.</p>
+        <p>{$_('foods.desktop.pick_food_preview')}</p>
       </div>
     {/if}
   </div>

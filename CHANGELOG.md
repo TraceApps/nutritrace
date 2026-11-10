@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Expanded French translations across the diary, foods, goals, statistics and wellness screens, including desktop panels and dynamic metric labels.
+
 ### Fixed
 
 - **A meal's protein, carbs and fat percentages match the day's** ([#305](https://github.com/TraceApps/nutritrace/pull/305)). When a food's calories differ from what its protein, carbs and fat add up to, as on many labels, a meal showed a different split than the day, and its percentages didn't add up to 100. Thanks @librarian.

@@ -3052,7 +3052,7 @@
 
     <!-- Today's log -->
     {#if _waterLogs.length > 0}
-      <p class="section-title" style="padding:12px 0 8px">Today's Log</p>
+      <p class="section-title" style="padding:12px 0 8px">{$_('diary.desktop.todays_log')}</p>
       <div class="card wc-log-card">
         {#each _waterLogs as log, i}
           {#if i > 0}<div class="wc-divider"></div>{/if}

@@ -43,7 +43,7 @@
       return `${dy}/${m}/${dt.getFullYear()}`;
     }
     if (fmt === 'natural') {
-      return dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+      return dt.toLocaleDateString($locale || undefined, { day: 'numeric', month: 'short', year: 'numeric' });
     }
     return iso;   // ISO / fallback
   }

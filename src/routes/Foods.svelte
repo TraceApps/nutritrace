@@ -2142,7 +2142,7 @@
         {/if}
       </button>
     {:else if manageMode}
-      <h1 class="select-mode-title">{manageSelected.size} selected</h1>
+      <h1 class="select-mode-title">{$_('foods.n_selected', { values: { n: manageSelected.size } })}</h1>
     {:else}
       <h1>{$_('routes.foods.title')}</h1>
       <button class="btn-icon accent" on:click={() => {
@@ -2220,13 +2220,13 @@
              more than one source to pick from. Meals/Recipes with
              just Local (no shared users) hide the section entirely
              — no dead heading with a single chip beneath. -->
-        <p class="foods-filter-heading">Sources</p>
+        <p class="foods-filter-heading">{$_('foods.desktop.sources')}</p>
         <div class="foods-rail-chips foods-rail-sources">
           {@render sourceChips()}
         </div>
       {/if}
       {#if activeTab === 0 && searchSource === 'local' && $foodsShowCategories && $foodCategories && $foodCategories.length > 0}
-        <p class="foods-filter-heading">Categories</p>
+        <p class="foods-filter-heading">{$_('foods.desktop.categories')}</p>
         <div class="foods-rail-chips foods-rail-cats">
           {@render catChips()}
         </div>
@@ -2234,7 +2234,7 @@
       {#if availableSources.length <= 1 && !(activeTab === 0 && searchSource === 'local' && $foodsShowCategories && $foodCategories && $foodCategories.length > 0)}
         <!-- Rail would be empty otherwise — leave a low-key hint so
              the column doesn't render as a mysteriously-empty box. -->
-        <p class="foods-filter-empty">No filters available for this tab.</p>
+        <p class="foods-filter-empty">{$_('foods.desktop.no_filters')}</p>
       {/if}
     </aside>
     {/if}
@@ -2481,7 +2481,7 @@
       {:else if filteredList.length === 0 && search}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search_off</span>
-          <p>No matches for "{search}"</p>
+          <p>{$_('foods.desktop.no_matches', { values: { query: search } })}</p>
           {#if _sourcesOffline}
             <p class="empty-state-hint">{$_('foods.offline.search_hint')}</p>
           {:else if activeTab === 0}
