@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **A meal's protein, carbs and fat percentages match the day's** ([#305](https://github.com/TraceApps/nutritrace/pull/305)). When a food's calories differ from what its protein, carbs and fat add up to, as on many labels, a meal showed a different split than the day, and its percentages didn't add up to 100. Thanks @librarian.
+- **Opening Settings > Regional & Units leaves your units as they were.** The page saved all five units as soon as it opened, so an account that had never chosen got whatever it showed, including distance in km where the rest of the app uses mi. A unit is now saved only when you change it, and Trace uses mi too until you do.
 
 ---
 

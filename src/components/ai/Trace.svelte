@@ -202,7 +202,7 @@
 
     // Unit conversion for tool results — convert before AI sees the data
     function _convertWellnessUnits(data) {
-      const distUnit = DB.getSetting('distUnit', 'km');
+      const distUnit = DB.getSetting('distUnit', 'mi');
       const weightUnit = DB.getSetting('weightUnit', 'lb');
       const tempUnit = DB.getSetting('tempUnit', 'F');
       const converted = {};
@@ -379,7 +379,7 @@
             catch { workouts = []; }
           }
           // Convert distance to user's preferred unit
-          const distUnit = DB.getSetting('distUnit', 'km');
+          const distUnit = DB.getSetting('distUnit', 'mi');
           if (distUnit === 'mi') {
             for (const w of workouts) {
               if (w.distance_km != null) {
@@ -1518,7 +1518,7 @@
         if (fd.calories_out != null)          parts.push(`Calories burned: ${Math.round(fd.calories_out)}`);
         if (fd.floors != null)                parts.push(`Floors: ${Math.round(fd.floors)}`);
         if (fd.distance_km != null) {
-          const _du = DB.getSetting('distUnit', 'km');
+          const _du = DB.getSetting('distUnit', 'mi');
           parts.push(`Distance: ${_du === 'mi' ? (fd.distance_km * 0.621371).toFixed(2) + ' mi' : fd.distance_km.toFixed(2) + ' km'}`);
         }
         if (fd.sleep_duration_min != null)    { const h = Math.floor(fd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(fd.sleep_duration_min%60)}m`); }
@@ -1552,7 +1552,7 @@
           const details = [];
           if (w.duration_ms) details.push(`${Math.round(w.duration_ms/60000)} min`);
           if (w.distance_km) {
-            const _du = DB.getSetting('distUnit', 'km');
+            const _du = DB.getSetting('distUnit', 'mi');
             details.push(`${_du === 'mi' ? (w.distance_km * 0.621371).toFixed(2) + ' mi' : w.distance_km.toFixed(2) + ' km'}`);
           }
           if (w.calories) {
@@ -1578,7 +1578,7 @@
         if (gd.active_minutes != null)        parts.push(`Active minutes: ${Math.round(gd.active_minutes)}`);
         if (gd.calories_out != null)          parts.push(`Calories burned: ${Math.round(gd.calories_out)}`);
         if (gd.distance_km != null) {
-          const _du = DB.getSetting('distUnit', 'km');
+          const _du = DB.getSetting('distUnit', 'mi');
           parts.push(`Distance: ${_du === 'mi' ? (gd.distance_km * 0.621371).toFixed(2) + ' mi' : gd.distance_km.toFixed(2) + ' km'}`);
         }
         if (gd.sleep_duration_min != null)    { const h = Math.floor(gd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(gd.sleep_duration_min%60)}m`); }
@@ -1634,7 +1634,7 @@
         const hcData = await dbGetWellnessByDate(today, 'health_connect').catch(() => null);
         if (hcData && Object.keys(hcData).length) {
           const parts = [];
-          const _du = DB.getSetting('distUnit', 'km');
+          const _du = DB.getSetting('distUnit', 'mi');
           if (hcData.steps != null)          parts.push(`Steps: ${Math.round(hcData.steps).toLocaleString()}`);
           if (hcData.calories_out != null)   parts.push(`Calories burned: ${Math.round(hcData.calories_out)}`);
           if (hcData.active_calories != null) parts.push(`Active calories: ${Math.round(hcData.active_calories)}`);
@@ -1695,7 +1695,7 @@
 
     return { today, userName, profileText, diaryText, goalsText, statsText, wellnessText, waterText, streakText, mealNamesText,
       weightUnit: DB.getSetting('weightUnit', 'lb'),
-      distUnit: DB.getSetting('distUnit', 'km'),
+      distUnit: DB.getSetting('distUnit', 'mi'),
       heightUnit: DB.getSetting('heightUnit', 'ft'),
       tempUnit: DB.getSetting('tempUnit', 'F'),
       energyUnit: DB.getSetting('energyUnit', 'kcal'),

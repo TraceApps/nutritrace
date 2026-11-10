@@ -1,10 +1,9 @@
 <script>
   import { _, locale } from 'svelte-i18n';
-  import { DB } from '../../lib/db.js';
   import { AVAILABLE_LOCALES } from '../../i18n/index.js';
-  import { scheduleSave } from '../../stores/settings.js';
   import {
     language, dateFormat, timeFormat, energyUnit, firstDayOfWeek,
+    weightUnit, heightUnit, lengthUnit, distUnit, tempUnit,
   } from '../../stores/settings.js';
   import { localeFirstDay } from '../../lib/week.js';
 
@@ -24,21 +23,6 @@
     { value: 'kcal', label: 'Calories (kcal)' },
     { value: 'kJ',   label: 'Kilojoules (kJ)' },
   ];
-
-  // Save-on-change helper — matches parent's `set()` helper.
-  function set(key, value) { DB.setSetting(key, value); scheduleSave(key, value); }
-
-  let weightUnit  = DB.getSetting('weightUnit',  'lb');
-  let heightUnit  = DB.getSetting('heightUnit',  'ft');
-  let lengthUnit  = DB.getSetting('lengthUnit',  'in');
-  let distUnitVal = DB.getSetting('distUnit',    'km');
-  let tempUnitVal = DB.getSetting('tempUnit',    'F');
-
-  $: set('weightUnit',  weightUnit);
-  $: set('heightUnit',  heightUnit);
-  $: set('lengthUnit',  lengthUnit);
-  $: set('distUnit',    distUnitVal);
-  $: set('tempUnit',    tempUnitVal);
 </script>
 
 <div class="section-body">
@@ -110,7 +94,7 @@
     <div class="setting-row">
       <span class="setting-label">{$_('settings.regional.weight')}</span>
       <div class="select-wrap" style="width:100px">
-        <select class="select sel-sm" bind:value={weightUnit}>
+        <select class="select sel-sm" value={$weightUnit} on:change={e => weightUnit.set(e.target.value)}>
           <option value="kg">kg</option>
           <option value="lb">lbs</option>
           <option value="st">st</option>
@@ -121,7 +105,7 @@
     <div class="setting-row">
       <span class="setting-label">{$_('settings.regional.height')}</span>
       <div class="select-wrap" style="width:100px">
-        <select class="select sel-sm" bind:value={heightUnit}>
+        <select class="select sel-sm" value={$heightUnit} on:change={e => heightUnit.set(e.target.value)}>
           <option value="cm">cm</option>
           <option value="ft">ft / in</option>
         </select>
@@ -131,7 +115,7 @@
     <div class="setting-row">
       <span class="setting-label">{$_('settings.regional.circumference')}</span>
       <div class="select-wrap" style="width:100px">
-        <select class="select sel-sm" bind:value={lengthUnit}>
+        <select class="select sel-sm" value={$lengthUnit} on:change={e => lengthUnit.set(e.target.value)}>
           <option value="in">in</option>
           <option value="cm">cm</option>
         </select>
@@ -141,7 +125,7 @@
     <div class="setting-row">
       <span class="setting-label">{$_('settings.regional.distance')}</span>
       <div class="select-wrap" style="width:100px">
-        <select class="select sel-sm" bind:value={distUnitVal}>
+        <select class="select sel-sm" value={$distUnit} on:change={e => distUnit.set(e.target.value)}>
           <option value="km">km</option>
           <option value="mi">mi</option>
         </select>
@@ -151,7 +135,7 @@
     <div class="setting-row">
       <span class="setting-label">{$_('settings.regional.temperature')}</span>
       <div class="select-wrap" style="width:100px">
-        <select class="select sel-sm" bind:value={tempUnitVal}>
+        <select class="select sel-sm" value={$tempUnit} on:change={e => tempUnit.set(e.target.value)}>
           <option value="F">°F</option>
           <option value="C">°C</option>
         </select>
