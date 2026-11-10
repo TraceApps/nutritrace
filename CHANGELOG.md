@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **A meal's protein, carbs and fat percentages match the day's** ([#305](https://github.com/TraceApps/nutritrace/pull/305)). When a food's calories differ from what its protein, carbs and fat add up to, as on many labels, a meal showed a different split than the day, and its percentages didn't add up to 100. Thanks @librarian.
+- **Settings > Email can be edited again once the `SMTP_*` variables are removed.** Once any of them had been set, the email settings stayed locked after they were gone, and saving one failed with "SMTP is configured via environment variables". The lock now follows the environment on every start, as AI's already does, and the saved values stay there to edit. Restoring a full backup without the variables set unlocks them too.
 
 ---
 
