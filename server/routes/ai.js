@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { wrap } from '../logger.js';
-import { getAiConfig } from '../ai.js';
+import { AI_DEFAULT_MODELS, getAiConfig } from '../ai.js';
 import { makeRateLimiter } from '../middleware/rate-limit.js';
 import { getOpenAIChatParams, openAIBase } from '../lib/openai-chat-params.js';
 import { REPLY_MAX_TOKENS, sendForReply, stoppedShort, stoppedShortError } from '../lib/trace-reply.js';
@@ -70,14 +70,6 @@ router.delete('/history', requireAuth, wrap((req, res) => {
   }
   res.json({ ok: true });
 }));
-
-// Kept identical to src/lib/aiChat.js (scripts/ai-models.test.js checks).
-// Used when no model is chosen; an admin who set one keeps it.
-const AI_DEFAULT_MODELS = {
-  claude: 'claude-haiku-5-5',
-  openai: 'gpt-5.6-luna',
-  gemini: 'gemini-3.8-flash',
-};
 
 // Model IDs that changed name: a saved old name is sent as the new one.
 const AI_MODEL_RENAMES = {
