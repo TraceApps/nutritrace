@@ -7,6 +7,7 @@
 
 import { settingPrefix } from './setting-key.js';
 import { isNative, resolveAssetUrl } from './platform.js';
+import { SECRET_SET } from './secret-set.js';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 // Verbose notification logs gated on dev OR opt-in verbose mode
@@ -412,6 +413,30 @@ export async function checkStepGoal(steps, goal) {
 // ── Gotify push ─────────────────────────────────────────────────────────────
 
 /** Send a notification via Gotify server */
+// The Gotify and ntfy tokens stay on a server with accounts, which sends the
+// app only a placeholder for them (TraceApps/cooktrace#92). A phone holding
+// the token itself (no server, a server without accounts, or one just typed
+// in) calls the service as before; one with only the placeholder sends
+// through the server, as the web app always does.
+const _direct = (token) => isNative && token !== SECRET_SET;
+async function _viaServer(service, title, message, priority) {
+  const { apiUrl, getAuthToken } = await import('./platform.js');
+  const headers = { 'Content-Type': 'application/json' };
+  if (isNative) {
+    // A phone signs in with its token (cookies don't last in the WebView).
+    const token = getAuthToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    const csrf = localStorage.getItem('nt:csrf');
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+  }
+  const res = await fetch(apiUrl('/api/settings/push-test'), {
+    method: 'POST', credentials: 'include', headers,
+    body: JSON.stringify({ service, title, message, priority }),
+  });
+  if (!res.ok) throw new Error(`${service} proxy ${res.status}`);
+}
+
 /** Send push notification via the user's configured service */
 export async function sendPush(service, title, message, priority = 5) {
   switch (service) {
@@ -440,7 +465,7 @@ export async function sendNtfy(url, topic, token, title, message, priority = 5) 
   const headers = { 'Title': title, 'Priority': String(Math.min(5, priority)) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  if (isNative) {
+  if (_direct(token)) {
     // Android's CapacitorHttp sends no body at all without a Content-Type,
     // and ntfy then shows "triggered" in place of the message.
     headers['Content-Type'] = 'text/plain; charset=utf-8';
@@ -448,15 +473,7 @@ export async function sendNtfy(url, topic, token, title, message, priority = 5) 
     const resp = await NativeHttp.post({ url: endpoint, headers, data: message });
     if (resp.status < 200 || resp.status >= 300) throw new Error(`ntfy ${resp.status}`);
   } else {
-    const { apiUrl } = await import('./platform.js');
-    const csrf = localStorage.getItem('nt:csrf');
-    // Proxy through server on PWA
-    const res = await fetch(apiUrl('/api/settings/push-test'), {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
-      body: JSON.stringify({ service: 'ntfy', title, message, priority }),
-    });
-    if (!res.ok) throw new Error(`ntfy proxy ${res.status}`);
+    await _viaServer('ntfy', title, message, priority);
   }
 }
 
@@ -486,8 +503,8 @@ export async function sendGotify(url, token, title, message, priority = 5) {
   if (!url || !token) throw new Error('Gotify URL and token required');
   const endpoint = `${url.replace(/\/+$/, '')}/message?token=${encodeURIComponent(token)}`;
 
-  if (isNative) {
-    // Native: CapacitorHttp bypasses CORS — call Gotify directly
+  if (_direct(token)) {
+    // A phone holding the token: CapacitorHttp calls Gotify directly.
     const { NativeHttp } = await import('./native-http.js');
     const resp = await NativeHttp.post({
       url: endpoint,
@@ -498,16 +515,7 @@ export async function sendGotify(url, token, title, message, priority = 5) {
       throw new Error(`Gotify ${resp.status}`);
     }
   } else {
-    // PWA: use server proxy to avoid CORS
-    const { apiUrl } = await import('./platform.js');
-    const csrf = localStorage.getItem('nt:csrf');
-    const res = await fetch(apiUrl('/api/settings/push-test'), {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
-      body: JSON.stringify({ service: 'gotify', title, message, priority }),
-    });
-    if (!res.ok) throw new Error(`Gotify proxy ${res.status}`);
+    await _viaServer('gotify', title, message, priority);
   }
 }
 

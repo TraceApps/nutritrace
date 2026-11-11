@@ -72,6 +72,7 @@ import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
 import { mergeEntries } from '../lib/diary-merge.js';
 import { fromEmptyDay, dropMarksBeforeDelete, parseSlotArray } from '../lib/diary-revive.js';
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
+import { clientSettingRaw, settingToStore } from '../lib/secret-settings.js';
 
 // Issues #69 + #70: normalize alt_units before storing. Accepts null /
 // already-serialized string / array of {abbr, grams}. Filters malformed
@@ -158,6 +159,8 @@ router.get('/pull', wrap((req, res) => {
   const settings = u != null
     ? db.prepare('SELECT * FROM user_settings WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at').all(sinceSql, u)
         .filter(s => !isServerOnlyKey(s.key)) // SECURITY: never push admin keys to clients
+        // A secret only the server uses goes as its placeholder (TraceApps/cooktrace#92).
+        .map(s => ({ ...s, value: clientSettingRaw(s.key, s.value) }))
     : [];
 
   // Wellness data — pull only (server-generated from Fitbit/Withings/Garmin syncs)
@@ -883,6 +886,10 @@ router.post('/push', wrap(async (req, res) => {
         if (!s || typeof s.key !== 'string' || !s.key) continue;
         if (isServerOnlyKey(s.key)) continue; // silently skip; don't tell client what's protected
         const existing = db.prepare('SELECT * FROM user_settings WHERE user_id = ? AND key = ?').get(u, s.key);
+        // A secret is stored encrypted; the placeholder this phone was sent
+        // for one leaves it be (TraceApps/cooktrace#92).
+        const stored = s.deleted_at ? null : settingToStore(s.key, s.value, existing && !existing.deleted_at ? existing.value : null);
+        if (stored === undefined) { result.settings.push({ key: s.key }); continue; }
         const sAt = editAt(s.updated_at);
         const at = Number.isFinite(sAt) ? sAt : receivedAt;
         const touch = () => db.prepare(`UPDATE user_settings SET updated_at = datetime('now') WHERE user_id = ? AND key = ?`).run(u, s.key);
@@ -896,10 +903,10 @@ router.post('/push', wrap(async (req, res) => {
           }
         } else if (!existing) {
           db.prepare(`INSERT INTO user_settings (user_id, key, value, field_times, updated_at) VALUES (?, ?, ?, ?, datetime('now'))`)
-            .run(u, s.key, JSON.stringify(s.value), JSON.stringify(createdTimes(at)));
+            .run(u, s.key, stored, JSON.stringify(createdTimes(at)));
           taken.push(s.key);
         } else {
-          const m = mergeEdit({ existing, values: { value: JSON.stringify(s.value) }, fields: ['value'], at });
+          const m = mergeEdit({ existing, values: { value: stored }, fields: ['value'], at });
           // One with no readable time is a copy a client has had for a
           // while, not a change made now: it never brings a delete back.
           const revive = existing.deleted_at && Number.isFinite(sAt) && editRevives({ existing, at });

@@ -459,6 +459,12 @@ app.listen(PORT, async () => {
     logger.warn(`[claim] orphan repair skipped: ${e.message}`);
   }
 
+  // Secrets people saved in their settings before TraceApps/cooktrace#92 are stored encrypted.
+  import('./lib/secret-settings.js').then(({ sealStoredSecrets }) => {
+    const n = sealStoredSecrets(db);
+    if (n) logger.info(`[secrets] encrypted ${n} saved secret(s) in user settings`);
+  }).catch(e => logger.warn(`[secrets] not sealed: ${e.message}`));
+
   // Start the notification + sync scheduler
   import('./lib/scheduler.js').then(({ startScheduler }) => startScheduler()).catch(e => {
     logger.warn(`[scheduler] failed to start: ${e.message}`);

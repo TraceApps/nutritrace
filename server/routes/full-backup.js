@@ -15,6 +15,7 @@ import { effectiveTimeZone, nextBackupAt, backupFileStamp, newestFirst } from '.
 // Makes the two-step sign-in tables a backup reads and restores (#222).
 import { logAfterRestore as logTwoStepAfterRestore } from '../lib/two-step.js';
 import { keepSessionVersions } from '../lib/session-version.js';
+import { sealStoredSecrets } from '../lib/secret-settings.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -520,6 +521,8 @@ function restoreFromZip(zip) {
   seedSmtpFromEnv();
   seedAiFromEnv();
   logTwoStepAfterRestore();
+  // A backup from before TraceApps/cooktrace#92 holds secrets in the clear: stored encrypted.
+  try { sealStoredSecrets(db); } catch (e) { logger.warn(`[secrets] not sealed after restore: ${e.message}`); }
 }
 
 // Tables whose rows a device pulls whole and that say a row is gone only by

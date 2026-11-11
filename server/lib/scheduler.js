@@ -13,11 +13,12 @@ import db from '../db.js';
 import { linkBase } from './public-url.js';
 import { logger } from '../logger.js';
 import { isBackupDue } from './backup-schedule.js';
+import { readSettingRaw } from './secret-settings.js';
 
 function _getUserSetting(userId, key) {
   const row = db.prepare('SELECT value FROM user_settings WHERE user_id = ? AND key = ?').get(userId, key);
   if (!row?.value) return null;
-  try { return JSON.parse(row.value); } catch { return row.value; }
+  return readSettingRaw(key, row.value);
 }
 
 // Persistent dedup — survives server restarts (stored in app_config)

@@ -1,4 +1,5 @@
 <script>
+  import { selectSecret } from '../../lib/secret-set.js';
   import { defaultMealTime } from '../../lib/meal-by-time.js';
   import { slide } from 'svelte/transition';
   import { _ } from 'svelte-i18n';
@@ -221,9 +222,9 @@
         <label class="form-label">{$_('settings_notifications.push.gotify_token')}</label>
         <div style="display:flex;gap:8px;align-items:center">
           {#if _gotifyShowToken}
-            <input class="input" style="flex:1" type="text" placeholder={$_('settings_notifications.push.gotify_token_ph')} bind:value={_gotifyToken} on:blur={() => set('gotifyToken', _gotifyToken)} />
+            <input class="input" style="flex:1" type="text" placeholder={$_('settings_notifications.push.gotify_token_ph')} bind:value={_gotifyToken} on:focus={selectSecret} on:blur={() => set('gotifyToken', _gotifyToken)} />
           {:else}
-            <input class="input" style="flex:1" type="password" placeholder={$_('settings_notifications.push.gotify_token_ph')} bind:value={_gotifyToken} on:blur={() => set('gotifyToken', _gotifyToken)} />
+            <input class="input" style="flex:1" type="password" placeholder={$_('settings_notifications.push.gotify_token_ph')} bind:value={_gotifyToken} on:focus={selectSecret} on:blur={() => set('gotifyToken', _gotifyToken)} />
           {/if}
           <button class="btn-icon" on:click={() => _gotifyShowToken = !_gotifyShowToken} title={_gotifyShowToken ? $_('settings_notifications.push.hide') : $_('settings_notifications.push.show')}>
             <span class="material-symbols-rounded">{_gotifyShowToken ? 'visibility_off' : 'visibility'}</span>
@@ -246,9 +247,9 @@
         <label class="form-label">{$_('settings_notifications.push.ntfy_token')}</label>
         <div style="display:flex;gap:8px;align-items:center">
           {#if _ntfyShowToken}
-            <input class="input" style="flex:1" type="text" placeholder={$_('settings_notifications.push.ntfy_token_ph')} bind:value={_ntfyToken} on:blur={() => set('ntfyToken', _ntfyToken)} />
+            <input class="input" style="flex:1" type="text" placeholder={$_('settings_notifications.push.ntfy_token_ph')} bind:value={_ntfyToken} on:focus={selectSecret} on:blur={() => set('ntfyToken', _ntfyToken)} />
           {:else}
-            <input class="input" style="flex:1" type="password" placeholder={$_('settings_notifications.push.ntfy_token_ph')} bind:value={_ntfyToken} on:blur={() => set('ntfyToken', _ntfyToken)} />
+            <input class="input" style="flex:1" type="password" placeholder={$_('settings_notifications.push.ntfy_token_ph')} bind:value={_ntfyToken} on:focus={selectSecret} on:blur={() => set('ntfyToken', _ntfyToken)} />
           {/if}
           <button class="btn-icon" on:click={() => _ntfyShowToken = !_ntfyShowToken} title={_ntfyShowToken ? $_('settings_notifications.push.hide') : $_('settings_notifications.push.show')}>
             <span class="material-symbols-rounded">{_ntfyShowToken ? 'visibility_off' : 'visibility'}</span>

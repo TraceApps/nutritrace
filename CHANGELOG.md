@@ -17,6 +17,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Nutrition Summary rows have room around their text** ([#312](https://github.com/TraceApps/nutritrace/pull/312)). Hovering a nutrient row put its highlight right up against the text. The highlight now reaches past the text on both sides. Thanks @besartbytyqi.
 - **A meal's protein, carbs and fat percentages match the day's** ([#305](https://github.com/TraceApps/nutritrace/pull/305)). When a food's calories differ from what its protein, carbs and fat add up to, as on many labels, a meal showed a different split than the day, and its percentages didn't add up to 100. Thanks @librarian.
 
+### Security
+
+- **Tokens, keys and passwords saved in Settings are stored encrypted, and the ones only the server uses never reach the app** (from [cooktrace#92](https://github.com/TraceApps/cooktrace/issues/92), thanks @stupleb). The ntfy and Gotify tokens stay on the server: Settings shows a saved one as dots, saving the dots keeps it, and typing a new one replaces it. The AI key, USDA key, Open Food Facts password and the Mealie and CookTrace tokens still go to your own signed-in app, which uses them itself. All of them are stored encrypted with `TOKEN_ENC_KEY`, so the database, a backup or an export never holds them in plain text; ones saved before are encrypted when the server starts. An Android app that only has the dots sends its ntfy and Gotify notifications through the server, as the web app does; update the Android app along with the server, as an older one can't send them itself once it has the dots. Changing `TOKEN_ENC_KEY`, or `JWT_SECRET` when it isn't set, means entering them again.
+
 ---
 
 ## [1.5.0-dev04] - 2026-11-07 (pre-release)
