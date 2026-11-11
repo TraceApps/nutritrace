@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Reduce Motion stops cards lifting on hover** ([#306](https://github.com/TraceApps/nutritrace/pull/306)). On a computer, cards still rose a little under the pointer with the app's Reduce Motion on or the system's reduced motion setting on. They now stay still; only their shadow changes. Thanks @librarian.
 - **Nutrition Summary rows have room around their text** ([#312](https://github.com/TraceApps/nutritrace/pull/312)). Hovering a nutrient row put its highlight right up against the text. The highlight now reaches past the text on both sides. Thanks @besartbytyqi.
 - **A meal's protein, carbs and fat percentages match the day's** ([#305](https://github.com/TraceApps/nutritrace/pull/305)). When a food's calories differ from what its protein, carbs and fat add up to, as on many labels, a meal showed a different split than the day, and its percentages didn't add up to 100. Thanks @librarian.
 
