@@ -637,9 +637,13 @@
     // FAB knows about env-set AI_ENABLED without waiting for Settings to
     // load. Mirrors NutriTrace #36. Signed out it would only be refused;
     // signing in loads it (see _wasNeedsLogin below).
-    const cachedLocks = readCachedEnvLocks(localStorage);
-    if (cachedLocks) (await import('./stores/settings.js')).envLocks.update(v => ({ ...v, ...cachedLocks }));
-    if (!($userMgmtActive && !$currentUser)) loadEnvLocks();
+    // The last answer first, so Trace shows with no connection. Not signed
+    // out: the button would show on the sign-in page.
+    if (!($userMgmtActive && !$currentUser)) {
+      const cachedLocks = readCachedEnvLocks(localStorage, _envLocksServer());
+      if (cachedLocks) (await import('./stores/settings.js')).envLocks.update(v => ({ ...v, ...cachedLocks }));
+      loadEnvLocks();
+    }
 
     // Show wizard on first launch:
     // - Native server mode: NEVER show wizard (server is already configured)
@@ -846,8 +850,10 @@
    * Sends the Android app's token: cookies alone were refused there, which
    * left Trace looking unconfigured even with AI_* set on the server.
    */
-  // Retried until it succeeds (see lib/env-locks-retry.js). Coming back online
-  // or to the foreground also tries again at once.
+  // Retried until it succeeds (see lib/env-locks-retry.js), only while the app
+  // is in view: a hidden app sets no timer, and coming back to it or back
+  // online tries again at once.
+  const _envLocksServer = () => (isNative ? getServerUrl() || '' : '');
   let _envLocksAttempt = 0;
   let _envLocksTimer = null;
   let _envLocksLoaded = false;
@@ -866,19 +872,22 @@
         const locks = await res.json();
         const { envLocks } = await import('./stores/settings.js');
         envLocks.set(locks);
-        writeCachedEnvLocks(localStorage, locks);
+        writeCachedEnvLocks(localStorage, locks, _envLocksServer());
         _envLocksLoaded = true;
         _envLocksAttempt = 0;
         return;
       }
     } catch { /* no connection: retried below */ }
-    if (!envLocksShouldRetry(status)) return;
+    if (!envLocksShouldRetry(status) || document.hidden) return;
+    clearTimeout(_envLocksTimer);
     _envLocksTimer = setTimeout(loadEnvLocks, envLocksRetryDelay(_envLocksAttempt++));
   }
   if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => { if (!_envLocksLoaded) loadEnvLocks(); });
+    // Signed out it would only be refused; signing in loads it.
+    const _envLocksWanted = () => !_envLocksLoaded && !($userMgmtActive && !$currentUser);
+    window.addEventListener('online', () => { if (_envLocksWanted()) loadEnvLocks(); });
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && !_envLocksLoaded) loadEnvLocks();
+      if (!document.hidden && _envLocksWanted()) loadEnvLocks();
     });
   }
 

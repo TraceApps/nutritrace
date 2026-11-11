@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **The Trace button comes back when the server does** ([#319](https://github.com/TraceApps/nutritrace/pull/319)). If the app started while the server couldn't be reached, during a restart or with your VPN off, the Trace button stayed hidden until a reload. The app now tries again, at once when you come back to it or back online, and remembers the last answer, so Trace shows when you open the app with no connection. Thanks @besartbytyqi.
 - **Settings shows the AI model the server uses** ([#308](https://github.com/TraceApps/nutritrace/pull/308)). With AI set by the server's environment variables, Settings > AI Assistant showed the provider and model last saved in the app, not the server's. It now shows the server's, by the name the model goes out under. Thanks @librarian.
 - **Reduce Motion stops cards lifting on hover** ([#306](https://github.com/TraceApps/nutritrace/pull/306)). On a computer, cards still rose a little under the pointer with the app's Reduce Motion on or the system's reduced motion setting on. They now stay still; only their shadow changes. Thanks @librarian.
 - **Nutrition Summary rows have room around their text** ([#312](https://github.com/TraceApps/nutritrace/pull/312)). Hovering a nutrient row put its highlight right up against the text. The highlight now reaches past the text on both sides. Thanks @besartbytyqi.

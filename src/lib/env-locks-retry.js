@@ -16,22 +16,32 @@ export function envLocksRetryDelay(attempt) {
   return RETRY_MS[Math.min(Math.max(0, attempt), RETRY_MS.length - 1)];
 }
 
-// A sign-in problem is not fixed by waiting. Signing in loads the locks again.
+// Only what waiting can fix: no connection (0), a server error, a timeout or
+// too many requests. A sign-in problem is fixed by signing in, which loads the
+// locks again; any other refusal answers the same next time.
 export function envLocksShouldRetry(status) {
-  return status !== 401 && status !== 403;
+  return status === 0 || status >= 500 || status === 408 || status === 429;
 }
 
-export function readCachedEnvLocks(storage) {
+// One saved answer per server: the Android app can point at another server.
+export function envLocksCacheKey(server = '') {
+  return server ? `${ENV_LOCKS_CACHE_KEY}:${server}` : ENV_LOCKS_CACHE_KEY;
+}
+
+export function readCachedEnvLocks(storage, server = '') {
   try {
-    const v = JSON.parse(storage.getItem(ENV_LOCKS_CACHE_KEY));
+    const v = JSON.parse(storage.getItem(envLocksCacheKey(server)));
     return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
   } catch {
     return null;
   }
 }
 
-export function writeCachedEnvLocks(storage, locks) {
+// lifttrace_connected belongs to whoever is signed in, so it isn't kept: the
+// rest is the server's and the same for every account on it.
+export function writeCachedEnvLocks(storage, locks, server = '') {
   try {
-    storage.setItem(ENV_LOCKS_CACHE_KEY, JSON.stringify(locks));
+    const { lifttrace_connected, ...serverWide } = locks || {};
+    storage.setItem(envLocksCacheKey(server), JSON.stringify(serverWide));
   } catch { /* storage full or blocked: the next start just waits for the server */ }
 }
