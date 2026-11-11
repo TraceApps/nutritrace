@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Paste a picture into Trace** ([#304](https://github.com/TraceApps/nutritrace/pull/304)). Paste a screenshot or a copied image into Trace's message box to attach it, like the image button. Copied text that comes with a picture of itself, such as cells from a spreadsheet or a passage from Word, still pastes as text. Thanks @librarian.
 - **Household units for USDA foods** ([#313](https://github.com/TraceApps/nutritrace/pull/313)). Generic USDA foods, such as egg or banana, now come with the household sizes FoodData Central lists for them, like 1 large (46 g), so you can log them by the piece or cup instead of by weight. Thanks @forrestp.
+- **The public API reports day completion** ([#316](https://github.com/TraceApps/nutritrace/issues/316), relates to [#207](https://github.com/TraceApps/nutritrace/issues/207)). `GET /api/v1/diary/:date` (and the MCP `list_diary_entries` tool) now also return `completed_at`, `completed_meals` and `completion_enabled`, so your own scripts can tell a day you've closed from one you're still logging. Read-only with the existing `mcp:read` scope; the existing fields are unchanged.
 
 ### Fixed
 

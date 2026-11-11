@@ -59,7 +59,7 @@ token lacking the required scope returns `403`.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/diary/:date` | One day's logged food items. `date` defaults to today. |
+| GET | `/api/v1/diary/:date` | One day's logged food items. `date` defaults to today. Also the day's completion marks, see [Day completion](#day-completion). |
 | GET | `/api/v1/diary/:date/totals` | Summed nutrition (calories, macros, any micronutrients present) plus total water for that day. |
 | GET | `/api/v1/goals` | The user's current macro/micronutrient/water goal targets. A goal with `sharedGoal: false` has one target per weekday in `days`, starting on Sunday, and its `max`/`min` is the week's highest; `goals_by_weekday` gives those by named day and `today.targets` gives today's targets in the user's time zone. |
 | GET | `/api/v1/meals/search?query=&limit=&include_recipes=` | Search the saved meals catalog by name, or list all when `query` is omitted. Recipes excluded by default. |
@@ -89,6 +89,31 @@ Also not duplicated here: food search and recent-foods. The existing
 federation route `GET /api/v1/foods?q=` (scope `read:foods`) already
 covers searching the foods catalog; mint a token with `read:foods` and
 use that endpoint instead of a second, overlapping route.
+
+## Day completion
+
+`GET /api/v1/diary/:date` reports the marks made with Show Day Completion
+(Settings, Diary) next to the existing `date`, `items` and `count`. Reading
+them needs only `mcp:read`; they are set in the app, not through this API.
+
+| Field | Meaning |
+|---|---|
+| `completion_enabled` | The diary's Show Day Completion setting as saved on the server: `true` (on), `false` (turned off), or `null` when the server has no saved value. `null` is common after starting in single-user mode, where settings stay in the browser, and when the setting was never changed. Treat `null` as unknown, not as off. It is the day-level setting: the per-meal checks have no setting of their own and appear whenever it is on, but `true` does not mean the user marks individual meals. Use `completed_meals` for that. |
+| `completed_at` | When the day was first marked complete, as stored, or `null` while the day is open or has nothing logged. Reopening the day sets it back to `null`; editing a closed day does not. |
+| `completed_meals` | Meal slot indexes marked complete (the same numbers as each item's `meal`), sorted. `[]` when none. |
+
+A day can be marked complete on any date, including past ones and days with
+no food logged (for example a fast). A non-null `completed_at` is the mark
+itself, even if the user later turns the setting off. With
+`completion_enabled: true`, a `null` `completed_at` means the day is open;
+with `false`, it means the day is not being tracked; with `null`, it is
+unknown which. Servers older than this change leave all three fields out;
+treat a missing field as unknown, never as open or complete.
+
+```json
+{ "date": "2026-09-12", "items": [], "count": 0,
+  "completion_enabled": true, "completed_at": "2026-09-12 21:04:11", "completed_meals": [0, 2] }
+```
 
 ## Examples
 
