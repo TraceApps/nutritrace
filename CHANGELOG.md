@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - **Paste a picture into Trace** ([#304](https://github.com/TraceApps/nutritrace/pull/304)). Paste a screenshot or a copied image into Trace's message box to attach it, like the image button. Copied text that comes with a picture of itself, such as cells from a spreadsheet or a passage from Word, still pastes as text. Thanks @librarian.
+- **Household units for USDA foods** ([#313](https://github.com/TraceApps/nutritrace/pull/313)). Generic USDA foods, such as egg or banana, now come with the household sizes FoodData Central lists for them, like 1 large (46 g), so you can log them by the piece or cup instead of by weight. Thanks @forrestp.
 
 ### Fixed
 
