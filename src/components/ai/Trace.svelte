@@ -1965,7 +1965,16 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     return { role: 'user', content: text };
   }
 
-  // From the shared attach button: an array of image Files. Trace takes one.
+  function _onPaste(e) {
+    if (loading) return;
+    const file = Array.from(e.clipboardData?.files || [])
+      .find(file => file.type.startsWith('image/'));
+    if (!file) return;
+    e.preventDefault();
+    _useImageFiles([file]);
+  }
+
+  // From the shared attach button or clipboard: an array of image Files. Trace takes one.
   function _useImageFiles(files) {
     const file = files?.[0];
     if (!file) return;
@@ -2513,6 +2522,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
           bind:value={input}
           placeholder={$_('trace.ask_placeholder')}
           on:keydown={onKey}
+          on:paste={_onPaste}
           rows="1"
           disabled={loading}
         ></textarea>
