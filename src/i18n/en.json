@@ -1667,6 +1667,8 @@
       "off_no_nutrition": "Open Food Facts has no nutrition values for this product yet",
       "off_offline": "Refreshing from Open Food Facts needs a connection. It will work once you're back online.",
       "usda_updated": "{count, plural, one {Updated # value from USDA} other {Updated # values from USDA}}. Save to keep them.",
+      "usda_updated_units": "{count, plural, one {Updated # value} other {Updated # values}} and {units, plural, one {added # serving unit} other {added # serving units}} from USDA. Save to keep them.",
+      "usda_units_added": "{units, plural, one {Added # serving unit from USDA} other {Added # serving units from USDA}}. Save to keep them.",
       "usda_up_to_date": "Already matches USDA",
       "usda_not_found": "Not found in USDA FoodData Central",
       "usda_units_differ": "This food is measured in {unit}, which USDA values can't be converted to, so nothing was changed",

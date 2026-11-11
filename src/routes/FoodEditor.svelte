@@ -11,7 +11,7 @@
   import { NUTRIMENTS } from '../lib/nutrition.js';
   import { showSuccess, showError, showInfo } from '../stores/toast.js';
   import { offlineState } from '../lib/offline-api.js';
-  import { usdaFdcId } from '../lib/usda-map.js';
+  import { usdaFdcId, mergeUsdaAltUnits } from '../lib/usda-map.js';
   import { offNutritionStatus, needsFullLookup, applyOffPrepared } from '../lib/off-nutrition.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import Toggle from '../components/settings/Toggle.svelte';
@@ -472,6 +472,8 @@
   // Refresh from USDA (#290): Refresh from OFF for a food added from USDA,
   // with the same rules (off-refresh.js). Foods saved before #290 were scaled
   // by 100 / serving size, and this is how one gets USDA's real values back.
+  // It also adds USDA's household units the food doesn't have yet (#289),
+  // keeping the ones already there.
   async function downloadFromUSDA() {
     if (!usdaId) return;
     if (!$usdaEnabled || !$usdaApiKey) { showInfo($_('food_editor.toast.usda_needs_key')); return; }
@@ -483,11 +485,18 @@
       if (!result) { showError($_('food_editor.toast.usda_not_found')); return; }
       const { applyOffRefresh } = await import('../lib/off-refresh.js');
       const { food: next, changed, reason } = applyOffRefresh(food, result, NUTRIMENTS.map(n => n.id));
-      food = next;
-      if (reason === 'updated') {
+      const { alt_units, added } = mergeUsdaAltUnits(next.alt_units, result.alt_units);
+      food = added ? { ...next, alt_units } : next;
+      if (reason === 'updated' || added) {
         downloadSuccess = true;
         setTimeout(() => downloadSuccess = false, 2500);
+      }
+      if (reason === 'updated' && added) {
+        showSuccess($_('food_editor.toast.usda_updated_units', { values: { count: changed, units: added } }));
+      } else if (reason === 'updated') {
         showSuccess($_('food_editor.toast.usda_updated', { values: { count: changed } }));
+      } else if (added) {
+        showSuccess($_('food_editor.toast.usda_units_added', { values: { units: added } }));
       } else if (reason === 'up_to_date') {
         showSuccess($_('food_editor.toast.usda_up_to_date'));
       } else if (reason === 'units_differ') {
