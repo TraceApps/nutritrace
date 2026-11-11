@@ -20,6 +20,7 @@
   import NutritionFactsBox from '../ui/NutritionFactsBox.svelte';
   import { readBodyStat, LENGTH_KEYS } from '../../lib/body-stats-unit.js';
   import { callAI, callAIProxy, TOOLS, setToolHandler } from '../../lib/aiChat.js';
+  import { nutritionForPortion } from '../../lib/units.js';
   import { aiEnabled, aiEffectivelyEnabled, envLocks, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled, smartLogVoiceLang } from '../../stores/settings.js';
 
   // Resolve the configured voice-input language. Shared with SmartLogModal:
@@ -666,9 +667,10 @@
                 unit:    unitOverride    ?? food.unit    ?? 'g',
                 quantity,
               };
+              item.nutrition = nutritionForPortion(food, item.portion, item.unit);
               const { addDiaryItem } = await import('../../stores/diary.js');
               await addDiaryItem(item, mealIdx, date);
-              const kcal = Math.round(((food.nutrition?.calories || 0) * (item.portion / (food.portion || 100))) * quantity);
+              const kcal = Math.round((item.nutrition?.calories || 0) * quantity);
               return { ok: true, date, meal: mealIdx, meal_name: mealName, food_name: food.name, portion: item.portion, unit: item.unit, quantity, kcal, source: 'local' };
             } catch (e) {
               return { error: 'Failed to log food: ' + (e?.message || String(e)) };
@@ -703,9 +705,10 @@
                 unit:    unitOverride    ?? food.unit    ?? 'g',
                 quantity,
               };
+              item.nutrition = nutritionForPortion(food, item.portion, item.unit);
               const { addDiaryItem } = await import('../../stores/diary.js');
               await addDiaryItem(item, mealIdx, date);
-              const kcal = Math.round(((food.nutrition?.calories || 0) * (item.portion / (food.portion || 100))) * quantity);
+              const kcal = Math.round((item.nutrition?.calories || 0) * quantity);
               return { ok: true, date, meal: mealIdx, meal_name: mealName, food_name: food.name, portion: item.portion, unit: item.unit, quantity, kcal, source: 'local' };
             } catch (e) {
               return { error: 'Failed to log food: ' + (e?.message || String(e)) };
@@ -775,9 +778,10 @@
                   unit:    unitOverride    ?? saved.unit    ?? 'g',
                   quantity,
                 };
+                item.nutrition = nutritionForPortion(saved, item.portion, item.unit);
                 const { addDiaryItem } = await import('../../stores/diary.js');
                 await addDiaryItem(item, mealIdx, date);
-                const kcal = Math.round(((saved.nutrition?.calories || 0) * (item.portion / (saved.portion || 100))) * quantity);
+                const kcal = Math.round((item.nutrition?.calories || 0) * quantity);
                 return { ok: true, date, meal: mealIdx, meal_name: mealName, food_name: saved.name, portion: item.portion, unit: item.unit, quantity, kcal, source: 'off' };
               } catch (e) {
                 return { error: 'Failed to log food after OFF lookup: ' + (e?.message || String(e)) };

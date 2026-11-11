@@ -245,6 +245,21 @@ function toCanonicalAmount(portion, unit, food) {
 }
 
 /**
+ * A food's nutrition re-based to the portion actually eaten. The food's
+ * values are per its own basis (food.portion / food.unit), so "1 cup" or
+ * "4 tbsp" has to go through scaleFactor, the same conversion the Diary
+ * edit sheet uses. Without it a diary item keeps the per-basis values under
+ * a different portion label.
+ */
+export function nutritionForPortion(food, portion, unit) {
+  if (!food?.nutrition) return food?.nutrition;
+  const factor = scaleFactor(food.portion || 100, food.unit || 'g', portion, unit, food);
+  return Object.fromEntries(
+    Object.entries(food.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * factor])
+  );
+}
+
+/**
  * Compute the scaling factor between two (portion, unit) pairs.
  *
  * Resolution order (issues #69 + #70):
