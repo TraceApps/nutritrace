@@ -61,3 +61,28 @@ test('Trace no longer reports kcal with the portion ratio', () => {
   assert.equal(src.includes('item.portion / (saved.portion'), false);
   assert.equal(src.split('nutritionForPortion(').length - 1, 3);
 });
+
+// Follow-up: a unit the food has no size for is refused, not guessed.
+import { canScale } from '../src/lib/units.js';
+
+test('a unit with no size for the food is not guessed', () => {
+  const apple = { name: 'Apple', portion: 100, unit: 'g', nutrition: { calories: 52 } };
+  assert.equal(canScale('g', 'piece', apple), false);
+  assert.equal(nutritionForPortion(apple, 1, 'piece'), null);
+  // the old numeric fallback would have logged 0.52 kcal
+});
+
+test('a size saved on the food, the same unit, and real units all scale', () => {
+  const apple = { name: 'Apple', portion: 100, unit: 'g', nutrition: { calories: 52 }, alt_units: [{ abbr: 'piece', grams: 182 }] };
+  assert.equal(Math.round(nutritionForPortion(apple, 1, 'piece').calories), 95);
+  const bar = { portion: 1, unit: 'bar', nutrition: { calories: 210 } };
+  assert.equal(nutritionForPortion(bar, 2, 'bar').calories, 420);
+  assert.equal(nutritionForPortion(bar, 2, 'Bar ').calories, 420);
+  for (const u of ['g', 'oz', 'kg', 'ml', 'cup', 'tbsp', 'tsp']) assert.equal(canScale('g', u, { unit: 'g' }), true, u);
+});
+
+test('Trace refuses an amount it cannot work out, before logging', () => {
+  const src = read('../src/components/ai/Trace.svelte');
+  const guards = src.match(/item\.nutrition = nutritionForPortion\((food|saved), item\.portion, item\.unit\);\s*if \(item\.nutrition === null && \1\.nutrition\) return \{ error: unitError\(\1, item\.unit\) \};\s*const \{ addDiaryItem \}/g);
+  assert.equal(guards?.length, 3);
+});

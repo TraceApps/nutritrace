@@ -253,6 +253,8 @@ function toCanonicalAmount(portion, unit, food) {
  */
 export function nutritionForPortion(food, portion, unit) {
   if (!food?.nutrition) return food?.nutrition;
+  // A unit that can't be converted for this food: no guess (see canScale).
+  if (!canScale(food.unit || 'g', unit, food)) return null;
   const factor = scaleFactor(food.portion || 100, food.unit || 'g', portion, unit, food);
   return Object.fromEntries(
     Object.entries(food.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * factor])
@@ -313,6 +315,27 @@ export function scaleFactor(origPortion, origUnit, newPortion, newUnit, food = n
   // for opaque units like "cup"/"piece" without per-food data, and for
   // cross-system picks on foods without density).
   return newP / origP;
+}
+
+/**
+ * True when scaleFactor's answer is a real conversion, not its numeric
+ * fallback: the same unit on both sides, or both sides resolve (canonical
+ * table, the food's alt_units, density). "1 piece" of a per-100 g food
+ * with no piece size is not: the fallback would make it 1/100 of the food.
+ */
+export function canScale(origUnit, newUnit, food = null) {
+  const norm = (u) => String(u || '').trim().toLowerCase();
+  if (norm(origUnit) === norm(newUnit)) return true;
+  const resolves = (unit) => {
+    const alt = food ? altUnitGrams(food.alt_units, unit) : null;
+    if (alt != null) {
+      if (food?.nutrition_basis !== 'ml') return true;
+      const d = Number(food.density_g_ml);
+      return Number.isFinite(d) && d > 0;
+    }
+    return toCanonicalAmount(1, unit, food) != null;
+  };
+  return resolves(origUnit) && resolves(newUnit);
 }
 
 /**

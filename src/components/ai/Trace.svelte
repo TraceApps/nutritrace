@@ -619,6 +619,9 @@
           }
         }
         case 'log_food': {
+          // A unit this food can't be converted to (no size saved for it):
+          // ask for a weight instead of guessing (#310).
+          const unitError = (f, u) => `"${f.name}" is stored per ${f.portion || 100} ${f.unit || 'g'} and has no size for "${u}", so that amount can't be worked out. Estimate the weight and pass portion in ${f.unit || 'g'}, or omit portion and unit and use quantity for servings of ${f.portion || 100} ${f.unit || 'g'}.`;
           // Issue #79: AI Assistant adds Quick Calories to wrong meal instead
           // of creating a real food entry. Before this tool, the AI's only
           // direct-write option was log_quick_calories (kcal-only) — so
@@ -668,6 +671,7 @@
                 quantity,
               };
               item.nutrition = nutritionForPortion(food, item.portion, item.unit);
+              if (item.nutrition === null && food.nutrition) return { error: unitError(food, item.unit) };
               const { addDiaryItem } = await import('../../stores/diary.js');
               await addDiaryItem(item, mealIdx, date);
               const kcal = Math.round((item.nutrition?.calories || 0) * quantity);
@@ -706,6 +710,7 @@
                 quantity,
               };
               item.nutrition = nutritionForPortion(food, item.portion, item.unit);
+              if (item.nutrition === null && food.nutrition) return { error: unitError(food, item.unit) };
               const { addDiaryItem } = await import('../../stores/diary.js');
               await addDiaryItem(item, mealIdx, date);
               const kcal = Math.round((item.nutrition?.calories || 0) * quantity);
@@ -779,6 +784,7 @@
                   quantity,
                 };
                 item.nutrition = nutritionForPortion(saved, item.portion, item.unit);
+                if (item.nutrition === null && saved.nutrition) return { error: unitError(saved, item.unit) };
                 const { addDiaryItem } = await import('../../stores/diary.js');
                 await addDiaryItem(item, mealIdx, date);
                 const kcal = Math.round((item.nutrition?.calories || 0) * quantity);
