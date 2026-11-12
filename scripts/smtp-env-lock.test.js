@@ -4,7 +4,9 @@
  * seedSmtpFromEnv set smtp_env_locked whenever an SMTP_* variable was set
  * and never cleared it, so once the variables were removed Settings > Email
  * stayed read-only and saving a field there answered 403 for good.
- * seedAiFromEnv already clears its lock the same way.
+ * seedAiFromEnv already clears its lock the same way. Only a non-empty
+ * SMTP_HOST locks, and an empty variable never overwrites a saved value,
+ * the rule LiftTrace's server already had.
  */
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -50,4 +52,14 @@ test('a lock restored from a backup is cleared when no variables are set', { ski
   db.prepare("INSERT INTO app_config (key, value) VALUES ('smtp_env_locked', 'true') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
   email.seedSmtpFromEnv();
   assert.equal(email.isSmtpEnvLocked(), false);
+});
+
+test('an empty SMTP_HOST, or SMTP_PORT alone, does not lock or blank the saved values', { skip: !email }, () => {
+  process.env.SMTP_HOST = '';
+  process.env.SMTP_PORT = '587';
+  email.seedSmtpFromEnv();
+  assert.equal(email.isSmtpEnvLocked(), false);
+  assert.equal(value('smtp_host'), 'smtp.example.com');
+  assert.equal(value('smtp_port'), '587');
+  for (const v of VARS) delete process.env[v];
 });

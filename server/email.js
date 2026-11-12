@@ -6,29 +6,21 @@ import { userWeeklyRange } from './lib/weekly-range.js';
 /** Seed app_config from env vars at startup (env vars take priority) */
 export function seedSmtpFromEnv() {
   const map = {
-    SMTP_HOST:   'smtp_host',
-    SMTP_PORT:   'smtp_port',
-    SMTP_SECURE: 'smtp_secure',
-    SMTP_USER:   'smtp_user',
-    SMTP_PASS:   'smtp_pass',
-    SMTP_FROM:   'smtp_from',
+    SMTP_HOST: 'smtp_host', SMTP_PORT: 'smtp_port', SMTP_SECURE: 'smtp_secure',
+    SMTP_USER: 'smtp_user', SMTP_PASS: 'smtp_pass', SMTP_FROM:   'smtp_from',
   };
-  const upsert = db.prepare(
-    'INSERT INTO app_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  );
-  const del = db.prepare('DELETE FROM app_config WHERE key = ?');
-  let locked = false;
+  const upsert = db.prepare('INSERT INTO app_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+  // Only lock if the primary SMTP_HOST is actually set (non-empty).
+  // Other vars like SMTP_PORT may have docker-compose defaults that
+  // shouldn't trigger the lock on their own.
+  const hostVal = process.env.SMTP_HOST;
+  const locked = hostVal != null && hostVal !== '';
   for (const [envKey, dbKey] of Object.entries(map)) {
-    if (process.env[envKey] != null) {
-      upsert.run(dbKey, process.env[envKey]);
-      locked = true;
-    }
+    const val = process.env[envKey];
+    if (val != null && val !== '') upsert.run(dbKey, val);
   }
-  // Store lock flag so clients can disable the UI fields. With no SMTP_* env
-  // vars on this run, clear an earlier lock so Settings > Email can be edited
-  // again once the operator removes them, as seedAiFromEnv does.
   if (locked) upsert.run('smtp_env_locked', 'true');
-  else del.run('smtp_env_locked');
+  else db.prepare("DELETE FROM app_config WHERE key = 'smtp_env_locked'").run();
 }
 
 export function isSmtpEnvLocked() {
