@@ -1,4 +1,5 @@
 <script>
+  import { pastedImage } from '../../lib/paste-image.js';
   import AttachImageButton from './AttachImageButton.svelte';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { offNutritionStatus, needsFullLookup } from '../../lib/off-nutrition.js';
@@ -1977,12 +1978,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
 
   function _onPaste(e) {
     if (loading) return;
-    const file = Array.from(e.clipboardData?.files || [])
-      .find(file => file.type.startsWith('image/'));
+    const file = pastedImage(e.clipboardData);
     if (!file) return;
-    // Spreadsheets and word processors copy text with a picture of it.
-    // Paste the text then; attach only a clipboard that is just an image.
-    if (e.clipboardData.getData('text/plain')) return;
     e.preventDefault();
     _useImageFiles([file]);
   }
