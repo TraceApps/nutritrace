@@ -13,6 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Household units for USDA foods** ([#313](https://github.com/TraceApps/nutritrace/pull/313)). Generic USDA foods, such as egg or banana, now come with the household sizes FoodData Central lists for them, like 1 large (46 g), so you can log them by the piece or cup instead of by weight. Thanks @forrestp.
 - **The public API reports day completion** ([#317](https://github.com/TraceApps/nutritrace/pull/317), [#316](https://github.com/TraceApps/nutritrace/issues/316), relates to [#207](https://github.com/TraceApps/nutritrace/issues/207)). `GET /api/v1/diary/:date` (and the MCP `list_diary_entries` tool) now also return `completed_at`, `completed_meals` and `completion_enabled`, so your own scripts can tell a day you've closed from one you're still logging. Read-only with the existing `mcp:read` scope; the existing fields are unchanged. Thanks @ciskosv.
 
+### Changed
+
+- **API tokens for every user** ([#245](https://github.com/TraceApps/nutritrace/pull/245)). Anyone signed in can create and revoke their own API tokens in Settings > API Tokens, so connecting your own MCP client no longer needs an admin account. Webhooks stay admin-only. Thanks @tarzan77cz.
+
 ### Fixed
 
 - **Trace logs a food with the calories of the amount you asked for** ([#310](https://github.com/TraceApps/nutritrace/pull/310)). Logging a food through Trace saved the values of the food's own serving, whatever amount you asked for: 30 g or 4 tbsp of a food saved per 100 g went into the diary as 100 g, and Trace's reply gave yet another number. The diary and the reply now match the amount logged, worked out the same way as editing it in the Diary. A unit the food has no size for, such as 1 piece of a food saved per 100 g, is no longer guessed: Trace asks for the weight. Entries logged before this aren't changed. Thanks @besartbytyqi.
