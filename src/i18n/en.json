@@ -1233,6 +1233,8 @@
     "show_thumbnails": "Show Thumbnails",
     "show_thumbnails_desc": "Food/meal photos next to each item",
     "show_all_nutrients": "Show All Nutrients",
+    "daily_targets": "Daily Targets",
+    "daily_targets_desc": "Show a daily target for each nutrient on the Nutrition Summary. Calories and macros come from your profile (sex, age, height, weight, target weight). Vitamins and minerals use the Dietary Reference Intakes for your sex and age. A goal you set in Goals always takes priority.",
     "show_all_nutrients_desc": "When viewing a meal's totals, show every available nutrient (vitamins, minerals, etc.) instead of just the macros",
     "show_units": "Show Nutrition Units",
     "show_units_desc": "Append \"g\" / \"mg\" / etc. after numeric values",

@@ -9,6 +9,7 @@
   import DayPicker  from '../components/ui/DayPicker.svelte';
   import { resolveAssetUrl, isNative, getServerUrl } from '../lib/platform.js';
   import { resolveGoalFor } from '../lib/goal-resolver.js';
+  import { recommendedTargets } from '../lib/daily-targets.js';
   import { fade, slide, fly } from 'svelte/transition';
   import { tweened } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
@@ -51,7 +52,7 @@
            diaryShowBrands, diaryShowThumbnails,
            diaryShowTimestamps, diaryShowMacroSummary, diaryPromptQuantity,
            diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode, macroLegendMode, distUnit,
-           diaryShowAllNutrients, diaryShowNutritionUnits, visibleNutriments, hiddenBodyStats,
+           diaryShowAllNutrients, dailyTargetsEnabled, diaryShowNutritionUnits, visibleNutriments, hiddenBodyStats,
            showQuickCalories, quickCaloriesDisplay,
            dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners, bannerStyle,
            calorieGoalMode, calorieGoalFactor,
@@ -959,9 +960,35 @@
     }
     return raw;
   }
-  $: fatGoal   = _macroGoal('fat', $currentDate);
-  $: carbGoal  = _macroGoal('carbohydrates', $currentDate);
-  $: protGoal  = _macroGoal('proteins', $currentDate);
+  // Recommended targets from the profile (lib/daily-targets.js). Off in
+  // Settings > Diary. A goal set in Goals always wins over these.
+  function _profileForTargets() {
+    return {
+      gender: DB.getSetting('gender', ''), dob: DB.getSetting('dob', ''),
+      height_cm: DB.getSetting('height_cm', null), weight_kg: DB.getSetting('weight_kg', null),
+      target_weight: DB.getSetting('target_weight', null),
+    };
+  }
+  $: _recTargets = $dailyTargetsEnabled ? recommendedTargets(_profileForTargets(), caloriesGoal) : {};
+  $: _nsTargets = (() => {
+    const out = { ..._recTargets };
+    for (const id of Object.keys($goals || {})) {
+      const g = $goals[id];
+      if (!g || id === 'calories') continue;
+      const v = _macroGoal(id, $currentDate) ?? resolveGoalFor(g, $currentDate);
+      if (v == null) continue;
+      out[id] = { value: v, kind: g.max != null ? 'max' : 'min' };
+    }
+    return out;
+  })();
+  $: _nsRows = NUTRIMENTS.filter(n => _nsTargets[n.id] || (($diaryShowAllNutrients ? true : n.default) && (totals[n.id] || 0) > 0));
+  function _nsOver(id) {
+    const t = _nsTargets[id];
+    return !!t && t.kind === 'max' && (totals[id] || 0) > t.value;
+  }
+  $: fatGoal   = _macroGoal('fat', $currentDate) ?? _recTargets.fat?.value ?? null;
+  $: carbGoal  = _macroGoal('carbohydrates', $currentDate) ?? _recTargets.carbohydrates?.value ?? null;
+  $: protGoal  = _macroGoal('proteins', $currentDate) ?? _recTargets.proteins?.value ?? null;
   $: calPct    = Math.min(100, ((totals.calories||0) / caloriesGoalAdjusted) * 100);
 
   $: _todayWord = $locale ? $_('diary.day_complete.status.today') : 'Today';
@@ -3544,14 +3571,14 @@
         </div>
         <!-- All nutrients — tap a row to drill into top contributors -->
         <div class="ns-rows">
-          {#each NUTRIMENTS.filter(n => ($diaryShowAllNutrients ? true : n.default) && (totals[n.id] || 0) > 0) as n}
+          {#each _nsRows as n}
             {@const isOpen = _nsExpanded === n.id}
             <div class="ns-row ns-row-clickable" role="button" tabindex="0"
                  on:click={() => _nsToggle(n.id)}
                  on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _nsToggle(n.id); } }}>
               <span>{tr('nutriments', n.id, n.label, $locale)}</span>
               <span class="ns-row-right">
-                <span class="font-medium">{(Math.round((totals[n.id]||0)*10)/10).toLocaleString()} {n.unit}</span>
+                <span class="font-medium" style={_nsOver(n.id) ? 'color:var(--danger)' : ''}>{(Math.round((totals[n.id]||0)*10)/10).toLocaleString()}{#if _nsTargets[n.id]}<span class="text-3">{' '}/ {_nsTargets[n.id].kind === 'max' ? '≤ ' : _nsTargets[n.id].kind === 'min' ? '≥ ' : ''}{_nsTargets[n.id].value.toLocaleString()}</span>{/if} {n.unit}</span>
                 <span class="material-symbols-rounded ns-chev" class:open={isOpen}>chevron_right</span>
               </span>
             </div>

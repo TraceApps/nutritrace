@@ -6,7 +6,7 @@
   import { mealIcon } from '../../lib/mealIcon.js';
   import {
     mealNames,
-    diaryShowBrands, diaryShowTimestamps, diaryShowThumbnails, diaryShowAllNutrients,
+    diaryShowBrands, diaryShowTimestamps, diaryShowThumbnails, diaryShowAllNutrients, dailyTargetsEnabled,
     diaryShowNutritionUnits, diaryShowMacroSummary, diaryPromptQuantity,
     diaryShowPortionSize, warnUnitMismatch, showUnitMetadata, diaryShowNotes, diaryShowCompletion, diaryDefaultField,
     diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
@@ -100,6 +100,9 @@
     </SettingRow>
     <SettingRow label={$_('settings_diary.show_all_nutrients')} desc={$_('settings_diary.show_all_nutrients_desc')}>
       <Toggle checked={$diaryShowAllNutrients} on:change={e => diaryShowAllNutrients.set(e.detail)} />
+    </SettingRow>
+    <SettingRow label={$_('settings_diary.daily_targets')} desc={$_('settings_diary.daily_targets_desc')}>
+      <Toggle checked={$dailyTargetsEnabled} on:change={e => dailyTargetsEnabled.set(e.detail)} />
     </SettingRow>
     <SettingRow label={$_('settings_diary.show_units')} desc={$_('settings_diary.show_units_desc')}>
       <Toggle checked={$diaryShowNutritionUnits} on:change={e => diaryShowNutritionUnits.set(e.detail)} />
