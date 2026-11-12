@@ -93,13 +93,13 @@ use that endpoint instead of a second, overlapping route.
 ## Day completion
 
 `GET /api/v1/diary/:date` reports the marks made with Show Day Completion
-(Settings, Diary) next to the existing `date`, `items` and `count`. Reading
+(Settings > Diary) next to the existing `date`, `items` and `count`. Reading
 them needs only `mcp:read`; they are set in the app, not through this API.
 
 | Field | Meaning |
 |---|---|
 | `completion_enabled` | The diary's Show Day Completion setting as saved on the server: `true` (on), `false` (turned off), or `null` when the server has no saved value. `null` is common after starting in single-user mode, where settings stay in the browser, and when the setting was never changed. Treat `null` as unknown, not as off. It is the day-level setting: the per-meal checks have no setting of their own and appear whenever it is on, but `true` does not mean the user marks individual meals. Use `completed_meals` for that. |
-| `completed_at` | When the day was first marked complete, as stored, or `null` while the day is open or has nothing logged. Reopening the day sets it back to `null`; editing a closed day does not. |
+| `completed_at` | When the day was marked complete, in UTC (`YYYY-MM-DD HH:MM:SS`), or `null` while the day is open. Marking an already closed day again keeps the first time; reopening and closing it again gives a new one. Reopening the day sets it back to `null`; editing a closed day does not. |
 | `completed_meals` | Meal slot indexes marked complete (the same numbers as each item's `meal`), sorted. `[]` when none. |
 
 A day can be marked complete on any date, including past ones and days with
