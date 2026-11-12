@@ -960,16 +960,26 @@
     }
     return raw;
   }
-  // Recommended targets from the profile (lib/daily-targets.js). Off in
-  // Settings > Diary. A goal set in Goals always wins over these.
-  function _profileForTargets() {
+  // Recommended targets from the profile (lib/daily-targets.js), for the
+  // Nutrition Summary only. Daily Targets in Settings > Diary, off by
+  // default. A goal set in Goals always wins over these. The profile is
+  // read again whenever one of its settings changes (sign-in pulling them
+  // from the server, a new weight), not only when the Diary opens.
+  const _TARGET_PROFILE_KEYS = new Set(['gender', 'dob', 'height_cm', 'weight_kg', 'target_weight', 'activity']);
+  let _profileRev = 0;
+  function _onProfileSetting(e) { if (_TARGET_PROFILE_KEYS.has(e?.detail?.key)) _profileRev++; }
+  onMount(() => {
+    window.addEventListener('wl:setting', _onProfileSetting);
+    return () => window.removeEventListener('wl:setting', _onProfileSetting);
+  });
+  function _profileForTargets(_rev) {
     return {
       gender: DB.getSetting('gender', ''), dob: DB.getSetting('dob', ''),
       height_cm: DB.getSetting('height_cm', null), weight_kg: DB.getSetting('weight_kg', null),
-      target_weight: DB.getSetting('target_weight', null),
+      target_weight: DB.getSetting('target_weight', null), activity: DB.getSetting('activity', ''),
     };
   }
-  $: _recTargets = $dailyTargetsEnabled ? recommendedTargets(_profileForTargets(), caloriesGoal) : {};
+  $: _recTargets = $dailyTargetsEnabled ? recommendedTargets(_profileForTargets(_profileRev), caloriesGoal) : {};
   $: _nsTargets = (() => {
     const out = { ..._recTargets };
     for (const id of Object.keys($goals || {})) {
@@ -986,9 +996,9 @@
     const t = _nsTargets[id];
     return !!t && t.kind === 'max' && (totals[id] || 0) > t.value;
   }
-  $: fatGoal   = _macroGoal('fat', $currentDate) ?? _recTargets.fat?.value ?? null;
-  $: carbGoal  = _macroGoal('carbohydrates', $currentDate) ?? _recTargets.carbohydrates?.value ?? null;
-  $: protGoal  = _macroGoal('proteins', $currentDate) ?? _recTargets.proteins?.value ?? null;
+  $: fatGoal   = _macroGoal('fat', $currentDate);
+  $: carbGoal  = _macroGoal('carbohydrates', $currentDate);
+  $: protGoal  = _macroGoal('proteins', $currentDate);
   $: calPct    = Math.min(100, ((totals.calories||0) / caloriesGoalAdjusted) * 100);
 
   $: _todayWord = $locale ? $_('diary.day_complete.status.today') : 'Today';

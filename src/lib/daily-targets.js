@@ -1,7 +1,9 @@
 /**
  * Recommended daily targets from a person's profile.
  *
- * - Protein: 1.8 g per kg of goal weight (at least).
+ * - Protein: per kg of goal weight, by the activity level from setup: 0.8 g
+ *   (the RDA) for Sedentary or none saved, up to 1.8 g for Extremely Active,
+ *   inside the 1.2-2.0 g range sports-nutrition guidance gives people who train.
  * - Fat: 30% of the calorie goal. Carbs: what calories are left after protein and fat.
  * - Saturated fat and added sugar: under 10% of the calorie goal.
  * - Sodium 2,300 mg and cholesterol 300 mg: upper limits (Dietary Guidelines for Americans).
@@ -13,7 +15,8 @@
  * target is absent. A goal the user sets in Goals always wins (see Diary).
  */
 
-export const PROTEIN_G_PER_KG = 1.8;
+export const PROTEIN_G_PER_KG = { sedentary: 0.8, light: 1.0, moderate: 1.2, active: 1.6, very_active: 1.8 };
+export const proteinPerKg = (activity) => PROTEIN_G_PER_KG[activity] ?? PROTEIN_G_PER_KG.sedentary;
 export const FAT_PCT_OF_CALORIES = 30;
 export const LIMIT_PCT_OF_CALORIES = 10;
 export const SODIUM_MG_LIMIT = 2300;
@@ -69,7 +72,7 @@ export function recommendedTargets(profile = {}, calorieGoal = null, now = new D
 
   if (cal) {
     const weightKg = Number(profile.target_weight) > 0 ? Number(profile.target_weight) : Number(profile.weight_kg);
-    const protein = weightKg > 0 ? Math.round(PROTEIN_G_PER_KG * weightKg) : null;
+    const protein = weightKg > 0 ? Math.round(proteinPerKg(profile.activity) * weightKg) : null;
     const fat = Math.round((cal * FAT_PCT_OF_CALORIES / 100) / 9);
     if (protein != null) {
       out.proteins = { value: protein, kind: 'min' };
