@@ -16,6 +16,7 @@ export function seedSmtpFromEnv() {
   const upsert = db.prepare(
     'INSERT INTO app_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
   );
+  const del = db.prepare('DELETE FROM app_config WHERE key = ?');
   let locked = false;
   for (const [envKey, dbKey] of Object.entries(map)) {
     if (process.env[envKey] != null) {
@@ -23,8 +24,11 @@ export function seedSmtpFromEnv() {
       locked = true;
     }
   }
-  // Store lock flag so clients can disable the UI fields
+  // Store lock flag so clients can disable the UI fields. With no SMTP_* env
+  // vars on this run, clear an earlier lock so Settings > Email can be edited
+  // again once the operator removes them, as seedAiFromEnv does.
   if (locked) upsert.run('smtp_env_locked', 'true');
+  else del.run('smtp_env_locked');
 }
 
 export function isSmtpEnvLocked() {
