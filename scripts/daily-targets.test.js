@@ -121,6 +121,22 @@ test('the Diary uses explicit goals before recommendations, on the Nutrition Sum
 test('the Diary reads the profile again when one of its settings changes', () => {
   const d = read('../src/routes/Diary.svelte');
   assert.match(d, /addEventListener\('wl:setting', _onProfileSetting\)/);
-  assert.match(d, /recommendedTargets\(_profileForTargets\(_profileRev\), caloriesGoal\)/);
+  assert.match(d, /recommendedTargets\(_profileForTargets\(_profileRev, \$currentUser\), caloriesGoal\)/);
+  // The account's birthday and sex (Profile) before setup's answers.
+  assert.match(d, /gender: u\?\.gender \|\| DB\.getSetting\('gender', ''\), dob: u\?\.birthday \|\| DB\.getSetting\('dob', ''\)/);
   for (const k of ['gender', 'dob', 'height_cm', 'weight_kg', 'target_weight', 'activity']) assert.ok(d.includes(`'${k}'`), k);
+});
+
+test('sex is read in any case: Profile keeps Male / Female, setup male / female', () => {
+  const t = recommendedTargets({ gender: 'Female', dob: '1996-05-01', weight_kg: 65 }, 2000, NOW);
+  assert.equal(t.iron.value, 18);
+  assert.equal(recommendedTargets({ gender: 'MALE', dob: '1988-10-07' }, 2000, NOW).iron.value, 8);
+  assert.equal(recommendedTargets({ gender: 'Non-binary', dob: '1988-10-07' }, 2000, NOW).iron, undefined);
+});
+
+test('the Profile page edits the activity level the protein target reads', () => {
+  const p = read('../src/routes/Profile.svelte');
+  assert.match(p, /DB\.setSetting\('activity', activity\)/);
+  assert.match(p, /scheduleSave\('activity', activity\)/);
+  for (const a of ['sedentary', 'light', 'moderate', 'active', 'very_active']) assert.ok(p.includes(`'${a}'`), a);
 });

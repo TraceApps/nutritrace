@@ -601,6 +601,16 @@
     "birthday": "Birthday",
     "gender": "Gender",
     "gender_unset": "Prefer not to say",
+    "activity_level": "Activity Level",
+    "activity_level_desc": "Sets the protein target in Daily Targets.",
+    "activity_unset": "Not set",
+    "activity_levels": {
+      "sedentary": "Sedentary",
+      "light": "Lightly Active",
+      "moderate": "Moderately Active",
+      "active": "Very Active",
+      "very_active": "Extremely Active"
+    },
     "change_password": "Change Password",
     "set_password": "Set Password",
     "current_password": "Current Password",

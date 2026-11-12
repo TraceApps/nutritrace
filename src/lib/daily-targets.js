@@ -67,7 +67,9 @@ export function bmrMifflinStJeor({ gender, age, height_cm, weight_kg }) {
 export function recommendedTargets(profile = {}, calorieGoal = null, now = new Date()) {
   const out = {};
   const age = ageOn(profile.dob, now);
-  const sex = profile.gender === 'male' || profile.gender === 'female' ? profile.gender : null;
+  // Setup keeps 'male' / 'female', the Profile page 'Male' / 'Female'.
+  const g = String(profile.gender || '').trim().toLowerCase();
+  const sex = g === 'male' || g === 'female' ? g : null;
   const cal = Number(calorieGoal) > 0 ? Number(calorieGoal) : null;
 
   if (cal) {

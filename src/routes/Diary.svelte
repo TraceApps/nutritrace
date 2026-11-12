@@ -10,6 +10,7 @@
   import { resolveAssetUrl, isNative, getServerUrl } from '../lib/platform.js';
   import { resolveGoalFor } from '../lib/goal-resolver.js';
   import { recommendedTargets } from '../lib/daily-targets.js';
+  import { currentUser } from '../stores/auth.js';
   import { fade, slide, fly } from 'svelte/transition';
   import { tweened } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
@@ -972,14 +973,16 @@
     window.addEventListener('wl:setting', _onProfileSetting);
     return () => window.removeEventListener('wl:setting', _onProfileSetting);
   });
-  function _profileForTargets(_rev) {
+  // Birthday and sex: the account's (Profile) first, then setup's answers,
+  // the same order as Trace and MCP get_profile.
+  function _profileForTargets(_rev, u) {
     return {
-      gender: DB.getSetting('gender', ''), dob: DB.getSetting('dob', ''),
+      gender: u?.gender || DB.getSetting('gender', ''), dob: u?.birthday || DB.getSetting('dob', ''),
       height_cm: DB.getSetting('height_cm', null), weight_kg: DB.getSetting('weight_kg', null),
       target_weight: DB.getSetting('target_weight', null), activity: DB.getSetting('activity', ''),
     };
   }
-  $: _recTargets = $dailyTargetsEnabled ? recommendedTargets(_profileForTargets(_profileRev), caloriesGoal) : {};
+  $: _recTargets = $dailyTargetsEnabled ? recommendedTargets(_profileForTargets(_profileRev, $currentUser), caloriesGoal) : {};
   $: _nsTargets = (() => {
     const out = { ..._recTargets };
     for (const id of Object.keys($goals || {})) {

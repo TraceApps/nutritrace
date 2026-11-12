@@ -32,7 +32,7 @@
   import TwoStepSettings from '../components/two-step/TwoStepSettings.svelte';
   import LinkConfirm from '../components/two-step/LinkConfirm.svelte';
   import EmailConfirm from '../components/two-step/EmailConfirm.svelte';
-  import { biometricLoginEnabled } from '../stores/settings.js';
+  import { biometricLoginEnabled, scheduleSave } from '../stores/settings.js';
   import * as biometric from '../lib/biometric.js';
   import { adoptSession } from '../lib/fresh-session.js';
 
@@ -123,6 +123,17 @@
     return GENDERS.find(g => g.toLowerCase() === s.toLowerCase()) || s;
   };
 
+  // Activity level: asked in setup, kept as the synced 'activity' setting
+  // (not on the account). It sets Daily Targets' protein (lib/daily-targets.js).
+  const ACTIVITY_LEVELS = [
+    { value: 'sedentary',   key: 'profile.activity_levels.sedentary' },
+    { value: 'light',       key: 'profile.activity_levels.light' },
+    { value: 'moderate',    key: 'profile.activity_levels.moderate' },
+    { value: 'active',      key: 'profile.activity_levels.active' },
+    { value: 'very_active', key: 'profile.activity_levels.very_active' },
+  ];
+  let activity   = DB.getSetting('activity', '') || '';
+
   let full_name  = '';
   let nickname   = '';
   let birthday   = '';
@@ -163,6 +174,10 @@
 
   async function save() {
     saving = true;
+    if (activity !== (DB.getSetting('activity', '') || '')) {
+      DB.setSetting('activity', activity);
+      scheduleSave('activity', activity);
+    }
     try {
       if (_isLocal) {
         // Write each field to its corresponding setting, then refresh
@@ -441,6 +456,16 @@
             {#each GENDERS as g}<option value={g}>{g}</option>{/each}
           </select>
         </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">{$_('profile.activity_level')}</label>
+        <div class="select-wrap">
+          <select class="select" bind:value={activity}>
+            {#if !activity}<option value="">{$_('profile.activity_unset')}</option>{/if}
+            {#each ACTIVITY_LEVELS as a}<option value={a.value}>{$_(a.key)}</option>{/each}
+          </select>
+        </div>
+        <p class="text-3" style="font-size:12px;margin-top:4px">{$_('profile.activity_level_desc')}</p>
       </div>
     </div>
 
