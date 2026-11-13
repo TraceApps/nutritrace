@@ -3,11 +3,11 @@ import { rememberAdminOrigin } from './lib/public-url.js';
 import { corsOrigin } from './lib/cors.js';
 import { crossSiteGuard } from './lib/cross-site.js';
 import { framingHeaders, parseFrameAncestors } from './lib/frame-ancestors.js';
-// Forward-proxy support (#177). Self-installs an undici
-// EnvHttpProxyAgent as the global fetch dispatcher when
-// HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
-// are set. No-op when unset. Must import right after dotenv/config
-// so any downstream module-init outbound fetch already sees it.
+// Every outbound fetch goes through undici 8, which doesn't crash
+// when a site closes the connection early (cooktrace#96), and
+// forward-proxy support (#177) when HTTP_PROXY / HTTPS_PROXY /
+// NO_PROXY (or lowercase equivalents) are set. Must import right
+// after dotenv/config so any module-init outbound fetch uses it.
 import './lib/proxy-agent.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
