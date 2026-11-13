@@ -8,29 +8,40 @@
  *
  * Filters out tombstoned user_settings rows (deleted_at IS NOT NULL)
  * so agents don't see values a user has since reset.
+ *
+ * With no arguments the response is the current-goals one, as it always
+ * was. `date` and `start`+`end` read the targets that were in effect on a
+ * past day (lib/goal-history.js), which is what a report on older intake
+ * needs: today's goal is not the target of last month.
  */
+import { z } from 'zod';
 import db from '../../../db.js';
-import { safeJson, toolResult } from '../_util.js';
+import { safeJson, toolResult, toolError, DATE_RE } from '../_util.js';
 import { describeGoals } from '../../../../src/lib/goal-resolver.js';
-import { isValidTimeZone, processTimeZone, zonedParts } from '../../zoned-time.js';
-
-// Today in the person's own time zone (Settings), else the server's.
-function _userToday(userId) {
-  let tz = null;
-  try {
-    const row = db.prepare(`SELECT value FROM user_settings WHERE user_id = ? AND key = 'timezone' AND deleted_at IS NULL`).get(userId);
-    tz = row?.value ? safeJson(row.value, null) : null;
-  } catch { /* fall back below */ }
-  const p = zonedParts(Date.now(), typeof tz === 'string' && isValidTimeZone(tz) ? tz : processTimeZone());
-  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
-}
+import { currentUserToday, effectiveGoalsForDate, effectiveGoalsForRange } from '../../goal-history.js';
 
 /**
  * Core lookup, shared by the MCP tool below, the public REST API at
  * GET /api/v1/goals, and the goal.achieved webhook's target lookup in
  * routes/diary.js.
+ *
+ * No query args intentionally returns the current-goals shape:
+ *   { goals, water_goal_ml, weekday_order, goals_by_weekday, today }
+ *
+ * Historical forms:
+ *   { date: YYYY-MM-DD }
+ *   { start: YYYY-MM-DD, end: YYYY-MM-DD }
  */
-export function getGoalsCore(userId) {
+export function getGoalsCore(userId, { date, start, end } = {}) {
+  if (date) {
+    if (start || end) throw new Error('Use either date or start/end, not both.');
+    return effectiveGoalsForDate(userId, date);
+  }
+  if (start || end) {
+    if (!start || !end) throw new Error('Both start and end are required for a goal-history range.');
+    return effectiveGoalsForRange(userId, start, end);
+  }
+
   const row = db.prepare(
     `SELECT value FROM user_settings
       WHERE user_id = ? AND key = 'goals' AND deleted_at IS NULL`
@@ -50,8 +61,11 @@ export function getGoalsCore(userId) {
     if (typeof parsed === 'number' && Number.isFinite(parsed)) waterGoalMl = parsed;
   }
   // #285: weekday goals by name and today's targets, added beside the
-  // stored goals (which stay as they are for existing readers).
-  return { goals, water_goal_ml: waterGoalMl, ...describeGoals(goals, _userToday(userId)) };
+  // stored goals (which stay as they are for existing readers). The day is
+  // the one this answer always used (the account's zone, else the server's);
+  // the dated forms use UTC when the account has no zone, so they agree with
+  // the phone (goal-history.js currentUserToday).
+  return { goals, water_goal_ml: waterGoalMl, ...describeGoals(goals, currentUserToday(userId)) };
 }
 
 export function registerGetGoals(server, { userId }) {
@@ -60,15 +74,29 @@ export function registerGetGoals(server, { userId }) {
     {
       title: 'Get Goals',
       description:
-        "Return the user's current macro / micronutrient / water goal targets. " +
-        "Energy is always in kcal. Includes water goal in millilitres. " +
+        "Return the user's nutrition goals. With no arguments this preserves the current-goals " +
+        "response (goals + water_goal_ml). Pass date for the targets effective on one local " +
+        "calendar day, or start+end for an inclusive range; a past day's targets are the ones " +
+        "in effect then, with weekday splits, percent macros, Dynamic/Adaptive calorie modes and " +
+        "the activity adjustment already resolved. A snapshot is effective from its YYYY-MM-DD " +
+        "date through the day before the next snapshot; several changes in one day collapse to " +
+        "that day's final configuration. A date before history_available_from returns " +
+        "known=false rather than today's goals. " +
         "A goal with sharedGoal false has a target per weekday: its `days` list starts on Sunday " +
         "(index 0 = Sunday ... 6 = Saturday) and its max/min is the week's highest, not a day's target. " +
         "Read goals_by_weekday for the targets by named day and today.targets for today's.",
-      inputSchema: {},
+      inputSchema: {
+        date: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
+        start: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
+        end: z.string().regex(DATE_RE, 'YYYY-MM-DD').optional(),
+      },
     },
-    async () => {
-      return toolResult(getGoalsCore(userId));
+    async (args = {}) => {
+      try {
+        return toolResult(getGoalsCore(userId, args));
+      } catch (e) {
+        return toolError(e.message);
+      }
     }
   );
 }

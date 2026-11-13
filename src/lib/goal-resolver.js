@@ -157,8 +157,12 @@ export const WEEKDAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thurs
  * of seven, which models read as Monday-first, and `max` is the week's
  * peak, not a day's target. Adds each per-weekday goal by named day and the
  * targets for `dateStr`, leaving the goals themselves untouched.
+ *
+ * `calories` states the day's effective calorie target when it isn't the
+ * stored goal (Dynamic or Adaptive mode, or a past day read from goal
+ * history); percent macros follow it, as they do in the Diary.
  */
-export function describeGoals(goals, dateStr) {
+export function describeGoals(goals, dateStr, { calories } = {}) {
   const g = goals || {};
   const byWeekday = {};
   for (const [key, e] of Object.entries(g)) {
@@ -171,6 +175,6 @@ export function describeGoals(goals, dateStr) {
   return {
     weekday_order: WEEKDAY_ORDER,
     goals_by_weekday: byWeekday,
-    today: weekday ? { date: dateStr, weekday, targets: dayTargets(g, dateStr) } : null,
+    today: weekday ? { date: dateStr, weekday, targets: dayTargets(g, dateStr, { calories }) } : null,
   };
 }

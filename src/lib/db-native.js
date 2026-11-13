@@ -14,6 +14,7 @@ import { itemSourceRef, relinkItems, relinkIngredients, itemFoodMatches, relinke
 import { baseOf, statsBase, changesOf, statsChanges } from './sync-base.js';
 import { editRevives, instantMs } from './field-sync.js';
 import { relinkStamp } from './relink-stamp.js';
+import { GOAL_HISTORY_FIELD_OF_SETTING, GOAL_HISTORY_KEYS, goalSnapshot, isGoalHistoryDate } from './goal-snapshot.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -184,6 +185,28 @@ const SCHEMA = `
     UNIQUE(user_id, key)
   );
 
+  -- The goals in effect on each local calendar day, as the server keeps
+  -- them (server/db.js). Filled when a goal setting changes here, so a day
+  -- changed with no connection goes up with its own targets, and by a pull
+  -- so this copy stays whole. Not read by any screen.
+  CREATE TABLE IF NOT EXISTS goal_history (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER DEFAULT 1,
+    effective_date TEXT NOT NULL,
+    snapshot       TEXT NOT NULL,
+    changed_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    source         TEXT DEFAULT NULL,
+    sync_status    TEXT DEFAULT 'synced',
+    -- The fields changed here and not sent yet, each with when ({ field:
+    -- time }). The push sends them so the server merges the day field by
+    -- field, as it merges settings (server/routes/sync.js).
+    field_times    TEXT DEFAULT NULL,
+    UNIQUE(user_id, effective_date)
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_history_user_date
+    ON goal_history(user_id, effective_date);
+
   CREATE TABLE IF NOT EXISTS sync_meta (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -307,6 +330,16 @@ const SCHEMA = `
 
 async function _applySchema(db) {
   await db.execute(SCHEMA);
+  // goal_history.field_times: the fields of a day changed here and not sent
+  // yet, added after the first release of goal history.
+  try {
+    const info = await db.query(`PRAGMA table_info(goal_history)`);
+    if (!(info?.values || []).some(r => r.name === 'field_times')) {
+      await db.execute(`ALTER TABLE goal_history ADD COLUMN field_times TEXT DEFAULT NULL`);
+    }
+  } catch (e) {
+    console.debug('[db-native] goal_history.field_times migration skipped:', e?.message);
+  }
   // Migrations: add columns that may be missing from existing installs
   try {
     const info = await db.query(`PRAGMA table_info(diary)`);
@@ -743,6 +776,9 @@ export async function dbSetClockOffset(ms) {
   await db.run(`INSERT INTO sync_meta (key, value) VALUES ('clock_offset_ms', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(_clockOffsetMs)]);
 }
 export function dbClockOffset() { return _clockOffsetMs; }
+/** The edit time right now, on the server's clock (see _editNow): captured
+ *  when the change is made, not when a queued write gets to run. */
+export function dbEditNow() { return _editNow(); }
 // An edit time here, in ms on the server's clock: one stamped on it
 // (_editNow, "+00:00") as it is, one on this phone's clock ("Z") set right
 // by the offset last learned, as the server sets it right on the push.
@@ -2187,9 +2223,9 @@ export async function dbDeleteCompletionOp(id) {
 // ── Whose data this is (server mode) ──────────────────────────────────────
 // What the account that used this phone last made here and never sent:
 // foods, meals, recipes, diary days and deletions, activities, fasts,
-// completion marks, settings. The account signing in writes its own
-// settings here only once this check is done (stores/settings.js), so
-// they never count as the last account's. Not counted: Health Connect
+// completion marks, settings, goal history. The account signing in writes
+// its own settings here only once this check is done (stores/settings.js),
+// so they never count as the last account's. Not counted: Health Connect
 // values and workouts (read from Health Connect for whoever is signed in;
 // the background reader sends them with the current session).
 export async function dbCountUnsynced() {
@@ -2204,6 +2240,7 @@ export async function dbCountUnsynced() {
     + (await n(`SELECT COUNT(*) AS n FROM diary_completion_ops`))
     + (await n(`SELECT COUNT(*) AS n FROM coach_messages WHERE sync_status IN ('pending', 'pending_delete')`))
     + (await n(`SELECT COUNT(*) AS n FROM coach_recommendations WHERE sync_status = 'pending'`))
+    + (await n(`SELECT COUNT(*) AS n FROM goal_history WHERE sync_status = 'pending'`))
     + (await n(`SELECT COUNT(*) AS n FROM user_settings WHERE sync_status = 'pending' AND user_id = ${LOCAL_USER_ID}`));
 }
 
@@ -2214,7 +2251,7 @@ export async function dbCountUnsynced() {
 // only, and Android runs just the first statement of each piece, so
 // several statements on one line silently did one (_runEach).
 const _CLEAR_TABLES = ['foods', 'meals', 'diary', 'diary_tombstones', 'diary_completion_ops',
-  'wellness_data', 'workouts', 'user_settings', 'activity_log', 'fasts', 'sync_log',
+  'wellness_data', 'workouts', 'user_settings', 'goal_history', 'activity_log', 'fasts', 'sync_log',
   'coach_messages', 'coach_recommendations'];
 async function _runEach(db, statements) {
   for (const sql of statements) await db.run(sql, []);
@@ -2638,10 +2675,15 @@ export async function dbMarkSettingsSynced(rows, live = () => true) {
  * caller needs that timestamp to pass to dbMarkSettingsSynced after a
  * successful server push, so the mark-synced step can detect mid-flight
  * re-edits (see the race description on dbMarkSettingsSynced).
+ *
+ * The time is this phone's clock set right by the offset it learned
+ * (`_editNow`, "+00:00"), the same one a goal day is stamped with, so a
+ * setting and the history it carries name the same moment and the same
+ * winner.
  */
-export async function dbUpsertSetting(key, value) {
+export async function dbUpsertSetting(key, value, at = _editNow()) {
   const db = await getDb();
-  const updatedAt = _now();
+  const updatedAt = at || _editNow();
   await db.run(
     `INSERT INTO user_settings (user_id, key, value, updated_at, sync_status)
      VALUES (?, ?, ?, ?, 'pending')
@@ -2698,6 +2740,152 @@ export async function dbUpsertSettingFromServer(record) {
      ON CONFLICT(user_id, key) DO UPDATE SET
        value=excluded.value, updated_at=excluded.updated_at, sync_status='synced'`,
     [LOCAL_USER_ID, key, typeof value === 'string' ? value : JSON.stringify(value), updated_at]
+  );
+}
+
+// ── Goal history (the targets in effect on each day) ─────────────────
+//
+// The server keeps one complete snapshot of the goal settings per local
+// calendar day. This copy exists so a change made here with no connection
+// carries the day it was made (the settings push alone would date it by the
+// reconnect) and so a pull keeps the phone's copy whole. Nothing on screen
+// reads it.
+
+/**
+ * Save the goal settings as they stand now, effective from `effectiveDate`
+ * (this phone's local date, YYYY-MM-DD). Several changes in a day replace
+ * that day's snapshot, so a day ends up with its final complete
+ * configuration.
+ *
+ * `changedKeys` names the goal settings this edit actually changed: only
+ * those fields are claimed, each with `changedAt`. Passing them explicitly
+ * (from the setting write) is what keeps a pull that updated the local copy
+ * from looking like a change of ours: a field this phone only carries is
+ * left to the day's history on the server, not announced with the time we
+ * happened to edit something else. Without `changedKeys`, the whole
+ * configuration is claimed at `changedAt` (a caller that knows nothing more).
+ *
+ * The time is this phone's clock set right by the offset it learned
+ * (`_editNow`, "+00:00"), the same instant the setting itself is stamped
+ * with, so a clock put right between the edit and its push moves neither.
+ */
+export async function dbCaptureGoalHistory(effectiveDate, { changedKeys = null, changedAt = null } = {}) {
+  const db = await getDb();
+  if (!isGoalHistoryDate(String(effectiveDate || ''))) {
+    throw new Error('effectiveDate must be YYYY-MM-DD');
+  }
+  const r = await db.query(
+    `SELECT key, value, deleted_at FROM user_settings
+      WHERE user_id = ? AND key IN (${GOAL_HISTORY_KEYS.map(() => '?').join(',')})`,
+    [LOCAL_USER_ID, ...GOAL_HISTORY_KEYS]
+  );
+  const rows = _rows(r);
+  const values = new Map();
+  for (const key of GOAL_HISTORY_KEYS) {
+    const row = rows.find(x => x.key === key && !x.deleted_at);
+    if (!row || row.value == null) continue;
+    try {
+      const parsed = JSON.parse(row.value);
+      if (parsed != null) values.set(key, parsed);
+    } catch { /* a broken value reads as its default */ }
+  }
+  const snapshot = goalSnapshot(values);
+
+  const at = changedAt || _editNow();
+  // The fields this change claims. The day's own claims from earlier still
+  // waiting to go up are kept: every change of the day must reach the
+  // server, not only the last one. Claims are never inherited from another
+  // day: a new day carries only what was changed for it.
+  const existing = _row(await db.query(
+    `SELECT field_times FROM goal_history WHERE user_id = ? AND effective_date = ?`,
+    [LOCAL_USER_ID, effectiveDate]
+  ));
+  const times = { ...(_parseJson(existing?.field_times, {}) || {}) };
+  const keys = changedKeys == null ? GOAL_HISTORY_KEYS : changedKeys;
+  let claimed = 0;
+  for (const key of keys) {
+    const field = GOAL_HISTORY_FIELD_OF_SETTING[key];
+    if (!field) continue;
+    times[field] = at;
+    claimed++;
+  }
+  if (!claimed && existing) return { effective_date: effectiveDate, unchanged: true };
+
+  await db.run(
+    `INSERT INTO goal_history
+       (user_id, effective_date, snapshot, field_times, changed_at, updated_at, source, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, 'native', 'pending')
+     ON CONFLICT(user_id, effective_date) DO UPDATE SET
+       snapshot=excluded.snapshot,
+       field_times=excluded.field_times,
+       changed_at=excluded.changed_at,
+       updated_at=excluded.updated_at,
+       source='native',
+       sync_status='pending'`,
+    [LOCAL_USER_ID, effectiveDate, JSON.stringify(snapshot), JSON.stringify(times), at, at]
+  );
+  return { effective_date: effectiveDate, changed_at: at, snapshot, field_times: times };
+}
+
+export async function dbGetPendingGoalHistory() {
+  const db = await getDb();
+  const r = await db.query(
+    `SELECT * FROM goal_history WHERE user_id = ? AND sync_status = 'pending' ORDER BY effective_date`,
+    [LOCAL_USER_ID]
+  );
+  return _rows(r);
+}
+
+/** Mark the rows a push covered as synced, unless they changed meanwhile. */
+export async function dbMarkGoalHistorySynced(rows, live = () => true) {
+  if (!rows || !rows.length) return;
+  const db = await getDb();
+  for (const r of rows) {
+    if (!live()) return;
+    await db.run(
+      `UPDATE goal_history SET sync_status = 'synced', field_times = NULL
+        WHERE user_id = ? AND effective_date = ? AND changed_at = ?`,
+      [LOCAL_USER_ID, r.effective_date, r.changed_at]
+    );
+  }
+}
+
+/**
+ * A server row into the phone's copy. A day changed here and not sent yet
+ * stays: it is newer for this phone, and goes up with the next push. The
+ * server's own time is kept for a row written from it, and its per-field
+ * times stay on the server (a change made here records its own).
+ */
+export async function dbUpsertGoalHistoryFromServer(record) {
+  if (!record || !isGoalHistoryDate(String(record.effective_date || ''))) return;
+  const db = await getDb();
+  const existing = _row(await db.query(
+    `SELECT changed_at, sync_status FROM goal_history WHERE user_id = ? AND effective_date = ?`,
+    [LOCAL_USER_ID, record.effective_date]
+  ));
+  if (existing?.sync_status === 'pending') return;
+  const snapshot = typeof record.snapshot === 'string'
+    ? record.snapshot
+    : JSON.stringify(record.snapshot || {});
+  await db.run(
+    `INSERT INTO goal_history
+       (user_id, effective_date, snapshot, field_times, changed_at, updated_at, source, sync_status)
+     VALUES (?, ?, ?, NULL, ?, ?, ?, 'synced')
+     ON CONFLICT(user_id, effective_date) DO UPDATE SET
+       snapshot=excluded.snapshot,
+       field_times=NULL,
+       changed_at=excluded.changed_at,
+       updated_at=excluded.updated_at,
+       source=excluded.source,
+       sync_status='synced'`,
+    [
+      LOCAL_USER_ID,
+      record.effective_date,
+      snapshot,
+      record.changed_at || _now(),
+      record.updated_at || record.changed_at || _now(),
+      record.source || 'server',
+    ]
   );
 }
 

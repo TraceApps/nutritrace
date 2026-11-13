@@ -28,3 +28,6 @@ if (typeof globalThis.CustomEvent === 'undefined') {
 globalThis.location = { origin: 'https://localhost', href: 'https://localhost/', pathname: '/', search: '', hash: '' };
 globalThis.document = { addEventListener() {}, removeEventListener() {}, visibilityState: 'visible', documentElement: { classList: { add() {}, remove() {}, toggle() {} } } };
 register('./hooks.mjs', import.meta.url);
+// The browser's offline queue needs IndexedDB; the browser-mode tests
+// (NT_BROWSER=1) get an in-memory one.
+if (process.env.NT_BROWSER === '1') await import('./indexeddb.mjs');

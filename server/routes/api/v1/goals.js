@@ -25,7 +25,11 @@ router.use((req, res, next) => {
 
 router.get('/', requireScope('mcp:read'), wrap((req, res) => {
   try {
-    res.json(getGoalsCore(req.apiUser.id));
+    res.json(getGoalsCore(req.apiUser.id, {
+      date: req.query.date,
+      start: req.query.start,
+      end: req.query.end,
+    }));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

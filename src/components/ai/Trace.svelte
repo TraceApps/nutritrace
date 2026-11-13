@@ -393,9 +393,37 @@
           return workouts;
         }
         case 'get_goals': {
-          // #285: the stored goals plus weekday goals by name and today's targets.
-          const g = goals.get() || {};
-          return { goals: g, ...describeGoals(g, localDateStr()) };
+          const hasHistoricalQuery = !!(args?.date || args?.start || args?.end);
+          if (!hasHistoricalQuery) {
+            // #285: the stored goals plus weekday goals by name and today's targets.
+            const g = goals.get() || {};
+            return { goals: g, ...describeGoals(g, localDateStr()) };
+          }
+          // A past comparison needs the targets in effect then; the server's
+          // goal history resolves them (weekday splits, percent macros,
+          // Dynamic/Adaptive, activity) so Trace and MCP cannot disagree.
+          if (args?.date && (args?.start || args?.end)) {
+            return { error: 'Use either date or start/end for get_goals, not both.' };
+          }
+          if ((args?.start && !args?.end) || (!args?.start && args?.end)) {
+            return { error: 'Both start and end are required for a historical goal range.' };
+          }
+          const day = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+          if (!day(args.date) && !(day(args.start) && day(args.end))) {
+            return { error: 'Historical goals need YYYY-MM-DD dates.' };
+          }
+          try {
+            const qs = new URLSearchParams();
+            if (args.date) qs.set('date', args.date);
+            if (args.start) qs.set('start', args.start);
+            if (args.end) qs.set('end', args.end);
+            return await NtApi.get(`/api/goals/effective?${qs.toString()}`);
+          } catch (e) {
+            return {
+              error: 'Could not load historical goals from NutriTrace. Do not substitute current goals for this historical period.',
+              detail: e?.message || String(e),
+            };
+          }
         }
         case 'get_diary_averages': {
           try {
@@ -1730,9 +1758,11 @@ You have FULL ACCESS to the user's complete health data through tools. ALWAYS us
 - **Wellness metrics**: steps, calories burned, distance, active minutes, sleep (duration, stages, score, efficiency), heart rate (resting HR, HRV, SpO2), respiratory rate, readiness score, stress score, skin temp, VO2 max — from Fitbit, Garmin, Health Connect (any date range) — use get_wellness_data
 - **Body composition**: weight, body fat %, muscle mass, bone mass, body water, lean/fat mass, visceral fat, vascular age, metabolic age, BMR, nerve health, ECG — from Withings (any date range) — use get_body_composition
 - **Workouts**: recorded exercises with duration, distance, calories, heart rate, steps, GPS (any date range) — use get_workouts
-- **Nutrition goals**: calorie and macro targets — use get_goals
+- **Nutrition goals**: calorie and macro targets — use get_goals. With no arguments it means CURRENT goals only; for a historical question pass date, or start+end covering the period being analyzed.
 
 When the user asks about their data (steps, sleep, weight, food log, etc.) for ANY date or date range, USE THE APPROPRIATE TOOL to fetch the real data. Do not estimate or hallucinate numbers.
+
+HISTORICAL GOAL SAFETY — Never compare past intake against the Goals line in TODAY'S SUMMARY or against a no-argument get_goals result. Those are current/today-only context. For a past day call get_goals with date. For a past period call get_goals with the matching start and end. If historical goals are unavailable (known=false), say that the comparison cannot be made reliably; do not substitute today's targets.
 
 To go through many days of the diary ("what did I eat last week", "which days did I have pizza"), read them with get_diary's to (31 days a call) and go on from next_from until complete is true. get_meals comes a page at a time the same way (offset). Say whether you covered everything.
 
@@ -1813,7 +1843,7 @@ NUTRITION COVERAGE — populate the full profile:
          + ($aiGoalInsights ? `
 
 GOAL INSIGHTS MODE IS ENABLED. You have permission to proactively analyze the user's actual intake vs their goals and offer evidence-based suggestions. When relevant:
-- Use get_diary_averages (28 days is a good default) + get_goals to compare actual vs target
+- Use get_diary_averages (28 days is a good default) + get_goals to compare actual vs target. For a historical period, call get_goals with start/end covering that same period; never compare historical averages to current goals.
 - If intake consistently differs from goals by >10% for 2+ weeks, mention it and offer to suggest an adjustment
 - Consider weight trends from get_body_composition or diary body stats when making calorie goal suggestions
 - Be specific: "You've averaged 1,840 kcal over 28 days vs your 2,100 goal — that's a 260 kcal gap. Want me to suggest a revised goal?"
@@ -1842,7 +1872,7 @@ ${ctx.profileText || '(no profile data set yet — politely tell the user to fil
 ${ctx.userName ? `\nGreet them by name occasionally and reference it when celebrating progress — but don't overdo it (every other sentence is too much).\n` : ''}
 TODAY'S SUMMARY (for quick reference — use tools for detailed or historical data):
 ${ctx.diaryText}
-Goals: ${ctx.goalsText}
+Goals (TODAY ONLY — never use as a historical target): ${ctx.goalsText}
 Water: ${ctx.waterText}
 Diary logging streak: ${ctx.streakText || '(unknown)'}`
          + (ctx.statsText    ? `\nBody stats: ${ctx.statsText}` : '')

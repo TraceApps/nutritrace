@@ -342,3 +342,33 @@ test('without user accounts: an item deleted after the backup no longer eats the
     assert.equal(S1.sql((d) => d.prepare('SELECT COUNT(*) AS n FROM diary WHERE user_id IS NULL').get().n), 0);
   } finally { await S1.close(); }
 });
+
+test('a backup from before goal history starts it at the restore, dated in the account zone', { skip }, async () => {
+  const u = S.ids.eater;
+  await S.ok('eater', 'PUT', '/api/settings', { key: 'timezone', value: 'Pacific/Kiritimati' });
+  await S.ok('eater', 'PUT', '/api/settings', { key: 'goals', value: { calories: { max: 2345, sharedGoal: true } } });
+  await S.ok('eater', 'PUT', '/api/settings', { key: 'waterGoalMl', value: 3100 });
+  const filename = await S.backup();
+  // A backup from before this feature: no goal history at all.
+  await S.uploadRestore(join(S.dir, 'backups', filename), (data) => { delete data.goal_history; });
+
+  const rows = S.sql((d) => d.prepare('SELECT effective_date, snapshot, source, changed_at FROM goal_history WHERE user_id = ?').all(u));
+  assert.equal(rows.length, 1, 'one baseline, not an empty table');
+  assert.equal(rows[0].source, 'restore_baseline');
+  const snapshot = JSON.parse(rows[0].snapshot);
+  assert.equal(snapshot.water_goal_ml, 3100, 'the restored settings');
+  assert.equal(snapshot.goals.calories.max, 2345);
+  // Dated the day of the restore in the account's own zone.
+  const local = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Pacific/Kiritimati', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(rows[0].changed_at));
+  assert.equal(rows[0].effective_date, local);
+  assert.ok(Math.abs(Date.now() - Date.parse(rows[0].changed_at)) < 60_000, 'the moment of the restore');
+
+  const day = await S.ok('eater', 'GET', `/api/goals/effective?date=${rows[0].effective_date}`);
+  assert.equal(day.known, true);
+  assert.equal(day.calorie_target_kcal, 2345);
+  const before = new Date(`${rows[0].effective_date}T12:00:00Z`); before.setUTCDate(before.getUTCDate() - 1);
+  const unknown = await S.ok('eater', 'GET', `/api/goals/effective?date=${before.toISOString().slice(0, 10)}`);
+  assert.equal(unknown.known, false, 'the days before it stay unknown, not today’s goals');
+});
