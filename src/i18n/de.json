@@ -55,8 +55,9 @@
       "cant_start_mic": "Mikrofon konnte nicht gestartet werden"
     },
     "macro_pct": {
-      "carbs": "Kohlenhydrate{pct}%",
-      "fat": "Fett {pct}%"
+      "carbs": "Kohlenhydrate {pct}%",
+      "fat": "Fett {pct}%",
+      "protein": "Eiweiß {pct}%"
     }
   },
   "sync": {
@@ -701,7 +702,8 @@
     "nav": {
       "previous_day": "Vorheriger Tag",
       "next_day": "Nächster Tag",
-      "jump_to_date": "Zu Datum springen"
+      "jump_to_date": "Zu Datum springen",
+      "has_notes": "Enthält Notizen"
     },
     "actions": {
       "cancel_selection": "Auswahl aufheben",
@@ -713,7 +715,9 @@
       "mark_day_complete": "Tag als abgeschlossen markieren",
       "unmark_day_complete": "Abschluss des Tages aufheben",
       "body_stats": "Körperwerte",
-      "body_stats_long": "Körperwerte – Gewicht, Körperfett und Umfänge eintragen"
+      "body_stats_long": "Körperwerte – Gewicht, Körperfett und Umfänge eintragen",
+      "move_selected": "Ausgewählte verschieben",
+      "copy_selected": "Ausgewählte kopieren"
     },
     "day_complete": {
       "marked_toast": "Tag als abgeschlossen markiert",
@@ -757,7 +761,8 @@
       "save": "Speichern",
       "remove_ingredient": "Zutat entfernen",
       "remove_qc_entry": "Eintrag entfernen",
-      "remove_qc_aria": "Schnellen Kalorieneintrag entfernen"
+      "remove_qc_aria": "Schnellen Kalorieneintrag entfernen",
+      "gone": "Dieser Eintrag wurde auf einem anderen Gerät gelöscht, daher können Änderungen hier nicht gespeichert werden."
     },
     "confirm": {
       "remove_item": "{name} entfernen?",
@@ -819,17 +824,58 @@
       "errors": {
         "name_required": "Name erforderlich",
         "kcal_required": "Kalorien erforderlich"
-      }
+      },
+      "gone": "Diese Aktivität wurde auf einem anderen Gerät gelöscht oder verschoben, daher können Änderungen hier nicht gespeichert werden."
     },
     "macro_letter": {
-      "p": "P",
-      "c": "C",
+      "p": "E",
+      "c": "K",
       "f": "F"
     },
     "bar": {
       "g_protein": "g Eiweiß",
       "g_carbs": "g Kohlenhydrate",
-      "g_fat": "g Fett"
+      "g_fat": "g Fett",
+      "eaten": "gegessen",
+      "left": "übrig",
+      "adjusted_for_activity": "An Aktivität angepasst",
+      "expand_panel": "Nährwertübersicht ausklappen",
+      "collapse_panel": "Nährwertübersicht einklappen"
+    },
+    "copy": {
+      "title_selection": "{n, plural, one {# Eintrag} other {# Einträge}} kopieren nach…",
+      "keep_meals": "Mahlzeit jedes Eintrags beibehalten",
+      "repeat": "Wiederholen",
+      "repeat_off": "Aus",
+      "repeat_value": "{n, plural, one {Nächster Tag} other {Nächste # Tage}}",
+      "fewer_days": "Weniger Tage",
+      "more_days": "Mehr Tage",
+      "repeat_hint": "Kopiert auf {days} Tage: {from} bis {to}.",
+      "toast_day_meal": "{n, plural, one {# Eintrag} other {# Einträge}} kopiert nach {rel, select, yesterday {gestern ({meal})} today {heute ({meal})} tomorrow {morgen ({meal})} other {{meal} am {day}}}",
+      "toast_day": "{n, plural, one {# Eintrag} other {# Einträge}} kopiert nach {rel, select, yesterday {gestern} today {heute} tomorrow {morgen} other {{day}}}",
+      "toast_days_meal": "{n, plural, one {# Eintrag} other {# Einträge}} nach {meal} an {days} Tagen kopiert ({from} bis {to})",
+      "toast_days": "{n, plural, one {# Eintrag} other {# Einträge}} auf {days} Tage kopiert ({from} bis {to})",
+      "toast_partial": "{n, plural, one {# Eintrag} other {# Einträge}} auf {done} von {total} Tagen kopiert. Nicht kopiert nach {failed}.",
+      "toast_failed": "Kopieren fehlgeschlagen",
+      "toast_failed_reason": "Kopieren fehlgeschlagen: {error}",
+      "toast_nothing": "Nichts zum Kopieren ausgewählt"
+    },
+    "move": {
+      "title": "Verschieben nach…",
+      "title_selection": "{n, plural, one {# Eintrag} other {# Einträge}} verschieben nach…",
+      "moved": "{n, plural, one {# Eintrag} other {# Einträge}} verschoben nach {rel, select, yesterday {gestern ({meal})} today {heute ({meal})} tomorrow {morgen ({meal})} other {{meal} am {day}}}",
+      "already_there": "Bereits in {meal} vorhanden",
+      "failed": "Verschieben fehlgeschlagen",
+      "failed_reason": "Verschieben fehlgeschlagen: {error}",
+      "both_days": "{n, plural, one {Der Eintrag wurde} other {Die Einträge wurden}} zu {rel, select, yesterday {gestern ({meal})} today {heute ({meal})} tomorrow {morgen ({meal})} other {{meal} am {day}}} hinzugefügt, befindet sich aber möglicherweise noch an diesem Tag. Prüfe den Tag und lösche {n, plural, one {ihn} other {sie}}, falls du {n, plural, one {ihn} other {sie}} nicht an beiden Tagen behalten möchtest."
+    },
+    "day_picker": {
+      "label": "Tag",
+      "date": "Datum",
+      "tomorrow": "Morgen"
+    },
+    "shortcut": {
+      "water_hidden": "Wasser ist im Tagebuch ausgeblendet. Aktiviere „Im Tagebuch anzeigen“, um es einzutragen."
     }
   },
   "foods": {
@@ -889,10 +935,15 @@
       "off_implausible": "Open Food Facts listet für dieses Produkt nur „zubereitete“ Werte auf, und diese scheinen nicht zu stimmen. Tippe auf Bearbeiten, um die Werte von der Verpackung einzutragen.",
       "off_none": "Open Food Facts hat keine Nährwertangaben für dieses Produkt. Tippe auf Bearbeiten, um die Werte von der Verpackung einzutragen.",
       "meal_deleted": "Mahlzeit gelöscht",
-      "delete_recipe_aria": "Lösche Rezept",
-      "delete_recipe_confirm_title": "Diese Rezept löschen?",
+      "delete_recipe_aria": "Rezept löschen",
+      "delete_recipe_confirm_title": "Dieses Rezept löschen?",
       "delete_recipe_confirm_body": "„{name}“ wird aus deinen Rezepten entfernt. Bestehende Tagebucheinträge, die dieses Rezept verwenden, bleiben erhalten.",
-      "recipe_deleted": "Rezept gelöscht"
+      "recipe_deleted": "Rezept gelöscht",
+      "added_to_day": "Zu {rel, select, yesterday {gestern ({meal})} today {heute ({meal})} tomorrow {morgen ({meal})} other {{meal} am {day}}} hinzugefügt",
+      "adding_to_day": "Wird zu {rel, select, yesterday {gestern ({meal})} today {heute ({meal})} tomorrow {morgen ({meal})} other {{meal} am {day}}} hinzugefügt…",
+      "delete_meal_aria": "Mahlzeit löschen",
+      "delete_meal_confirm_title": "Diese Mahlzeit löschen?",
+      "delete_meal_confirm_body": "„{name}“ wird aus deinen Mahlzeiten entfernt. Bestehende Tagebucheinträge, die diese Mahlzeit verwenden, bleiben erhalten."
     },
     "sources": {
       "local": "Lokal",
@@ -930,23 +981,30 @@
       "import": "Dieser Import erfordert eine Verbindung. Er funktioniert wieder, sobald du online bist."
     },
     "prev_day": {
-      "section_yesterday": "gestrige Mahlzeiten",
+      "section_yesterday": "Gestrige Mahlzeiten",
       "section_from": "Von {day}",
       "yesterday": "Gestern",
       "today": "Heute",
       "sheet_title": "{day}: {meal}",
-      "add_title": "Zu Tagebuch hinzufügen",
-      "add_aria": "Füge {meal} zu Tagebuch hinzu"
+      "add_title": "Zum Tagebuch hinzufügen",
+      "add_aria": "„{meal}“ zum Tagebuch hinzufügen"
     },
     "tabs": {
       "meals": "Mahlzeiten",
-      "recipes": "Rezepte"
+      "recipes": "Rezepte",
+      "foods": "Lebensmittel"
     },
     "empty": {
       "no_meals": "Noch keine Mahlzeiten",
       "no_recipes": "Noch keine Rezepte",
       "add_meal": "Mahlzeit hinzufügen",
-      "add_recipe": "Rezept hinzufügen"
+      "add_recipe": "Rezept hinzufügen",
+      "no_foods": "Noch keine Lebensmittel",
+      "add_food": "Lebensmittel hinzufügen"
+    },
+    "shortcut": {
+      "change": "Ändern",
+      "change_aria": "Mahlzeit oder Tag ändern"
     }
   },
   "trace": {
@@ -1071,10 +1129,19 @@
     },
     "macros": {
       "currently": "Aktuell:",
-      "name_balanced": "Ausgeglichen"
+      "name_balanced": "Ausgeglichen",
+      "title": "Makros",
+      "balanced": "Ausgeglichen 30/40/30",
+      "keto": "Keto 25/5/70",
+      "high_protein": "High-Protein 40/30/30",
+      "preset_match_hint": "Verhältnis entspricht dieser Vorlage (±2 % Toleranz)",
+      "name_keto": "Keto",
+      "name_high_protein": "High-Protein",
+      "name_custom": "Benutzerdefiniert",
+      "carbohydrates": "Kohlenhydrate"
     },
     "rail": {
-      "navigate": "Navigiere"
+      "navigate": "Navigieren"
     }
   },
   "goals": {
@@ -1084,7 +1151,8 @@
       "water_goal_saved": "Wasserziel gespeichert",
       "template_saved": "Vorlage gespeichert",
       "template_applied": "„{name}“ angewendet"
-    }
+    },
+    "gone": "Dieses Ziel wurde auf einem anderen Gerät entfernt, daher können Änderungen hier nicht gespeichert werden."
   },
   "settings_main": {
     "group_display": "Darstellung",
@@ -1492,7 +1560,14 @@
       "off_units_differ": "Dieses Lebensmittel wird in {unit} gemessen; die Werte von Open Food Facts können nicht umgerechnet werden, daher wurde nichts geändert",
       "off_no_nutrition": "Open Food Facts hat für dieses Produkt noch keine Nährwertangaben",
       "off_offline": "Das Aktualisieren von Open Food Facts erfordert eine Verbindung. Es funktioniert wieder, sobald du online bist.",
-      "off_prepared_used": "{count, plural, one {# „zubereiteten“ Wert übernommen} other {# „zubereitete“ Werte übernommen}}. Speichere, um sie zu behalten."
+      "off_prepared_used": "{count, plural, one {# „zubereiteten“ Wert übernommen} other {# „zubereitete“ Werte übernommen}}. Speichere, um sie zu behalten.",
+      "usda_updated": "{count, plural, one {# Nährwert aus USDA aktualisiert} other {# Nährwerte aus USDA aktualisiert}}. Speichere, um die Werte zu übernehmen.",
+      "usda_up_to_date": "Stimmt bereits mit USDA überein",
+      "usda_not_found": "Nicht in USDA FoodData Central gefunden",
+      "usda_units_differ": "Dieses Lebensmittel wird in {unit} gemessen, worin USDA-Werte nicht umgerechnet werden können; es wurde nichts geändert.",
+      "usda_no_nutrition": "USDA enthält keine Nährwerte für dieses Lebensmittel",
+      "usda_offline": "Das Aktualisieren aus USDA erfordert eine Internetverbindung. Sobald du online bist, funktioniert es wieder.",
+      "usda_needs_key": "Das Aktualisieren aus USDA erfordert die aktivierte USDA-Quelle mit einem API-Schlüssel. Richte dies in den Einstellungen unter Lebensmittelquellen ein."
     },
     "errors": {
       "name_required": "Bitte gib einen Namen ein"
@@ -1506,7 +1581,20 @@
     },
     "off_share": {
       "save_and_share": "Speichern und teilen",
-      "login": "Open Food Facts hate deinen Benutzernamen oder Passwort nicht akzeptiert."
+      "login": "Open Food Facts hat deinen Benutzernamen oder dein Passwort nicht akzeptiert.",
+      "need_account": "Hinterlege dein Open-Food-Facts-Konto, um Daten zu teilen. Die Einstellung findest du unter Einstellungen > Lebensmittelquellen.",
+      "refused": "Open Food Facts hat das Produkt nicht akzeptiert: {detail}",
+      "refused_plain": "Open Food Facts hat das Produkt nicht akzeptiert.",
+      "unreachable": "Open Food Facts konnte nicht erreicht werden. Versuche es später erneut.",
+      "photo_failed": "Das Produkt wurde geteilt, aber Open Food Facts hat das Foto nicht übernommen."
+    },
+    "values_for": "Werte für {amount}",
+    "gone": "Dieses Lebensmittel wurde auf einem anderen Gerät gelöscht, daher können Änderungen hier nicht gespeichert werden.",
+    "refresh_usda": "Aus USDA aktualisieren",
+    "energy": "Energie",
+    "derived": {
+      "sodium_from_salt": "Automatisch aus Salz berechnet (× 400 mg/g)",
+      "salt_from_sodium": "Automatisch aus Natrium berechnet (÷ 400)"
     }
   },
   "meal_editor": {
@@ -1553,7 +1641,11 @@
     "errors": {
       "no_ingredients": "Bitte füge mindestens eine Zutat hinzu",
       "off_no_values": "Open Food Facts hat keine Werte im Verkaufszustand für {name}. Füge das Produkt unter „Lebensmittel“ mit den Werten von der Verpackung hinzu und wähle es dann hier aus."
-    }
+    },
+    "gone": "Diese Mahlzeit wurde auf einem anderen Gerät gelöscht, daher können Änderungen hier nicht gespeichert werden.",
+    "gone_recipe": "Dieses Rezept wurde auf einem anderen Gerät gelöscht, daher können Änderungen hier nicht gespeichert werden.",
+    "ct_unscaled": "CookTrace konnte {amount} nicht umrechnen. Bitte passe die Menge an.",
+    "ct_unscaled_blank": "CookTrace hatte dafür keine Mengenangabe. Bitte passe die Menge an."
   },
   "settings_wellness": {
     "master": {
@@ -1720,12 +1812,76 @@
       "bg_sync_label": "Hintergrund-Synchronisation",
       "bg_sync_desc": "Synchronisiert stündlich im Hintergrund, auch wenn die App geschlossen ist. Falls die Synchronisation stoppt, stelle unter Android-Einstellungen → Apps → NutriTrace den Akku auf „Uneingeschränkt“. Bei einigen Herstellern (Samsung, Xiaomi, OnePlus) muss NutriTrace zusätzlich zur Ausnahmeliste für den Standby-Modus oder den Autostart hinzugefügt werden.",
       "synced_count": "{count} Health Connect-Messwert(e) für {date} synchronisiert",
-      "sync_failed": "Health Connect-Synchronisation fehlgeschlagen: "
+      "sync_failed": "Health Connect-Synchronisation fehlgeschlagen: ",
+      "bg_read_off": "Das Lesen im Hintergrund ist nicht erlaubt, daher liest NutriTrace Health Connect nur, während die App geöffnet ist.",
+      "bg_read_unsupported": "Health Connect kann auf diesem Telefon nicht im Hintergrund gelesen werden, daher liest NutriTrace Daten nur, während die App geöffnet ist.",
+      "bg_read_allow": "Erlauben",
+      "more_data_label": "Daten noch nicht freigegeben",
+      "more_data_desc": "{count, plural, one {# Datentyp, den NutriTrace lesen kann, ist nicht freigegeben. Die Synchronisierung funktioniert auch ohne ihn.} other {# Datentypen, die NutriTrace lesen kann, sind nicht freigegeben. Die Synchronisierung funktioniert auch ohne sie.}}",
+      "more_data_hrv": "HRV gehört dazu, und Tagesform sowie Belastbarkeit benötigen diese Daten.",
+      "more_data_hrv_only": "HRV ist noch nicht freigegeben. Tagesform und Belastbarkeit benötigen diese Daten; die Synchronisierung funktioniert auch ohne sie.",
+      "more_data_where": "Falls Health Connect nicht danach fragt, öffne Health Connect, dann App-Berechtigungen und anschließend NutriTrace."
     },
     "lifttrace": {
       "title": "LiftTrace",
       "prefer_wearable": "Wearable-Daten gegenüber LiftTrace bevorzugen",
       "prefer_wearable_desc": "Wenn LiftTrace geschätzte verbrannte Kalorien sendet…"
+    },
+    "garmin_personal": {
+      "enable_desc": "Schritte, Schlaf, Herzfrequenz, HRV, SpO2, Body Battery, Stress und Gewicht aus deinem Garmin-Konto.",
+      "how_label": "Verbindung herstellen",
+      "choice_personal": "Persönlicher API-Schlüssel",
+      "choice_partner": "Health-API-Partner",
+      "recommended": "Empfohlen",
+      "choice_personal_desc": "Für dein eigenes Garmin-Konto. Kostenlos, keine Freigabe erforderlich. Jede Person auf diesem Server hinterlegt ihren eigenen Schlüssel.",
+      "choice_partner_desc": "Für Apps, die durch das Garmin Health-API-Partnerprogramm freigegeben wurden. Die meisten Nutzer sollten stattdessen einen persönlichen API-Schlüssel verwenden.",
+      "step_1": "Melde dich am Computer bei Garmin Connect an und öffne Einstellungen > Persönlicher API-Schlüssel.",
+      "step_1_link": "Garmin Connect öffnen",
+      "step_2": "Wähle „Schlüssel erstellen“, lege die Gültigkeitsdauer fest und kopiere den Schlüssel. Garmin zeigt ihn nur ein einziges Mal an.",
+      "step_3": "Füge ihn hier ein und wähle „Verbinden“.",
+      "key_label": "Persönlicher API-Schlüssel",
+      "key_placeholder": "Schlüssel hier einfügen",
+      "expiry_label": "Schlüssel läuft ab am",
+      "expiry_desc": "Optional. Garmin zeigt dieses Datum neben deinem Schlüssel an. NutriTrace erinnert dich eine Woche vorher.",
+      "expiry_30": "30 Tage",
+      "expiry_90": "90 Tage",
+      "expiry_180": "180 Tage",
+      "expiry_365": "1 Jahr",
+      "region_label": "Konto-Region",
+      "region_global": "Global",
+      "region_cn": "China (garmin.cn)",
+      "connect": "Verbinden",
+      "connecting": "Schlüssel wird geprüft…",
+      "cancel": "Abbrechen",
+      "connected_toast": "Garmin verbunden. Die letzten 30 Tage werden abgerufen.",
+      "linked_subtext": "Persönlicher API-Schlüssel",
+      "last_synced": "Zuletzt synchronisiert {when}",
+      "never_synced": "Noch nicht synchronisiert",
+      "key_expires": "Schlüssel läuft ab",
+      "expires_on": "{date} ({days, plural, one {noch # Tag} other {noch # Tage}})",
+      "expires_today": "{date} (heute)",
+      "expiry_unknown": "Nicht festgelegt",
+      "set_expiry": "Datum festlegen",
+      "edit_expiry": "Datum ändern",
+      "save": "Speichern",
+      "expiry_saved": "Ablaufdatum des Schlüssels gespeichert",
+      "expiring_soon": "Dein Schlüssel läuft in {days, plural, one {# Tag} other {# Tagen}} ab. Erstelle einen neuen Schlüssel in Garmin Connect und wähle „Schlüssel ersetzen“, um weiterhin zu synchronisieren.",
+      "expired": "Das Ablaufdatum dieses Schlüssels ist überschritten. Falls Garmin ihn nicht mehr akzeptiert, erstelle einen neuen Schlüssel in Garmin Connect und wähle „Schlüssel ersetzen“.",
+      "replace_key": "Schlüssel ersetzen",
+      "needs_key_label": "Neuer Schlüssel erforderlich",
+      "needs_key": "Garmin akzeptiert diesen Schlüssel nicht mehr, daher wurde die Synchronisierung gestoppt. Er ist möglicherweise abgelaufen oder wurde gelöscht. Erstelle einen neuen Schlüssel in Garmin Connect und füge ihn unten ein.",
+      "no_data_yet": "Verbunden. Noch keine Garmin-Daten vorhanden. Messwerte erscheinen hier, sobald deine Uhr mit Garmin Connect synchronisiert wurde.",
+      "synced_days": "{count, plural, =0 {Synchronisiert. Noch keine neuen Garmin-Daten vorhanden.} one {# Tag von Garmin synchronisiert} other {# Tage von Garmin synchronisiert}}",
+      "sync_skipped": "Garmin wurde gerade eben synchronisiert. Versuche es in einer Minute erneut.",
+      "disconnected": "Getrennt. Der gespeicherte Schlüssel wurde gelöscht.",
+      "partner_connected_note": "Deine Health-API-Partnerverbindung bleibt gespeichert, wird jedoch nicht genutzt, solange ein persönlicher API-Schlüssel verbunden ist.",
+      "err_bad_format": "Das sieht nicht nach einem vollständigen Schlüssel aus. Kopiere ihn bitte noch einmal aus Garmin Connect.",
+      "err_bad_key": "Garmin hat diesen Schlüssel nicht akzeptiert. Überprüfe, ob du ihn vollständig kopiert hast und er weder abgelaufen noch gelöscht ist.",
+      "err_rate_limited": "Garmin beschränkt derzeit die Anfragen. Bitte versuche es in ein paar Minuten erneut.",
+      "err_timeout": "Garmin hat nicht rechtzeitig geantwortet. Versuche es gleich noch einmal.",
+      "err_unavailable": "Garmin konnte nicht erreicht werden. Versuche es gleich noch einmal.",
+      "err_partial": "Einige Garmin-Daten konnten bei der letzten Synchronisierung nicht gelesen werden. NutriTrace versucht es beim nächsten Mal erneut.",
+      "err_bad_expiry": "Dieses Ablaufdatum ist kein gültiges Datum."
     }
   },
   "settings_auth": {
@@ -2415,7 +2571,18 @@
       "hint_wellness": "Verbinde einen Fitness-Tracker unter Einstellungen → Gesundheit",
       "hint_other": "Keine Einträge gefunden – wähle einen anderen Datumsbereich"
     },
-    "history_heading": "Verlauf"
+    "history_heading": "Verlauf",
+    "chips": {
+      "w1": "1W",
+      "w2": "2W",
+      "m1": "1M",
+      "m3": "3M",
+      "m6": "6M",
+      "y1": "1J",
+      "all": "Alle",
+      "custom": "Benutzerdefiniert"
+    },
+    "toggle_chart_type": "Diagrammtyp umschalten"
   },
   "accept_invite": {
     "title": "Konto erstellen",
@@ -2484,19 +2651,203 @@
     "no_people": "Noch keine weiteren Mitglieder auf diesem Server vorhanden."
   },
   "trace_reply": {
-    "stopped_length": "Die Antwort wurde vor dem Ende unterbrochen und wurde deswegen nicht benutzt. Versuche es wenigstens einmal erneut oder frage weniger an.",
-    "stopped_thinking": "Das Modell hat seinen Denkprozess gesendet aber keine Antwort. Versuche es erneut oder senke seinen den Wert für seinen Denkprozess.",
-    "out_of_rounds": "Es hat mehr Schritte benötigt als erlaubt sind und es kam keine Antwort zurück. Frage weniger an oder wähle eine kürzere Zeitspanne."
+    "stopped_length": "Die Antwort wurde vor dem Ende abgeschnitten und nicht verwendet. Versuche es erneut oder stelle eine kürzere Anfrage.",
+    "stopped_thinking": "Das Modell hat seinen Denkprozess gesendet, aber keine Antwort. Versuche es erneut oder reduziere das Denk-Budget.",
+    "out_of_rounds": "Es wurden mehr Schritte als erlaubt benötigt und keine Antwort geliefert. Stelle eine kürzere Anfrage oder wähle einen kleineren Zeitraum."
   },
   "diary_rail": {
     "overview": "Übersicht",
-    "custom": "+ Personalisiert",
+    "custom": "+ Eigene",
     "no_measurements": "Es wurden heute keine Messungen eingetragen",
-    "edit_weight": "Bearbeite das heutige Gewicht",
-    "open_summary": "Öffne die ganze Nährwerte Übersicht",
-    "remove_entry": "Lösche diesen Eintrag",
-    "close": "Schließe",
-    "remove_entry_label": "Lösche den Eintrag",
-    "pin_panel_hint": "Füge Widgets an"
+    "edit_weight": "Heutiges Gewicht bearbeiten",
+    "open_summary": "Vollständige Nährwertübersicht öffnen",
+    "remove_entry": "Diesen Eintrag entfernen",
+    "close": "Schließen",
+    "remove_entry_label": "Eintrag entfernen",
+    "pin_panel_hint": "Widgets anpinnen",
+    "of_goal": "von {value}",
+    "weight_empty": "Gewicht nicht eingetragen",
+    "log": "Eintragen",
+    "log_stats": "Körperwerte eintragen",
+    "view_trend": "Trend anzeigen",
+    "toggle_macros": "Prozent / Gramm umschalten",
+    "open_water": "Wasser-Fenster öffnen",
+    "open_stats": "Körperwerte-Fenster öffnen",
+    "hide_panel": "Widget-Leiste ausblenden",
+    "pin_panel": "Widget-Leiste anpinnen",
+    "toggle_macros_label": "Makro-Anzeige zwischen Prozent und Gramm umschalten",
+    "hide_panel_hint": "Widgets ausblenden (Reiter am Rand öffnet sie wieder)",
+    "close_panel": "Widget-Leiste schließen"
+  },
+  "two_step": {
+    "errors": {
+      "generic": "Etwas ist schiefgelaufen. Versuche es erneut.",
+      "copy_failed": "Kopieren fehlgeschlagen. Markiere den Text und kopiere ihn manuell."
+    },
+    "setup": {
+      "loading": "Wird geladen…",
+      "scan": "Scanne diesen QR-Code mit einer Authentifikator-App wie Aegis, 2FAS, Google Authenticator oder 1Password.",
+      "qr_alt": "QR-Code für deine Authentifikator-App",
+      "open_app": "In Authentifikator-App öffnen",
+      "key_intro": "Scannen nicht möglich? Gib stattdessen diesen Schlüssel in der App ein:",
+      "copy_key": "Schlüssel kopieren",
+      "key_copied": "Schlüssel kopiert",
+      "key_details": "Zeitbasiert, 6 Ziffern, alle 30 Sekunden.",
+      "code_label": "6-stelliger Code aus der App",
+      "turn_on": "Aktivieren",
+      "turning_on": "Wird aktiviert…"
+    },
+    "codes": {
+      "title": "Wiederherstellungscodes speichern",
+      "explain": "Falls du dein Telefon verlierst, kannst du dich mit jedem dieser Codes einmalig anmelden. Bewahre sie an einem sicheren Ort auf, z. B. in einem Passwort-Manager. Sie werden nicht erneut angezeigt.",
+      "copy": "Codes kopieren",
+      "download": "Herunterladen",
+      "copied": "Wiederherstellungscodes kopiert",
+      "saved": "Ich habe meine Codes gespeichert"
+    },
+    "signin": {
+      "title": "Zwei-Schritt-Anmeldung",
+      "setup_title": "Zwei-Schritt-Anmeldung einrichten",
+      "setup_intro": "Deine Administration erfordert eine Zwei-Schritt-Anmeldung. Richte sie jetzt ein, um die Anmeldung abzuschließen.",
+      "intro": "Gib den 6-stelligen Code aus deiner Authentifikator-App ein.",
+      "recovery_intro": "Gib einen der Wiederherstellungscodes ein, die du bei der Einrichtung gespeichert hast.",
+      "code_label": "Code",
+      "recovery_label": "Wiederherstellungscode",
+      "verify": "Bestätigen",
+      "verifying": "Wird überprüft…",
+      "use_recovery": "Wiederherstellungscode verwenden",
+      "use_app": "Code aus der App verwenden",
+      "back": "Zurück zur Anmeldung",
+      "lost_phone": "Telefon und Wiederherstellungscodes verloren? Bitte einen Administrator, die Zwei-Schritt-Anmeldung für dich zurückzusetzen.",
+      "recovery_used": "Mit einem Wiederherstellungscode angemeldet. {count, plural, =0 {Du hast keine Codes mehr übrig: Erstelle neue in Einstellungen → Profil.} one {Noch # übrig.} other {Noch # übrig.}}"
+    },
+    "settings": {
+      "title": "Zwei-Schritt-Anmeldung",
+      "on": "Ein",
+      "off": "Aus",
+      "desc": "Erfordert nach deinem Passwort einen Code aus einer Authentifikator-App auf deinem Telefon.",
+      "sso": "Du meldest dich über Single Sign-On an, daher übernimmt dein Identitätsanbieter die Zwei-Schritt-Anmeldung.",
+      "load_failed": "Einstellungen für die Zwei-Schritt-Anmeldung konnten nicht geladen werden.",
+      "required_note": "Deine Administration erfordert eine Zwei-Schritt-Anmeldung. Du wirst bei der nächsten Anmeldung aufgefordert, sie einzurichten.",
+      "key_problem": "Codes aus deiner Authentifikator-App können auf diesem Server gerade nicht überprüft werden (der Schlüssel für die Zwei-Schritt-Anmeldung hat sich geändert oder fehlt). Melde dich mit einem Wiederherstellungscode an oder bitte einen Administrator, die Zwei-Schritt-Anmeldung zurückzusetzen, und richte sie dann erneut ein.",
+      "cant_set_up": "Zwei-Schritt-Anmeldung kann auf diesem Server derzeit nicht eingerichtet werden: Der Schlüssel konnte nicht gespeichert werden. Wende dich an deinen Administrator.",
+      "set_up": "Zwei-Schritt-Anmeldung einrichten",
+      "password_label": "Dein Passwort",
+      "continue": "Weiter",
+      "on_since": "Aktiv seit {date}",
+      "codes_left": "{count, plural, one {# Wiederherstellungscode übrig} other {# Wiederherstellungscodes übrig}}",
+      "codes_low": "Wiederherstellungscodes werden knapp. Erstelle neue, damit du dich weiterhin anmelden kannst, falls du dein Telefon verlierst.",
+      "new_codes": "Neue Wiederherstellungscodes",
+      "codes_explain": "Neue Codes ersetzen deine bisherigen Codes. Gib dein Passwort und einen Code aus deiner App (oder einen Wiederherstellungscode) ein.",
+      "turn_off": "Deaktivieren",
+      "off_explain": "Du meldest dich künftig nur noch mit deinem Passwort an. Gib dein Passwort und einen Code aus deiner App (oder einen Wiederherstellungscode) ein.",
+      "code_label": "Code aus deiner App oder ein Wiederherstellungscode",
+      "turned_on": "Zwei-Schritt-Anmeldung ist aktiviert",
+      "turned_off": "Zwei-Schritt-Anmeldung ist deaktiviert"
+    },
+    "admin": {
+      "require": "Zwei-Schritt-Anmeldung für alle vorschreiben",
+      "require_desc": "Alle, die sich mit einem Passwort anmelden und es noch nicht eingerichtet haben, tun dies bei der nächsten Anmeldung direkt nach der Passworteingabe. Single-Sign-On-Konten sind davon nicht betroffen.",
+      "required_on": "Zwei-Schritt-Anmeldung ist jetzt erforderlich",
+      "required_off": "Zwei-Schritt-Anmeldung ist nicht mehr erforderlich",
+      "required_failed": "Konnte nicht gespeichert werden: {msg}",
+      "reset": "Zwei-Schritt-Anmeldung zurücksetzen",
+      "reset_title": "Zwei-Schritt-Anmeldung für {name} zurücksetzen?",
+      "reset_message": "Die Authentifikator-App und Wiederherstellungscodes funktionieren nicht mehr und die Anmeldung erfolgt nur noch mit dem Passwort, bis sie wieder eingerichtet wird. Es wird eine E-Mail gesendet, sofern der Server E-Mails verschickt.",
+      "your_password": "Dein Passwort",
+      "your_code": "Dein Zwei-Schritt-Code",
+      "reset_confirm": "Zurücksetzen",
+      "resetting": "Wird zurückgesetzt…",
+      "reset_done": "Zwei-Schritt-Anmeldung für {name} zurückgesetzt"
+    },
+    "locked_out": {
+      "title": "Zwei-Schritt-Anmeldung für ein Konto zurücksetzen",
+      "explain": "Für Personen, die ihr Telefon und ihre Wiederherstellungscodes verloren haben. Nur dieses Konto wird geändert: Es meldet sich wieder nur mit dem Passwort an, bis die Zwei-Schritt-Anmeldung neu eingerichtet wird.",
+      "username_placeholder": "Benutzername",
+      "action": "Zwei-Schritt-Anmeldung zurücksetzen",
+      "resetting": "Wird zurückgesetzt…",
+      "failed": "Zwei-Schritt-Anmeldung konnte nicht zurückgesetzt werden",
+      "done": "Zwei-Schritt-Anmeldung für {name} ist deaktiviert. Mit dem Passwort anmelden.",
+      "disable_title": "Benutzerverwaltung deaktivieren"
+    },
+    "link": {
+      "title": "{provider} verknüpfen?",
+      "message": "Gib dein Passwort ein, um {provider} zu verknüpfen. Danach kannst du dich damit anmelden.",
+      "message_sso": "Du bist über Single Sign-On angemeldet. Das Verknüpfen von {provider} erfordert eine Anmeldung innerhalb der letzten 15 Minuten. Wenn es länger her ist, melde dich zuerst ab und wieder an.",
+      "password_label": "Dein Passwort",
+      "code_label": "Code aus deiner App oder ein Wiederherstellungscode",
+      "continue": "Weiter",
+      "checking": "Wird überprüft…"
+    },
+    "email": {
+      "title": "Neue E-Mail-Adresse bestätigen",
+      "explain": "Gib dein Passwort ein, um die Adresse zu bestätigen. Bis dahin gehen E-Mails zum Zurücksetzen des Passworts an deine bisherige Adresse, und Single Sign-On wird nicht über diese verknüpft.",
+      "explain_sso": "Bestätige die Adresse innerhalb von 15 Minuten nach der Anmeldung. Bis dahin gehen E-Mails zum Zurücksetzen des Passworts an deine bisherige Adresse, und Single Sign-On wird nicht über diese verknüpft. Wenn es länger her ist, melde dich zuerst ab und wieder an.",
+      "confirm": "E-Mail bestätigen",
+      "confirmed": "E-Mail bestätigt"
+    },
+    "reset_password_done": "Dein Passwort wurde geändert. Da für dieses Konto die Zwei-Schritt-Anmeldung aktiviert ist, melde dich mit deinem neuen Passwort und deinem Code an."
+  },
+  "nutriments": {
+    "calories": "Kalorien",
+    "kilojoules": "Kilojoule",
+    "fat": "Fett",
+    "saturated-fat": "Gesättigte Fettsäuren",
+    "trans-fat": "Transfette",
+    "polyunsaturated-fat": "Mehrfach ungesättigte Fettsäuren",
+    "monounsaturated-fat": "Einfach ungesättigte Fettsäuren",
+    "cholesterol": "Cholesterin",
+    "sodium": "Natrium",
+    "salt": "Salz",
+    "carbohydrates": "Kohlenhydrate",
+    "fiber": "Ballaststoffe",
+    "sugars": "Zucker",
+    "added-sugars": "Zugesetzter Zucker",
+    "proteins": "Eiweiß",
+    "vitamin-d": "Vitamin D",
+    "calcium": "Calcium",
+    "iron": "Eisen",
+    "potassium": "Kalium",
+    "vitamin-a": "Vitamin A",
+    "vitamin-c": "Vitamin C",
+    "vitamin-e": "Vitamin E",
+    "vitamin-k": "Vitamin K",
+    "b1": "Vitamin B1",
+    "b2": "Vitamin B2",
+    "b3": "Vitamin B3",
+    "b6": "Vitamin B6",
+    "b9": "Folsäure (B9)",
+    "b12": "Vitamin B12",
+    "magnesium": "Magnesium",
+    "zinc": "Zink",
+    "phosphorus": "Phosphor",
+    "caffeine": "Koffein",
+    "alcohol": "Alkohol"
+  },
+  "body_metrics": {
+    "weight": "Gewicht",
+    "neck": "Nacken",
+    "waist": "Taille",
+    "hips": "Hüfte",
+    "chest": "Brust",
+    "thighs": "Oberschenkel",
+    "biceps": "Bizeps",
+    "calves": "Waden",
+    "body_fat": "Körperfett",
+    "body_water": "Körperwasser",
+    "water": "Wasser",
+    "muscle": "Muskelmasse"
+  },
+  "wellness_goals": {
+    "steps": "Tägliche Schritte",
+    "active_minutes": "Aktive Minuten",
+    "floors": "Etagen",
+    "calories_out": "Verbrannte Kalorien",
+    "sleep_duration_min": "Schlafdauer",
+    "sleep_efficiency": "Schlafeffizienz",
+    "hrv_daily_rmssd": "HRV (RMSSD)",
+    "weight_kg": "Zielgewicht",
+    "body_fat_pct": "Ziel-Körperfett",
+    "muscle_mass_kg": "Ziel-Muskelmasse"
   }
 }
