@@ -81,9 +81,8 @@ function _offSearchUrl(query, page, pageSize) {
 }
 
 // Read the user's saved OFF language preference (short ISO 639-1 code
-// like 'en', 'fr', 'de'). Passed to OFF as `lc=<code>` so product
-// names, ingredients, categories, and labels come back translated to
-// the user's language when OFF has that translation. Defaults to 'en'
+// like 'en', 'fr', 'de'). Name search sends it as `langs=` (with English
+// alongside, see offSearchLangs in off-map.js). Defaults to 'en'
 // (matches the setting store default) so we don't have to special-case
 // null downstream. Same store-free localStorage pattern as
 // _getOffSearchCountry.
