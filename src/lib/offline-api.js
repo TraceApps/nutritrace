@@ -458,10 +458,47 @@ function _superseding(key, send) {
   return mine;
 }
 
-export async function queueSetting(key, value) {
+/**
+ * A setting changed here with no connection. `changedAt` is when the change
+ * was made, not when this reaches the queue: a request that timed out is
+ * queued after the fact, and its retry must still name the edit's moment so
+ * the newer edit wins in settings and in goal history alike.
+ */
+export async function queueSetting(key, value, changedAt) {
   _changedSomething = true;
   const ops = await _loadOps();
-  const op = { type: 'setting', key, data: value, at: Date.now() };
+  const op = { type: 'setting', key, data: value, at: changedAt ? Date.parse(changedAt) || Date.now() : Date.now() };
+  const seq = await _addOp(op);
+  if (seq == null) return false;
+  op.seq = seq;
+  ops.push(op);
+  _publish();
+  _channel?.postMessage({ type: 'outbox' });
+  _scheduleFlush(_online() ? 0 : _retryMs);
+  return true;
+}
+
+/**
+ * A goal change made with no connection, with the configuration of the day
+ * it was made for. Settings above collapse to the last value per key; goal
+ * history must not: each date keeps the targets that were in effect that
+ * day, so a Monday reconnect still carries Friday, Saturday and Sunday.
+ *
+ * `changedAt` is when the change was made (not when this reaches the
+ * queue), and `fieldTimes` names the fields it changed and when, so a
+ * setting the phone only carried doesn't overwrite one another device set
+ * (server/routes/sync.js merges the snapshot field by field).
+ */
+export async function queueGoalHistory(effectiveDate, snapshot, { changedAt, fieldTimes } = {}) {
+  _changedSomething = true;
+  const ops = await _loadOps();
+  const op = {
+    type: 'goal_history',
+    effective_date: effectiveDate,
+    snapshot,
+    at: changedAt ? Date.parse(changedAt) || Date.now() : Date.now(),
+  };
+  if (fieldTimes && typeof fieldTimes === 'object') op.field_times = fieldTimes;
   const seq = await _addOp(op);
   if (seq == null) return false;
   op.seq = seq;
@@ -597,7 +634,7 @@ async function _flushOnce() {
   // Foods go first and on their own: a food made offline has a temporary id,
   // and the diary entries logged from it have to point at the real one before
   // they go up.
-  const foodOps = ops.filter(op => op.type === 'catalog' || op.type === 'setting');
+  const foodOps = ops.filter(op => op.type === 'catalog' || op.type === 'setting' || op.type === 'goal_history');
   if (foodOps.length) {
     let foodResponse;
     try {

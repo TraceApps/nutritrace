@@ -6,6 +6,7 @@ import { foldText } from './lib/search-text.js';
 import { fillProfileFromSetup } from './lib/profile-fields.js';
 import { fieldTimesSql } from './lib/field-sync.js';
 import { SYNC_FIELDS } from './lib/sync-fields.js';
+import { ensureGoalHistoryBaseline } from './lib/goal-history-baseline.js';
 
 const dbPath = process.env.DB_PATH || './nutritrace.db';
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -102,6 +103,27 @@ db.exec(`
     updated_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (user_id, key)
   );
+
+  -- The goals in effect on each local calendar day (lib/goal-history.js):
+  -- one complete configuration per person per date, so a report on a past
+  -- week can compare intake with the target that was in effect then. Dates
+  -- before the first row are unknown on purpose; nothing is invented from
+  -- today's settings.
+  CREATE TABLE IF NOT EXISTS goal_history (
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    effective_date TEXT NOT NULL,
+    snapshot       TEXT NOT NULL,
+    changed_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    source         TEXT DEFAULT NULL,
+    -- When each field of the snapshot last changed ({ field: time }), so
+    -- two devices changing different settings on one day merge as the
+    -- settings themselves do (lib/goal-history.js captureGoalSnapshot).
+    field_times    TEXT DEFAULT NULL,
+    PRIMARY KEY (user_id, effective_date)
+  );
+  CREATE INDEX IF NOT EXISTS idx_goal_history_user_date
+    ON goal_history(user_id, effective_date);
 
   CREATE TABLE IF NOT EXISTS app_config (
     key   TEXT PRIMARY KEY,
@@ -656,6 +678,10 @@ if (!columnExists('diary', 'completed_meals')) {
 if (!columnExists('user_settings', 'deleted_at')) {
   db.exec(`ALTER TABLE user_settings ADD COLUMN deleted_at TEXT DEFAULT NULL`);
 }
+if (!columnExists('goal_history', 'field_times')) {
+  db.exec(`ALTER TABLE goal_history ADD COLUMN field_times TEXT DEFAULT NULL`);
+}
+
 
 // Issue #37: single-user mode (user_id IS NULL) accumulated duplicate diary
 // rows because SQLite UNIQUE(date, user_id) treats NULL as distinct, so the
@@ -786,6 +812,20 @@ for (const t of ['foods', 'meals', 'activity_log', 'fasts']) {
     CREATE TRIGGER fs_diary_stats_ins AFTER INSERT ON diary FOR EACH ROW WHEN NEW.field_times IS NULL
       BEGIN UPDATE diary SET field_times = ${stamp(`'{}'`, 'NEW.body_stats', `COALESCE(NEW.updated_at, ${now})`)} WHERE rowid = NEW.rowid; END;
   `);
+}
+
+// Goal history starts now. An account that has none yet gets a snapshot of
+// its current settings dated today, so a report can tell "target known from
+// this day" from "before history": dates before it stay unknown on purpose,
+// because the settings of that time were never recorded. A full-backup
+// restore does the same for a backup from before goal history
+// (routes/full-backup.js), through the same helper.
+try {
+  for (const { id } of db.prepare('SELECT id FROM users').all()) {
+    ensureGoalHistoryBaseline(db, id);
+  }
+} catch (e) {
+  console.warn('[db] goal history baseline skipped:', e.message);
 }
 
 // ── When a day's note was last edited ─────────────────────────────────────

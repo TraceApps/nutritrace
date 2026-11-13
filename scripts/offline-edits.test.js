@@ -100,7 +100,7 @@ test('tombstones from different days do not mix', () => {
 });
 
 // ── Foods made without a connection ─────────────────────────────────
-import { applyCatalogOps, collapseCatalogOps, buildCatalogPush, createdIds, remapIds, newTempId, isTempId, staleReadKeys } from '../src/lib/offline-edits.js';
+import { applyCatalogOps, collapseCatalogOps, buildCatalogPush, collapseGoalHistoryOps, createdIds, remapIds, newTempId, isTempId, staleReadKeys } from '../src/lib/offline-edits.js';
 
 const fop = (seq, action, id, data, table = 'foods') => ({ seq, type: 'catalog', table, action, id, data, at: 1_700_000_000_000 });
 
@@ -211,6 +211,53 @@ test('a setting changed offline goes up once, with the last value', () => {
   assert.equal(rows.find(r => r.key === 'weightUnit').value, 'lb');
 });
 
+test('goal history changed offline keeps each day and collapses same-day edits', () => {
+  const ops = [
+    { seq: 1, type: 'goal_history', effective_date: '2026-09-24', snapshot: { goals: { calories: { max: 2000 } } }, at: Date.parse('2026-09-24T08:00:00Z') },
+    { seq: 2, type: 'goal_history', effective_date: '2026-09-25', snapshot: { goals: { calories: { max: 2200 } } }, at: Date.parse('2026-09-25T08:00:00Z') },
+    { seq: 3, type: 'goal_history', effective_date: '2026-09-25', snapshot: { goals: { calories: { max: 2300 } } }, at: Date.parse('2026-09-25T10:00:00Z') },
+  ];
+  const rows = collapseGoalHistoryOps(ops);
+  assert.equal(rows.length, 2, 'two days, not one: settings alone would keep only the last');
+  assert.equal(rows[0].effective_date, '2026-09-24');
+  assert.equal(rows[1].snapshot.goals.calories.max, 2300);
+  assert.equal(rows[1].changed_at, '2026-09-25T10:00:00.000Z');
+  assert.equal(buildCatalogPush(ops).goal_history.length, 2);
+  assert.deepEqual(buildCatalogPush([ops[0]]).goal_history.map(r => r.effective_date), ['2026-09-24']);
+});
+
+test('same-day offline goal changes keep every field each one claimed', () => {
+  const ops = [
+    {
+      seq: 1, type: 'goal_history', effective_date: '2026-09-26',
+      snapshot: { goals: {}, water_goal_ml: 3000 },
+      field_times: { water_goal_ml: '2026-09-26T09:00:00.000Z' },
+      at: Date.parse('2026-09-26T09:00:00Z'),
+    },
+    {
+      seq: 2, type: 'goal_history', effective_date: '2026-09-26',
+      snapshot: { goals: { calories: { max: 2200 } }, water_goal_ml: 3000 },
+      field_times: { goals: '2026-09-26T10:00:00.000Z' },
+      at: Date.parse('2026-09-26T10:00:00Z'),
+    },
+  ];
+  const [row] = collapseGoalHistoryOps(ops);
+  assert.deepEqual(row.snapshot, { goals: { calories: { max: 2200 } }, water_goal_ml: 3000 });
+  assert.deepEqual(row.field_times, {
+    water_goal_ml: '2026-09-26T09:00:00.000Z',
+    goals: '2026-09-26T10:00:00.000Z',
+  }, 'the water change is not forgotten when the calorie one is made');
+  assert.equal(row.changed_at, '2026-09-26T10:00:00.000Z');
+
+  // An entry that names no field is a whole configuration (an older queue).
+  const [whole] = collapseGoalHistoryOps([
+    ops[0],
+    { seq: 2, type: 'goal_history', effective_date: '2026-09-26', snapshot: { water_goal_ml: 3200 }, at: Date.parse('2026-09-26T10:00:00Z') },
+  ]);
+  assert.equal(whole.field_times, undefined, 'nothing is left out of the whole configuration');
+  assert.equal(whole.snapshot.water_goal_ml, 3200);
+});
+
 // ── Fasting without a connection ────────────────────────────────────
 import { activeFastRow, fastList, newFastRow, fastWith } from '../src/lib/offline-edits.js';
 
@@ -317,4 +364,47 @@ test('the readings this browser keeps have a ceiling, oldest let go first', () =
   assert.deepEqual(staleReadKeys(rows, 2).sort(), ['/b', '/c']);
   assert.deepEqual(staleReadKeys(rows, 4), [], 'nothing goes while there is room');
   assert.deepEqual(staleReadKeys([{ key: '/x' }, { key: '/y', at: 5 }], 1), ['/x']);
+});
+
+test('two tabs merge a day by field, whichever change reaches the queue first', () => {
+  const day = '2026-09-27';
+  // Tab A changed the goals at 10:00; tab B, still on an older copy, changed
+  // only the water goal at 09:00. B's op lands second.
+  const goalsTab = {
+    seq: 1, type: 'goal_history', effective_date: day, at: Date.parse('2026-09-27T10:00:00Z'),
+    snapshot: { goals: { calories: { max: 2500 } }, water_goal_ml: 2000 },
+    field_times: { goals: '2026-09-27T10:00:00.000Z' },
+  };
+  const waterTab = {
+    seq: 2, type: 'goal_history', effective_date: day, at: Date.parse('2026-09-27T09:00:00Z'),
+    snapshot: { goals: { calories: { max: 2000 } }, water_goal_ml: 3000 },
+    field_times: { water_goal_ml: '2026-09-27T09:00:00.000Z' },
+  };
+
+  const [row] = collapseGoalHistoryOps([goalsTab, waterTab]);
+  assert.equal(row.snapshot.goals.calories.max, 2500,
+    "the water tab's older goals copy does not replace the goals tab's");
+  assert.equal(row.snapshot.water_goal_ml, 3000);
+  assert.deepEqual(row.field_times, {
+    goals: '2026-09-27T10:00:00.000Z',
+    water_goal_ml: '2026-09-27T09:00:00.000Z',
+  });
+
+  // The same, with the queue order the other way round (a late tab).
+  const [rev] = collapseGoalHistoryOps([
+    { ...waterTab, seq: 1 },
+    { ...goalsTab, seq: 2 },
+  ]);
+  assert.equal(rev.snapshot.goals.calories.max, 2500);
+  assert.equal(rev.snapshot.water_goal_ml, 3000);
+
+  // One field claimed by both tabs: the later edit's value wins even when
+  // its op was queued first.
+  const [same] = collapseGoalHistoryOps([
+    { ...goalsTab, seq: 1 },
+    { ...goalsTab, seq: 2, at: Date.parse('2026-09-27T09:00:00Z'),
+      snapshot: { goals: { calories: { max: 2000 } } }, field_times: { goals: '2026-09-27T09:00:00.000Z' } },
+  ]);
+  assert.equal(same.snapshot.goals.calories.max, 2500);
+  assert.equal(same.field_times.goals, '2026-09-27T10:00:00.000Z');
 });

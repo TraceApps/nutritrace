@@ -25,9 +25,11 @@ import { isServerOnlyKey } from '../lib/server-only-keys.js';
 import { fillIfSetupAnswers } from '../lib/profile-fields.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
+import { GOAL_HISTORY_SETTING_KEYS, captureGoalSnapshot, isGoalHistoryDate, lastGoalHistoryDate, userToday } from '../lib/goal-history.js';
 import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
 import { clientClock, parseUtc, editMs, resolveNote, sqlTime, onServerClock } from '../lib/sync-clock.js';
 import { mergeEdit, deleteLoses, editRevives, rowTimes, readTimes, instantMs, stampTimes, createdTimes, isoTime, valueKey, laterThan } from '../lib/field-sync.js';
+import { writeSetting } from '../lib/setting-merge.js';
 import { SYNC_FIELDS, SYNC_GROUPS, SYNC_JSON } from '../lib/sync-fields.js';
 import { mergeBodyStats, changedList } from '../lib/body-stats-merge.js';
 import { readablePairingIds, createMessage, deleteMessage, messageOut, notifyMessage, pairingById } from '../lib/coaching-messages.js';
@@ -163,6 +165,21 @@ router.get('/pull', wrap((req, res) => {
         .map(s => ({ ...s, value: clientSettingRaw(s.key, s.value) }))
     : [];
 
+  // The goals in effect on each past day. The phone keeps its own copy only
+  // so a change made with no connection carries the day it was made; the
+  // server's copy is the one reports read.
+  const goal_history = u != null
+    ? db.prepare(
+      `SELECT user_id, effective_date, snapshot, changed_at, updated_at, source
+         FROM goal_history WHERE updated_at >= ? AND user_id = ? ORDER BY updated_at`
+    ).all(sinceSql, u)
+      .map(row => {
+        let snapshot = {};
+        try { snapshot = JSON.parse(row.snapshot || '{}'); } catch {}
+        return { ...row, snapshot };
+      })
+    : [];
+
   // Wellness data — pull only (server-generated from Fitbit/Withings/Garmin syncs)
   const wellnessParams = u != null ? [sinceSql, u] : [sinceSql];
   const wellness = db.prepare(
@@ -199,7 +216,7 @@ router.get('/pull', wrap((req, res) => {
   // exists again (re-synced, restored) isn't gone, so it's left out.
   const deletions = _deletionsSince(u, sinceSql);
 
-  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} settings=${settings.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length} diary_tombstones=${diary_tombstones.length} deletions=${deletions.workouts.length + deletions.wellness.length}`);
+  logger.debug(`[sync] pull since=${sinceSql}: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} settings=${settings.length} goal_history=${goal_history.length} wellness=${wellness.length} workouts=${workouts.length} chat=${chat_history.length} diary_tombstones=${diary_tombstones.length} deletions=${deletions.workouts.length + deletions.wellness.length}`);
 
   // server_time is the cursor (taken before the queries); clock_time is
   // the server's clock as the answer goes out, for the phone's edit times.
@@ -236,7 +253,7 @@ router.get('/pull', wrap((req, res) => {
     if (Number.isFinite(instantMs(made))) r.delete_time = made;
   }
   for (const rows of [foods, meals, diary, activity, fasts, settings]) for (const r of rows) delete r.field_times;
-  res.json({ foods, meals, diary, diary_tombstones, activity, fasts, settings, wellness, workouts, chat_history, deletions, ...coachingOut, server_time: serverTime, clock_time: new Date().toISOString() });
+  res.json({ foods, meals, diary, diary_tombstones, activity, fasts, settings, goal_history, wellness, workouts, chat_history, deletions, ...coachingOut, server_time: serverTime, clock_time: new Date().toISOString() });
 }));
 
 export function _deletionsSince(u, sinceSql) {
@@ -385,8 +402,8 @@ router.post('/push', wrap(async (req, res) => {
   // phone's clock is set against when its request arrived.
   const receivedAt = Date.now();
   const u = uid(req);
-  const { foods = [], meals = [], diary = [], activity = [], fasts = [], wellness = [], settings = [], workouts = [] } = req.body;
-  const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [], workouts: [] };
+  const { foods = [], meals = [], diary = [], activity = [], fasts = [], wellness = [], settings = [], goal_history = [], workouts = [] } = req.body;
+  const result = { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [], goal_history: [], workouts: [] };
 
   // #199 (@tellis82): localize any inbound img_url data URLs to
   // /uploads/ files before the sync transaction. Direct POST /api/foods
@@ -882,6 +899,11 @@ router.post('/push', wrap(async (req, res) => {
       // whose pushed change lost is written anyway (updated_at, the pull's
       // cursor), so the phone's next pull puts the newer one back.
       const taken = [];
+      // The newest goal-setting change this push actually got in: when the
+      // phone sends no goal history for it, the day it was made still gets
+      // one (below). A change that lost to a newer one isn't a change: it
+      // must not date history by when its retry arrived.
+      let goalAt = null;
       for (const s of settings) {
         if (!s || typeof s.key !== 'string' || !s.key) continue;
         if (isServerOnlyKey(s.key)) continue; // silently skip; don't tell client what's protected
@@ -892,37 +914,81 @@ router.post('/push', wrap(async (req, res) => {
         if (stored === undefined) { result.settings.push({ key: s.key }); continue; }
         const sAt = editAt(s.updated_at);
         const at = Number.isFinite(sAt) ? sAt : receivedAt;
-        const touch = () => db.prepare(`UPDATE user_settings SET updated_at = datetime('now') WHERE user_id = ? AND key = ?`).run(u, s.key);
-        if (s.deleted_at) {
-          if (existing && !existing.deleted_at) {
-            if (deleteLoses({ existing, fields: ['value'], at }) != null) touch();
-            else {
-              db.prepare(`UPDATE user_settings SET deleted_at = datetime('now'), field_times = ?, updated_at = datetime('now') WHERE user_id = ? AND key = ?`)
-                .run(JSON.stringify(stampTimes(rowTimes(existing), ['deleted_at'], at)), u, s.key);
-            }
-          }
-        } else if (!existing) {
-          db.prepare(`INSERT INTO user_settings (user_id, key, value, field_times, updated_at) VALUES (?, ?, ?, ?, datetime('now'))`)
-            .run(u, s.key, stored, JSON.stringify(createdTimes(at)));
-          taken.push(s.key);
-        } else {
-          const m = mergeEdit({ existing, values: { value: stored }, fields: ['value'], at });
-          // One with no readable time is a copy a client has had for a
-          // while, not a change made now: it never brings a delete back.
-          const revive = existing.deleted_at && Number.isFinite(sAt) && editRevives({ existing, at });
-          if (existing.deleted_at && !revive) touch();
-          else {
-            if (revive) m.times.deleted_at = isoTime(at);
-            db.prepare(`UPDATE user_settings SET value = ?, field_times = ?, updated_at = datetime('now'), deleted_at = NULL WHERE user_id = ? AND key = ?`)
-              .run(m.row.value, JSON.stringify(m.times), u, s.key);
-            if (!m.lost.length) taken.push(s.key);
-          }
-        }
+        // The same rule the settings routes and goal history use
+        // (lib/setting-merge.js): the newer edit stays, a loser only moves
+        // the row's updated_at so the next pull brings the winner back.
+        const written = writeSetting(
+          db, u, s.key,
+          s.deleted_at ? { deleted: true } : { value: stored },
+          at,
+          // A copy with no readable time never brings a delete back.
+          { mayRevive: Number.isFinite(sAt) }
+        );
+        if (written.kept && !s.deleted_at) taken.push(s.key);
+        if (written.kept && GOAL_HISTORY_SETTING_KEYS.has(s.key) && (!goalAt || at > goalAt)) goalAt = at;
         result.settings.push({ key: s.key });
       }
       // Setup's birthday and gender belong on the account too (#269): an
       // app moving its local data to this account sends them this way.
       fillIfSetupAnswers(db, u, taken);
+
+      // Effective-dated goal history the phone captured with no connection:
+      // each row carries the configuration of its day, with the fields it
+      // changed and when (field_times), so the day merges field by field as
+      // the settings do. Fields the phone only carried (an older copy of
+      // another device's setting) are left to the day's own history.
+      const carried = new Set();
+      for (const h of Array.isArray(goal_history) ? goal_history : []) {
+        if (!h || !isGoalHistoryDate(h.effective_date)) continue;
+        let snapshot = h.snapshot;
+        if (typeof snapshot === 'string') {
+          try { snapshot = JSON.parse(snapshot); } catch { snapshot = null; }
+        }
+        let fieldTimes = h.field_times;
+        if (typeof fieldTimes === 'string') {
+          try { fieldTimes = JSON.parse(fieldTimes); } catch { fieldTimes = null; }
+        }
+        // The phone's clock set right, as every pushed edit's time is. Each
+        // field's time goes through the same correction and bounds as the
+        // row's, so a phone running ahead doesn't leave a claim in the
+        // future while its settings are set right.
+        const hAt = editAt(h.changed_at);
+        const rowAt = Number.isFinite(hAt) ? hAt : receivedAt;
+        const claimed = {};
+        if (fieldTimes && typeof fieldTimes === 'object' && !Array.isArray(fieldTimes)) {
+          for (const [field, raw] of Object.entries(fieldTimes)) {
+            const ms = editAt(raw);
+            claimed[field] = new Date(Number.isFinite(ms) ? ms : rowAt).toISOString();
+          }
+        }
+        try {
+          const saved = captureGoalSnapshot(u, {
+            effectiveDate: h.effective_date,
+            changedAt: new Date(rowAt).toISOString(),
+            source: 'client_sync',
+            snapshot: snapshot && typeof snapshot === 'object' ? snapshot : null,
+            fieldTimes: Object.keys(claimed).length ? claimed : null,
+          });
+          if (saved.applied) carried.add(h.effective_date);
+          result.goal_history.push({ effective_date: h.effective_date });
+        } catch { /* a malformed row waits for nothing; the rest goes up */ }
+      }
+
+      // A phone that sends goal settings without goal history (an app from
+      // before this feature) still gets its day recorded, as long as that
+      // day is the newest history has: the settings are the server's after
+      // this push, so they are that day's targets. For an older day the
+      // snapshot it already has stays, rather than today's targets being
+      // written into the past. It is the merged server configuration, each
+      // field with the time it was edited, never the client's stale blob.
+      if (goalAt != null) {
+        const date = userToday(u, goalAt);
+        const newest = lastGoalHistoryDate(u);
+        if (!carried.has(date) && (!newest || date >= newest)) {
+          try { captureGoalSnapshot(u, { effectiveDate: date, changedAt: new Date(goalAt).toISOString(), source: 'client_sync' }); }
+          catch { /* the settings themselves are saved either way */ }
+        }
+      }
     }
   });
 
@@ -960,7 +1026,7 @@ router.post('/push', wrap(async (req, res) => {
     }
   }
 
-  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} wellness=${wellness.length} settings=${settings.length} workouts=${workouts.length}`);
+  logger.debug(`[sync] push: foods=${foods.length} meals=${meals.length} diary=${diary.length} activity=${activity.length} fasts=${fasts.length} wellness=${wellness.length} settings=${settings.length} goal_history=${goal_history.length} workouts=${workouts.length}`);
   // The server's clock, for the phone to stamp its next edits on.
   res.json({ ok: true, ...result, server_time: new Date().toISOString() });
 }));

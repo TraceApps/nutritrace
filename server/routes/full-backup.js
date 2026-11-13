@@ -16,6 +16,7 @@ import { effectiveTimeZone, nextBackupAt, backupFileStamp, newestFirst } from '.
 import { logAfterRestore as logTwoStepAfterRestore } from '../lib/two-step.js';
 import { keepSessionVersions } from '../lib/session-version.js';
 import { sealStoredSecrets } from '../lib/secret-settings.js';
+import { ensureGoalHistoryBaseline } from '../lib/goal-history-baseline.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -236,6 +237,7 @@ function restoreFromZip(zip) {
     db.prepare('DELETE FROM invite_tokens').run();
     db.prepare('DELETE FROM food_shares').run();
     db.prepare('DELETE FROM meal_shares').run();
+    db.prepare('DELETE FROM goal_history').run();
     db.prepare('DELETE FROM user_settings').run();
     db.prepare('DELETE FROM app_config').run();
     db.prepare('DELETE FROM diary').run();
@@ -317,6 +319,17 @@ function restoreFromZip(zip) {
       INSERT OR IGNORE INTO user_settings (user_id, key, value, updated_at, deleted_at, field_times) VALUES (@user_id, @key, @value, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times)
     `);
     for (const s of data.user_settings || []) insSettings.run({ updated_at: null, deleted_at: null, field_times: null, ...s });
+
+    // The goals in effect on each past day. A backup from before this
+    // feature has none; that history then starts again at the restore, with
+    // today's restored settings as its first snapshot (a date nothing is
+    // known about stays unknown rather than taking today's targets).
+    const insGoalHistory = db.prepare(`
+      INSERT OR IGNORE INTO goal_history (user_id, effective_date, snapshot, field_times, changed_at, updated_at, source)
+      VALUES (@user_id, @effective_date, @snapshot, @field_times, @changed_at, COALESCE(@updated_at, @changed_at), @source)
+    `);
+    for (const h of data.goal_history || []) insGoalHistory.run({ updated_at: null, field_times: null, source: null, ...h });
+    for (const u of data.users || []) ensureGoalHistoryBaseline(db, u.id, { source: 'restore_baseline' });
 
     const insConfig = db.prepare(`
       INSERT OR REPLACE INTO app_config (key, value) VALUES (@key, @value)
@@ -620,7 +633,7 @@ function keepGone(before) {
  * activities and fasts are picked by changed_at, which the insert set.
  */
 function bumpCursors() {
-  for (const t of ['diary', 'user_settings', 'workouts', 'coach_messages', 'coach_recommendations']) {
+  for (const t of ['diary', 'user_settings', 'goal_history', 'workouts', 'coach_messages', 'coach_recommendations']) {
     db.prepare(`UPDATE ${t} SET updated_at = datetime('now')`).run();
   }
 }
@@ -688,6 +701,7 @@ function dumpDatabase() {
     meal_shares:      db.prepare('SELECT * FROM meal_shares').all(),
     diary:            db.prepare('SELECT * FROM diary').all(),
     user_settings:    db.prepare('SELECT * FROM user_settings').all(),
+    goal_history:     db.prepare('SELECT * FROM goal_history').all(),
     app_config:       db.prepare('SELECT * FROM app_config').all(),
     ai_chat_history:  db.prepare('SELECT * FROM ai_chat_history').all(),
     // wellness_data holds BOTH raw wearable metrics AND Trace-computed

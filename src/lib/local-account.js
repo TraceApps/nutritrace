@@ -33,16 +33,14 @@
 import { writable, get } from 'svelte/store';
 import { getServerUrl, getAuthToken, getNativeMode } from './platform.js';
 import { dbGetSyncMeta, dbSetSyncMeta, dbCountUnsynced, dbClearUserData, dbKeepForNewServer } from './db-native.js';
+import { bumpAccountGeneration } from './account-generation.js';
 import { resetUserState } from './user-state.js';
 
 const META_KEY = 'account';
 
-// Moves on every change of account (another one signing in, connecting to
-// a server, going local, signing out). A sync started before it writes
-// nothing after it (sync.js checks before every write).
-let _generation = 0;
-export const accountGeneration = () => _generation;
-export function bumpAccountGeneration() { _generation++; }
+// The generation moves on every change of account (lib/account-generation.js):
+// a sync or a queued write started before it writes nothing after it.
+export { accountGeneration, bumpAccountGeneration } from './account-generation.js';
 
 // The phone's HTTP layer keeps the cookie a server set at sign-in and can
 // send it with later requests, next to the Authorization header of
@@ -224,6 +222,7 @@ export async function localDataIsThisAccount(token = getAuthToken()) {
  *  phone's own now, and goes to whichever account it's connected to next. */
 export async function setLocalOwner() {
   resetAccountGate();
+  await _settingsWritesSettled();
   await _syncIdle();
   await dbSetSyncMeta(META_KEY, JSON.stringify({ local: true }));
 }
@@ -238,6 +237,9 @@ export async function setLocalOwner() {
  */
 export async function claimForServer(serverUrl, userId, { clear = false, uploaded = null, created = null } = {}) {
   resetAccountGate();
+  // The phone's own setting writes land first (this copy is being kept for
+  // the account); then the generation moves and clearing it is safe.
+  await _settingsWritesSettled();
   await _syncIdle(serverUrl);
   await resetUserState();
   if (clear) await dbClearUserData();
@@ -245,12 +247,21 @@ export async function claimForServer(serverUrl, userId, { clear = false, uploade
   await _setOwner({ ...(await _current(userId, serverUrl)), c: created });
 }
 
+// A queued native setting write runs in this app until it finishes; let it
+// see the moved generation and stop, rather than clearing the copy under it.
+async function _settingsWritesSettled() {
+  try {
+    const { settleNativeWrites } = await import('../stores/settings.js');
+    await settleNativeWrites?.();
+  } catch { /* none queued, or no settings layer here */ }
+}
+
 // A sync still running carries the session it started with and writes
 // into the copy until it ends. The account generation moves first, so it
 // writes nothing more; its requests are aborted, and the copy changes
 // hands only once it has actually stopped.
 async function _syncIdle(...addresses) {
-  _generation++;
+  bumpAccountGeneration();
   try {
     const { stopSync } = await import('./sync.js');
     await stopSync();
@@ -296,6 +307,10 @@ export async function prepareLocalAccount(user, { confirm = _askToDiscard, sameS
     if (m.tag) await _retag(owner, m.tag);
     return true;
   }
+  // The phone's own setting writes land first, so the count below includes
+  // them and saying no keeps them; then the generation moves, and one still
+  // queued after this point stops instead of writing into the next copy.
+  await _settingsWritesSettled();
   await _syncIdle();
   const waiting = await dbCountUnsynced();
   if (waiting > 0 && !(await confirm(waiting))) return false;

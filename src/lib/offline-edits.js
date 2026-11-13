@@ -322,6 +322,67 @@ export function collapseSettingOps(ops) {
   return [...byKey.values()];
 }
 
+/**
+ * Goal history changed offline: one final snapshot per local calendar date.
+ * Unlike settings, dates must not collapse into each other: a Monday
+ * reconnect still needs Friday, Saturday and Sunday's own targets.
+ *
+ * Changes to one date merge field by field, by each field's own edit time:
+ * the value a claim carries is the value from the snapshot of the change
+ * that claimed it, never a later copy's. Two tabs can reach the shared
+ * queue out of order, and a tab that only changed the water goal must not
+ * hand its older goals copy to the field the other tab changed.
+ */
+export function collapseGoalHistoryOps(ops) {
+  const byDate = new Map();
+  for (const op of [...(ops || [])].sort((a, b) => (a.seq || 0) - (b.seq || 0))) {
+    if (!op || op.type !== 'goal_history' || !op.effective_date) continue;
+    let entry = byDate.get(op.effective_date);
+    if (!entry) {
+      entry = { effective_date: op.effective_date, snapshot: {}, field_times: {}, values: new Map(), all: false, at: 0 };
+      byDate.set(op.effective_date, entry);
+    }
+    // The latest complete copy stands for fields no one claimed; each
+    // claimed field takes its value from the change that claimed it.
+    entry.snapshot = { ...entry.snapshot, ...(op.snapshot || {}) };
+    // A change that names no field is a whole configuration: it claims all
+    // of them (an older queue entry), so nothing is left to the server.
+    if (op.field_times && typeof op.field_times === 'object') {
+      for (const [field, time] of Object.entries(op.field_times)) {
+        const ms = Date.parse(time);
+        const was = entry.values.get(field);
+        if (!was || !Number.isFinite(was.time) || (Number.isFinite(ms) && ms >= was.time)) {
+          entry.values.set(field, { time: Number.isFinite(ms) ? ms : 0, value: op.snapshot?.[field] });
+          entry.field_times[field] = time;
+        }
+      }
+    } else {
+      entry.all = true;
+      // The whole configuration claims each of its fields at its own time.
+      for (const [field, value] of Object.entries(op.snapshot || {})) {
+        const ms = op.at || 0;
+        const was = entry.values.get(field);
+        if (!was || ms >= was.time) entry.values.set(field, { time: ms, value });
+      }
+    }
+    entry.at = op.at || entry.at;
+  }
+  return [...byDate.values()]
+    .sort((a, b) => String(a.effective_date).localeCompare(String(b.effective_date)))
+    .map(entry => {
+      const snapshot = { ...entry.snapshot };
+      for (const [field, claim] of entry.values) {
+        if (claim.value !== undefined) snapshot[field] = claim.value;
+      }
+      return {
+        effective_date: entry.effective_date,
+        snapshot,
+        ...(entry.all ? {} : { field_times: entry.field_times }),
+        changed_at: new Date(entry.at || Date.now()).toISOString(),
+      };
+    });
+}
+
 /** The /api/sync/push body for queued catalogue work. */
 export function buildCatalogPush(ops) {
   return {
@@ -330,6 +391,7 @@ export function buildCatalogPush(ops) {
     activity: collapseCatalogOps(ops, 'activity').map(_catalogRow),
     fasts: collapseCatalogOps(ops, 'fasts').map(_catalogRow),
     settings: collapseSettingOps(ops),
+    goal_history: collapseGoalHistoryOps(ops),
     diary: [], wellness: [], workouts: [],
   };
 }

@@ -3316,3 +3316,349 @@ test("a sync tells the open pages which kinds of rows it changed: deletes, edits
   assert.deepEqual(fourth.seen[0].kinds, ['foods'], 'only what the sync touched');
   assert.deepEqual(fourth.foods, ['Stale Honey', 'Stale Oats Renamed']);
 });
+
+// ── Goal history belongs to one account, and keeps its real edit time ─────
+test("goal history of one account never goes up under the next, and a day still waiting here counts", async (t) => {
+  if (skip(t)) return;
+  const iris = await account('iris', A);
+  const jack = await account('jack', A);
+  const me = async tok => (await http(tok, 'GET', '/api/auth/me')).user;
+  const I = await me(iris), J = await me(jack);
+
+  phone('goal-switch', iris, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(I)}, { confirm: async () => true });
+    await p.dbn.dbUpsertSetting('goals', { calories: { max: 2200, sharedGoal: true } });
+    await p.dbn.dbCaptureGoalHistory('2026-08-10');
+    await p.sync();
+    // A day changed with no connection, still waiting to go up.
+    await p.offline(async () => {
+      await p.dbn.dbUpsertSetting('goals', { calories: { max: 2400, sharedGoal: true } });
+      await p.dbn.dbCaptureGoalHistory('2026-08-11');
+    });
+    p.done({ pending: (await p.dbn.dbGetPendingGoalHistory()).map(r => r.effective_date) });`);
+
+  // Jack signs in on the same phone. Iris's unsent day is part of what he is
+  // asked about, and it is cleared with the rest of her rows.
+  const asked = phone('goal-switch', jack, `
+    const la = await import(p.src + 'lib/local-account.js');
+    let count = null;
+    const ok = await la.prepareLocalAccount(${JSON.stringify(J)}, { confirm: async n => { count = n; return true; } });
+    p.done({ ok, count, pending: (await p.dbn.dbGetPendingGoalHistory()).length });`);
+  assert.equal(asked.ok, true);
+  assert.ok(asked.count >= 1, "Iris's waiting goal day is counted before it can reach Jack's account");
+  assert.equal(asked.pending, 0, 'and it is cleared with the account');
+
+  const after = phone('goal-switch', jack, `
+    await p.sync();
+    p.done({ days: (await p.dbn.dbGetPendingGoalHistory()).length });`);
+  assert.equal(after.days, 0);
+  assert.deepEqual(
+    q(`SELECT u.username, g.effective_date FROM goal_history g JOIN users u ON u.id = g.user_id
+        WHERE g.effective_date IN ('2026-08-10', '2026-08-11') ORDER BY 1, 2`),
+    [{ username: 'iris', effective_date: '2026-08-10' }],
+    "only the day Iris actually sent is on the server, under Iris");
+});
+
+test("a goal day changed with no connection is stamped on the server's clock and keeps its time when the clock is put right", async (t) => {
+  if (skip(t)) return;
+  const kai = await account('kai', A);
+  const K = (await http(kai, 'GET', '/api/auth/me')).user;
+  const skew = 2 * 3600_000;
+  const r = phone('goal-clock', kai, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(K)}, { confirm: async () => true });
+    await p.sync(); // learns the server's clock
+    let row = null;
+    await p.offline(async () => {
+      await p.dbn.dbUpsertSetting('waterGoalMl', 3300);
+      await p.dbn.dbCaptureGoalHistory('2026-08-20');
+      row = (await p.dbn.dbGetPendingGoalHistory()).find(x => x.effective_date === '2026-08-20');
+    });
+    // The phone's clock is put right before it syncs: a time on its old
+    // clock would now be read wrong. The day's own time must not move.
+    await p.dbn.dbSetClockOffset(0);
+    await p.sync();
+    p.done({ stamp: row.changed_at, fields: JSON.parse(row.field_times || '{}') });`,
+    { SKEW_MS: String(skew) });
+
+  assert.match(r.stamp, /\+00:00$/, "the edit time carries the server's clock marker");
+  assert.ok(Math.abs(Date.parse(r.stamp) - Date.now()) < 60_000,
+    `the real time, not the phone's fast clock (${r.stamp} vs ${new Date().toISOString()})`);
+  assert.equal(r.fields.water_goal_ml, r.stamp, 'the field changed is claimed with the same time');
+  const stored = q(`SELECT changed_at FROM goal_history WHERE user_id = ? AND effective_date = '2026-08-20'`, K.id)[0];
+  assert.ok(stored, 'the day reached the server');
+  assert.ok(Math.abs(Date.parse(stored.changed_at) - Date.parse(r.stamp)) < 5000,
+    `the server kept the time the edit was made (${stored.changed_at} vs ${r.stamp})`);
+});
+
+test("a goal edit claims only the setting it changed, not a newer copy it pulled, and dates the day in the account's zone", async (t) => {
+  if (skip(t)) return;
+  const noa = await account('noa', A);
+  const N = (await http(noa, 'GET', '/api/auth/me')).user;
+  // The account's calorie goal is 2500, set on the web; its day is UTC-11.
+  await http(noa, 'PUT', '/api/settings', { key: 'timezone', value: 'Pacific/Midway' });
+  await http(noa, 'PUT', '/api/settings', { key: 'goals', value: { calories: { max: 2500, sharedGoal: true } } });
+
+  const detail = phone('goal-claim', noa, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(N)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${N.id}');
+    await p.sync();
+    // The phone has the account's settings but, say, no local history yet.
+    const db = await p.dbn.getDb();
+    await db.run('DELETE FROM goal_history', []);
+    await p.offline(async () => {
+      const st = await import(p.src + 'stores/settings.js');
+      st.waterGoalMl.set(3300);
+      await p.sleep(900);
+    });
+    const row = (await p.dbn.dbGetPendingGoalHistory())[0];
+    p.done({ fields: Object.keys(JSON.parse(row.field_times || '{}')), date: row.effective_date });`);
+
+  assert.deepEqual(detail.fields, ['water_goal_ml'],
+    "the water edit doesn't claim the calorie goal it only carried");
+  const accountDay = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Pacific/Midway', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+  assert.equal(detail.date, accountDay, "the day is the account's, not the device's UTC day");
+
+  phone('goal-claim', noa, `await p.sync(); p.done();`);
+  const day = await http(noa, 'GET', `/api/goals/effective?date=${accountDay}`);
+  assert.equal(day.calorie_target_kcal, 2500, "the account's newer calorie goal stays");
+  assert.equal(day.water_goal_ml, 3300, 'and the phone’s own change is there');
+});
+
+test("a setting and its goal day are stamped with one edit time, which a corrected clock doesn't move", async (t) => {
+  if (skip(t)) return;
+  const omar = await account('omar', A);
+  const O = (await http(omar, 'GET', '/api/auth/me')).user;
+  await http(omar, 'PUT', '/api/settings', { key: 'timezone', value: 'UTC' });
+  const r = phone('goal-same-time', omar, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(O)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${O.id}');
+    await p.sync(); // learns the server's clock
+    let setting = null, day = null;
+    await p.offline(async () => {
+      const st = await import(p.src + 'stores/settings.js');
+      st.waterGoalMl.set(3400);
+      await p.sleep(900);
+      const db = await p.dbn.getDb();
+      setting = (await db.query("SELECT updated_at FROM user_settings WHERE key = 'waterGoalMl'"))?.values?.[0]?.updated_at;
+      const row = (await p.dbn.dbGetPendingGoalHistory())[0];
+      day = JSON.parse(row.field_times || '{}').water_goal_ml;
+    });
+    await p.dbn.dbSetClockOffset(0); // put right before the push
+    await p.sync();
+    p.done({ setting, day });`, { SKEW_MS: String(2 * 3600_000) });
+
+  assert.equal(r.day, r.setting, 'the day claims the instant the setting was stamped with');
+  assert.match(r.day, /\+00:00$/, "on the server's clock, with its marker");
+  const settingTimes = JSON.parse(q(
+    `SELECT field_times FROM user_settings WHERE user_id = ? AND key = 'waterGoalMl'`, O.id)[0].field_times || '{}');
+  // A newly inserted setting counts every field from the row's base time.
+  const settingTime = settingTimes.value || settingTimes._base;
+  const historyTime = q(`SELECT field_times FROM goal_history WHERE user_id = ?`, O.id)
+    .map(row => JSON.parse(row.field_times).water_goal_ml).filter(Boolean)[0];
+  assert.equal(Date.parse(historyTime), Date.parse(settingTime),
+    `one instant names the winner in settings and in history (${settingTime} vs ${historyTime})`);
+  assert.ok(Math.abs(Date.parse(settingTime) - Date.now()) < 60_000, 'the real time, not the fast clock');
+});
+
+test('the day and the goal configuration are read with the edit, not after the save has waited', async (t) => {
+  if (skip(t)) return;
+  const nina = await account('nina', A);
+  const N = (await http(nina, 'GET', '/api/auth/me')).user;
+  await http(nina, 'PUT', '/api/settings', { key: 'timezone', value: 'Pacific/Midway' });
+  const accountDay = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Pacific/Midway', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+
+  const r = phone('goal-race', nina, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(N)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${N.id}');
+    await p.sync();
+    const { DB } = await import(p.src + 'lib/db.js');
+    const st = await import(p.src + 'stores/settings.js');
+    DB.setSetting('timezone', 'Pacific/Midway');
+    DB.setSetting('goals', { calories: { max: 2100, sharedGoal: true } });
+    // Count the goal reads: the snapshot must be taken with the edit, in the
+    // same turn, not when the debounced request finally goes out.
+    let reads = 0;
+    const orig = DB.getSetting.bind(DB);
+    DB.getSetting = (key, dflt) => { if (key === 'goals') reads++; return orig(key, dflt); };
+    st.scheduleSave('goals', { calories: { max: 2100, sharedGoal: true } });
+    const atEdit = reads;
+    // A template, a pull or another edit lands before the request goes out.
+    st._applySetting('goals', { calories: { max: 2400, sharedGoal: true } });
+    await p.sleep(1400);
+    p.done({ atEdit });`);
+
+  assert.equal(r.atEdit, 1, 'the configuration is read with the edit, in the same turn, before the wait');
+  // The change went up for the account's day, with the edit's own value.
+  const day = await http(nina, 'GET', `/api/goals/effective?date=${accountDay}`);
+  assert.equal(day.calorie_target_kcal, 2100);
+  assert.equal(day.effective_from, accountDay);
+});
+
+test('two goal edits at once each keep their claim in the day waiting to go up', async (t) => {
+  if (skip(t)) return;
+  const cleo = await account('cleo', A);
+  const C = (await http(cleo, 'GET', '/api/auth/me')).user;
+  const r = phone('goal-claims', cleo, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(C)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${C.id}');
+    await p.sync();
+    await p.offline(async () => {
+      const st = await import(p.src + 'stores/settings.js');
+      // Both in the same turn, as the store and the wl:setting listener ask.
+      st.goals.set({ calories: { max: 2100, sharedGoal: true } });
+      st.waterGoalMl.set(3200);
+      await p.sleep(900);
+    });
+    const row = (await p.dbn.dbGetPendingGoalHistory())[0];
+    p.done({ fields: Object.keys(JSON.parse(row.field_times || '{}')) });`);
+  assert.deepEqual(r.fields.sort(), ['goals', 'water_goal_ml'],
+    "the second capture saw the first's claim instead of erasing it");
+});
+
+test('a batch of settings is one moment, in the settings and in the day', async (t) => {
+  if (skip(t)) return;
+  const dora = await account('dora', A);
+  const D = (await http(dora, 'GET', '/api/auth/me')).user;
+  const r = phone('goal-batch', dora, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(D)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${D.id}');
+    await p.sync();
+    await p.offline(async () => {
+      const st = await import(p.src + 'stores/settings.js');
+      await st.bulkSet({
+        goals: { calories: { max: 2100, sharedGoal: true } },
+        waterGoalMl: 3300,
+      });
+      await p.sleep(900);
+    });
+    const db = await p.dbn.getDb();
+    const rows = (await db.query("SELECT key, updated_at FROM user_settings WHERE key IN ('goals','waterGoalMl') ORDER BY key"))?.values || [];
+    const row = (await p.dbn.dbGetPendingGoalHistory())[0];
+    p.done({ rows, fields: JSON.parse(row.field_times || {}), changed: row.changed_at });`);
+
+  assert.equal(r.rows.length, 2);
+  assert.equal(r.rows[0].updated_at, r.rows[1].updated_at, 'both keys carry the batch’s one time');
+  assert.equal(r.fields.goals, r.rows[0].updated_at, 'the day claims the same moment for goals');
+  assert.equal(r.fields.water_goal_ml, r.rows[0].updated_at, 'and for water');
+  assert.equal(r.changed, r.rows[0].updated_at);
+});
+
+test('a browser save that cannot reach the server waits in the queue with its own moment and configuration', async (t) => {
+  if (skip(t)) return;
+  const eve = await account('eve', A);
+  const E = (await http(eve, 'GET', '/api/auth/me')).user;
+  const r = await phoneAsync('browser-race', '', `
+    localStorage.setItem('wl:userId', '${E.id}');
+    const { DB } = await import(p.src + 'lib/db.js');
+    // Before the stores (and their setting listener) exist: these are the
+    // copy as the page found it, not changes to send.
+    DB.setSetting('timezone', 'UTC');
+    DB.setSetting('goals', { calories: { max: 2100, sharedGoal: true } });
+    DB.setSetting('waterGoalMl', 2000);
+    const st = await import(p.src + 'stores/settings.js');
+    const t1 = new Date().toISOString();
+    st.waterGoalMl.set(3400);
+    // Another goal lands before the failed save is even noticed.
+    st.goals.set({ calories: { max: 2400, sharedGoal: true } });
+    const t2 = new Date().toISOString();
+    await p.sleep(2500);
+    // What a reconnect would send: the browser's own queue.
+    const idb = await new Promise(res => {
+      const q = indexedDB.open('nutritrace-offline-${E.id}', 5);
+      q.onupgradeneeded = () => {};
+      q.onsuccess = () => res(q.result);
+      q.onerror = () => res(null);
+    });
+    const ops = await new Promise(res => {
+      const tx = idb.transaction('outbox');
+      const q = tx.objectStore('outbox').getAll();
+      tx.oncomplete = () => res(q.result || []);
+      tx.onerror = tx.onabort = () => res([]);
+    });
+    p.done({ t1, t2, ops });`, { NT_SERVER: 'http://127.0.0.1:9', NT_BROWSER: '1' });
+
+  const settings = r.ops.filter(op => op.type === 'setting');
+  const history = r.ops.filter(op => op.type === 'goal_history');
+  assert.equal(settings.length, 2, 'both settings were queued');
+  assert.equal(history.length, 2, 'with a day for each');
+  assert.ok(Math.abs(settings[0].at - Date.parse(r.t1)) < 2000, 'the queued setting keeps the edit time');
+  assert.ok(Math.abs(settings[1].at - Date.parse(r.t2)) < 2000);
+  assert.equal(history[0].snapshot.goals.calories.max, 2100,
+    'the first day carries the configuration at its edit, before the later goal change');
+  assert.equal(history[1].snapshot.goals.calories.max, 2400);
+  assert.deepEqual(Object.keys(history[0].field_times), ['water_goal_ml'],
+    'and only the field it changed');
+  assert.deepEqual(Object.keys(history[1].field_times), ['goals']);
+  assert.ok(Math.abs(history[0].at - Date.parse(r.t1)) < 2000, 'the day keeps the edit’s own moment');
+  assert.ok(Math.abs(history[1].at - Date.parse(r.t2)) < 2000);
+});
+
+test('one user edit writes the native setting once, not once per listener', async (t) => {
+  if (skip(t)) return;
+  const wren = await account('wren', A);
+  const W = (await http(wren, 'GET', '/api/auth/me')).user;
+  const r = phone('goal-once', wren, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(W)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${W.id}');
+    await p.sync();
+    // A row to update (an INSERT fires no UPDATE trigger), then count writes.
+    await p.dbn.dbUpsertSetting('waterGoalMl', 2000);
+    const db = await p.dbn.getDb();
+    await db.run('CREATE TABLE IF NOT EXISTS nt_test_writes (n INTEGER)', []);
+    await db.run('DELETE FROM nt_test_writes', []);
+    await db.run('INSERT INTO nt_test_writes (n) VALUES (0)', []);
+    await db.run("CREATE TRIGGER IF NOT EXISTS nt_test_write AFTER UPDATE ON user_settings BEGIN UPDATE nt_test_writes SET n = n + 1; END", []);
+    await p.offline(async () => {
+      const st = await import(p.src + 'stores/settings.js');
+      st.waterGoalMl.set(3300);
+      await p.sleep(900);
+    });
+    const writes = (await db.query('SELECT n FROM nt_test_writes'))?.values?.[0]?.n;
+    const row = (await p.dbn.dbGetPendingGoalHistory())[0];
+    p.done({ writes, claims: Object.keys(JSON.parse(row.field_times || '{}')) });`);
+  assert.equal(r.writes, 1, 'one edit is one native write, not one per listener');
+  assert.deepEqual(r.claims, ['water_goal_ml']);
+});
+
+test("a setting write queued for one account never lands in the next account's copy", async (t) => {
+  if (skip(t)) return;
+  const xena = await account('xena', A);
+  const yves = await account('yves', A);
+  const X = (await http(xena, 'GET', '/api/auth/me')).user;
+  const Y = (await http(yves, 'GET', '/api/auth/me')).user;
+  const r = phone('goal-switch-queue', xena, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(X)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${X.id}');
+    await p.sync();
+    await p.dbn.dbUpsertSetting('waterGoalMl', 2000);
+    const st = await import(p.src + 'stores/settings.js');
+    // An edit for X, still queued when Y signs in on this phone.
+    st.waterGoalMl.set(3456);
+    const ok = await la.prepareLocalAccount(${JSON.stringify(Y)}, { confirm: async () => true });
+    // A write started after the switch began, then the copy cleared as the
+    // switch does: it must stop instead of landing in Y's copy.
+    st.waterGoalMl.set(3499);
+    la.bumpAccountGeneration();
+    await p.dbn.dbClearUserData();
+    await p.sleep(600);
+    const db = await p.dbn.getDb();
+    const settings = (await db.query('SELECT COUNT(*) AS n FROM user_settings'))?.values?.[0]?.n;
+    const pending = (await p.dbn.dbGetPendingGoalHistory()).length;
+    p.done({ ok, settings, pending });`);
+  assert.equal(r.ok, true);
+  assert.equal(r.settings, 0, "no waiting write of X's landed in Y's copy");
+  assert.equal(r.pending, 0);
+});
