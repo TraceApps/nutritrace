@@ -17,6 +17,7 @@ import { COACHING_VERSION, coachingState, endCoachingIfNotCoach, requestFromInvi
 import { challengeFor, issuePending, isEnabled as twoStepEnabled, checkRecoveryToken } from '../lib/two-step.js';
 import { freshSignIn, FRESH_SIGN_IN_MINUTES, noteEmailChange, resetRecipient } from '../lib/link-grant.js';
 import { bumpSessionVersion } from '../lib/session-version.js';
+import { ensureGoalHistoryBaseline } from '../lib/goal-history-baseline.js';
 
 // The roles an admin can give. A Coach is a User everywhere except coaching.
 const ROLES = ['user', 'coach', 'admin'];
@@ -308,6 +309,9 @@ router.post('/register', wrap((req, res) => {
     warnIfPlainHttp(req);
     res.cookie('nt_token', signToken(user), COOKIE_OPTS);
   }
+  // Goal history starts with the account: its settings (the first user's
+  // claimed ones included) are the configuration in effect from today.
+  ensureGoalHistoryBaseline(db, user.id);
 
   res.json({ user: safeUser(user) });
 }));
@@ -709,6 +713,7 @@ router.post('/accept-invite', wrap((req, res) => {
   db.prepare('UPDATE invite_tokens SET used = 1 WHERE token = ?').run(token);
   // The coach the invite named asks now; the request waits for an answer.
   requestFromInvite(invite.coach_id ?? null, Number(result.lastInsertRowid));
+  ensureGoalHistoryBaseline(db, Number(result.lastInsertRowid));
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
   // The admin requires two-step sign-in: it's set up before the first session.

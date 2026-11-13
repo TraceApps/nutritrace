@@ -267,6 +267,14 @@ export const NtApiNative = {
   async forgetCoachingReads() { return 0; },
 
   async get(path) {
+    // Goal history is kept by an account on a server. Local mode has none:
+    // say so, rather than answering with no goals at all.
+    if (path.startsWith('/api/goals/effective')) {
+      const err = new Error('Historical goals are not available in local mode.');
+      err.code = 'goal_history_unavailable';
+      err.status = 409;
+      throw err;
+    }
     if (path.startsWith('/api/fasts')) return _fastsLocalGet(path);
     if (path === '/api/goals/adaptive-tdee') {
       const { computeAdaptiveTdeeLocal } = await import('./adaptive-tdee-local.js');
@@ -302,6 +310,7 @@ export const NtApiNative = {
       await db.run('DELETE FROM diary WHERE user_id = 1');
       await db.run('DELETE FROM wellness_data WHERE user_id = 1');
       await db.run('DELETE FROM workouts WHERE user_id = 1');
+      await db.run('DELETE FROM goal_history WHERE user_id = 1');
       await db.run('DELETE FROM user_settings WHERE user_id = 1');
       await db.run('DELETE FROM fasts WHERE user_id = 1');
       await db.run('DELETE FROM sync_meta');

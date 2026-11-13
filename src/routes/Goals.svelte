@@ -8,7 +8,7 @@
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
   import { portal } from '../lib/portal.js';
-  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, calorieGoalMode, calorieGoalFactor, weekStartDay } from '../stores/settings.js';
+  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, calorieGoalMode, calorieGoalFactor, weekStartDay, bulkSet } from '../stores/settings.js';
   import { weekdayOrder } from '../lib/week.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
@@ -162,11 +162,14 @@
     return next;
   }
 
-  function applyTemplate(tpl) {
-    goals.set(_migrateKilojoulesGoal({ ...tpl.goals }));
-    if (tpl.waterGoalMl != null) waterGoalMl.set(tpl.waterGoalMl);
+  async function applyTemplate(tpl) {
+    const next = { goals: _migrateKilojoulesGoal({ ...tpl.goals }) };
+    if (tpl.waterGoalMl != null) next.waterGoalMl = tpl.waterGoalMl;
     // A template saved before a coach's change also holds the calorie mode.
-    if (tpl.calorieGoalMode) calorieGoalMode.set(tpl.calorieGoalMode);
+    if (tpl.calorieGoalMode) next.calorieGoalMode = tpl.calorieGoalMode;
+    // One bulk write makes one effective-date snapshot: a reader can never
+    // see the template's food goals without its matching water goal.
+    await bulkSet(next);
     showApplyConfirm = null;
     activeTab = 'yours';
     showSuccess($_('goals.toast.template_applied', { values: { name: tpl.name } }));

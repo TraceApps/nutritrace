@@ -147,8 +147,15 @@ export const TOOLS = [
   },
   {
     name: 'get_goals',
-    description: 'Get the user\'s nutrition and wellness goals. Returns calorie, macro, and other nutrient targets under goals. A goal with sharedGoal false has a target per weekday: its days list starts on Sunday (index 0 = Sunday ... 6 = Saturday) and its max/min is the week\'s highest, not a day\'s target. Read goals_by_weekday for the targets by named day and today.targets for today\'s.',
-    parameters: { type: 'object', properties: {} },
+    description: 'Get the user\'s nutrition and wellness goals. With no arguments returns current goals. Pass date for the goals effective on one YYYY-MM-DD calendar day, or start + end for the inclusive historical range; a past day\'s targets are the ones in effect then, not today\'s. For any historical intake-vs-goal comparison, request goals for the same date or range. A goal with sharedGoal false has a target per weekday: its days list starts on Sunday (index 0 = Sunday ... 6 = Saturday) and its max/min is the week\'s highest, not a day\'s target. Read goals_by_weekday for the targets by named day and today.targets for today\'s.',
+    parameters: {
+      type: 'object',
+      properties: {
+        date:  { type: 'string', description: 'Optional single calendar date YYYY-MM-DD. Do not combine with start/end.' },
+        start: { type: 'string', description: 'Optional historical range start YYYY-MM-DD; use together with end.' },
+        end:   { type: 'string', description: 'Optional historical range end YYYY-MM-DD; use together with start.' },
+      },
+    },
   },
   {
     name: 'add_activity_entry',
@@ -805,6 +812,29 @@ export const READ_TOOLS = new Set([
   'get_coaching_clients', 'get_client_summary', 'get_client_foods', 'get_coach_recommendations',
   'propose_food', 'propose_quick_calories',
 ]);
+/**
+ * Targets for a past day are only known when the account's history has them:
+ * not for days before the upgrade, and not in single-user or local mode.
+ * Trace must not refuse the question: say the targets may have differed and
+ * answer, rather than substituting today's goals silently.
+ */
+export const HISTORICAL_GOALS_NOTE =
+  "Targets for a past day may have differed from today's. If this account's history does not reach that day, say so and treat today's goals as only an approximation; answer the question rather than refusing it.";
+
+export function historicalGoalsResult(answer, error = null) {
+  if (!answer || typeof answer !== 'object') {
+    return { known: false, history_unavailable: true, note: HISTORICAL_GOALS_NOTE, detail: error?.message };
+  }
+  // A single unknown day, a range that isn't complete, and a range with some
+  // days before history all mean the same thing: the past targets may have
+  // differed, and today's goals are only an approximation.
+  const days = Array.isArray(answer.days) ? answer.days : null;
+  const incomplete = answer.known === false
+    || answer.history_complete === false
+    || (days != null && days.some(day => day && day.known === false));
+  return incomplete ? { ...answer, note: HISTORICAL_GOALS_NOTE } : answer;
+}
+
 // A name that isn't one of the app's tools changes nothing either: a model
 // asking for a made-up tool again is counted the same way.
 const _repeatGuard = (tools) => {
