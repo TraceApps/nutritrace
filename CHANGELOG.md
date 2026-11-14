@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.5.0-dev05] - 2026-11-14 (pre-release)
+
+Fifth dev pre-release of the 1.5.0 minor. Paste a picture into Trace, Daily Targets on the Nutrition Summary, household units for USDA foods, Calories Burned in Statistics, API tokens for every user, Ukrainian in Open Food Facts search, encrypted secrets in Settings, and a round of community fixes.
+
 ### Added
 
 - **Paste a picture into Trace** ([#304](https://github.com/TraceApps/nutritrace/pull/304)). Paste a screenshot or a copied image into Trace's message box to attach it, like the image button, and the same in a chat with your coach. Copied text that comes with a picture of itself, such as cells from a spreadsheet or a passage from Word, still pastes as text. Thanks @librarian.
