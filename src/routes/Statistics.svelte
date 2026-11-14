@@ -103,7 +103,7 @@
     if (!m) return false;
     if (NUTRIMENTS.some(n => n.id === m)) return true;
     if (m === 'water' || m === 'water_ml') return true;
-    if (m === 'wl_steps' || m === 'wl_active') return true;
+    if (m === 'wl_steps' || m === 'wl_active' || m === 'wl_calories') return true;
     return false;
   }
 
@@ -120,6 +120,8 @@
     ...(_hasWellness ? [
       ...(_wlVisible('steps')             ? [{ value: 'wl_steps',  label: 'Steps',        unit: 'steps', apiSource: 'fitgarm', apiField: 'steps' }] : []),
       ...(_wlVisible('active_minutes')    ? [{ value: 'wl_active', label: 'Active Min.',   unit: 'min',   apiSource: 'fitgarm', apiField: 'active_minutes' }] : []),
+      // Total burned, resting included (#279). kcal or kJ per the Energy unit.
+      ...(_wlVisible('calories_out')      ? [{ value: 'wl_calories', label: tr('wellness_goals', 'calories_out', 'Calories Burned', $locale), unit: 'kcal', apiSource: 'fitgarm', apiField: 'calories_out' }] : []),
       ...(_wlVisible('sleep_duration_min')? [{ value: 'wl_sleep',  label: 'Sleep',         unit: 'hr',    apiSource: 'fitgarm', apiField: 'sleep_duration_min', fmtVal: v => Math.round(v / 6) / 10 }] : []),
       ...(_wlVisible('resting_hr')        ? [{ value: 'wl_rhr',    label: 'Resting HR',    unit: 'bpm',   apiSource: 'fitgarm', apiField: 'resting_hr' }] : []),
       ...(_wlVisible('hrv_daily_rmssd')   ? [{ value: 'wl_hrv',    label: 'HRV',           unit: 'ms',    apiSource: 'fitgarm', apiField: 'hrv_daily_rmssd' }] : []),
@@ -276,7 +278,7 @@
         }
         rows = dates.map(d => {
           let raw = garminData[d]?.[wlMeta.apiField] ?? fitbitData[d]?.[wlMeta.apiField] ?? hcData[d]?.[wlMeta.apiField] ?? null;
-          if (raw != null && metric === 'calories_out' && $energyUnit === 'kJ') raw = Nutrition.kcalToKj(raw);
+          if (raw != null && metric === 'wl_calories' && $energyUnit === 'kJ') raw = Math.round(Nutrition.kcalToKj(raw));
           const val = raw != null && wlMeta.fmtVal ? wlMeta.fmtVal(raw) : raw;
           return { date: d, val };
         });
@@ -706,7 +708,7 @@
     const wl = WELLNESS_METRICS.find(x => x.value === metric);
     if (wl) {
       if (wl.isWeight) return $weightUnit === 'lb' ? 'lbs' : 'kg';
-      if (metric === 'calories_out') return $energyUnit || 'kcal';
+      if (metric === 'wl_calories') return $energyUnit || 'kcal';
       return wl.unit;
     }
     const m = [...NUTRIMENTS, ...BODY_STATS].find(x => x.value === metric || x.id === metric);
@@ -720,7 +722,7 @@
     const wl = WELLNESS_METRICS.find(x => x.value === metric);
     if (wl) {
       if (wl.isWeight) return $weightUnit === 'lb' ? 'lbs' : 'kg';
-      if (metric === 'calories_out') return $energyUnit || 'kcal';
+      if (metric === 'wl_calories') return $energyUnit || 'kcal';
       return wl.unit;
     }
     const m = [...NUTRIMENTS, ...BODY_STATS].find(x => x.value === metric || x.id === metric);

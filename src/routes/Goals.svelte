@@ -406,6 +406,7 @@
   const _WL_STATS_MAP = {
     steps:              'wl_steps',
     active_minutes:     'wl_active',
+    calories_out:       'wl_calories',
     sleep_duration_min: 'wl_sleep',
     resting_hr:         'wl_rhr',
     hrv_daily_rmssd:    'wl_hrv',
