@@ -1,16 +1,19 @@
 /**
- * proxy-agent.js — forward-proxy support for outbound fetches (#177).
+ * proxy-agent.js: the server's outbound fetch, and forward-proxy support (#177).
  *
- * Node's built-in fetch (undici under the hood) does NOT honor the
- * standard HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment variables
- * by default, so self-hosters routing outbound traffic through a
- * corporate / homelab proxy have no way to steer the app's
- * outbound HTTP requests.
+ * Every fetch the server makes goes through the undici package, not the
+ * copy built into Node: that one (undici 7 in Node 24) crashes the whole
+ * process when a site closes the connection while a reply waits to be
+ * read (TraceApps/cooktrace#96, nodejs/undici#5360), and undici 8 doesn't.
+ * FormData comes along, as undici's fetch only takes its own (Node's would
+ * go out as the text "[object FormData]"). Request, Response and Headers
+ * stay Node's: undici's fetch takes Node's Headers, and the MCP server
+ * builds on Node's Request and Response.
  *
- * This module installs an undici EnvHttpProxyAgent as the global fetch
- * dispatcher whenever any of the standard proxy env vars is set. When
- * no proxy vars are set, it's a no-op — the built-in fetch behavior is
- * unchanged, no dep cost at runtime.
+ * Node's fetch doesn't honor the standard HTTP_PROXY / HTTPS_PROXY /
+ * NO_PROXY environment variables, so when any is set an undici
+ * EnvHttpProxyAgent becomes the global dispatcher. With none set, fetches
+ * go straight out.
  *
  * Env vars honored (standard *nix / curl / requests convention):
  *   HTTP_PROXY   http://proxy.example:3128
@@ -18,14 +21,17 @@
  *   NO_PROXY     localhost,127.0.0.1,.internal,off-mirror.local
  *
  * Lowercase variants (http_proxy, https_proxy, no_proxy) are ALSO
- * honored — EnvHttpProxyAgent checks both cases.
+ * honored: EnvHttpProxyAgent checks both cases.
  *
  * Imported from server/index.js right after `dotenv/config` so any
- * subsequent module-init outbound fetch already sees the dispatcher.
+ * subsequent module-init outbound fetch already uses it.
  */
 
-import { fetch as undiciFetch, setGlobalDispatcher, EnvHttpProxyAgent } from 'undici';
+import { fetch as undiciFetch, FormData as UndiciFormData, setGlobalDispatcher, EnvHttpProxyAgent } from 'undici';
 import { redactUrl } from './redact-url.js';
+
+globalThis.fetch = undiciFetch;
+globalThis.FormData = UndiciFormData;
 
 const _upper = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.NO_PROXY;
 const _lower = process.env.http_proxy || process.env.https_proxy || process.env.no_proxy;
@@ -33,14 +39,6 @@ const _lower = process.env.http_proxy || process.env.https_proxy || process.env.
 if (_upper || _lower) {
   try {
     setGlobalDispatcher(new EnvHttpProxyAgent());
-    // Node's built-in `fetch` uses the runtime's INTERNAL undici, which
-    // has its own dispatcher slot separate from the userland `undici`
-    // package's slot. `setGlobalDispatcher` above only affects userland
-    // undici. To make existing `await fetch(...)` calls across the
-    // codebase route through the proxy without rewriting every call
-    // site to import from 'undici' explicitly, swap globalThis.fetch to
-    // point at undici.fetch. Then the dispatcher we set applies.
-    globalThis.fetch = undiciFetch;
     const active = {
       // A proxy address often carries user:password@: never logged.
       HTTP_PROXY:  redactUrl(process.env.HTTP_PROXY  || process.env.http_proxy  || '(unset)'),

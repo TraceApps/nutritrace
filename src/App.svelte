@@ -20,6 +20,7 @@
   import { currentUser, userMgmtActive, setupRequired, loadAuthState, handleOidcCallback } from './stores/auth.js';
   import { needsNativeSetup, isNative, getNativeMode, getServerUrl, apiUrl, getAuthToken } from './lib/platform.js';
   import { describeConnectionIssue } from './lib/connection-message.js';
+  import { envLocksRetryDelay, envLocksShouldRetry, readCachedEnvLocks, writeCachedEnvLocks } from './lib/env-locks-retry.js';
   import { writable, get as getStore } from 'svelte/store';
   import { accountGate, ensureLocalAccount, accountReadyFor } from './lib/local-account.js';
 
@@ -636,7 +637,13 @@
     // FAB knows about env-set AI_ENABLED without waiting for Settings to
     // load. Mirrors NutriTrace #36. Signed out it would only be refused;
     // signing in loads it (see _wasNeedsLogin below).
-    if (!($userMgmtActive && !$currentUser)) loadEnvLocks();
+    // The last answer first, so Trace shows with no connection. Not signed
+    // out: the button would show on the sign-in page.
+    if (!($userMgmtActive && !$currentUser)) {
+      const cachedLocks = readCachedEnvLocks(localStorage, _envLocksServer());
+      if (cachedLocks) (await import('./stores/settings.js')).envLocks.update(v => ({ ...v, ...cachedLocks }));
+      loadEnvLocks();
+    }
 
     // Show wizard on first launch:
     // - Native server mode: NEVER show wizard (server is already configured)
@@ -843,17 +850,45 @@
    * Sends the Android app's token: cookies alone were refused there, which
    * left Trace looking unconfigured even with AI_* set on the server.
    */
+  // Retried until it succeeds (see lib/env-locks-retry.js), only while the app
+  // is in view: a hidden app sets no timer, and coming back to it or back
+  // online tries again at once.
+  const _envLocksServer = () => (isNative ? getServerUrl() || '' : '');
+  let _envLocksAttempt = 0;
+  let _envLocksTimer = null;
+  let _envLocksLoaded = false;
   async function loadEnvLocks() {
     if (isNative && !getServerUrl()) return;
+    clearTimeout(_envLocksTimer);
+    _envLocksTimer = null;
+    let status = 0;
     try {
       const headers = {};
       const token = isNative ? getAuthToken() : null;
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch(apiUrl('/api/app-config/env-locks'), { credentials: 'include', headers });
-      if (!res.ok) return;
-      const { envLocks } = await import('./stores/settings.js');
-      envLocks.set(await res.json());
-    } catch { /* defaults stay: Trace waits for a key in Settings */ }
+      status = res.status;
+      if (res.ok) {
+        const locks = await res.json();
+        const { envLocks } = await import('./stores/settings.js');
+        envLocks.set(locks);
+        writeCachedEnvLocks(localStorage, locks, _envLocksServer());
+        _envLocksLoaded = true;
+        _envLocksAttempt = 0;
+        return;
+      }
+    } catch { /* no connection: retried below */ }
+    if (!envLocksShouldRetry(status) || document.hidden) return;
+    clearTimeout(_envLocksTimer);
+    _envLocksTimer = setTimeout(loadEnvLocks, envLocksRetryDelay(_envLocksAttempt++));
+  }
+  if (typeof window !== 'undefined') {
+    // Signed out it would only be refused; signing in loads it.
+    const _envLocksWanted = () => !_envLocksLoaded && !($userMgmtActive && !$currentUser);
+    window.addEventListener('online', () => { if (_envLocksWanted()) loadEnvLocks(); });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && _envLocksWanted()) loadEnvLocks();
+    });
   }
 
   const AUTH_BYPASS = ['/forgot-password', '/reset-password', '/accept-invite'];

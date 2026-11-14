@@ -30,8 +30,18 @@ export function initI18n(initialLocale) {
   });
 }
 
-function pickInitialLocale() {
-  const nav = getLocaleFromNavigator();
+/**
+ * The locale to use when the user has never chosen one: the browser or
+ * phone's own language if we have it, English otherwise.
+ *
+ * Exported because the `language` setting defaults to the same value
+ * (#323). With a hardcoded 'en' default, App.svelte switched a Spanish
+ * browser back to English as soon as it mounted. LiftTrace does the same.
+ */
+export function pickInitialLocale() {
+  // No browser (stores loaded by tests in Node): English.
+  let nav = null;
+  try { nav = getLocaleFromNavigator(); } catch { /* no navigator */ }
   if (!nav) return 'en';
   let short = nav.split('-')[0];
   // Browsers set to Norwegian may say no or nn; the translation is Bokmal.

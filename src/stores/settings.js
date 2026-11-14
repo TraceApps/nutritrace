@@ -1,4 +1,5 @@
 import { writable, get, derived } from 'svelte/store';
+import { pickInitialLocale } from '../i18n/index.js';
 import { DB } from '../lib/db.js';
 import { noteCoachingSignature } from './coaching.js';
 import { FIRST_DAY_DEFAULT, resolveFirstDay } from '../lib/week.js';
@@ -32,7 +33,7 @@ export const USER_PREFS = new Set([
   'bodyStatsOrder','hiddenBodyStats','foodCategories','customUnits',
   'diaryShowNutritionBar','diaryTotalsMode','macroLegendMode',
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
-  'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
+  'diaryShowAllNutrients','dailyTargetsEnabled','diaryShowNutritionUnits','diaryShowMacroSummary',
   'diaryPromptQuantity','diaryShowPortionSize','diaryShowNotes','warnUnitMismatch','showUnitMetadata',
   'diaryShowCompletion',
   'diaryDefaultField',
@@ -531,7 +532,8 @@ function createSettingStore(key, defaultValue) {
 }
 
 export const appearance       = createSettingStore('appearance',       'system');
-export const language          = createSettingStore('language',          'en');
+// The browser or phone's own language until one is chosen (#323).
+export const language          = createSettingStore('language',          pickInitialLocale());
 export const energyUnit        = createSettingStore('energyUnit',       'kcal');
 export const mealNames         = createSettingStore('mealNames',        ['Breakfast','Lunch','Dinner','Snacks']);
 export const goals             = createSettingStore('goals',            {});
@@ -576,6 +578,7 @@ export const diaryShowBrands        = createSettingStore('diaryShowBrands',     
 export const diaryShowTimestamps    = createSettingStore('diaryShowTimestamps',     false);
 export const diaryShowThumbnails    = createSettingStore('diaryShowThumbnails',     true);
 export const diaryShowAllNutrients  = createSettingStore('diaryShowAllNutrients',   false);
+export const dailyTargetsEnabled   = createSettingStore('dailyTargetsEnabled', false); // recommended targets from the profile on the Nutrition Summary only; a goal set in Goals wins
 export const diaryShowNutritionUnits= createSettingStore('diaryShowNutritionUnits', true);
 export const diaryShowMacroSummary  = createSettingStore('diaryShowMacroSummary',   true);
 export const diaryPromptQuantity    = createSettingStore('diaryPromptQuantity',     true);

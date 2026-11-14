@@ -3,11 +3,11 @@ import { rememberAdminOrigin } from './lib/public-url.js';
 import { corsOrigin } from './lib/cors.js';
 import { crossSiteGuard } from './lib/cross-site.js';
 import { framingHeaders, parseFrameAncestors } from './lib/frame-ancestors.js';
-// Forward-proxy support (#177). Self-installs an undici
-// EnvHttpProxyAgent as the global fetch dispatcher when
-// HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
-// are set. No-op when unset. Must import right after dotenv/config
-// so any downstream module-init outbound fetch already sees it.
+// Every outbound fetch goes through undici 8, which doesn't crash
+// when a site closes the connection early (cooktrace#96), and
+// forward-proxy support (#177) when HTTP_PROXY / HTTPS_PROXY /
+// NO_PROXY (or lowercase equivalents) are set. Must import right
+// after dotenv/config so any module-init outbound fetch uses it.
 import './lib/proxy-agent.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -254,7 +254,9 @@ router.use('/api/auth',   authRoutes);
 // the right ordering (no admin UI before the first user).
 router.use('/api/admin/oidc', oidcAdminRoutes);
 // Federation API token management (the Settings UI, not the federation
-// clients themselves). Admin-only.
+// clients themselves). Any signed-in user manages their own tokens.
+// /api/admin/api-tokens is a legacy alias for older native Android builds.
+router.use('/api/tokens', apiTokensRoutes);
 router.use('/api/admin/api-tokens', apiTokensRoutes);
 // Outgoing webhook management (the Settings UI, not the delivery path
 // itself, that's dispatchWebhookEvent in server/lib/webhooks.js).
@@ -458,6 +460,12 @@ app.listen(PORT, async () => {
   } catch (e) {
     logger.warn(`[claim] orphan repair skipped: ${e.message}`);
   }
+
+  // Secrets people saved in their settings before TraceApps/cooktrace#92 are stored encrypted.
+  import('./lib/secret-settings.js').then(({ sealStoredSecrets }) => {
+    const n = sealStoredSecrets(db);
+    if (n) logger.info(`[secrets] encrypted ${n} saved secret(s) in user settings`);
+  }).catch(e => logger.warn(`[secrets] not sealed: ${e.message}`));
 
   // Start the notification + sync scheduler
   import('./lib/scheduler.js').then(({ startScheduler }) => startScheduler()).catch(e => {

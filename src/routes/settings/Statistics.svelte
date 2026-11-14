@@ -51,6 +51,7 @@
       ...(hasWellness ? [
         ...(_wlVisibleForStats('steps')             ? [{ key:'wl_steps',  label:'Steps' }] : []),
         ...(_wlVisibleForStats('active_minutes')    ? [{ key:'wl_active', label:'Active Minutes' }] : []),
+        ...(_wlVisibleForStats('calories_out')      ? [{ key:'wl_calories', label:'Calories Burned' }] : []),
         ...(_wlVisibleForStats('sleep_duration_min')? [{ key:'wl_sleep',  label:'Sleep' }] : []),
         ...(_wlVisibleForStats('resting_hr')        ? [{ key:'wl_rhr',    label:'Resting HR' }] : []),
         ...(_wlVisibleForStats('hrv_daily_rmssd')   ? [{ key:'wl_hrv',    label:'HRV' }] : []),

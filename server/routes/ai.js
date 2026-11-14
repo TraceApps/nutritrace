@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { wrap } from '../logger.js';
-import { getAiConfig } from '../ai.js';
+import { AI_DEFAULT_MODELS, getAiConfig } from '../ai.js';
 import { makeRateLimiter } from '../middleware/rate-limit.js';
 import { getOpenAIChatParams, openAIBase } from '../lib/openai-chat-params.js';
 import { REPLY_MAX_TOKENS, sendForReply, stoppedShort, stoppedShortError } from '../lib/trace-reply.js';
@@ -71,14 +71,6 @@ router.delete('/history', requireAuth, wrap((req, res) => {
   res.json({ ok: true });
 }));
 
-// Kept identical to src/lib/aiChat.js (scripts/ai-models.test.js checks).
-// Used when no model is chosen; an admin who set one keeps it.
-const AI_DEFAULT_MODELS = {
-  claude: 'claude-haiku-5-5',
-  openai: 'gpt-5.6-luna',
-  gemini: 'gemini-3.8-flash',
-};
-
 // Model IDs that changed name: a saved old name is sent as the new one.
 const AI_MODEL_RENAMES = {
   'gemini-3.1-pro': 'gemini-3.1-pro-preview',
@@ -101,6 +93,16 @@ const GEMINI_RETIRED = new Set([
 function geminiModelFor(model) {
   const m = renamedModel(model || AI_DEFAULT_MODELS.gemini);
   return GEMINI_RETIRED.has(m) ? AI_DEFAULT_MODELS.gemini : m;
+}
+
+// The model the proxy sends for a saved config, renames and shut-down
+// Gemini models applied. Settings shows this when AI is env-locked (#308).
+export function sentModel(cfg) {
+  const provider = cfg.ai_provider || 'claude';
+  const model = cfg.ai_model || AI_DEFAULT_MODELS[provider] || '';
+  if (provider === 'openai') return renamedModel(model);
+  if (provider === 'gemini') return geminiModelFor(model);
+  return model;
 }
 
 /**

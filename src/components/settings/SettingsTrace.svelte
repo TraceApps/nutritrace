@@ -255,6 +255,12 @@
     ? $_('settings_trace.provider_env_locked')
     : (AI_PROVIDERS.find(p => p.value === aiProviderVal)?.label || aiProviderVal || '');
 
+  // What an env-locked server uses (#308). A server from before 1.5 doesn't
+  // say, so the saved choice shows as before. A listed model shows by name.
+  $: _lockedProvider = envLocks.ai_provider || aiProviderVal;
+  $: _lockedModelId = envLocks.ai_model || aiModelVal || '';
+  $: _lockedModel = AI_MODELS[_lockedProvider]?.find(m => m.value === _lockedModelId && m.value !== '__custom__')?.label.replace(/ \(.*\)$/, '') || _lockedModelId;
+
   // (No shim needed — the reactive `_hasAll` derivation above gives
   // legacy users an immediate green banner whenever the required
   // fields are populated, without writing to aiKeyVerified.)
@@ -287,15 +293,28 @@
       <div class="setting-divider"></div>
       <div class="setting-row">
         <span class="setting-label pick-label">{$_('settings_trace.labels.provider')}</span>
-        <select class="select sel-sm pick" style="width:auto" bind:value={aiProviderVal} on:change={_onProviderChange} disabled={envLocks.ai}>
-          {#each AI_PROVIDERS as p}
-            <option value={p.value}>{p.label}</option>
-          {/each}
-        </select>
+        {#if envLocks.ai}
+          <select class="select sel-sm pick" style="width:auto" disabled>
+            <option>{AI_PROVIDERS.find(p => p.value === _lockedProvider)?.label || _lockedProvider || ''}</option>
+          </select>
+        {:else}
+          <select class="select sel-sm pick" style="width:auto" bind:value={aiProviderVal} on:change={_onProviderChange}>
+            {#each AI_PROVIDERS as p}
+              <option value={p.value}>{p.label}</option>
+            {/each}
+          </select>
+        {/if}
       </div>
 
       <div class="setting-divider"></div>
-      {#if aiProviderVal === 'oai-compat'}
+      {#if envLocks.ai}
+        <div class="setting-row">
+          <span class="setting-label pick-label">{$_('settings_trace.labels.model')}</span>
+          <select class="select sel-sm pick" style="width:auto" disabled>
+            <option>{_lockedModel}</option>
+          </select>
+        </div>
+      {:else if aiProviderVal === 'oai-compat'}
         <!-- Custom OpenAI-compatible: free-text Base URL + Model name -->
         <div class="form-group" style="padding:10px 16px">
           <label class="form-label" for="ai-base-url">{$_('settings_trace.labels.base_url')}</label>

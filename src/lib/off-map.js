@@ -89,6 +89,12 @@ export function luceneEscape(s) {
     .replace(/\|\|/g, '\\|\\|');
 }
 
+/** The `langs=` value for a search: the user's language, then English. */
+export function offSearchLangs(lang) {
+  const l = offLanguage(lang);
+  return l === 'en' ? 'en' : `${l},en`;
+}
+
 // Build the search-a-licious URL. OFF's canonical text-search endpoint,
 // backed by ElasticSearch. Supports typo tolerance, fuzzy matching, and
 // multilingual analysis vs the deprecated v2 API's substring MongoDB
@@ -96,6 +102,9 @@ export function luceneEscape(s) {
 // than a separate query param (v2's `countries_tags=` is a no-op here).
 // Language filter uses `langs=` (v2 used `lc=`, ignored by search-a-licious).
 // `country` is a countries_tags value (offCountryTag), `lang` a two-letter code.
+// English rides along with any other language (#320): a product whose name is
+// only in English is still found, and langs=uk alone returned nothing at all
+// on OFF's production index in 2026-11.
 export function offSearchUrl(query, { page = 1, pageSize = 50, country = null, lang = 'en' } = {}) {
   const escaped  = luceneEscape(query);
   const qWithFilter = country
@@ -105,7 +114,7 @@ export function offSearchUrl(query, { page = 1, pageSize = 50, country = null, l
     q: qWithFilter,
     page_size: String(pageSize),
     page: String(page),
-    langs: lang,
+    langs: offSearchLangs(lang),
   });
   return `${OFF_SEARCH_BASE}?${params.toString()}`;
 }

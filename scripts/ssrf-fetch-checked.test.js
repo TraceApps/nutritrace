@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import http from 'node:http';
 import dns from 'node:dns/promises';
+import { spawnSync } from 'node:child_process';
 import { fetchChecked, serviceBase, isLinkLocalOrCloudMeta, isPrivateOrLoopback, isSameServer, readBody } from '../server/lib/ssrf-guard.js';
 
 async function server(handler) {
@@ -152,4 +153,29 @@ test('a reply body is read up to a cap', async () => {
     assert.equal((await readBody(await fetchChecked(`http://127.0.0.1:${s.port}/`, {}, { allowPrivate: true }), 10000)).length, 5000);
     await assert.rejects(async () => readBody(await fetchChecked(`http://127.0.0.1:${s.port}/`, {}, { allowPrivate: true }), 1000), /too large/);
   } finally { s.close(); }
+});
+
+test('a site that closes while the reply is still being read does not crash the server', () => {
+  // undici before 8 crashed the whole process (an uncatchable
+  // assert(!this.paused)) when a site closed its connection while the
+  // reply waited to be read (TraceApps/cooktrace#96). A child process, as
+  // that crash can't be caught here.
+  const child = `
+    import net from 'node:net';
+    import { fetchChecked, readBody } from ${JSON.stringify(new URL('../server/lib/ssrf-guard.js', import.meta.url).href)};
+    const body = Buffer.alloc(64 * 1024, 0x61);
+    const s = net.createServer(sock => sock.once('data', () => {
+      sock.write('HTTP/1.1 200 OK\\r\\nContent-Length: ' + body.length + '\\r\\nConnection: close\\r\\n\\r\\n');
+      sock.write(body);
+      sock.end();
+    }));
+    s.listen(0, '127.0.0.1', async () => {
+      const res = await fetchChecked('http://127.0.0.1:' + s.address().port + '/', {}, { allowPrivate: true });
+      await new Promise(r => setTimeout(r, 300));
+      console.log('read', (await readBody(res, 1e6)).length);
+      s.close();
+    });`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', child], { encoding: 'utf8', timeout: 20000 });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /read 65536/);
 });

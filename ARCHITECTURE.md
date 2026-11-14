@@ -522,7 +522,7 @@ See `.env.example` for the full list. Key ones:
 - `TRACE_REQUEST_BODIES`, separately opts sensitive request content into trace logs
 - `TRACE_REQUEST_PATHS` and `TRACE_BODY_MAX_BYTES`, limit traced routes and output size (`none` disables body tracing)
 - Request diagnostics count bytes before parsing and capture selected, bounded request bodies after access checks; `X-Request-ID` correlates client and server logs
-- `SMTP_*`, optional, locks Settings UI fields when set
+- `SMTP_*`, optional; a non-empty `SMTP_HOST` locks the Settings UI fields until it is removed
 - `AI_*`, optional, locks AI Assistant settings when set
 - `PUBLIC_URL`, the address emailed links (reset, invite, sharing)
   use; unset, an address an admin has used, never request headers

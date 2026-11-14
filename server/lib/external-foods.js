@@ -24,6 +24,7 @@ import {
 import { fetchExternalJson, ExternalApiError, isAirGapped } from './external-api.js';
 import { localizeImage } from './image-localizer.js';
 import { resolveNewItemVisibility } from './default-visibility.js';
+import { readSettingRaw } from './secret-settings.js';
 
 // The page the Foods page asks for and ranks (API.searchByName,
 // USDA.searchByName): results are ranked within it, then cut to the limit.
@@ -78,7 +79,7 @@ export function parseRef(ref) {
 function _setting(userId, key, fallback) {
   const row = db.prepare('SELECT value FROM user_settings WHERE user_id = ? AND key = ? AND deleted_at IS NULL').get(userId, key);
   if (!row || row.value == null) return fallback;
-  try { return JSON.parse(row.value); } catch { return row.value; }
+  return readSettingRaw(key, row.value);
 }
 
 /** The settings the Foods page searches with (stores/settings.js defaults). */

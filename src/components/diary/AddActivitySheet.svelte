@@ -6,6 +6,7 @@
   import { addActivity, updateActivity } from '../../stores/activity.js';
   import { energyUnit, distUnit, weightUnit } from '../../stores/settings.js';
   import { Nutrition } from '../../lib/nutrition.js';
+  import { activitySuggestions } from '../../lib/activity-suggestions.js';
   import { NtApi } from '../../lib/api.js';
   import { DB } from '../../lib/db.js';
   import { ACTIVITIES, search as searchCompendium, metKcal, findById } from '../../lib/activity-picker.js';
@@ -104,28 +105,14 @@
         }
         if (pick && pick.wKg > 0) userWeightKg = pick.wKg;
       });
-      // Past 90 days of names (existing behavior) + templates (new). Both
-      // fire-and-forget so the sheet is usable even if the fetch fails.
-      const today = new Date();
+      // Past 90 days of names, and every template however old (#321), each
+      // at its newest version. Fire-and-forget so the sheet is usable even
+      // if the fetch fails.
       const past = new Date(); past.setDate(past.getDate() - 90);
       const fmt = d => d.toISOString().slice(0, 10);
-      NtApi.getActivityRange(fmt(past), fmt(today))
+      NtApi.getActivityRange('1900-01-01', '2999-12-31')
         .then(rows => {
-          const seen = new Set();
-          pastNames = (rows || [])
-            .map(r => (r?.name || '').trim())
-            .filter(n => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()))
-            .slice(0, 50);
-          const tplSeen = new Set();
-          templates = (rows || [])
-            .filter(r => r?.is_template)
-            .filter(r => {
-              const k = (r.name || '').toLowerCase();
-              if (tplSeen.has(k)) return false;
-              tplSeen.add(k);
-              return true;
-            })
-            .slice(0, 12);
+          ({ pastNames, templates } = activitySuggestions(rows, { since: fmt(past) }));
         })
         .catch(() => { pastNames = []; templates = []; });
       // #170 follow-up: also select the existing name so an edit

@@ -319,7 +319,7 @@
     backup:            ['backup','full backup','restore','zip','images','clear data','reset','defaults','clear settings','danger zone'],
     importExport:      ['import','export','import & export','json','csv','bulk import','foods bulk','myfitnesspal','mfp','loseit','lose it','cronometer','spreadsheet','migrate','migration','from another app','diary csv','full nutrition csv','micronutrients export','vitamins export','custom nutrients export'],
     email:             ['email','smtp','mail','password reset','invites','notifications'],
-    profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','avatar','log out','logout','sign out','password','change password','biometric','fingerprint','face unlock','face id','two-step sign-in','two-step','two step','2fa','mfa','two-factor','two factor','totp','authenticator','authenticator app','one-time code','recovery code','recovery codes','sign out everywhere','sign out all devices','sign out other devices','other devices','sessions','stolen session'],
+    profile:           ['profile','my profile','account','name','nickname','birthday','dob','gender','sex','activity','activity level','how active','active','sedentary','avatar','log out','logout','sign out','password','change password','biometric','fingerprint','face unlock','face id','two-step sign-in','two-step','two step','2fa','mfa','two-factor','two factor','totp','authenticator','authenticator app','one-time code','recovery code','recovery codes','sign out everywhere','sign out all devices','sign out other devices','other devices','sessions','stolen session'],
     users:             ['users','user management','accounts','login','admin','register','invite','revoke','pending invite','session','session duration','password policy','strong password','strong passwords','require strong','zxcvbn','coach','coaching','coach role','client','clients','pairing','end coaching','dietitian','trainer','two-step sign-in','require two-step','reset two-step','2fa','mfa','two-factor','authenticator'],
     apiTokens:         ['api','api tokens','token','federation','cooktrace','lifttrace','bearer','integration','integrations','external','third-party','third party','token expiry','expires','expiry'],
     webhooks:          ['webhooks','webhook','automation','n8n','home assistant','ifttt','push','event','integration','integrations','http post','callback url','signature','hmac','secret'],
@@ -590,6 +590,13 @@
     <span>{$_('settings.connected_services.section')}</span>
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
+  {#if !isNativeLocal && $userMgmtActive}
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
+      <span class="material-symbols-rounded si">key</span>
+      <span>{$_('settings.api_tokens.section')}</span>
+      <span class="material-symbols-rounded chevron">expand_more</span>
+    </button>
+  {/if}
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'ai')} class:active={currentSection === 'ai'} aria-current={currentSection === 'ai' ? 'page' : undefined} on:click={() => toggleSection('ai')}>
     <span class="material-symbols-rounded si">smart_toy</span>
     <span>{$_('settings.ai.section')}</span>
@@ -664,11 +671,6 @@
       </button>
     {/if}
     {#if $currentUser?.role === 'admin'}
-      <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'apiTokens')} class:active={currentSection === 'apiTokens'} aria-current={currentSection === 'apiTokens' ? 'page' : undefined} on:click={() => toggleSection('apiTokens')}>
-        <span class="material-symbols-rounded si">key</span>
-        <span>{$_('settings.api_tokens.section')}</span>
-        <span class="material-symbols-rounded chevron">expand_more</span>
-      </button>
       <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'webhooks')} class:active={currentSection === 'webhooks'} aria-current={currentSection === 'webhooks' ? 'page' : undefined} on:click={() => toggleSection('webhooks')}>
         <span class="material-symbols-rounded si">webhook</span>
         <span>{$_('settings.webhooks.section')}</span>
@@ -1699,12 +1701,19 @@
     border-radius: var(--radius-lg);
     cursor: pointer;
     text-align: left;
-    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+    transition: background 120ms ease, border-color 120ms ease;
   }
   .settings-onboarding-card:hover {
     background: var(--surface-2);
     border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-    transform: translateY(-1px);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    :global(html:not(.no-animations)) .settings-onboarding-card {
+      transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+    }
+    :global(html:not(.no-animations)) .settings-onboarding-card:hover {
+      transform: translateY(-1px);
+    }
   }
   .settings-onboarding-card:focus-visible {
     outline: 2px solid var(--accent);

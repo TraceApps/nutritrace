@@ -19,6 +19,7 @@
  * kcal), so reading 1008 alone saved them at 0 kcal. See USDA_ENERGY_IDS.
  */
 import { Nutrition } from './nutrition.js';
+import { parseAltUnits } from './units.js';
 
 // USDA FoodData Central nutrient ID → our nutrition object key
 export const USDA_NUTRIENT_MAP = {
@@ -150,6 +151,76 @@ export function usdaFdcId(barcode) {
   return m ? m[1] : null;
 }
 
+// USDA portions -> alt_units rows (#289), from a /food/{fdcId} detail's
+// foodPortions or a Survey search hit's foodMeasures. The label lives in a
+// different field per data type:
+//   SR Legacy: modifier "large" / "cup, chopped", measureUnit "undetermined"
+//   Foundation: measureUnit.name "cup" (+ optional modifier "chopped")
+//   Survey: portionDescription / disseminationText "1 egg", "1/2 cup"; its
+//     modifier is a numeric food code, not a label
+// grams is per ONE unit: gramWeight / amount, where a Survey row's amount is
+// the number its text starts with ("1/2 cup" = 120 g -> cup = 240). Survey's
+// "Quantity not specified" (USDA's typical portion) becomes "serving", unless
+// another unit weighs the same (fried egg: serving = 1 egg = 55 g).
+// Dropped: Foundation's RACC row and Survey's "guideline amount per ..."
+// rows (reference amounts, not units anyone picks); bare mass units like
+// "oz", which scaleFactor already converts; duplicates. Volume rows stay:
+// "1 cup" of cooked rice is 174 g, not the 240 g a water-based cup gives.
+// Returns null when nothing usable is left, matching OFF's altUnits.
+const USDA_BARE_MASS = new Set(['g', 'mg', 'kg', 'oz', 'lb']);
+export function usdaPortionsToAltUnits(portions) {
+  if (!Array.isArray(portions)) return null;
+  const rows = [];
+  const seen = new Set();
+  for (const p of portions) {
+    const grams = Number(p && p.gramWeight);
+    if (!Number.isFinite(grams) || grams <= 0) continue;
+    const unitName = String((p.measureUnit && p.measureUnit.name) || p.measureUnitName || '').trim();
+    if (unitName === 'RACC') continue;
+    const modifier = String(p.modifier || '').trim();
+    let label;
+    let amount = Number(p.amount);
+    if (unitName && unitName !== 'undetermined') {
+      label = modifier ? unitName + ', ' + modifier : unitName;
+    } else if (modifier && !/^\d/.test(modifier)) {
+      label = modifier;
+    } else {
+      const text = String(p.portionDescription || p.disseminationText || '');
+      const m = text.match(/^\s*(\d+(?:\.\d+)?)(?:\s*\/\s*(\d+))?\s*/);
+      if (m && !(amount > 0)) amount = m[2] ? Number(m[1]) / Number(m[2]) : Number(m[1]);
+      label = m ? text.slice(m[0].length) : text;
+    }
+    if (!(amount > 0)) amount = 1;
+    label = label.trim().toLowerCase();
+    if (label === 'quantity not specified') label = 'serving';
+    if (!label || /^guideline amount/.test(label) || seen.has(label)) continue;
+    if (USDA_BARE_MASS.has(label)) continue;
+    seen.add(label);
+    rows.push({ abbr: label, grams: Math.round(grams / amount * 10) / 10 });
+  }
+  const serving = rows.find(r => r.abbr === 'serving');
+  const out = serving && rows.some(r => r !== serving && r.grams === serving.grams)
+    ? rows.filter(r => r !== serving) : rows;
+  return out.length ? out : null;
+}
+
+/**
+ * What Refresh from USDA does to a food's units (#289): every row the food
+ * has stays as it is, then each USDA unit it doesn't have yet is added. A
+ * unit it already has keeps its grams, which the user may have corrected.
+ * Nothing records which rows came from USDA, so one removed by hand comes
+ * back on the next refresh.
+ * @returns {{ alt_units: object[]|null, added: number }} alt_units is
+ *   `current` itself when nothing was added.
+ */
+export function mergeUsdaAltUnits(current, usdaUnits) {
+  const own = parseAltUnits(current) || [];
+  const have = new Set(own.map(r => String((r && r.abbr) || '').trim().toLowerCase()));
+  const extra = (usdaUnits || []).filter(r => !have.has(r.abbr));
+  if (!extra.length) return { alt_units: current, added: 0 };
+  return { alt_units: [...own, ...extra], added: extra.length };
+}
+
 /**
  * One FoodData Central food, from /foods/search or /food/{fdcId}, as a food
  * per 100 g (or 100 ml). Like an OFF lookup, it carries a non-enumerable
@@ -227,6 +298,10 @@ export function mapUsdaFood(item) {
     // composite), 'Branded' (brand-submitted, quality varies wildly),
     // 'Experimental' (research; tiny). Null for old imports that lack it.
     dataType:  item.dataType || null,
+    // Household units (#289). Survey search hits carry them as
+    // foodMeasures; SR Legacy and Foundation ones only in the detail
+    // (lookupFdcId), which Foods fetches when one is picked.
+    alt_units: usdaPortionsToAltUnits(item.foodPortions || item.foodMeasures),
     _source:   'usda',
   };
   Object.defineProperty(mapped, '_offPresent', { value: [...present], enumerable: false });

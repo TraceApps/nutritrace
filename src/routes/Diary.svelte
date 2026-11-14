@@ -9,6 +9,8 @@
   import DayPicker  from '../components/ui/DayPicker.svelte';
   import { resolveAssetUrl, isNative, getServerUrl } from '../lib/platform.js';
   import { resolveGoalFor } from '../lib/goal-resolver.js';
+  import { recommendedTargets } from '../lib/daily-targets.js';
+  import { currentUser } from '../stores/auth.js';
   import { fade, slide, fly } from 'svelte/transition';
   import { tweened } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
@@ -51,7 +53,7 @@
            diaryShowBrands, diaryShowThumbnails,
            diaryShowTimestamps, diaryShowMacroSummary, diaryPromptQuantity,
            diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode, macroLegendMode, distUnit,
-           diaryShowAllNutrients, diaryShowNutritionUnits, visibleNutriments, hiddenBodyStats,
+           diaryShowAllNutrients, dailyTargetsEnabled, diaryShowNutritionUnits, visibleNutriments, hiddenBodyStats,
            showQuickCalories, quickCaloriesDisplay,
            dateFormat, timeFormat, disableAnimations, goalCelebrations, pageBanners, bannerStyle,
            calorieGoalMode, calorieGoalFactor,
@@ -958,6 +960,44 @@
       return density ? Math.round(caloriesGoal * raw / 100 / density) : raw;
     }
     return raw;
+  }
+  // Recommended targets from the profile (lib/daily-targets.js), for the
+  // Nutrition Summary only. Daily Targets in Settings > Diary, off by
+  // default. A goal set in Goals always wins over these. The profile is
+  // read again whenever one of its settings changes (sign-in pulling them
+  // from the server, a new weight), not only when the Diary opens.
+  const _TARGET_PROFILE_KEYS = new Set(['gender', 'dob', 'height_cm', 'weight_kg', 'target_weight', 'activity']);
+  let _profileRev = 0;
+  function _onProfileSetting(e) { if (_TARGET_PROFILE_KEYS.has(e?.detail?.key)) _profileRev++; }
+  onMount(() => {
+    window.addEventListener('wl:setting', _onProfileSetting);
+    return () => window.removeEventListener('wl:setting', _onProfileSetting);
+  });
+  // Birthday and sex: the account's (Profile) first, then setup's answers,
+  // the same order as Trace and MCP get_profile.
+  function _profileForTargets(_rev, u) {
+    return {
+      gender: u?.gender || DB.getSetting('gender', ''), dob: u?.birthday || DB.getSetting('dob', ''),
+      height_cm: DB.getSetting('height_cm', null), weight_kg: DB.getSetting('weight_kg', null),
+      target_weight: DB.getSetting('target_weight', null), activity: DB.getSetting('activity', ''),
+    };
+  }
+  $: _recTargets = $dailyTargetsEnabled ? recommendedTargets(_profileForTargets(_profileRev, $currentUser), caloriesGoal) : {};
+  $: _nsTargets = (() => {
+    const out = { ..._recTargets };
+    for (const id of Object.keys($goals || {})) {
+      const g = $goals[id];
+      if (!g || id === 'calories') continue;
+      const v = _macroGoal(id, $currentDate) ?? resolveGoalFor(g, $currentDate);
+      if (v == null) continue;
+      out[id] = { value: v, kind: g.max != null ? 'max' : 'min' };
+    }
+    return out;
+  })();
+  $: _nsRows = NUTRIMENTS.filter(n => _nsTargets[n.id] || (($diaryShowAllNutrients ? true : n.default) && (totals[n.id] || 0) > 0));
+  function _nsOver(id) {
+    const t = _nsTargets[id];
+    return !!t && t.kind === 'max' && (totals[id] || 0) > t.value;
   }
   $: fatGoal   = _macroGoal('fat', $currentDate);
   $: carbGoal  = _macroGoal('carbohydrates', $currentDate);
@@ -3544,14 +3584,14 @@
         </div>
         <!-- All nutrients — tap a row to drill into top contributors -->
         <div class="ns-rows">
-          {#each NUTRIMENTS.filter(n => ($diaryShowAllNutrients ? true : n.default) && (totals[n.id] || 0) > 0) as n}
+          {#each _nsRows as n}
             {@const isOpen = _nsExpanded === n.id}
             <div class="ns-row ns-row-clickable" role="button" tabindex="0"
                  on:click={() => _nsToggle(n.id)}
                  on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _nsToggle(n.id); } }}>
               <span>{tr('nutriments', n.id, n.label, $locale)}</span>
               <span class="ns-row-right">
-                <span class="font-medium">{(Math.round((totals[n.id]||0)*10)/10).toLocaleString()} {n.unit}</span>
+                <span class="font-medium" style={_nsOver(n.id) ? 'color:var(--danger)' : ''}>{(Math.round((totals[n.id]||0)*10)/10).toLocaleString()}{#if _nsTargets[n.id]}<span class="text-3">{' '}/ {_nsTargets[n.id].kind === 'max' ? '≤ ' : _nsTargets[n.id].kind === 'min' ? '≥ ' : ''}{_nsTargets[n.id].value.toLocaleString()}</span>{/if} {n.unit}</span>
                 <span class="material-symbols-rounded ns-chev" class:open={isOpen}>chevron_right</span>
               </span>
             </div>
@@ -4103,15 +4143,12 @@
       outline-offset: -2px;
       background: color-mix(in srgb, var(--accent) 6%, var(--surface-1));
     }
-    /* Polish: hover elevation on desktop with hover-capable input.
-       Subtle 2px lift + slightly stronger shadow signals card is
-       interactive without being noisy. Skipped on touch (:hover fires
-       oddly on tap-and-hold). */
+    /* Hover shadows on desktop with hover-capable input.
+       Skipped on touch (:hover fires oddly on tap-and-hold). */
     @media (hover: hover) {
       :global(html:not(.force-mobile-layout)) .meal-col > .meal-group:not(.dragging):hover {
-        transform: translateY(-1px);
         box-shadow: 0 6px 20px -8px rgba(0,0,0,0.14);
-        transition: transform 160ms ease, box-shadow 160ms ease;
+        transition: box-shadow 160ms ease;
       }
       :global(html:not(.force-mobile-layout) [data-theme="dark"]) .meal-col > .meal-group:not(.dragging):hover,
     :global(html:not(.force-mobile-layout) :root:not([data-theme="light"])) .meal-col > .meal-group:not(.dragging):hover {
@@ -4119,8 +4156,14 @@
       }
       /* Right rail widgets get the same treatment. */
       :global(html:not(.force-mobile-layout)) .diary-right-col > :hover {
-        transform: translateY(-1px);
         box-shadow: 0 6px 20px -8px rgba(0,0,0,0.14);
+        transition: box-shadow 160ms ease;
+      }
+    }
+    @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+      :global(html:not(.force-mobile-layout):not(.no-animations)) .meal-col > .meal-group:not(.dragging):hover,
+      :global(html:not(.force-mobile-layout):not(.no-animations)) .diary-right-col > :hover {
+        transform: translateY(-1px);
         transition: transform 160ms ease, box-shadow 160ms ease;
       }
     }
@@ -4959,6 +5002,8 @@
   .ns-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
   .ns-row:last-child { border-bottom: none; }
   .ns-row-clickable {
+    padding: 10px 12px;
+    margin: 0 -12px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     user-select: none;

@@ -32,7 +32,7 @@
 
   const OFF_LANGUAGE_OPTS = [
     ['en','English'],['fr','French'],['de','German'],['es','Spanish'],['it','Italian'],
-    ['pt','Portuguese'],['nl','Dutch'],['pl','Polish'],['ru','Russian'],['ja','Japanese'],
+    ['pt','Portuguese'],['nl','Dutch'],['pl','Polish'],['ru','Russian'],['uk','Ukrainian'],['ja','Japanese'],
     ['zh','Chinese'],['ar','Arabic'],['ko','Korean']
   ];
   // Alphabetized (World stays first as the "no filter" default). Kept
@@ -45,8 +45,8 @@
     'Argentina','Australia','Austria','Belgium','Brazil','Canada','Chile','China',
     'Denmark','Finland','France','Germany','India','Ireland','Italy','Japan',
     'Mexico','Netherlands','New Zealand','Norway','Poland','Portugal','Singapore',
-    'South Africa','South Korea','Spain','Sweden','Switzerland','United Kingdom',
-    'United States'];
+    'South Africa','South Korea','Spain','Sweden','Switzerland','Ukraine',
+    'United Kingdom','United States'];
   let offSearchLanguage = DB.getSetting('offSearchLanguage', 'en');
   let offSearchCountry  = DB.getSetting('offSearchCountry',  'World');
   let offUploadCountry  = DB.getSetting('offUploadCountry',  'Auto');

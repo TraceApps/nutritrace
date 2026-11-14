@@ -1,4 +1,5 @@
 <script>
+  import { pastedImage } from '../../lib/paste-image.js';
   import AttachImageButton from './AttachImageButton.svelte';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { offNutritionStatus, needsFullLookup } from '../../lib/off-nutrition.js';
@@ -20,6 +21,7 @@
   import NutritionFactsBox from '../ui/NutritionFactsBox.svelte';
   import { readBodyStat, LENGTH_KEYS } from '../../lib/body-stats-unit.js';
   import { callAI, callAIProxy, TOOLS, setToolHandler } from '../../lib/aiChat.js';
+  import { nutritionForPortion } from '../../lib/units.js';
   import { aiEnabled, aiEffectivelyEnabled, envLocks, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled, smartLogVoiceLang } from '../../stores/settings.js';
 
   // Resolve the configured voice-input language. Shared with SmartLogModal:
@@ -202,7 +204,7 @@
 
     // Unit conversion for tool results — convert before AI sees the data
     function _convertWellnessUnits(data) {
-      const distUnit = DB.getSetting('distUnit', 'km');
+      const distUnit = DB.getSetting('distUnit', 'mi');
       const weightUnit = DB.getSetting('weightUnit', 'lb');
       const tempUnit = DB.getSetting('tempUnit', 'F');
       const converted = {};
@@ -379,7 +381,7 @@
             catch { workouts = []; }
           }
           // Convert distance to user's preferred unit
-          const distUnit = DB.getSetting('distUnit', 'km');
+          const distUnit = DB.getSetting('distUnit', 'mi');
           if (distUnit === 'mi') {
             for (const w of workouts) {
               if (w.distance_km != null) {
@@ -618,6 +620,9 @@
           }
         }
         case 'log_food': {
+          // A unit this food can't be converted to (no size saved for it):
+          // ask for a weight instead of guessing (#310).
+          const unitError = (f, u) => `"${f.name}" is stored per ${f.portion || 100} ${f.unit || 'g'} and has no size for "${u}", so that amount can't be worked out. Estimate the weight and pass portion in ${f.unit || 'g'}, or omit portion and unit and use quantity for servings of ${f.portion || 100} ${f.unit || 'g'}.`;
           // Issue #79: AI Assistant adds Quick Calories to wrong meal instead
           // of creating a real food entry. Before this tool, the AI's only
           // direct-write option was log_quick_calories (kcal-only) — so
@@ -666,9 +671,11 @@
                 unit:    unitOverride    ?? food.unit    ?? 'g',
                 quantity,
               };
+              item.nutrition = nutritionForPortion(food, item.portion, item.unit);
+              if (item.nutrition === null && food.nutrition) return { error: unitError(food, item.unit) };
               const { addDiaryItem } = await import('../../stores/diary.js');
               await addDiaryItem(item, mealIdx, date);
-              const kcal = Math.round(((food.nutrition?.calories || 0) * (item.portion / (food.portion || 100))) * quantity);
+              const kcal = Math.round((item.nutrition?.calories || 0) * quantity);
               return { ok: true, date, meal: mealIdx, meal_name: mealName, food_name: food.name, portion: item.portion, unit: item.unit, quantity, kcal, source: 'local' };
             } catch (e) {
               return { error: 'Failed to log food: ' + (e?.message || String(e)) };
@@ -703,9 +710,11 @@
                 unit:    unitOverride    ?? food.unit    ?? 'g',
                 quantity,
               };
+              item.nutrition = nutritionForPortion(food, item.portion, item.unit);
+              if (item.nutrition === null && food.nutrition) return { error: unitError(food, item.unit) };
               const { addDiaryItem } = await import('../../stores/diary.js');
               await addDiaryItem(item, mealIdx, date);
-              const kcal = Math.round(((food.nutrition?.calories || 0) * (item.portion / (food.portion || 100))) * quantity);
+              const kcal = Math.round((item.nutrition?.calories || 0) * quantity);
               return { ok: true, date, meal: mealIdx, meal_name: mealName, food_name: food.name, portion: item.portion, unit: item.unit, quantity, kcal, source: 'local' };
             } catch (e) {
               return { error: 'Failed to log food: ' + (e?.message || String(e)) };
@@ -775,9 +784,11 @@
                   unit:    unitOverride    ?? saved.unit    ?? 'g',
                   quantity,
                 };
+                item.nutrition = nutritionForPortion(saved, item.portion, item.unit);
+                if (item.nutrition === null && saved.nutrition) return { error: unitError(saved, item.unit) };
                 const { addDiaryItem } = await import('../../stores/diary.js');
                 await addDiaryItem(item, mealIdx, date);
-                const kcal = Math.round(((saved.nutrition?.calories || 0) * (item.portion / (saved.portion || 100))) * quantity);
+                const kcal = Math.round((item.nutrition?.calories || 0) * quantity);
                 return { ok: true, date, meal: mealIdx, meal_name: mealName, food_name: saved.name, portion: item.portion, unit: item.unit, quantity, kcal, source: 'off' };
               } catch (e) {
                 return { error: 'Failed to log food after OFF lookup: ' + (e?.message || String(e)) };
@@ -1518,7 +1529,7 @@
         if (fd.calories_out != null)          parts.push(`Calories burned: ${Math.round(fd.calories_out)}`);
         if (fd.floors != null)                parts.push(`Floors: ${Math.round(fd.floors)}`);
         if (fd.distance_km != null) {
-          const _du = DB.getSetting('distUnit', 'km');
+          const _du = DB.getSetting('distUnit', 'mi');
           parts.push(`Distance: ${_du === 'mi' ? (fd.distance_km * 0.621371).toFixed(2) + ' mi' : fd.distance_km.toFixed(2) + ' km'}`);
         }
         if (fd.sleep_duration_min != null)    { const h = Math.floor(fd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(fd.sleep_duration_min%60)}m`); }
@@ -1552,7 +1563,7 @@
           const details = [];
           if (w.duration_ms) details.push(`${Math.round(w.duration_ms/60000)} min`);
           if (w.distance_km) {
-            const _du = DB.getSetting('distUnit', 'km');
+            const _du = DB.getSetting('distUnit', 'mi');
             details.push(`${_du === 'mi' ? (w.distance_km * 0.621371).toFixed(2) + ' mi' : w.distance_km.toFixed(2) + ' km'}`);
           }
           if (w.calories) {
@@ -1578,7 +1589,7 @@
         if (gd.active_minutes != null)        parts.push(`Active minutes: ${Math.round(gd.active_minutes)}`);
         if (gd.calories_out != null)          parts.push(`Calories burned: ${Math.round(gd.calories_out)}`);
         if (gd.distance_km != null) {
-          const _du = DB.getSetting('distUnit', 'km');
+          const _du = DB.getSetting('distUnit', 'mi');
           parts.push(`Distance: ${_du === 'mi' ? (gd.distance_km * 0.621371).toFixed(2) + ' mi' : gd.distance_km.toFixed(2) + ' km'}`);
         }
         if (gd.sleep_duration_min != null)    { const h = Math.floor(gd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(gd.sleep_duration_min%60)}m`); }
@@ -1634,7 +1645,7 @@
         const hcData = await dbGetWellnessByDate(today, 'health_connect').catch(() => null);
         if (hcData && Object.keys(hcData).length) {
           const parts = [];
-          const _du = DB.getSetting('distUnit', 'km');
+          const _du = DB.getSetting('distUnit', 'mi');
           if (hcData.steps != null)          parts.push(`Steps: ${Math.round(hcData.steps).toLocaleString()}`);
           if (hcData.calories_out != null)   parts.push(`Calories burned: ${Math.round(hcData.calories_out)}`);
           if (hcData.active_calories != null) parts.push(`Active calories: ${Math.round(hcData.active_calories)}`);
@@ -1695,7 +1706,7 @@
 
     return { today, userName, profileText, diaryText, goalsText, statsText, wellnessText, waterText, streakText, mealNamesText,
       weightUnit: DB.getSetting('weightUnit', 'lb'),
-      distUnit: DB.getSetting('distUnit', 'km'),
+      distUnit: DB.getSetting('distUnit', 'mi'),
       heightUnit: DB.getSetting('heightUnit', 'ft'),
       tempUnit: DB.getSetting('tempUnit', 'F'),
       energyUnit: DB.getSetting('energyUnit', 'kcal'),
@@ -1965,7 +1976,15 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     return { role: 'user', content: text };
   }
 
-  // From the shared attach button: an array of image Files. Trace takes one.
+  function _onPaste(e) {
+    if (loading) return;
+    const file = pastedImage(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    _useImageFiles([file]);
+  }
+
+  // From the shared attach button or clipboard: an array of image Files. Trace takes one.
   function _useImageFiles(files) {
     const file = files?.[0];
     if (!file) return;
@@ -2513,6 +2532,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
           bind:value={input}
           placeholder={$_('trace.ask_placeholder')}
           on:keydown={onKey}
+          on:paste={_onPaste}
           rows="1"
           disabled={loading}
         ></textarea>
