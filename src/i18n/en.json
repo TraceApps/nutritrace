@@ -633,6 +633,16 @@
       "upload_failed": "Upload failed",
       "password_change_failed": "Could not change password",
       "delete_account_failed": "Could not delete account"
+    },
+    "activity_level": "Activity Level",
+    "activity_level_desc": "Sets the protein target in Daily Targets.",
+    "activity_unset": "Not set",
+    "activity_levels": {
+      "sedentary": "Sedentary",
+      "light": "Lightly Active",
+      "moderate": "Moderately Active",
+      "active": "Very Active",
+      "very_active": "Extremely Active"
     }
   },
   "wizard": {
@@ -1312,7 +1322,9 @@
     "schedule_goal": "Schedule Goal",
     "show_progress_bar": "Show Daily Goals Progress Bar",
     "show_progress_bar_desc": "Progress strip at the bottom of the diary showing how much of your daily goals you've hit",
-    "meal_names": "Meal Names"
+    "meal_names": "Meal Names",
+    "daily_targets": "Daily Targets",
+    "daily_targets_desc": "Show a recommended daily amount for each nutrient on the Nutrition Summary. Protein follows your target weight and activity level, fat and carbs split your calorie goal, and vitamins and minerals use the Dietary Reference Intakes for your sex and age. A goal you set in Goals always takes priority."
   },
   "settings_water": {
     "display_unit": "Display Unit",
@@ -1712,7 +1724,9 @@
       "saved_copy": "Saved a copy to your catalog",
       "save_copy_failed": "Could not save copy: {error}",
       "save_failed": "Save failed: {error}",
-      "unknown_error": "unknown error"
+      "unknown_error": "unknown error",
+      "usda_updated_units": "{count, plural, one {Updated # value} other {Updated # values}} and {units, plural, one {added # serving unit} other {added # serving units}} from USDA. Save to keep them.",
+      "usda_units_added": "{units, plural, one {Added # serving unit from USDA} other {Added # serving units from USDA}}. Save to keep them."
     },
     "errors": {
       "name_required": "Please enter a name"
