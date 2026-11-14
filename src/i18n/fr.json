@@ -517,6 +517,16 @@
       "upload_failed": "Échec du téléversement",
       "password_change_failed": "Impossible de changer le mot de passe",
       "delete_account_failed": "Impossible de supprimer le compte"
+    },
+    "activity_level": "Niveau d’activité",
+    "activity_level_desc": "Détermine votre objectif de protéines dans les objectifs quotidiens.",
+    "activity_unset": "Non défini",
+    "activity_levels": {
+      "sedentary": "Sédentaire",
+      "light": "Peu actif",
+      "moderate": "Modérément actif",
+      "active": "Très actif",
+      "very_active": "Extrêmement actif"
     }
   },
   "wizard": {
@@ -1071,7 +1081,9 @@
       "saved_copy": "Enregistré une copie dans votre catalogue",
       "save_copy_failed": "Impossible d'enregistrer la copie : {error}",
       "save_failed": "Échec de l'enregistrement : {error}",
-      "unknown_error": "erreur inconnue"
+      "unknown_error": "erreur inconnue",
+      "usda_updated_units": "Mise à jour de {count, plural, one {# valeur} other {# valeurs}} et ajout de {units, plural, one {# unité de portion} other {# unités de portion}} depuis l’USDA. Enregistrez pour conserver ces modifications.",
+      "usda_units_added": "{units, plural, one {# unité de portion ajoutée depuis l’USDA} other {# unités de portion ajoutées depuis l’USDA}}. Enregistrez pour conserver ces modifications."
     },
     "errors": {
       "name_required": "Veuillez entrer un nom"
@@ -1469,7 +1481,9 @@
     "schedule_goal": "Durée prévue",
     "show_progress_bar": "Afficher la barre de progression des objectifs quotidiens",
     "show_progress_bar_desc": "Bande de progression au bas du journal indiquant le nombre d'objectifs quotidiens que vous avez atteints",
-    "meal_names": "Noms des repas"
+    "meal_names": "Noms des repas",
+    "daily_targets": "Objectifs quotidiens",
+    "daily_targets_desc": "Afficher une quantité quotidienne recommandée pour chaque nutriment dans le résumé nutritionnel. L’objectif de protéines dépend de votre poids cible et de votre niveau d’activité ; les lipides et les glucides sont répartis selon votre objectif calorique ; les vitamines et les minéraux suivent les apports nutritionnels de référence adaptés à votre sexe et à votre âge. Les objectifs que vous définissez dans Objectifs restent prioritaires."
   },
   "settings_water": {
     "display_unit": "Unité d'affichage",
