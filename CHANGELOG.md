@@ -38,6 +38,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Security
 
 - **Tokens, keys and passwords saved in Settings are stored encrypted, and the ones only the server uses never reach the app** (from [cooktrace#92](https://github.com/TraceApps/cooktrace/issues/92), thanks @stupleb). The ntfy and Gotify tokens stay on the server: Settings shows a saved one as dots, saving the dots keeps it, and typing a new one replaces it. The AI key, USDA key, Open Food Facts password and the Mealie and CookTrace tokens still go to your own signed-in app, which uses them itself. All of them are stored encrypted with `TOKEN_ENC_KEY`, so the database, a backup or an export never holds them in plain text; ones saved before are encrypted when the server starts. An Android app that only has the dots sends its ntfy and Gotify notifications through the server, as the web app does; update the Android app along with the server, as an older one can't send them itself once it has the dots. Changing `TOKEN_ENC_KEY`, or `JWT_SECRET` when it isn't set, means entering them again.
+- **hono** 4.13.18 on the server closes [GHSA-4m76-xfj5-7975](https://github.com/advisories/GHSA-4m76-xfj5-7975), [GHSA-h7mg-cq63-vhpq](https://github.com/advisories/GHSA-h7mg-cq63-vhpq), [GHSA-3gg2-335m-rxc6](https://github.com/advisories/GHSA-3gg2-335m-rxc6), [GHSA-46wx-v44x-9hh2](https://github.com/advisories/GHSA-46wx-v44x-9hh2) and [GHSA-4h7h-rv7c-7m2v](https://github.com/advisories/GHSA-4h7h-rv7c-7m2v). Only the MCP server uses it.
 
 ---
 
