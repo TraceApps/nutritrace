@@ -17,7 +17,12 @@
  *
  * Design:
  *   - Every field mutation is mirrored (debounced) into localStorage
- *     under a per-editor draft key so it survives process death.
+ *     under a per-editor draft key so it survives process death. Only
+ *     the fields changed from what the editor opened with are kept, and
+ *     nothing at all while nothing is changed: a pick from Mealie, Open
+ *     Food Facts or USDA (or a food changed on another device) opens with
+ *     its current values, and a draft brings back only your own edits on
+ *     top of them (#327).
  *   - The photo is written to IndexedDB in the same tick, fire-and-forget.
  *   - On mount, an editor loads its draft, overlays it on top of the
  *     server-loaded (or empty) form, and asynchronously restores the
@@ -34,6 +39,48 @@
  */
 
 const TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+// Drafts hold only changed fields since #327. Earlier ones held the whole
+// form as first opened, so one of a picked or saved item could bring back
+// values the source has changed since; those aren't brought back.
+const DRAFT_V = 2;
+
+const _plain = v => v != null && typeof v === 'object' && !Array.isArray(v);
+const _same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
+
+/** The fields of `state` that differ from `base` (nested objects field by
+ *  field, lists as a whole), or null when nothing differs. */
+export function draftChanges(state, base) {
+  if (!_plain(state)) return null;
+  const b = _plain(base) ? base : {};
+  const out = {};
+  for (const k of Object.keys(state)) {
+    const v = state[k];
+    if (_plain(v) && _plain(b[k])) {
+      const inner = draftChanges(v, b[k]);
+      if (inner) out[k] = inner;
+    } else if (!_same(v, b[k])) {
+      out[k] = v;
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** A copy of what the editor opened with that later edits can't reach:
+ *  the editors change some fields in place (a meal's ingredient amounts),
+ *  which would also change a shallow copy and never count as edited. */
+export function draftBase(v) {
+  return v == null ? v : JSON.parse(JSON.stringify(v));
+}
+
+/** `base` with a draft's changed fields put back on top. */
+export function applyDraft(base, changes) {
+  const out = { ...(_plain(base) ? base : {}) };
+  if (!_plain(changes)) return out;
+  for (const [k, v] of Object.entries(changes)) {
+    out[k] = _plain(v) && _plain(out[k]) ? applyDraft(out[k], v) : v;
+  }
+  return out;
+}
 
 function _now() { return Date.now(); }
 
@@ -229,7 +276,7 @@ export function saveDraft(key, state) {
   const _img = imgUrl || photoPreviewUrl;
   if (_img) saveDraftImg(key, _img);
   else      clearDraftImg(key);
-  const payload = { at: _now(), state: textState };
+  const payload = { at: _now(), v: DRAFT_V, state: textState };
   try {
     localStorage.setItem(key, JSON.stringify(payload));
   } catch { /* over quota even without the image; drop this write */ }
@@ -244,8 +291,12 @@ export function loadDraft(key, { maxAgeMs = TTL_MS } = {}) {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || !parsed.at || !parsed.state) {
+    // An earlier draft of a picked or saved item may be just the values it
+    // opened with (#327); one of a blank new item can only be typing.
+    const stale = parsed && parsed.v !== DRAFT_V && !/:draft:new$/.test(key);
+    if (!parsed || typeof parsed !== 'object' || !parsed.at || !parsed.state || stale) {
       localStorage.removeItem(key);
+      clearDraftImg(key);
       return null;
     }
     if (_now() - parsed.at > maxAgeMs) {
@@ -269,16 +320,26 @@ export function clearDraft(key) {
 }
 
 /** Debounced setter factory. Returns a fn that, when called with a
- *  state object, persists it after `delayMs` of quiet. Consecutive
+ *  state object (and what the editor opened with), persists it after
+ *  `delayMs` of quiet. Consecutive
  *  calls collapse into a single write, which is what the reactive
  *  `$: persist(food)` pattern needs (Svelte reactivity fires on
  *  every keystroke). Exposes `.cancel()` so a Discard action can
  *  drop any pending write instead of racing it back into storage. */
-export function makeDebouncedPersist(key, delayMs = 400) {
+export function makeDebouncedPersist(key, delayMs = 400, { keep = [] } = {}) {
   let timer = null;
-  const persist = function (state) {
+  /** `base`: what the editor opened with. Only the fields changed from it
+   *  are kept (plus `keep`, which says what the draft is for), and with
+   *  nothing changed the draft goes (#327). */
+  const persist = function (state, base) {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => saveDraft(key, state), delayMs);
+    timer = setTimeout(() => {
+      if (base === undefined) { saveDraft(key, state); return; }
+      const changes = draftChanges(state, base);
+      if (!changes) { clearDraft(key); return; }
+      for (const k of keep) if (state?.[k] != null && state[k] !== '') changes[k] = state[k];
+      saveDraft(key, changes);
+    }, delayMs);
   };
   persist.cancel = function () {
     if (timer) { clearTimeout(timer); timer = null; }

@@ -26,7 +26,7 @@
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, visibleNutriments, nutrimentsOrder, catName as _catName, catDisplay as _catDisplay, energyUnit, foodsSort, mealsSort, recipesSort, offEnabled, usdaEnabled, usdaApiKey } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
-  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
+  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts, applyDraft, draftBase } from '../lib/editor-draft.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { foldText } from '../lib/search-text.js';
   import { onSynced, takeUntouched } from '../lib/sync-refresh.js';
@@ -84,7 +84,8 @@
   // Bundle every field the user can mutate before save. Transient
   // picker/camera UI state is deliberately NOT persisted.
   $: _draftState = { meal, photoPreviewUrl, recipeAmount, recipeUnit, recipeYields, isRecipe };
-  $: if (_draftReady && _persistDraft) _persistDraft(_draftState);
+  // Only what changed from the opened form is kept (#327).
+  $: if (_draftReady && _persistDraft) _persistDraft(_draftState, _serverBaseline);
   // Banner state so a restored draft is visible + dismissable.
   let _draftRestored = false;
   let _serverBaseline = null;
@@ -165,12 +166,31 @@
     }
     if (meal.imgUrl) photoPreviewUrl = meal.imgUrl;
 
+    // The recipe's size and servings come from what was loaded, before the
+    // opened form is kept: worked out after, they read as an edit and every
+    // recipe opened with a draft (#327), and a draft's size was overwritten.
+    if (isRecipe) {
+      // Three cases to display the yields field:
+      //   - Brand new recipe: default to 1 (visible).
+      //   - Existing recipe saved with this feature: show the saved number.
+      //   - Existing recipe migrated from before this feature: servings is
+      //     NULL/undefined; show a blank field. Math still treats blank as 1.
+      const isExistingRecipe = !!params?.id || !!editorState.mealPrefill?.id;
+      const hasExplicitServings = meal.servings != null;
+      const effectiveServings = hasExplicitServings
+        ? Math.max(1, parseInt(meal.servings) || 1)
+        : 1;
+      recipeYields = isExistingRecipe && !hasExplicitServings ? '' : effectiveServings;
+      if (meal.portion) recipeAmount = (parseFloat(meal.portion) || 0) * effectiveServings;
+      if (meal.unit) recipeUnit = meal.unit;
+    }
+
     // ── Restore any in-progress draft (#157) ────────────────────────
     // Overlays a fresh (<4h) draft on top of what we just loaded so
     // the user's typing survives a camera-triggered process death.
     // Banner + Discard exposed to the user (Wildenhaus feedback on dev05).
     _serverBaseline = {
-      meal: { ...meal },
+      meal: draftBase(meal),
       photoPreviewUrl,
       recipeAmount,
       recipeUnit,
@@ -180,7 +200,7 @@
     try {
       const _draft = loadDraft(_draftKey);
       if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0) {
-        if (_draft.meal)                             meal = { ...meal, ..._draft.meal };
+        if (_draft.meal)                             meal = applyDraft(meal, _draft.meal);
         if (typeof _draft.photoPreviewUrl === 'string') photoPreviewUrl = _draft.photoPreviewUrl;
         if (_draft.recipeAmount != null)             recipeAmount = _draft.recipeAmount;
         if (_draft.recipeUnit)                       recipeUnit = _draft.recipeUnit;
@@ -199,22 +219,6 @@
       }
     }).catch(() => { /* IDB unavailable; text draft still works */ });
     _draftReady = true;
-
-    if (isRecipe) {
-      // Three cases to display the yields field:
-      //   - Brand new recipe: default to 1 (visible).
-      //   - Existing recipe saved with this feature: show the saved number.
-      //   - Existing recipe migrated from before this feature: servings is
-      //     NULL/undefined; show a blank field. Math still treats blank as 1.
-      const isExistingRecipe = !!params?.id || !!editorState.mealPrefill?.id;
-      const hasExplicitServings = meal.servings != null;
-      const effectiveServings = hasExplicitServings
-        ? Math.max(1, parseInt(meal.servings) || 1)
-        : 1;
-      recipeYields = isExistingRecipe && !hasExplicitServings ? '' : effectiveServings;
-      if (meal.portion) recipeAmount = (parseFloat(meal.portion) || 0) * effectiveServings;
-      if (meal.unit) recipeUnit = meal.unit;
-    }
 
     // #207 companion: if this meal came from a CT federation pull,
     // background-check whether the CT source has been edited since our
@@ -275,7 +279,7 @@
     if (isRecipe) { recipeYields = next.yields; recipeAmount = next.amount; recipeUnit = next.unit; }
     // Discarding a restored draft goes back to this copy.
     const base = _split(fresh);
-    if (_serverBaseline) _serverBaseline = { ..._serverBaseline, meal: base.meal, photoPreviewUrl: base.photo || '', ...(isRecipe ? { recipeAmount: base.amount, recipeUnit: base.unit, recipeYields: base.yields } : {}) };
+    if (_serverBaseline) _serverBaseline = { ..._serverBaseline, meal: draftBase(base.meal), photoPreviewUrl: base.photo || '', ...(isRecipe ? { recipeAmount: base.amount, recipeUnit: base.unit, recipeYields: base.yields } : {}) };
   }
   onMount(() => onSynced(['meals'], () => { _takeSynced(); }));
 
@@ -404,7 +408,7 @@
     if (_persistDraft && typeof _persistDraft.cancel === 'function') _persistDraft.cancel();
     _draftReady = false;
     if (_serverBaseline) {
-      meal            = { ..._serverBaseline.meal };
+      meal            = draftBase(_serverBaseline.meal);
       photoPreviewUrl = _serverBaseline.photoPreviewUrl;
       recipeAmount    = _serverBaseline.recipeAmount;
       recipeUnit      = _serverBaseline.recipeUnit;

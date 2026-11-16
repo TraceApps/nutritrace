@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **A recipe from Mealie opens with its current values** ([#327](https://github.com/TraceApps/nutritrace/issues/327)). Opening a pick and going back without saving kept what it opened with as a draft, so for the next 4 hours it opened with those values even after the recipe changed in Mealie. The same went for Open Food Facts, USDA and CookTrace picks, and for a food or meal changed on another device. A draft now keeps only what you changed, and nothing when you changed nothing; brought back, your changes go on top of the current values. Thanks @Pepekingprawn.
 - **Weigh-ins and measurements from before 1.0 keep their unit.** Days saved on the 1.0 release candidates (up to rc.17) had no unit with them, so changing Weight or Circumference in Settings > Regional & Units made them read as the new unit (180 lb became 180 kg), and the adaptive TDEE, coaching, the weekly email and Add Activity read them as kg all along. The next time you open the app, those days get the unit you see them in now (on a server without accounts, where each browser keeps its own units, only a browser where you chose them does this): nothing on screen changes, a later unit change converts them like every other day, and the TDEE and the rest read them right.
 
 ---

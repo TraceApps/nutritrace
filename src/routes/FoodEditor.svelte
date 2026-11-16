@@ -27,7 +27,7 @@
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, visibleNutriments, nutrimentsOrder, customNutriments, cropPhotos, offUsername, offPassword, offUploadCountry, usdaApiKey, usdaEnabled, aiEffectivelyEnabled, envLocks, aiProvider, aiApiKey, aiModel, aiBaseUrl, energyUnit, showUnitMetadata, warnUnitMismatch, catName as _catName, catDisplay as _catDisplay, disableAnimations } from '../stores/settings.js';
   import { callAI, callAIProxy } from '../lib/aiChat.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
-  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts } from '../lib/editor-draft.js';
+  import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts, applyDraft, draftBase } from '../lib/editor-draft.js';
   import { acquireScreenWakeLock } from '../lib/wake-lock.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { snapshotOf, scaledFood } from '../lib/proportional-scale.js';
@@ -192,10 +192,13 @@
   // write this form into another item's draft.
   const _draftKey = _mkDraftKey('food', params?.id ?? editorState.foodPrefill?.id ?? null, editorState.foodPrefill);
   let _draftReady = false;      // gate: don't persist before onMount overlays the draft
-  const _persistDraft = makeDebouncedPersist(_draftKey, 400);
+  // The barcode stays in the draft: a scan of an unknown barcode shares the
+  // blank-item draft, and it's brought back only onto that same barcode.
+  const _persistDraft = makeDebouncedPersist(_draftKey, 400, { keep: ['barcode'] });
   // Fire on every food change once we're past mount. Debounced inside
   // makeDebouncedPersist so rapid typing collapses into a single write.
-  $: if (_draftReady && _persistDraft) _persistDraft(food);
+  // Only what changed from the opened form is kept (#327).
+  $: if (_draftReady && _persistDraft) _persistDraft(food, _serverBaseline);
   // Banner state: true once a draft has been overlaid, so the user can
   // tell "restored from earlier" apart from "clean form". Discard button
   // resets to the pre-overlay server baseline and clears the draft.
@@ -694,7 +697,7 @@
     // Capture the pre-overlay state so the banner's Discard button can
     // reset the form to what actually came from the server (or empty,
     // for the "add new" path).
-    _serverBaseline = { ...food };
+    _serverBaseline = draftBase(food);
     // What the form opened with: a field that differs from it was changed
     // here (a draft brought back counts as changed).
     if (typeof food.id === 'number' && !food._shared_by) _opened = JSON.parse(JSON.stringify(food));
@@ -706,7 +709,7 @@
       const _otherScan = editorState.foodPrefill?.barcode && _draft?.barcode
         && String(_draft.barcode) !== String(editorState.foodPrefill.barcode);
       if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0 && !_otherScan) {
-        food = { ...food, ..._draft };
+        food = applyDraft(food, _draft);
         _draftRestored = true;
       }
     } catch { /* draft parse issues fall through to server-loaded state */ }
@@ -762,7 +765,7 @@
     food = took.form;
     _opened = took.opened;
     // Discarding a restored draft goes back to this copy.
-    if (_serverBaseline) _serverBaseline = { ...fresh };
+    if (_serverBaseline) _serverBaseline = draftBase(fresh);
     // The amounts the link scales from follow, unless you changed one.
     const scaled = new Set(['portion', 'unit', ..._allNuts().map(n => n.id)]);
     if (linked && !took.touched.some(k => scaled.has(k))) takeSnapshot();
@@ -901,7 +904,7 @@
     // Suppress the reactive persist for the assignment that follows,
     // then re-enable after Svelte's tick has settled.
     _draftReady = false;
-    if (_serverBaseline) food = { ..._serverBaseline };
+    if (_serverBaseline) food = draftBase(_serverBaseline);
     // Nothing is changed here any more: a sync fills in every field again.
     if (_opened) _opened = JSON.parse(JSON.stringify(food));
     clearDraft(_draftKey);
