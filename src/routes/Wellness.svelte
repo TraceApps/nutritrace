@@ -1605,7 +1605,7 @@
           {#if $healthConnectEnabled && isNative}
             <div class="wl-provider-row">
               <span class="wl-brand-icon wl-provider-icon"><HealthConnectIcon /></span>
-              <span class="wl-provider-name">Health Connect</span>
+              <span class="wl-provider-name">{$_('settings_wellness.hc.title')}</span>
               <span class="wl-status-pill" class:pill-syncing={hcSyncing} class:pill-connected={!hcSyncing}>
                 {hcSyncing ? $_('wellness_page.desktop.syncing') : $_('wellness_page.desktop.connected')}
               </span>
@@ -1618,7 +1618,7 @@
           {#if status?.connected}
             <div class="wl-provider-row">
               <span class="wl-brand-icon wl-provider-icon"><FitbitIcon /></span>
-              <span class="wl-provider-name">Fitbit</span>
+              <span class="wl-provider-name">{$_('settings_wellness.fitbit.title')}</span>
               <span class="wl-status-pill" class:pill-syncing={syncing} class:pill-connected={!syncing}>
                 {syncing ? $_('wellness_page.desktop.syncing') : $_('wellness_page.desktop.connected')}
               </span>
@@ -1632,7 +1632,7 @@
           {#if garminStatus?.connected}
             <div class="wl-provider-row">
               <span class="wl-brand-icon wl-provider-icon"><GarminIcon /></span>
-              <span class="wl-provider-name">Garmin</span>
+              <span class="wl-provider-name">{$_('wellness_deep.garmin')}</span>
               <span class="wl-status-pill" class:pill-syncing={garminSyncing} class:pill-connected={!garminSyncing}>
                 {garminSyncing ? $_('wellness_page.desktop.syncing') : $_('wellness_page.desktop.connected')}
               </span>
@@ -1646,7 +1646,7 @@
           {#if withingsStatus?.connected}
             <div class="wl-provider-row">
               <span class="wl-brand-icon wl-provider-icon"><WithingsIcon /></span>
-              <span class="wl-provider-name">Withings</span>
+              <span class="wl-provider-name">{$_('settings_wellness.withings.title')}</span>
               <span class="wl-status-pill" class:pill-syncing={withingsSyncing} class:pill-connected={!withingsSyncing}>
                 {withingsSyncing ? $_('wellness_page.desktop.syncing') : $_('wellness_page.desktop.connected')}
               </span>
@@ -1776,7 +1776,7 @@
                 {@const _statsKey = _statsMetricFor(m.id)}
                 <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={metricHelp(m)}>
                   {#if _statsKey && fmt}
-                    <button class="metric-trend" title="View trend" aria-label="View trend in Statistics"
+                    <button class="metric-trend" title={$_('diary_rail.view_trend')} aria-label={$_('goals_page.trend.view_in_statistics')}
                       on:click|stopPropagation={() => _openStatsFor(m.id)}>
                       <span class="material-symbols-rounded">trending_up</span>
                     </button>
@@ -1835,13 +1835,13 @@
                       {#if w.avg_hr}
                         <span class="workout-hr">
                           <span class="material-symbols-rounded" style="font-size:14px;color:var(--danger)">favorite</span>
-                          {w.avg_hr} avg{#if w.max_hr} · {w.max_hr} peak{/if} bpm
+                          {w.avg_hr} {$_('extracted.wellness.avg_535')}{#if w.max_hr} · {w.max_hr} {$_('extracted.wellness.peak_536')}{/if} bpm
                         </span>
                       {/if}
                     </div>
                     <div class="workout-trail">
                       {#if w.has_gps}
-                        <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)" title="GPS route available">map</span>
+                        <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)" title={$_('extracted.wellness.gps_route_available_538')}>map</span>
                       {/if}
                       <span class="material-symbols-rounded" style="font-size:18px;color:var(--text-3)">chevron_right</span>
                     </div>
@@ -1913,7 +1913,7 @@
                 {@const _statsKey = _statsMetricFor(m.id)}
                 <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={metricHelp(m)}>
                   {#if _statsKey && fmt}
-                    <button class="metric-trend" title="View trend" aria-label="View trend in Statistics"
+                    <button class="metric-trend" title={$_('diary_rail.view_trend')} aria-label={$_('goals_page.trend.view_in_statistics')}
                       on:click|stopPropagation={() => _openStatsFor(m.id)}>
                       <span class="material-symbols-rounded">trending_up</span>
                     </button>
@@ -2040,7 +2040,7 @@
                 {@const _statsKey = _statsMetricFor(m.id)}
                 <div class="metric-card" class:no-data={fmt == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={metricHelp(m)}>
                   {#if _statsKey && fmt}
-                    <button class="metric-trend" title="View trend" aria-label="View trend in Statistics"
+                    <button class="metric-trend" title={$_('diary_rail.view_trend')} aria-label={$_('goals_page.trend.view_in_statistics')}
                       on:click|stopPropagation={() => _openStatsFor(m.id)}>
                       <span class="material-symbols-rounded">trending_up</span>
                     </button>
@@ -2122,7 +2122,7 @@
                   </div>
                   <div class="readiness-drivers">
                     <div class="readiness-driver">
-                      <span class="rd-label">HRV</span>
+                      <span class="rd-label">{$_('wellness_page.metric_group.hrv')}</span>
                       <span class="rd-val" style="color:{readiness.hrv_score >= 65 ? 'var(--accent)' : readiness.hrv_score >= 50 ? '#f59e0b' : '#ef4444'}">{readiness.hrv_score}</span>
                     </div>
                     <div class="readiness-driver">
@@ -2407,7 +2407,7 @@
                   </div>
                   {#if _calTotal > 0}
                     <p class="si-desc" style="margin-top:8px">
-                      {$_('wellness_page.desktop.burned')} <strong>{Math.round(_calTotal).toLocaleString()} kcal</strong> {$_('wellness_page.desktop.total_this_week')}
+                      {$_('wellness_page.desktop.burned')} <strong>{Math.round(_calTotal).toLocaleString()} {$_('diary.activity.field_kcal_placeholder')}</strong> {$_('wellness_page.desktop.total_this_week')}
                     </p>
                   {/if}
                 </div>
@@ -2443,7 +2443,7 @@
                           </span>
                         </div>
                         {#if w.has_gps}
-                          <span class="material-symbols-rounded wl-rail-workout-gps" title="GPS route available">map</span>
+                          <span class="material-symbols-rounded wl-rail-workout-gps" title={$_('extracted.wellness.gps_route_available_538')}>map</span>
                         {/if}
                       </button>
                     {/each}
@@ -2536,7 +2536,7 @@
                     </div>
                     <div class="readiness-drivers">
                       <div class="readiness-driver">
-                        <span class="rd-label">HRV</span>
+                        <span class="rd-label">{$_('wellness_page.metric_group.hrv')}</span>
                         <span class="rd-val" style="color:{readiness.hrv_score >= 65 ? 'var(--accent)' : readiness.hrv_score >= 50 ? '#f59e0b' : '#ef4444'}">{readiness.hrv_score}</span>
                       </div>
                       <div class="readiness-driver">

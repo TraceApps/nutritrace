@@ -1,5 +1,6 @@
 <script>
   import { _, locale } from 'svelte-i18n';
+  import { tr } from '../../lib/i18n-label.js';
   import { AVAILABLE_LOCALES } from '../../i18n/index.js';
   import {
     language, dateFormat, timeFormat, energyUnit, firstDayOfWeek,
@@ -86,7 +87,7 @@
       <span class="setting-label">{$_('settings.regional.energy')}</span>
       <div class="select-wrap" style="width:160px">
         <select class="select sel-sm" value={$energyUnit} on:change={e => energyUnit.set(e.target.value)}>
-          {#each ENERGY_OPTS as o}<option value={o.value}>{o.label}</option>{/each}
+          {#each ENERGY_OPTS as o}<option value={o.value}>{tr('dynamic_options.energy', o.value, o.label, $locale)}</option>{/each}
         </select>
       </div>
     </div>

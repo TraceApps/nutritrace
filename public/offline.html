@@ -66,10 +66,19 @@
 <body>
   <div class="card">
     <div class="icon">📡</div>
-    <h1>Can't reach your server</h1>
-    <p>NutriTrace couldn't connect. Make sure your server is running and try again.</p>
-    <button class="btn" onclick="window.location.reload()">Try again</button>
+    <h1 id="offline-title">Can't reach your server</h1>
+    <p id="offline-help">NutriTrace couldn't connect. Make sure your server is running and try again.</p>
+    <button class="btn" id="offline-retry" onclick="window.location.reload()">Try again</button>
     <div class="tagline">NutriTrace · Trace Every Bite</div>
   </div>
+  <script>
+    if ((navigator.language || '').toLowerCase().startsWith('fr')) {
+      document.documentElement.lang = 'fr';
+      document.title = 'NutriTrace — Hors connexion';
+      document.getElementById('offline-title').textContent = 'Serveur inaccessible';
+      document.getElementById('offline-help').textContent = 'NutriTrace ne parvient pas à se connecter. Vérifiez que le serveur fonctionne, puis réessayez.';
+      document.getElementById('offline-retry').textContent = 'Réessayer';
+    }
+  </script>
 </body>
 </html>

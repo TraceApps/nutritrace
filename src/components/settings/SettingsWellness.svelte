@@ -91,16 +91,16 @@
   }
 
   function _formatRelative(iso) {
-    if (!iso) return 'Never';
+    if (!iso) return $_('dynamic_feedback.relative_never');
     const then = new Date(iso).getTime();
-    if (!Number.isFinite(then)) return 'Never';
+    if (!Number.isFinite(then)) return $_('dynamic_feedback.relative_never');
     const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
-    if (mins < 1)   return 'Just now';
-    if (mins < 60)  return `${mins} min ago`;
+    if (mins < 1)   return $_('dynamic_feedback.relative_now');
+    if (mins < 60)  return $_('dynamic_feedback.relative_minutes', { values: { count: mins } });
     const hrs = Math.round(mins / 60);
-    if (hrs < 24)   return `${hrs} hr ago`;
+    if (hrs < 24)   return $_('dynamic_feedback.relative_hours', { values: { count: hrs } });
     const days = Math.round(hrs / 24);
-    return `${days} day${days === 1 ? '' : 's'} ago`;
+    return $_('dynamic_feedback.relative_days', { values: { count: days } });
   }
 
   // Auto-load config when component mounts (in case parent didn't call loadWellnessConfig)
@@ -588,14 +588,14 @@
       const dayResult = r?.results?.[today];
       if (dayResult?.ok) {
         lastSyncResult = { ok: true, count: dayResult.count, date: today };
-        showSuccess(`Synced ${dayResult.count} metrics for ${today}`);
+        showSuccess($_('sync_feedback.metrics_for_day', { values: { count: dayResult.count, date: today } }));
       } else {
-        lastSyncResult = { ok: false, error: dayResult?.error || 'Unknown error' };
-        showError(`Sync failed: ${lastSyncResult.error}`);
+        lastSyncResult = { ok: false, error: dayResult?.error || $_('sync_feedback.unknown_error') };
+        showError($_('sync_feedback.failed', { values: { reason: lastSyncResult.error } }));
       }
     } catch (e) {
       lastSyncResult = { ok: false, error: e.message };
-      showError('Sync failed: ' + e.message);
+      showError($_('sync_feedback.failed', { values: { reason: e.message } }));
     }
     syncingFitbit = false;
   }
@@ -607,9 +607,9 @@
       const today = _todayStr();
       const r = await NtApi.post('/api/wellness/withings/sync', { from: today, to: today });
       const count = r?.count ?? r?.results?.[today]?.count ?? 0;
-      showSuccess(`Synced ${count} Withings metric${count === 1 ? '' : 's'} for ${today}`);
+      showSuccess($_('sync_feedback.provider_metrics_for_day', { values: { count, provider: 'Withings', date: today } }));
     } catch (e) {
-      showError('Withings sync failed: ' + (e?.message || 'Unknown error'));
+      showError($_('sync_feedback.provider_failed', { values: { provider: 'Withings', reason: e?.message || $_('sync_feedback.unknown_error') } }));
     }
     syncingWithings = false;
   }
@@ -621,9 +621,9 @@
       const today = _todayStr();
       const r = await NtApi.post('/api/wellness/garmin/sync', { from: today, to: today });
       const count = r?.count ?? r?.results?.[today]?.count ?? 0;
-      showSuccess(`Synced ${count} Garmin metric${count === 1 ? '' : 's'} for ${today}`);
+      showSuccess($_('sync_feedback.provider_metrics_for_day', { values: { count, provider: 'Garmin', date: today } }));
     } catch (e) {
-      showError('Garmin sync failed: ' + (e?.message || 'Unknown error'));
+      showError($_('sync_feedback.provider_failed', { values: { provider: 'Garmin', reason: e?.message || $_('sync_feedback.unknown_error') } }));
     }
     syncingGarmin = false;
   }
@@ -637,9 +637,9 @@
       const today = _todayStr();
       const result = await syncHealthConnect(today, { catchUp: true });
       const count = Object.keys(result || {}).length;
-      showSuccess(`Synced ${count} Health Connect metric${count === 1 ? '' : 's'} for ${today}`);
+      showSuccess($_('sync_feedback.provider_metrics_for_day', { values: { count, provider: $_('sync_feedback.health_connect'), date: today } }));
     } catch (e) {
-      showError('Health Connect sync failed: ' + (e?.message || 'Unknown error'));
+      showError($_('sync_feedback.provider_failed', { values: { provider: $_('sync_feedback.health_connect'), reason: e?.message || $_('sync_feedback.unknown_error') } }));
     }
     syncingHc = false;
   }
@@ -738,8 +738,8 @@
       <div class="setting-divider"></div>
       <div class="setting-row">
         <div>
-          <span class="setting-label">Mirror wellness weight to Body Stats</span>
-          <div class="setting-desc">Also write scale readings from Health Connect and a Garmin Personal API Key into that day's Body Stats weight so the Weight goal on Goals and the Body Stats widget on Diary reflect your scale. Manual Body Stats entries are never overwritten. Withings applies this by default independently of this toggle.</div>
+          <span class="setting-label">{$_('extracted.settings.mirror_wellness_weight_to_body_stats_161')}</span>
+          <div class="setting-desc">{$_('settings_wellness.mirror_weight_desc')}</div>
         </div>
         <Toggle checked={mirrorWellnessWeightVal}
           on:change={e => { mirrorWellnessWeightVal = e.detail; mirrorWellnessWeight.set(e.detail); }} />
@@ -827,10 +827,10 @@
                   value={wellnessSyncRangeVal}
                   on:change={e => { const v = Math.max(1, Math.min(CUSTOM_MAX_FITBIT, parseInt(e.target.value)||1)); wellnessSyncRangeVal = v; wellnessSyncRange.set(v); }}
                   placeholder={$_('settings_wellness.common.custom_days_ph')} title={$_('settings_wellness.common.custom_days_title', { values: { max: CUSTOM_MAX_FITBIT } })} />
-                <span class="setting-desc" style="margin:0">days</span>
+                <span class="setting-desc" style="margin:0">{$_('settings_wellness.common.days')}</span>
               </div>
             </div>
-            <div class="setting-desc" style="font-size:11px;opacity:0.75">⚠ Long ranges may take several minutes and approach Fitbit API rate limits.</div>
+            <div class="setting-desc" style="font-size:11px;opacity:0.75">{$_('settings_wellness.fitbit.long_range_warn')}</div>
           </div>
         </div>
         <div class="setting-divider"></div>
@@ -884,18 +884,12 @@
             <div>
               <span class="setting-label">{$_('settings_wellness.fitbit_deep.relink_label')}</span>
               <div class="setting-desc" style="line-height:1.5">
-                Fitbit data now flows through Google's new Health API.
-                NutriTrace is removing the legacy Fitbit Web API code path
-                on <strong>May 31, 2026</strong> (about four months before Google's
-                own cutoff in September) to keep things current.
-                Your existing connection still works until then, but
-                re-link via Google Cloud now to avoid an interruption.
-                No data is lost — your charts and history stay intact.
+                {$_('extracted.settings.fitbit_data_now_flows_through_google_s_new_hea_165')} <strong>{$_('extracted.settings.may_31_2026_166')}</strong> {$_('extracted.settings.about_four_months_before_google_s_own_cutoff_i_167')}
               </div>
             </div>
             <button class="btn btn-primary" style="height:32px;padding:0 12px;font-size:13px"
               on:click={() => { fitbitEditingCreds = true; fitbitConnectionStatus = { connected: false, configured: false }; }}>
-              Re-link Fitbit
+              {$_('settings_wellness.fitbit.relink_button')}
             </button>
           </div>
         {/if}
@@ -907,9 +901,9 @@
           {#if lastSyncResult}
             <div class="text-3 text-sm" style="padding:6px 12px;background:var(--surface-2);border-bottom:1px solid var(--border)">
               {#if lastSyncResult.ok}
-                <span style="color:var(--macro-carbs)">✓ Synced {lastSyncResult.count} metrics for {lastSyncResult.date}</span>
+                <span style="color:var(--macro-carbs)">{$_('extracted.settings.synced_169')} {lastSyncResult.count} {$_('extracted.settings.metrics_for_170')} {lastSyncResult.date}</span>
               {:else}
-                <span style="color:#FF7070">Sync error: {lastSyncResult.error}</span>
+                <span style="color:#FF7070">{$_('extracted.settings.sync_error_171')} {lastSyncResult.error}</span>
               {/if}
             </div>
           {/if}
@@ -1229,10 +1223,10 @@
                   value={garminSyncRangeVal}
                   on:change={e => { const v = Math.max(1, Math.min(CUSTOM_MAX_GARMIN, parseInt(e.target.value)||1)); garminSyncRangeVal = v; garminSyncRange.set(v); }}
                   placeholder={$_('settings_wellness.common.custom_days_ph')} title={$_('settings_wellness.common.custom_days_title', { values: { max: CUSTOM_MAX_GARMIN } })} />
-                <span class="setting-desc" style="margin:0">days</span>
+                <span class="setting-desc" style="margin:0">{$_('settings_wellness.common.days')}</span>
               </div>
             </div>
-            <div class="setting-desc" style="font-size:11px;opacity:0.75">⚠ Garmin's API caps reliable historical data near 6 months. Longer ranges may return incomplete results.</div>
+            <div class="setting-desc" style="font-size:11px;opacity:0.75">{$_('extracted.settings.garmin_s_api_caps_reliable_historical_data_nea_173')}</div>
           </div>
         </div>
         <div class="setting-divider"></div>
@@ -1307,8 +1301,8 @@
             <div>
               <span class="setting-label">{$_('settings_wellness.common.api_credentials')}</span>
               <div class="setting-desc" style="line-height:1.4">
-                OAuth 1.0a credentials from your approved Garmin Health API app. Redirect URI must match exactly.
-                <a href="https://developer.garmin.com/gc-developer-program/health-api/" target="_blank" rel="noopener" class="about-link">Get API credentials →</a>
+                {$_('settings_wellness.garmin.creds_desc')}
+                <a href="https://developer.garmin.com/gc-developer-program/health-api/" target="_blank" rel="noopener" class="about-link">{$_('settings_wellness.garmin.creds_link')}</a>
               </div>
             </div>
             <div style="width:100%;display:flex;flex-direction:column;gap:8px">
@@ -1338,7 +1332,7 @@
                   <button class="btn-icon" title={$_('settings_wellness.common.use_suggested')} on:click={() => garminRedirectUri = garminRedirectSuggested}><span class="material-symbols-rounded">auto_awesome</span></button>
                   <button class="btn-icon" on:click={copyGarminRedirectUri} title={$_('settings_wellness.common.copy_uri')}><span class="material-symbols-rounded">content_copy</span></button>
                 </div>
-                <div class="setting-desc" style="font-size:11px;margin-top:2px">Format: <code style="font-size:11px">https://your-domain.com/api/wellness/garmin/callback</code></div>
+                <div class="setting-desc" style="font-size:11px;margin-top:2px">{$_('settings_wellness.fitbit_deep.redirect_format')} <code style="font-size:11px">https://your-domain.com/api/wellness/garmin/callback</code></div>
               </div>
               <button class="btn btn-primary" style="align-self:flex-end" on:click={saveGarminConfig}>{garminEditingCreds ? $_('settings_wellness.common.save') : $_('settings_wellness.common.save_and_connect')}</button>
             </div>
@@ -1391,8 +1385,8 @@
         <div>
           <span class="setting-label">{$_('settings_wellness.withings.enable')}</span>
           <div class="setting-desc">
-            Body composition from scales (weight, fat %, muscle, bone mass, and more).
-            <a href="https://developer.withings.com/dashboard/" target="_blank" rel="noopener" class="about-link">Developer dashboard →</a>
+            {$_('settings_wellness.withings.enable_desc')}
+            <a href="https://developer.withings.com/dashboard/" target="_blank" rel="noopener" class="about-link">{$_('settings_wellness.withings.dashboard_link')}</a>
           </div>
         </div>
         <Toggle checked={withingsEnabledVal} on:change={e => { withingsEnabledVal = e.detail; withingsEnabled.set(e.detail); }} />
@@ -1426,10 +1420,10 @@
                   value={withingsSyncRangeVal}
                 on:change={e => { const v = Math.max(1, Math.min(CUSTOM_MAX_WITHINGS, parseInt(e.target.value)||1)); withingsSyncRangeVal = v; withingsSyncRange.set(v); }}
                 placeholder={$_('settings_wellness.common.custom_days_ph')} title={$_('settings_wellness.common.custom_days_title', { values: { max: CUSTOM_MAX_WITHINGS } })} />
-              <span class="setting-desc" style="margin:0">days</span>
+              <span class="setting-desc" style="margin:0">{$_('settings_wellness.common.days')}</span>
             </div>
             </div>
-            <div class="setting-desc" style="font-size:11px;opacity:0.75">⚠ Long ranges may take several minutes and approach Withings API rate limits.</div>
+            <div class="setting-desc" style="font-size:11px;opacity:0.75">{$_('settings_wellness.withings.long_range_warn')}</div>
           </div>
         </div>
         <div class="setting-divider"></div>
@@ -1501,14 +1495,14 @@
             <div>
               <span class="setting-label">{$_('settings_wellness.common.api_credentials')}</span>
               <div class="setting-desc" style="line-height:1.4">
-                Create a Withings developer account and a new application of type "Personal use" or "Public Cloud Partner". Then paste the Client ID + Secret here and add the redirect URI below to your app's authorized list.
-                <a href="https://developer.withings.com/dashboard/" target="_blank" rel="noopener" class="about-link">Withings developer dashboard →</a>
+                {$_('extracted.settings.create_a_withings_developer_account_and_a_new_180')}
+                <a href="https://developer.withings.com/dashboard/" target="_blank" rel="noopener" class="about-link">{$_('extracted.settings.withings_developer_dashboard_181')}</a>
               </div>
             </div>
             <div style="width:100%;display:flex;flex-direction:column;gap:8px">
               <div class="form-group" style="margin:0">
                 <label class="form-label">{$_('settings_wellness.common.client_id')}</label>
-                <input class="input" type="text" autocomplete="off" placeholder="e.g. abc123def456"
+                <input class="input" type="text" autocomplete="off" placeholder={$_('settings_wellness.withings.client_id_placeholder')}
                   bind:value={withingsClientId} />
               </div>
               <div class="form-group" style="margin:0">
@@ -1526,13 +1520,13 @@
               </div>
               <div class="form-group" style="margin:0">
                 <label class="form-label">{$_('settings_wellness.common.redirect_uri')}</label>
-                <div class="setting-desc" style="margin-bottom:4px">Add this exact URI to your Withings app's redirect URL list</div>
+                <div class="setting-desc" style="margin-bottom:4px">{$_('settings_wellness.withings.redirect_help')}</div>
                 <div style="display:flex;gap:6px">
                   <input class="input" type="url" placeholder={withingsRedirectSuggested} bind:value={withingsRedirectUri} style="flex:1;font-size:12px" />
                   <button class="btn-icon" title={$_('settings_wellness.common.use_suggested')} on:click={() => withingsRedirectUri = withingsRedirectSuggested}><span class="material-symbols-rounded">auto_awesome</span></button>
                   <button class="btn-icon" on:click={copyWithingsRedirectUri} title={$_('settings_wellness.common.copy_uri')}><span class="material-symbols-rounded">content_copy</span></button>
                 </div>
-                <div class="setting-desc" style="font-size:11px;margin-top:2px">Format: <code style="font-size:11px">https://your-domain.com/api/wellness/withings/callback</code></div>
+                <div class="setting-desc" style="font-size:11px;margin-top:2px">{$_('settings_wellness.fitbit_deep.redirect_format')} <code style="font-size:11px">https://your-domain.com/api/wellness/withings/callback</code></div>
               </div>
               <button class="btn btn-primary" style="align-self:flex-end" on:click={saveWithingsConfig}>{withingsEditingCreds ? $_('settings_wellness.common.save') : $_('settings_wellness.common.save_and_connect')}</button>
             </div>

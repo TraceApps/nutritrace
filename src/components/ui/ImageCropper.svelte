@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { createEventDispatcher } from 'svelte';
   import { portal } from '../../lib/portal.js';
@@ -104,14 +105,14 @@
           on:pointerdown={(event) => startInteraction(event, 'move')}
           role="button"
           tabindex="0"
-          aria-label="Drag to reposition crop"
+          aria-label={$_('extracted.general.drag_to_reposition_crop_192')}
           on:keydown={() => {}}
         >
           <button
             type="button"
             class="crop-resize-handle"
             on:pointerdown|stopPropagation={(event) => startInteraction(event, 'resize')}
-            aria-label="Drag to resize crop"
+            aria-label={$_('extracted.general.drag_to_resize_crop_193')}
           ></button>
         </div>
       {/if}

@@ -17,6 +17,12 @@
 import { writable, get } from 'svelte/store';
 import { NtApi } from '../lib/api.js';
 import { showSuccess, showError } from './toast.js';
+import { _ } from 'svelte-i18n';
+
+function fastingText(key, fallback, values) {
+  try { return get(_)('fasting_feedback.' + key, { values }); }
+  catch { return fallback; }
+}
 
 export const activeFast = writable(null);
 export const fastHistory = writable([]);
@@ -73,7 +79,7 @@ export async function startFast(goal_hours) {
     const r = await NtApi.post('/api/fasts/start', { goal_hours });
     activeFast.set(r);
     _startTicking();
-    showSuccess(`Fasting started · goal ${goal_hours || 16}h`);
+    showSuccess(fastingText('started', `Fasting started · goal ${goal_hours || 16}h`, { hours: goal_hours || 16 }));
     return r;
   } catch (e) {
     showError(e?.message || 'Could not start fast');
@@ -92,7 +98,7 @@ export async function endFast() {
     // Prepend the now-completed fast to history
     fastHistory.update(list => [r, ...list]);
     const hours = ((new Date(r.end_at).getTime() - new Date(r.start_at).getTime()) / 3600000).toFixed(1);
-    showSuccess(`Fast ended · ${hours}h logged`);
+    showSuccess(fastingText('ended', `Fast ended · ${hours}h logged`, { hours }));
     return r;
   } catch (e) {
     showError(e?.message || 'Could not end fast');
@@ -105,7 +111,7 @@ export async function deleteFast(id) {
   try {
     await NtApi.del(`/api/fasts/${id}`);
     fastHistory.update(list => list.filter(f => f.id !== id));
-    showSuccess('Fast removed');
+    showSuccess(fastingText('removed', 'Fast removed'));
   } catch (e) {
     showError(e?.message || 'Could not remove fast');
   }

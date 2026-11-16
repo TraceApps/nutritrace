@@ -51,7 +51,7 @@
       const ok = await biometric.authenticate('Enable biometric sign-in');
       if (!ok) {
         biometricLoginEnabled.set(false);
-        showError('Biometric verification was canceled or failed.');
+        showError($_('feedback.general.biometric_verification_was_canceled_or_failed'));
         return;
       }
       // Stash the current JWT so the next sign-in can unlock with biometric.
@@ -295,7 +295,7 @@
     window.location.href = url;
   }
   async function unlink(linkId) {
-    if (!confirm('Unlink this provider? You won\'t be able to sign in with it again until you re-link.')) return;
+    if (!confirm($_('feedback.general.unlink_this_provider_you_won_t_be_able_to_sign_in_wi'))) return;
     unlinking = linkId;
     try {
       const csrf = localStorage.getItem('nt:csrf');
@@ -408,7 +408,7 @@
     <div class="avatar-section">
       <button class="avatar-btn" on:click={pickAvatar} disabled={uploading} title={$_('profile.change_photo')}>
         {#if avatar_url}
-          <img class="avatar-img" src={resolveAssetUrl(avatar_url)} alt="avatar" />
+          <img class="avatar-img" src={resolveAssetUrl(avatar_url)} alt={$_('extracted.general.avatar_345')} />
         {:else}
           <span class="material-symbols-rounded avatar-placeholder">person</span>
         {/if}
@@ -484,7 +484,7 @@
                 <div class="oidc-link-info">
                   <span class="oidc-link-name">{l.display_name || 'OIDC'}</span>
                   {#if l.last_login_at}
-                    <span class="oidc-link-meta text-3 text-sm">last sign-in {new Date(l.last_login_at).toLocaleDateString()}</span>
+                    <span class="oidc-link-meta text-3 text-sm">{$_('extracted.general.last_sign_in_346')} {new Date(l.last_login_at).toLocaleDateString()}</span>
                   {/if}
                 </div>
                 <button class="btn btn-ghost btn-sm" on:click={() => unlink(l.id)} disabled={unlinking === l.id}>
@@ -592,9 +592,9 @@
           <span class="security-label">{$_('login.biometric.sign_in_button')}</span>
           <div class="security-desc">
             {#if _biometricSupported}
-              Use fingerprint or face unlock instead of typing your password each time. Your password is still required on the first sign-in. Sign-in sessions stay valid for up to a year by default — admins can change this in <strong>Settings → Users → Session Duration</strong>.
+              {$_('extracted.general.use_fingerprint_or_face_unlock_instead_of_typi_347')} <strong>{$_('extracted.general.settings_users_session_duration_348')}</strong>.
             {:else}
-              Set up a fingerprint or face unlock in <strong>Android Settings → Security</strong> first, then come back here.
+              {$_('extracted.general.set_up_a_fingerprint_or_face_unlock_in_349')} <strong>{$_('extracted.general.android_settings_security_350')}</strong> {$_('extracted.general.first_then_come_back_here_351')}
             {/if}
           </div>
         </div>

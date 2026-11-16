@@ -534,7 +534,7 @@
 
   function deleteGoal() {
     if (!editStat) return;
-    if (!confirm(`Remove goal for ${editStat.label || editStat.id}?`)) return;
+    if (!confirm($_('dynamic_feedback.remove_goal', { values: { name: editStat.label || editStat.id } }))) return;
     const storageId = _goalStorageId(editStat.id);
     goals.update(g => {
       const n = { ...g };
@@ -1282,7 +1282,7 @@
                 <span class="text-3 text-sm">{formatDate(tpl.createdAt)} · {$_('goals_page.templates.goals_count', { values: { count: tpl.goalCount || Object.keys(tpl.goals).filter(k => tpl.goals[k]?.min != null || tpl.goals[k]?.max != null).length + (tpl.waterGoalMl > 0 ? 1 : 0) } })}</span>
                 {#if _tKcal || _tP || _tC || _tF}
                   <div class="tpl-preview-chips">
-                    {#if _tKcal}<span class="tpl-chip">{_tKcal.toLocaleString()} kcal</span>{/if}
+                    {#if _tKcal}<span class="tpl-chip">{_tKcal.toLocaleString()} {$_('diary.activity.field_kcal_placeholder')}</span>{/if}
                     {#if _tP}<span class="tpl-chip tpl-chip-p">P {_tP}g</span>{/if}
                     {#if _tC}<span class="tpl-chip tpl-chip-c">C {_tC}g</span>{/if}
                     {#if _tF}<span class="tpl-chip tpl-chip-f">F {_tF}g</span>{/if}
@@ -1336,7 +1336,7 @@
       </div>
       <div class="goals-preview-sum">
         P {_proteinGoalG ?? '—'}g · C {_carbsGoalG ?? '—'}g · F {_fatGoalG ?? '—'}g
-        {#if _macroKcalSum > 0}= {Math.round(_macroKcalSum).toLocaleString()} kcal{/if}
+        {#if _macroKcalSum > 0}= {Math.round(_macroKcalSum).toLocaleString()} {$_('diary.activity.field_kcal_placeholder')}{/if}
       </div>
 
       {#if _goalWarnings.length}

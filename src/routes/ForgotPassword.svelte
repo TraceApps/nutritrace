@@ -55,7 +55,7 @@
         <input class="input" type="email" autocomplete="email"
           bind:value={email}
           on:keydown={e => e.key === 'Enter' && submit()}
-          placeholder="you@example.com" autofocus />
+          placeholder={$_('settings_email.test_dialog.recipient_ph')} autofocus />
       </div>
 
       {#if error}

@@ -16,6 +16,7 @@
   years back so a date 30+ years prior is reachable in two taps.
 -->
 <script>
+  import { _ } from 'svelte-i18n';
   import { createEventDispatcher } from 'svelte';
   import { localDateStr } from '../../lib/db.js';
   import { weekStartDay } from '../../stores/settings.js';
@@ -116,18 +117,18 @@
 <div class="date-picker">
   <!-- Month / year navigation -->
   <div class="dp-nav">
-    <button class="btn-icon dp-nav-btn" on:click={calPrevMonth} disabled={calAtMin} aria-label="Previous month">
+    <button class="btn-icon dp-nav-btn" on:click={calPrevMonth} disabled={calAtMin} aria-label={$_('extracted.general.previous_month_186')}>
       <span class="material-symbols-rounded">chevron_left</span>
     </button>
     <div class="dp-month-year">
-      <button class="dp-month-btn" on:click={() => { showMonthPicker = !showMonthPicker; showYearPicker = false; }} title="Pick month">
+      <button class="dp-month-btn" on:click={() => { showMonthPicker = !showMonthPicker; showYearPicker = false; }} title={$_('extracted.general.pick_month_187')}>
         {calMonthName}<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;margin-left:2px">{showMonthPicker ? 'expand_less' : 'expand_more'}</span>
       </button>
-      <button class="dp-year-btn" on:click={() => { showYearPicker = !showYearPicker; showMonthPicker = false; }} title="Pick year">
+      <button class="dp-year-btn" on:click={() => { showYearPicker = !showYearPicker; showMonthPicker = false; }} title={$_('extracted.general.pick_year_188')}>
         {calYear}<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;margin-left:2px">{showYearPicker ? 'expand_less' : 'expand_more'}</span>
       </button>
     </div>
-    <button class="btn-icon dp-nav-btn" on:click={calNextMonth} disabled={calAtMax} aria-label="Next month">
+    <button class="btn-icon dp-nav-btn" on:click={calNextMonth} disabled={calAtMax} aria-label={$_('extracted.general.next_month_189')}>
       <span class="material-symbols-rounded">chevron_right</span>
     </button>
   </div>

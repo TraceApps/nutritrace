@@ -913,34 +913,34 @@
   title={_delTarget ? `Delete ${_delTarget.full_name || _delTarget.username}?` : 'Delete user?'}
   message=""
   confirmText={_delLoading ? 'Deleting…' : 'Delete Permanently'}
-  cancelText="Cancel"
+  cancelText={$_('common.cancel')}
   dangerous={true}
   manualClose={true}
   confirmDisabled={!_delTarget || _delTyped.trim() !== _delTarget.username || _delLoading}
   on:cancel={_cancelDeleteUser}
   on:confirm={_confirmDeleteUser}>
   {#if _delTarget}
-    <p class="del-intro">This will permanently delete the account and everything it owns. This cannot be undone.</p>
+    <p class="del-intro">{$_('extracted.settings.this_will_permanently_delete_the_account_and_e_151')}</p>
     {#if !_delCounts}
-      <div class="del-counts-loading">Loading data preview…</div>
+      <div class="del-counts-loading">{$_('extracted.settings.loading_data_preview_152')}</div>
     {:else if _delCounts.error}
-      <div class="del-error">Couldn't load data preview: {_delCounts.error}</div>
+      <div class="del-error">{$_('extracted.settings.couldn_t_load_data_preview_153')} {_delCounts.error}</div>
     {:else}
       <ul class="del-counts">
         {#if _delCounts.foods         > 0}<li><strong>{_delCounts.foods.toLocaleString()}</strong> {_delCounts.foods === 1 ? 'food' : 'foods'}</li>{/if}
         {#if _delCounts.meals         > 0}<li><strong>{_delCounts.meals.toLocaleString()}</strong> {_delCounts.meals === 1 ? 'meal' : 'meals'}</li>{/if}
         {#if _delCounts.recipes       > 0}<li><strong>{_delCounts.recipes.toLocaleString()}</strong> {_delCounts.recipes === 1 ? 'recipe' : 'recipes'}</li>{/if}
-        {#if _delCounts.diary_days    > 0}<li><strong>{_delCounts.diary_days.toLocaleString()}</strong> diary {_delCounts.diary_days === 1 ? 'day' : 'days'}</li>{/if}
-        {#if _delCounts.activities    > 0}<li><strong>{_delCounts.activities.toLocaleString()}</strong> manual {_delCounts.activities === 1 ? 'activity' : 'activities'}</li>{/if}
+        {#if _delCounts.diary_days    > 0}<li><strong>{_delCounts.diary_days.toLocaleString()}</strong> {$_('extracted.settings.diary_154')} {_delCounts.diary_days === 1 ? 'day' : 'days'}</li>{/if}
+        {#if _delCounts.activities    > 0}<li><strong>{_delCounts.activities.toLocaleString()}</strong> {$_('extracted.settings.manual_155')} {_delCounts.activities === 1 ? 'activity' : 'activities'}</li>{/if}
         {#if _delCounts.workouts      > 0}<li><strong>{_delCounts.workouts.toLocaleString()}</strong> {_delCounts.workouts === 1 ? 'workout' : 'workouts'}</li>{/if}
-        {#if _delCounts.wellness_data > 0}<li><strong>{_delCounts.wellness_data.toLocaleString()}</strong> wellness data points</li>{/if}
+        {#if _delCounts.wellness_data > 0}<li><strong>{_delCounts.wellness_data.toLocaleString()}</strong> {$_('extracted.settings.wellness_data_points_156')}</li>{/if}
         {#if !_delCounts.foods && !_delCounts.meals && !_delCounts.recipes && !_delCounts.diary_days && !_delCounts.activities && !_delCounts.workouts && !_delCounts.wellness_data}
-          <li class="del-empty">No data attached to this account.</li>
+          <li class="del-empty">{$_('extracted.settings.no_data_attached_to_this_account_157')}</li>
         {/if}
       </ul>
     {/if}
     <label class="del-confirm-label" for="del-confirm-input">
-      Type <code>{_delTarget.username}</code> to confirm:
+      {$_('extracted.settings.type_158')} <code>{_delTarget.username}</code> {$_('extracted.settings.to_confirm_159')}
     </label>
     <input id="del-confirm-input" class="input del-confirm-input" type="text"
       autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
@@ -948,7 +948,7 @@
       placeholder={_delTarget.username}
       class:matched={_delTyped.trim() === _delTarget.username} />
     {#if _delTyped.trim() !== _delTarget.username}
-      <p class="del-hint">Confirm button enables once the username matches exactly.</p>
+      <p class="del-hint">{$_('extracted.settings.confirm_button_enables_once_the_username_match_160')}</p>
     {/if}
   {/if}
 </Dialog>

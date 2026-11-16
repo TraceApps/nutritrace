@@ -459,7 +459,7 @@
             } else {
               lastBack = now;
               import('./stores/toast.js').then(({ showSuccess }) => {
-                showSuccess('Tap again to exit');
+                showSuccess($_('feedback.general.tap_again_to_exit'));
               });
             }
           }
@@ -541,7 +541,7 @@
                 const { isShortcutHash } = await import('./lib/app-shortcut.js');
                 const shortcutWaiting = isShortcutHash(window.location.hash);
                 setAuthToken(token);
-                import('./stores/toast.js').then(({ showSuccess }) => showSuccess('Signed in'));
+                import('./stores/toast.js').then(({ showSuccess }) => showSuccess($_('common.signed_in')));
                 await loadAuthState();
                 // Re-evaluate the NativeSetup gate. Without this the user
                 // completes OIDC from NativeSetup, gets a valid token, and
@@ -572,7 +572,7 @@
                 params.get('withings')      ? 'withings' : 'garmin';
               const label = provider === 'google_health' ? 'Google Health' :
                             provider.charAt(0).toUpperCase() + provider.slice(1);
-              import('./stores/toast.js').then(({ showSuccess }) => showSuccess(`${label} connected!`));
+              import('./stores/toast.js').then(({ showSuccess }) => $_('dynamic_feedback.connected', { values: { service: label } }));
               // Navigate to Wellness page to pick up new connection
               window.location.hash = '#/wellness';
             } else if (
@@ -1001,7 +1001,7 @@
     <button
       class="hamburger"
       on:click={() => sidebarOpen = !sidebarOpen}
-      aria-label="Open menu"
+      aria-label={$_('extracted.general.open_menu_1')}
     >
       <span class="material-symbols-rounded">menu</span>
       {#if (_syncModeActive && !_serverReachable) || _webOffline}

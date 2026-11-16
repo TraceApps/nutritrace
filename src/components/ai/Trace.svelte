@@ -1223,7 +1223,7 @@
           maxResults: 1,
           partialResults: false,
           popup: false,
-          prompt: 'Tell me what you ate',
+          prompt: $_('voice_prompt.tell_me_what_you_ate'),
         }).then(async (result) => {
           // Result returns when stop() is called OR speech ends naturally.
           // Skip processing if the user cancelled by sliding off the FAB.
@@ -2218,9 +2218,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       style={fabPos ? `left:${fabPos.x + 30}px; top:${fabPos.y - 44}px; right:auto; transform:translateX(-50%);` : ''}
     >
       {#if cancelPreview}
-        ✕ Release to cancel
+        {$_('extracted.assistant.release_to_cancel_2')}
       {:else}
-        ● Listening… release to log
+        {$_('extracted.assistant.listening_release_to_log_3')}
       {/if}
     </div>
   {/if}
@@ -2254,7 +2254,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
           </div>
           <div>
             <div class="ai-header-name">{assistantName}</div>
-            <div class="ai-header-sub">Your AI Health & Nutrition Coach</div>
+            <div class="ai-header-sub">{$_('extracted.assistant.your_ai_health_nutrition_coach_4')}</div>
           </div>
         </div>
         <div class="ai-header-actions">
@@ -2293,19 +2293,19 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
               <TraceFace size={48} />
             </div>
             <p class="ai-welcome-name">Hi, I'm {assistantName}!</p>
-            <p class="ai-welcome-desc">Ask me anything — nutrition, sleep, activity, recovery, hydration, body composition. I have access to all your data from today.</p>
+            <p class="ai-welcome-desc">{$_('extracted.assistant.ask_me_anything_nutrition_sleep_activity_recov_5')}</p>
             <div class="ai-quick-chips">
               <button class="ai-chip" on:click={() => quickAsk("How am I doing today?")}>
-                How am I doing today?
+                {$_('extracted.assistant.how_am_i_doing_today_6')}
               </button>
               <button class="ai-chip" on:click={() => quickAsk("What should I eat for my next meal?")}>
-                Meal suggestion
+                {$_('extracted.assistant.meal_suggestion_7')}
               </button>
               <button class="ai-chip" on:click={() => quickAsk("How was my sleep and recovery?")}>
-                Sleep & recovery
+                {$_('extracted.assistant.sleep_recovery_8')}
               </button>
               <button class="ai-chip" on:click={() => quickAsk("Am I on track with my goals?")}>
-                Goal progress
+                {$_('extracted.assistant.goal_progress_9')}
               </button>
             </div>
           </div>
@@ -2334,7 +2334,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
               {/if}
               <div class="ai-msg-body">
                 {#if msg.image}
-                  <img src={msg.image} alt="Attached" class="ai-msg-image" />
+                  <img src={msg.image} alt={$_('extracted.assistant.attached_10')} class="ai-msg-image" />
                 {/if}
                 <div class="ai-bubble">{msg.content}</div>
                 {#if _cardOffer && _cardOffer.msg === msg}
@@ -2385,7 +2385,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                     forceShowAll={true} />
                   <div class="proposal-meal-picker">
                     <label>
-                      Meal
+                      {$_('extracted.assistant.meal_11')}
                       <select bind:value={_pendingProposal.meal}>
                         {#each (mealNames.get() || ['Breakfast','Lunch','Dinner','Snacks']) as mn, mi}
                           <option value={mi}>{mn}</option>
@@ -2395,17 +2395,17 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                   </div>
                   <div class="proposal-actions">
                     <button class="btn btn-secondary btn-sm" on:click={_discardProposal}>
-                      Discard
+                      {$_('coaching.trace.discard')}
                     </button>
                     <button class="btn btn-primary btn-sm" on:click={_commitProposal}>
                       <span class="material-symbols-rounded" style="font-size:16px">add</span>
-                      Add to Diary
+                      {$_('foods.add_to_diary')}
                     </button>
                   </div>
                 {:else}
                   <div class="proposal-committed">
                     <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">check_circle</span>
-                    Logged {_proposalCommittedKcal} kcal to {(mealNames.get() || ['Breakfast','Lunch','Dinner','Snacks'])[_pendingProposal.meal] || 'meal'}
+                    {$_('coaching.plans.logged')} {_proposalCommittedKcal} {$_('extracted.assistant.kcal_to_15')} {(mealNames.get() || ['Breakfast','Lunch','Dinner','Snacks'])[_pendingProposal.meal] || 'meal'}
                   </div>
                 {/if}
               </div>
@@ -2443,7 +2443,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                       {_pendingFoodProposal.name}{#if _pendingFoodProposal.brand} <span class="proposal-brand">— {_pendingFoodProposal.brand}</span>{/if}
                     </div>
                     <div class="proposal-serving">
-                      Per {_pendingFoodProposal.portion} {_pendingFoodProposal.unit}
+                      {$_('extracted.assistant.per_16')} {_pendingFoodProposal.portion} {_pendingFoodProposal.unit}
                     </div>
                   </div>
                   <NutritionFactsBox
@@ -2466,25 +2466,25 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                   </div>
                   <div class="proposal-actions proposal-actions-wide">
                     <button class="btn btn-secondary btn-sm" on:click={_discardFoodProposal}>
-                      Discard
+                      {$_('coaching.trace.discard')}
                     </button>
                     <button class="btn btn-secondary btn-sm" on:click={_commitFoodCatalogOnly}>
                       <span class="material-symbols-rounded" style="font-size:16px">bookmark_add</span>
-                      Save to Foods
+                      {$_('extracted.assistant.save_to_foods_17')}
                     </button>
                     <button class="btn btn-primary btn-sm" on:click={_commitFoodAndLog}
                       disabled={_foodProposalCommittedMealIdx == null}>
                       <span class="material-symbols-rounded" style="font-size:16px">add</span>
-                      Save & Add to Diary
+                      {$_('extracted.assistant.save_add_to_diary_18')}
                     </button>
                   </div>
                 {:else}
                   <div class="proposal-committed">
                     <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">check_circle</span>
                     {#if _foodProposalCommittedKind === 'logged'}
-                      Saved {_pendingFoodProposal.name} to your foods + logged to {(mealNames.get() || ['Breakfast','Lunch','Dinner','Snacks'])[_foodProposalCommittedMealIdx] || 'meal'}
+                      {$_('food_editor.saved')} {_pendingFoodProposal.name} {$_('extracted.assistant.to_your_foods_logged_to_20')} {(mealNames.get() || ['Breakfast','Lunch','Dinner','Snacks'])[_foodProposalCommittedMealIdx] || 'meal'}
                     {:else}
-                      Saved {_pendingFoodProposal.name} to your food catalog
+                      {$_('food_editor.saved')} {_pendingFoodProposal.name} {$_('extracted.assistant.to_your_food_catalog_21')}
                     {/if}
                   </div>
                 {/if}
@@ -2518,7 +2518,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       <!-- Input bar -->
       {#if attachedImage}
         <div class="ai-image-preview">
-          <img src={attachedImage.preview} alt="Attached" />
+          <img src={attachedImage.preview} alt={$_('extracted.assistant.attached_10')} />
           <button class="ai-image-remove" on:click={_removeImage}>
             <span class="material-symbols-rounded" style="font-size:16px">close</span>
           </button>

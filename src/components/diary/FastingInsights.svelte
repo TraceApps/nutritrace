@@ -22,8 +22,8 @@
     const hrs = f.end_at ? ((new Date(f.end_at) - new Date(f.start_at)) / 3600000).toFixed(1) : '?';
     const day = new Date(f.start_at).toLocaleDateString();
     const ok = await confirmDialog({
-      title: 'Remove this fast?',
-      message: `${hrs}h fast on ${day} will be deleted from your history. This can't be undone.`,
+      title: $_('dynamic_ui.fasting.remove_title'),
+      message: $_('dynamic_ui.fasting.remove_message', { values: { hours: hrs, date: day } }),
       confirmText: 'Remove',
       dangerous: true,
     });
@@ -111,14 +111,14 @@
       </div>
     {/each}
   </div>
-  <div class="fi-chart-caption">Last 14 days · {_stats.count} fast{_stats.count === 1 ? '' : 's'} logged</div>
+  <div class="fi-chart-caption">{$_('extracted.diary.last_14_days_44')} {_stats.count} {$_('extracted.diary.fast_45')}{_stats.count === 1 ? '' : 's'} {$_('extracted.diary.logged_46')}</div>
 
   {#if $fastHistory && $fastHistory.length > 0}
     <button class="fi-history-toggle" type="button"
       on:click={() => _showHistory = !_showHistory}
       aria-expanded={_showHistory}>
       <span class="material-symbols-rounded" class:rot={_showHistory}>expand_more</span>
-      {_showHistory ? 'Hide' : 'Show'} Recent Fasts
+      {_showHistory ? 'Hide' : 'Show'} {$_('extracted.diary.recent_fasts_47')}
     </button>
     {#if _showHistory}
       <div class="fi-history" transition:slide={{ duration: 180 }}>
@@ -129,11 +129,11 @@
               <span class="fi-history-day">{_fmtDayLabel(f.start_at)}</span>
               <span class="fi-history-dur">{_fmtDuration(f.start_at, f.end_at)}</span>
               <span class="fi-history-goal" class:met={goalMet}>
-                Goal {f.goal_hours}h{goalMet ? ' ✓' : ''}
+                {$_('statistics_page.desktop.goal')} {f.goal_hours}h{goalMet ? ' ✓' : ''}
               </span>
             </div>
             <button class="btn-icon fi-history-del" on:click={() => _removeFast(f)}
-              aria-label="Remove this fast" title="Remove this fast">
+              aria-label={$_('extracted.diary.remove_this_fast_49')} title={$_('extracted.diary.remove_this_fast_49')}>
               <span class="material-symbols-rounded">close</span>
             </button>
           </div>

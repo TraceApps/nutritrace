@@ -20,7 +20,8 @@
   import { onMount, tick, afterUpdate, onDestroy } from 'svelte';
   import { fold } from '../lib/fold.js';
   import { push, querystring } from 'svelte-spa-router';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../lib/i18n-label.js';
   import { slide, fade } from 'svelte/transition';
 
   import { currentUser, userMgmtActive } from '../stores/auth.js';
@@ -552,7 +553,7 @@
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
 
-  <p class="settings-group-label">Data &amp; Tracking</p>
+  <p class="settings-group-label">{$_('extracted.general.data_tracking_352')}</p>
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'goals')} class:active={currentSection === 'goals'} aria-current={currentSection === 'goals' ? 'page' : undefined} on:click={() => toggleSection('goals')}>
     <span class="material-symbols-rounded si">flag</span>
     <span>{$_('settings.goals.section')}</span>
@@ -608,7 +609,7 @@
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
 
-  <p class="settings-group-label">App</p>
+  <p class="settings-group-label">{$_('extracted.general.app_353')}</p>
   {#if isNative}
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'serverConnection')} class:active={currentSection === 'serverConnection'} aria-current={currentSection === 'serverConnection' ? 'page' : undefined} on:click={() => toggleSection('serverConnection')}>
       <span class="material-symbols-rounded si">cloud_sync</span>
@@ -746,7 +747,7 @@
         bind:value={settingsSearch}
         on:input={_onSearchInput} />
       {#if settingsSearch}
-        <button class="settings-search-clear btn-icon" on:click={() => settingsSearch = ''} title="Clear search">
+        <button class="settings-search-clear btn-icon" on:click={() => settingsSearch = ''} title={$_('extracted.general.clear_search_354')}>
           <span class="material-symbols-rounded" style="font-size:18px">close</span>
         </button>
       {/if}
@@ -779,10 +780,10 @@
                blank column. -->
           <div class="settings-nav-empty">
             <span class="material-symbols-rounded">search_off</span>
-            <p>No sections match "{settingsSearch}"</p>
+            <p>{$_('extracted.general.no_sections_match_355')}{settingsSearch}"</p>
             <button type="button" class="settings-nav-clear"
               on:click={() => settingsSearch = ''}>
-              Clear search
+              {$_('extracted.general.clear_search_354')}
             </button>
           </div>
         {/if}
@@ -912,7 +913,7 @@
                  clean welcome, new users get one-click nudges. -->
             {#if !currentSection && _onboardingCards.length > 0}
               <div class="settings-onboarding">
-                <p class="settings-onboarding-heading">Get Set Up</p>
+                <p class="settings-onboarding-heading">{$_('extracted.general.get_set_up_356')}</p>
                 <div class="settings-onboarding-grid">
                   {#each _onboardingCards as card (card.key)}
                     <div class="settings-onboarding-card-wrap">
@@ -920,14 +921,14 @@
                         on:click={() => toggleSection(card.key)}>
                         <span class="material-symbols-rounded">{card.icon}</span>
                         <div class="settings-onboarding-copy">
-                          <span class="settings-onboarding-label">{card.label}</span>
-                          <span class="settings-onboarding-desc">{card.desc}</span>
+                          <span class="settings-onboarding-label">{tr('dynamic_options.onboarding.' + card.key, 'label', card.label, $locale)}</span>
+                          <span class="settings-onboarding-desc">{tr('dynamic_options.onboarding.' + card.key, 'desc', card.desc, $locale)}</span>
                         </div>
                       </button>
                       <button type="button" class="settings-onboarding-dismiss"
                         on:click|stopPropagation={() => _dismissOnboarding(card.key)}
-                        aria-label="Dismiss {card.label}"
-                        title="Dismiss">
+                        aria-label={$_('dynamic_labels.dismiss_card', { values: { card: tr('dynamic_options.onboarding.' + card.key, 'label', card.label, $locale) } })}
+                        title={$_('meal_editor.ct_refresh.dismiss')}>
                         <span class="material-symbols-rounded">close</span>
                       </button>
                     </div>

@@ -1118,11 +1118,11 @@
                    the current metric — the loader re-runs via the metric
                    reactive at line ~647. -->
               <div class="stats-empty-alts text-3 text-sm">
-                Try
+                {$_('extracted.statistics.try_526')}
                 {#each _emptyAlternatives as alt, i}
                   <button class="stats-empty-alt-link" type="button" on:click={() => metric = alt}>{_altLabel(alt)}</button>{#if i < _emptyAlternatives.length - 2}, {:else if i === _emptyAlternatives.length - 2} or {/if}
                 {/each}
-                . You may have data there.
+                {$_('extracted.statistics.you_may_have_data_there_527')}
               </div>
             {/if}
           </div>
@@ -1297,10 +1297,10 @@
     on:click={() => showCalFor = null} on:keydown={() => {}}>
     <div class="stat-cal-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
-      <div class="cal-title">{showCalFor === 'start' ? 'From' : 'To'} date</div>
+      <div class="cal-title">{showCalFor === 'start' ? 'From' : 'To'} {$_('extracted.statistics.date_528')}</div>
       <!-- Month / year nav -->
       <div class="dp-nav">
-        <button class="btn-icon dp-nav-btn" on:click={calPrevMonth} aria-label="Previous month" title="Previous month">
+        <button class="btn-icon dp-nav-btn" on:click={calPrevMonth} aria-label={$_('extracted.statistics.previous_month_186')} title={$_('extracted.statistics.previous_month_186')}>
           <span class="material-symbols-rounded">chevron_left</span>
         </button>
         <div class="dp-month-year">
@@ -1311,7 +1311,7 @@
             {calYear}<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;margin-left:2px">{showYearPicker ? 'expand_less' : 'expand_more'}</span>
           </button>
         </div>
-        <button class="btn-icon dp-nav-btn" on:click={calNextMonth} aria-label="Next month" title="Next month">
+        <button class="btn-icon dp-nav-btn" on:click={calNextMonth} aria-label={$_('extracted.statistics.next_month_189')} title={$_('extracted.statistics.next_month_189')}>
           <span class="material-symbols-rounded">chevron_right</span>
         </button>
       </div>

@@ -70,7 +70,7 @@
   async function _save() {
     const raw = parseDecimal(_value);
     if (!Number.isFinite(raw) || raw <= 0) {
-      showError(`Enter a positive ${_unitLabel} value.`);
+      showError($_('dynamic_feedback.positive_energy', { values: { unit: _unitLabel } }));
       return;
     }
     // kJ → kcal: 1 kcal = 4.184 kJ. Store as kcal internally (matches the
@@ -100,13 +100,13 @@
   }
 </script>
 
-<Sheet bind:open title="Quick Calories{mealName ? `: ${mealName}` : ''}">
+<Sheet bind:open title={mealName ? $_('dynamic_labels.quick_calories_for_meal', { values: { meal: mealName } }) : $_('diary.quick_calories.title')}>
   <div class="qc-body">
     <p class="qc-help">
-      Log just the {_unitLabel} when you don't have full nutrition info, or when you don't want to model the food. Optional macros are stored only when you fill them in. Adds straight to the diary; no food entry is created.
+      {$_('extracted.diary.log_just_the_62')} {_unitLabel} {$_('extracted.diary.when_you_don_t_have_full_nutrition_info_or_whe_63')}
     </p>
 
-    <label class="form-label" for="qc-name">Name (optional)</label>
+    <label class="form-label" for="qc-name">{$_('diary.quick_calories.name_label')}</label>
     <input id="qc-name" class="input" type="text" maxlength="60"
            placeholder={$_('quick_calories.name_ph')}
            bind:value={_name} on:keydown={_onKey} />
@@ -149,7 +149,7 @@
                  bind:value={_fat} on:keydown={_onKey} />
           <span class="qc-macro-unit" style="color:var(--macro-fat)">g</span>
         </div>
-        <span class="qc-macro-label">Fat</span>
+        <span class="qc-macro-label">{$_('diary_deep.fat')}</span>
       </div>
     </div>
 

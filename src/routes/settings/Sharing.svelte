@@ -130,7 +130,7 @@
       ]);
       // Persist for next time — the form should remember its last state.
       await _saveBulkState();
-      showSuccess('Sharing updated');
+      showSuccess($_('share_item.saved'));
     } catch(e) { showError('Could not apply: ' + e.message); }
     bulkApplying = false;
   }
@@ -145,12 +145,12 @@
     {#if $currentUser?.role === 'admin'}
       <!-- Group: Admin -->
       <p class="settings-group-heading">{$_('settings_integrations.admin_section')}</p>
-      <p class="settings-group-sub">Server-wide sharing switch. When off, group members can't share items with each other.</p>
+      <p class="settings-group-sub">{$_('extracted.settings.server_wide_sharing_switch_when_off_group_memb_502')}</p>
       <div class="card settings-card">
         <div class="setting-row">
           <div>
             <span class="setting-label">{$_('settings_integrations.enable_sharing')}</span>
-            <span class="setting-desc">Allow group members to share foods, meals, and recipes with each other</span>
+            <span class="setting-desc">{$_('extracted.settings.allow_group_members_to_share_foods_meals_and_r_503')}</span>
           </div>
           <Toggle checked={adminSharingEnabled} on:change={e => saveAdminSharingEnabled(e.detail)} />
         </div>
@@ -162,11 +162,11 @@
          authenticated user sees this, not just admins. Server-side
          enforcement in server/lib/default-visibility.js backstops
          the toggle when admin disables sharing globally. -->
-    <p class="settings-group-heading">Auto Share</p>
-    <p class="settings-group-sub">Applied automatically to new foods, meals, and recipes you create. Existing items are left alone; use Bulk Share below to update those.</p>
+    <p class="settings-group-heading">{$_('extracted.settings.auto_share_504')}</p>
+    <p class="settings-group-sub">{$_('extracted.settings.applied_automatically_to_new_foods_meals_and_r_505')}</p>
     <div class="card settings-card">
       <div class="setting-row">
-        <span class="setting-label">Visibility</span>
+        <span class="setting-label">{$_('extracted.settings.visibility_506')}</span>
         <div class="select-wrap" style="width:160px">
           <select class="select sel-sm"
             value={$defaultShareVisibility}
@@ -180,7 +180,7 @@
 
     <!-- Group: Bulk Share -->
     <p class="settings-group-heading">{$_('settings_integrations.bulk_share')}</p>
-    <p class="settings-group-sub">Set who can see your existing items. Each category has its own visibility, so changing one doesn't affect the others.</p>
+    <p class="settings-group-sub">{$_('extracted.settings.set_who_can_see_your_existing_items_each_categ_507')}</p>
     <div class="card settings-card" style="gap:0">
       {#each [
         { key: 'foods',   label: 'Foods'   },
@@ -209,7 +209,7 @@
         </div>
         {#if _vis === 'specific'}
           <div style="padding:0 16px 12px">
-            <div class="setting-desc" style="margin-bottom:8px">Members who can see your {cat.label.toLowerCase()}:</div>
+            <div class="setting-desc" style="margin-bottom:8px">{$_('extracted.settings.members_who_can_see_your_508')} {cat.label.toLowerCase()}:</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px">
               {#each bulkUsers as u}
                 <button class="chip" class:chip-active={_users.includes(u.id)}
@@ -218,7 +218,7 @@
                   {u.name}
                 </button>
               {/each}
-              {#if !bulkUsersLoaded}<span class="setting-desc">Loading…</span>{/if}
+              {#if !bulkUsersLoaded}<span class="setting-desc">{$_('coaching.loading')}</span>{/if}
             </div>
           </div>
         {/if}

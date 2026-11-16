@@ -29,18 +29,18 @@
   <div class="card settings-card">
     <div style="padding:12px 16px 0">
       <p class="setting-desc" style="margin:0 0 10px">
-        Add units that aren't in the built-in catalog (e.g. "shot", "scoop", "stick"). Custom units appear under "Custom" at the top of the unit dropdown when adding foods.
+        {$_('extracted.settings.add_units_that_aren_t_in_the_built_in_catalog_410')}
       </p>
       <p class="setting-desc" style="margin:0 0 12px;color:var(--warning, #d49a2b)">
         <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
-        Custom units do not convert by mass. Picking one falls back to a pure portion-ratio scale (1 unit → 2 units = 2× nutrition), since "shot" or "scoop" has no fixed gram weight.
+        {$_('extracted.settings.custom_units_do_not_convert_by_mass_picking_on_411')}
       </p>
     </div>
     <div class="cat-chips-wrap" style="padding:0 16px 12px">
       {#each ($customUnits || []) as u}
         <div class="chip">
           {u.full} <span style="color:var(--text-3);font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin-left:6px">{u.abbr}</span>
-          <button class="chip-x" on:click={() => removeCustomUnit(u)} aria-label="Remove">
+          <button class="chip-x" on:click={() => removeCustomUnit(u)} aria-label={$_('diary.water.remove')}>
             <span class="material-symbols-rounded" style="font-size:14px">close</span>
           </button>
         </div>
@@ -52,16 +52,16 @@
     <div class="setting-divider"></div>
     <div class="cat-add-row">
       <div style="display:flex;flex-direction:column;gap:3px;width:80px">
-        <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">Abbr *</span>
-        <input class="input" style="height:40px" placeholder="shot"
+        <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">{$_('extracted.settings.abbr_412')}</span>
+        <input class="input" style="height:40px" placeholder={$_('extracted.settings.shot_413')}
           bind:value={newUnitAbbr} on:keydown={e => e.key==='Enter' && addCustomUnit()} />
       </div>
       <div style="display:flex;flex-direction:column;gap:3px;flex:1">
         <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">{$_('settings_stats.full_name')}</span>
-        <input class="input" style="height:40px" placeholder="shot glass"
+        <input class="input" style="height:40px" placeholder={$_('extracted.settings.shot_glass_414')}
           bind:value={newUnitFull} on:keydown={e => e.key==='Enter' && addCustomUnit()} />
       </div>
-      <button class="btn btn-secondary" style="height:40px;padding:0 16px;align-self:flex-end" on:click={addCustomUnit}>Add</button>
+      <button class="btn btn-secondary" style="height:40px;padding:0 16px;align-self:flex-end" on:click={addCustomUnit}>{$_('diary.water.add')}</button>
     </div>
   </div>
 </div>

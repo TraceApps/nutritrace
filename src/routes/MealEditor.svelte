@@ -97,7 +97,7 @@
   let pickerMeals = [];
   let pickerRecipes = [];
   let pickerLoading = false;
-  const PICKER_TABS = ['Foods', 'Meals', 'Recipes'];
+  const PICKER_TABS = ['foods.tabs.foods', 'foods.tabs.meals', 'foods.tabs.recipes'];
 
   // Cross-source picker state (feature #59): the Foods tab inside the picker
   // can search Local / OFF / USDA / Mealie / From Others, just like the main
@@ -117,12 +117,12 @@
   let _pickerSharedCounts   = { foods: 0 };
   const _pickerMealieEnabled = DB.getSetting('mealieEnabled', false);
   $: _pickerSourceOptions = [
-    { value: 'local',  label: 'Local'        },
+    { value: 'local',  label: $_('foods.sources.local') },
     ...($offEnabled                          ? [{ value: 'off',    label: 'OFF'        }] : []),
     ...($usdaEnabled                         ? [{ value: 'usda',   label: 'USDA'       }] : []),
     ...(_pickerMealieEnabled                 ? [{ value: 'mealie', label: 'Mealie'     }] : []),
     ...(_pickerSharingEnabled && _pickerSharedCounts.foods > 0
-                                             ? [{ value: 'shared', label: 'From Others'}] : []),
+                                             ? [{ value: 'shared', label: $_('foods.sources.from_others') }] : []),
   ];
   async function _refreshPickerSharing() {
     try {
@@ -338,7 +338,7 @@
   async function _unlinkCtSource() {
     if (!meal?.source_app) return;
     const proceed = window.confirm(
-      "Unlink this recipe from CookTrace?\n\nThe recipe stays in NutriTrace but stops trying to sync with CookTrace. You can safely delete the CookTrace copy after unlinking."
+      $_('feedback.foods.unlink_cooktrace_recipe')
     );
     if (!proceed) return;
     meal = { ...meal, source_app: null, source_external_id: null, source_url: null };
@@ -453,7 +453,7 @@
     try {
       cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
       if (videoEl) { videoEl.srcObject = cameraStream; videoEl.play(); }
-    } catch { cameraOpen = false; showError('Camera not available'); }
+    } catch { cameraOpen = false; showError($_('feedback.foods.camera_not_available')); }
   }
 
   async function capturePhoto() {
@@ -656,7 +656,7 @@
       if (_pickerSource === 'shared' && food._shared_by != null) {
         const mine = await NtApi.copyFood(food.id);
         if (!mine) throw new Error('Copy returned no food');
-        showSuccess('Saved to your catalog');
+        showSuccess($_('feedback.foods.saved_to_your_catalog'));
         // Refresh the local list so subsequent picks see the new row
         pickerFoods = await NtApi.getFoods();
         return mine;
@@ -682,7 +682,7 @@
         const { id: _drop, ...rest } = food;
         const saved = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
         if (!saved) throw new Error('Create returned no food');
-        showSuccess('Saved to your catalog');
+        showSuccess($_('feedback.foods.saved_to_your_catalog'));
         pickerFoods = await NtApi.getFoods();
         return saved;
       }
@@ -721,13 +721,13 @@
     }
     // OFF lookup
     if (!$offEnabled) {
-      showError('Scan: no local match, and OFF is disabled in Settings.');
+      showError($_('feedback.foods.scan_no_local_match_and_off_is_disabled_in_settings'));
       return;
     }
     _pickerLoadingExt = true;
     try {
       const offFood = await API.lookupBarcode(code);
-      if (!offFood) { showError('Scan: barcode not found.'); return; }
+      if (!offFood) { showError($_('feedback.foods.scan_barcode_not_found')); return; }
       _pickerSource = 'off';
       _pickerApiResults = [offFood];
       pickerSearch = '';   // results display directly, no name search
@@ -890,7 +890,7 @@
     saving = true;
     try {
       await NtApi.copyMeal(meal.id);
-      showSuccess('Saved a copy to your catalog');
+      showSuccess($_('food_editor.toast.saved_copy'));
       pop();
     } catch (e) { showError('Could not save copy: ' + e.message); }
     saving = false;
@@ -1035,7 +1035,7 @@
     <div class="readonly-banner">
       <span class="material-symbols-rounded">lock</span>
       <div>
-        <div class="readonly-title">Shared by {meal._shared_by} — read only</div>
+        <div class="readonly-title">{$_('extracted.foods.shared_by_267')} {meal._shared_by} {$_('extracted.foods.read_only_268')}</div>
         <div class="readonly-sub">{isRecipe ? $_('meal_editor_deep.readonly_recipe') : $_('meal_editor_deep.readonly_meal')}</div>
       </div>
     </div>
@@ -1071,14 +1071,14 @@
       <div class="editor-card-title">{$_('meal_editor.card_photo')}</div>
       <div class="photo-preview-wrap">
         {#if photoPreviewUrl}
-          <img src={photoPreviewUrl} alt="food" class="photo-preview-img" />
+          <img src={photoPreviewUrl} alt={$_('extracted.foods.food_96')} class="photo-preview-img" />
           <!-- × in the top-right corner replaces the separate trash
                button in the actions row — matches the FoodEditor
                pattern so the two editors clear photos the same way. -->
           <button class="photo-remove-btn btn-icon"
             on:click={() => photoPreviewUrl = ''}
-            aria-label="Remove photo"
-            title="Remove photo">
+            aria-label={$_('extracted.foods.remove_photo_329')}
+            title={$_('extracted.foods.remove_photo_329')}>
             <span class="material-symbols-rounded" style="font-size:18px">close</span>
           </button>
         {:else}
@@ -1090,11 +1090,11 @@
       <div class="photo-actions">
         <button class="btn btn-ghost photo-btn" on:click={openCamera}>
           <span class="material-symbols-rounded" style="font-size:18px">camera_alt</span>
-          Camera
+          {$_('attach_image.camera')}
         </button>
         <label class="btn btn-ghost photo-btn" style="cursor:pointer">
           <span class="material-symbols-rounded" style="font-size:18px">photo_library</span>
-          Upload
+          {$_('extracted.foods.upload_271')}
           <input type="file" accept="image/*" style="display:none" on:change={handleFileChange} />
         </label>
         <button class="btn btn-ghost photo-btn" on:click={() => { showUrlInput = !showUrlInput; photoUrl = ''; }}>
@@ -1106,14 +1106,14 @@
         <div class="photo-url-row">
           <input class="input photo-url-input" placeholder="https://..." bind:value={photoUrl}
             on:keydown={e => e.key === 'Enter' && applyPhotoUrl()} />
-          <button class="btn btn-primary" on:click={applyPhotoUrl}>Get</button>
+          <button class="btn btn-primary" on:click={applyPhotoUrl}>{$_('extracted.foods.get_273')}</button>
         </div>
       {/if}
     </div>
 
     <!-- Name -->
     <div class="card editor-card">
-      <div class="editor-card-title">Name *</div>
+      <div class="editor-card-title">{$_('settings_api_tokens.form.name')}</div>
       <input class="input" placeholder={isRecipe ? $_('meal_editor.recipe_name_placeholder') : $_('meal_editor.meal_name_placeholder')} bind:value={meal.name} />
     </div>
 
@@ -1130,7 +1130,7 @@
             </span>
             {#if meal.source_url}
               <a class="ct-source-link" href={meal.source_url} target="_blank" rel="noopener noreferrer">
-                Open original
+                {$_('extracted.foods.open_original_330')}
                 <span class="material-symbols-rounded">open_in_new</span>
               </a>
             {/if}
@@ -1254,20 +1254,20 @@
           {#if meal.items.length > 0}
             {@const _hdrEnergy = Nutrition.displayEnergy(totals.calories || 0, $energyUnit)}
             <span style="font-weight:400;color:var(--accent)">
-              — {_hdrEnergy.value.toLocaleString()} {_hdrEnergy.unit} total
+              — {_hdrEnergy.value.toLocaleString()} {_hdrEnergy.unit} {$_('extracted.foods.total_80')}
             </span>
           {/if}
         </div>
         <button class="btn btn-ghost" style="font-size:13px;height:32px;padding:0 12px"
           on:click={openPicker}>
-          + Add
+          {$_('extracted.foods.add_331')}
         </button>
       </div>
 
       {#if meal.items.length === 0}
         <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 0;opacity:0.5">
           <span class="material-symbols-rounded" style="font-size:32px">restaurant</span>
-          <span class="text-3 text-sm">No ingredients yet. Tap + to add.</span>
+          <span class="text-3 text-sm">{$_('extracted.foods.no_ingredients_yet_tap_to_add_332')}</span>
         </div>
       {:else}
         <div class="ingredient-list"
@@ -1304,11 +1304,11 @@
               </div>
               <span class="text-3 text-sm">{_ingEnergy.value.toLocaleString()} {_ingEnergy.unit}</span>
               <button class="btn-icon btn-sm" on:click={() => openEditIngredient(i)}
-                style="color:var(--text-3)" title="Edit ingredient">
+                style="color:var(--text-3)" title={$_('extracted.foods.edit_ingredient_333')}>
                 <span class="material-symbols-rounded" style="font-size:18px">edit</span>
               </button>
               <button class="btn-icon btn-sm" on:click={() => removeIngredient(i)}
-                style="color:var(--text-3)" title="Remove ingredient">
+                style="color:var(--text-3)" title={$_('diary.edit_item.remove_ingredient')}>
                 <span class="material-symbols-rounded" style="font-size:18px">remove_circle</span>
               </button>
             </div>
@@ -1357,8 +1357,8 @@
         <span class="material-symbols-rounded">arrow_back</span>
       </button>
       {#if selectedIngredients.size > 0}
-        <span class="picker-count-title">{selectedIngredients.size} selected</span>
-        <button class="btn-icon accent" on:click={confirmMultiIngredientAdd} aria-label="Add selected" title="Add selected"
+        <span class="picker-count-title">{selectedIngredients.size} {$_('extracted.foods.selected_208')}</span>
+        <button class="btn-icon accent" on:click={confirmMultiIngredientAdd} aria-label={$_('extracted.foods.add_selected_335')} title={$_('extracted.foods.add_selected_335')}
           disabled={_pickerSavingPick}>
           <span class="material-symbols-rounded">check</span>
         </button>
@@ -1375,7 +1375,7 @@
       {#each PICKER_TABS as label, idx}
         <button class="picker-tab-btn" class:active={pickerTab === idx}
           on:click={() => { pickerTab = idx; pickerSearch = ''; }}>
-          {label}
+          {$_(label)}
         </button>
       {/each}
     </div>
@@ -1384,7 +1384,7 @@
         {#each _pickerSourceOptions as opt}
           <button class="picker-source-chip" class:active={_pickerSource === opt.value}
             on:click={() => { _pickerSource = opt.value; pickerSearch = ''; }}>
-            {opt.label}
+            {opt.value === 'shared' ? $_('foods.sources.from_others') : opt.label}
           </button>
         {/each}
       </div>
@@ -1395,15 +1395,15 @@
       {:else if pickerFiltered.length === 0}
         <div class="picker-empty">
           {#if _isExternalSearch && !pickerSearch}
-            Type to search {_pickerSource === 'off' ? 'Open Food Facts' : _pickerSource === 'usda' ? 'USDA' : 'Mealie'}.
+            {$_('extracted.foods.type_to_search_336')} {_pickerSource === 'off' ? 'Open Food Facts' : _pickerSource === 'usda' ? 'USDA' : 'Mealie'}.
           {:else if _isExternalSearch}
-            No {_pickerSource === 'off' ? 'OFF' : _pickerSource === 'usda' ? 'USDA' : 'Mealie'} results for "{pickerSearch}".
+            No {_pickerSource === 'off' ? 'OFF' : _pickerSource === 'usda' ? 'USDA' : 'Mealie'} {$_('extracted.foods.results_for_337')}{pickerSearch}".
           {:else if _pickerSource === 'shared'}
-            No foods shared with you yet.
+            {$_('extracted.foods.no_foods_shared_with_you_yet_338')}
           {:else if pickerSearch}
-            No results found
+            {$_('extracted.foods.no_results_found_339')}
           {:else}
-            No items yet. Add some in the Foods tab first.
+            {$_('extracted.foods.no_items_yet_add_some_in_the_foods_tab_first_340')}
           {/if}
         </div>
       {:else}
@@ -1411,7 +1411,7 @@
           {@const _sel = selectedIngredients.has(food)}
           {@const _pickEnergy = Nutrition.displayEnergy(food.nutrition?.calories || 0, $energyUnit)}
           <div class="picker-item-row" class:picker-item-selected={_sel}>
-            <button class="picker-select-btn" on:click={() => toggleIngredient(food)} aria-label="Select"
+            <button class="picker-select-btn" on:click={() => toggleIngredient(food)} aria-label={$_('extracted.foods.select_314')}
               disabled={_pickerSavingPick}>
               <span class="material-symbols-rounded picker-check" class:picker-check-on={_sel}>
                 {_sel ? 'check_circle' : 'radio_button_unchecked'}
@@ -1480,7 +1480,7 @@
 </Sheet>
 
 <!-- ── Multi-ingredient portion sheet ── -->
-<Sheet bind:open={showMultiPortionSheet} title="Set Portions ({multiPortionItems.length} items)">
+<Sheet bind:open={showMultiPortionSheet} title={$_('dynamic_labels.set_portions', { values: { count: multiPortionItems.length } })}>
   <div style="display:flex;flex-direction:column;gap:16px;padding-top:8px">
     {#each multiPortionItems as item, i}
       {#if i > 0}<div style="height:1px;background:var(--border);margin:4px 0"></div>{/if}
@@ -1496,14 +1496,14 @@
             <UnitPicker bind:value={item.unit} />
           </div>
           <div style="width:60px">
-            <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">Qty</label>
+            <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:5px">{$_('extracted.foods.qty_342')}</label>
             <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={item.qty} style="width:100%;font-size:16px" />
           </div>
         </div>
       </div>
     {/each}
     <button class="btn btn-primary w-full" on:click={confirmMultiPortion}>
-      Add {multiPortionItems.length} Ingredient{multiPortionItems.length > 1 ? 's' : ''}
+      {$_('diary.water.add')} {multiPortionItems.length} {$_('extracted.foods.ingredient_343')}{multiPortionItems.length > 1 ? 's' : ''}
     </button>
   </div>
 </Sheet>
@@ -1514,7 +1514,7 @@
     <div class="cam-popup">
       <div class="cam-header">
         <span class="cam-title">{$_('meal_editor_deep.take_photo')}</span>
-        <button class="btn-icon" on:click={closeCamera} title="Close camera">
+        <button class="btn-icon" on:click={closeCamera} title={$_('extracted.foods.close_camera_344')}>
           <span class="material-symbols-rounded">close</span>
         </button>
       </div>
@@ -1523,7 +1523,7 @@
       <div class="cam-footer">
         <button class="btn btn-primary cam-capture-btn" on:click={capturePhoto}>
           <span class="material-symbols-rounded">camera_alt</span>
-          Capture
+          {$_('extracted.foods.capture_274')}
         </button>
       </div>
     </div>

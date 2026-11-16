@@ -1,4 +1,6 @@
 <script>
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../../lib/i18n-label.js';
   import { DB } from '../../lib/db.js';
   import Toggle from '../../components/settings/Toggle.svelte';
   import { bodyStatsOrder, hiddenBodyStats } from '../../stores/settings.js';
@@ -96,7 +98,7 @@
           : ''}>
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <span class="drag-handle material-symbols-rounded" on:pointerdown={e => onStatDragDown(e, i)}>drag_indicator</span>
-        <span class="setting-label">{stat.label}</span>
+        <span class="setting-label">{tr('body_metrics', stat.id, stat.label, $locale)}</span>
         <Toggle checked={isStatVisible(stat.id)} on:change={() => toggleStatVisible(stat.id)} />
       </div>
     {/each}

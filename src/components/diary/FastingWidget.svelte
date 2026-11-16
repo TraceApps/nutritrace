@@ -88,7 +88,7 @@
     try {
       const { notify } = await import('../../lib/notifications.js');
       const hours = ((_active.goal_hours) || 16).toFixed(1);
-      await notify('fastingNotifyOnGoal', 'Fast goal reached', `You've hit your ${hours}h fast goal.`, 5);
+      await notify('fastingNotifyOnGoal', $_('feedback.diary.fast_goal_reached'), $_('dynamic_feedback.fast_goal_reached', { values: { hours } }), 5);
     } catch {}
   }
 
@@ -148,7 +148,7 @@
   async function _onStart() {
     const hrs = _showCustom ? parseDecimal(_customHours) : _selectedHours;
     if (!Number.isFinite(hrs) || hrs <= 0) {
-      showError('Enter a goal between 1 and 168 hours.');
+      showError($_('feedback.diary.enter_a_goal_between_1_and_168_hours'));
       return;
     }
     fastingDefaultHours.set(hrs);
@@ -159,8 +159,8 @@
 
   async function _onEnd() {
     const ok = await confirmDialog({
-      title: 'End your fast?',
-      message: `You've been fasting for ${_fmtElapsed($elapsedMs)}.`,
+      title: $_('dynamic_ui.fasting.end_title'),
+      message: $_('dynamic_ui.fasting.end_message', { values: { duration: _fmtElapsed($elapsedMs) } }),
       confirmText: 'End Fast',
     });
     if (!ok) return;
@@ -171,14 +171,14 @@
   function _saveCustomPreset() {
     const hrs = parseDecimal(_customHours);
     if (!Number.isFinite(hrs) || hrs <= 0 || hrs > 168) {
-      showError('Enter a valid goal between 1 and 168 hours.');
+      showError($_('feedback.diary.enter_a_valid_goal_between_1_and_168_hours'));
       return;
     }
     const name = (_customName || `${hrs}h`).trim().slice(0, 20);
     const next = [...($fastingCustomPresets || []), { name, hours: hrs }].slice(-3);
     fastingCustomPresets.set(next);
     _customName = '';
-    showSuccess(`Saved "${name}" as a preset`);
+    showSuccess($_('dynamic_feedback.saved_preset', { values: { name } }));
   }
 
   async function _removeCustomPreset(idx) {
@@ -229,16 +229,16 @@
     const [yy, mm, dd] = _editStartDate.split('-').map(n => parseInt(n));
     const [hh, mi]     = _editStartTime.split(':').map(n => parseInt(n));
     const newStart = new Date(yy, mm - 1, dd, hh, mi, 0, 0);
-    if (isNaN(newStart.getTime())) { showError('Invalid date/time'); return; }
-    if (newStart.getTime() > Date.now()) { showError('Start time can\'t be in the future'); return; }
+    if (isNaN(newStart.getTime())) { showError($_('feedback.diary.invalid_date_time')); return; }
+    if (newStart.getTime() > Date.now()) { showError($_('feedback.diary.start_time_can_t_be_in_the_future')); return; }
     if (newStart.getTime() < Date.now() - 7 * 24 * 3600 * 1000) {
-      showError('Start time too far in the past (max 7 days ago)'); return;
+      showError($_('feedback.diary.start_time_too_far_in_the_past_max_7_days_ago')); return;
     }
     try {
       await NtApi.patch(`/api/fasts/${_active.id}`, { start_at: newStart.toISOString() });
       _editingStart = false;
       await loadFasting();
-      showSuccess('Start time updated');
+      showSuccess($_('feedback.diary.start_time_updated'));
     } catch (e) { showError(e?.message || 'Could not update'); }
   }
 </script>
@@ -252,7 +252,7 @@
         <div class="fast-idle-title">{$_('fasting.start_fasting')}</div>
         {#if _lastFast}
           <div class="fast-last-hint">
-            Last fast: <strong>{_lastFastDuration.toFixed(1)}h</strong> · ended {_lastFastAgo}
+            {$_('extracted.diary.last_fast_50')} <strong>{_lastFastDuration.toFixed(1)}h</strong> {$_('extracted.diary.ended_51')} {_lastFastAgo}
           </div>
         {/if}
         <div class="fast-idle-presets">
@@ -271,25 +271,25 @@
                   _removeCustomPreset(i);
                 }
               }}
-              title="Long-press to remove">
+              title={$_('extracted.diary.long_press_to_remove_52')}>
               {p.name}
             </button>
           {/each}
           <button class="fast-preset" class:active={_showCustom}
             on:click={() => { _showCustom = true; if (!_customHours) _customHours = String(_selectedHours); }}>
-            Custom
+            {$_('diary.water.custom')}
           </button>
         </div>
         {#if _showCustom}
           <div class="fast-custom" transition:slide={{ duration: 140 }}>
             <input class="input" type="text" inputmode="decimal" use:decimalInput bind:value={_customHours}
               placeholder={$_('fasting.hours_ph')} />
-            <span class="fast-custom-suffix">hours</span>
+            <span class="fast-custom-suffix">{$_('extracted.diary.hours_54')}</span>
             {#if ($fastingCustomPresets || []).length < 3}
               <input class="input fast-custom-name" type="text" maxlength="20"
                 placeholder={$_('fasting.name_ph')} bind:value={_customName} />
               <button class="btn-icon fast-custom-save" on:click={_saveCustomPreset}
-                title="Save as preset" aria-label="Save as preset">
+                title={$_('extracted.diary.save_as_preset_55')} aria-label={$_('extracted.diary.save_as_preset_55')}>
                 <span class="material-symbols-rounded">bookmark_add</span>
               </button>
             {/if}
@@ -309,11 +309,11 @@
           </div>
           <div class="fast-active-meta">
             <button class="fast-edit-start" on:click={_openEditStart}
-              title="Edit start time" aria-label="Edit start time">
-              Started: {_fmtDateTime(_startedAt)}
+              title={$_('extracted.diary.edit_start_time_56')} aria-label={$_('extracted.diary.edit_start_time_56')}>
+              {$_('extracted.diary.started_57')} {_fmtDateTime(_startedAt)}
               <span class="material-symbols-rounded">edit</span>
             </button>
-            · Goal: {_active.goal_hours}h · Target: {_fmtDateTime(_targetEnd)}
+            {$_('extracted.diary.goal_58')} {_active.goal_hours}{$_('extracted.diary.h_target_59')} {_fmtDateTime(_targetEnd)}
           </div>
         </div>
         <button class="btn btn-secondary fast-end-btn" on:click={_onEnd}>{$_('fasting.end_fast')}</button>
@@ -329,7 +329,7 @@
           </div>
           <div class="fast-edit-actions">
             <button class="btn btn-secondary" on:click={() => _editingStart = false}>{$_('fasting.cancel')}</button>
-            <button class="btn btn-primary" on:click={_saveEditStart}>Save</button>
+            <button class="btn btn-primary" on:click={_saveEditStart}>{$_('diary.edit_item.save')}</button>
           </div>
         </div>
       {/if}

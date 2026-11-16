@@ -554,7 +554,7 @@
           <label class="sc-label">{$_('barcode_scanner.camera')}</label>
           <select class="sc-select" bind:value={selectedCamId} on:change={onCamChange}>
             {#if cameras.length === 0}
-              <option>Loading…</option>
+              <option>{$_('foods.loading_library')}</option>
             {:else}
               {#each cameras as cam}
                 <option value={cam.deviceId}>{cam.label}</option>
@@ -587,7 +587,7 @@
       <div class="scanner-actions">
         <button class="sc-btn" on:click={refresh}>
           <span class="material-symbols-rounded">refresh</span>
-          Refresh
+          {$_('meal_editor.ct_refresh.refresh')}
         </button>
         {#if torchVisible}
           <button class="sc-btn" class:sc-btn-torch={torchOn} on:click={toggleTorch}>

@@ -1,5 +1,6 @@
 <script>
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../../lib/i18n-label.js';
   import Toggle from '../../components/settings/Toggle.svelte';
   import { DB } from '../../lib/db.js';
   import { NUTRIMENTS } from '../../lib/nutrition.js';
@@ -125,21 +126,21 @@
 <div class="section-body">
 
   <!-- Group: Chart Options -->
-  <p class="settings-group-heading">Chart Options</p>
-  <p class="settings-group-sub">Default chart type and overlays applied across the Statistics page.</p>
+  <p class="settings-group-heading">{$_('extracted.settings.chart_options_509')}</p>
+  <p class="settings-group-sub">{$_('extracted.settings.default_chart_type_and_overlays_applied_across_510')}</p>
   <div class="card settings-card">
     <div class="setting-row">
       <span class="setting-label">{$_('settings_stats.default_chart')}</span>
       <div class="select-wrap" style="width:110px">
         <select class="select sel-sm" bind:value={statsChartType}>
-          <option value="bar">Bar</option>
-          <option value="line">Line</option>
+          <option value="bar">{$_('extracted.settings.bar_511')}</option>
+          <option value="line">{$_('extracted.settings.line_512')}</option>
         </select>
       </div>
     </div>
     <div class="setting-divider"></div>
     <div class="setting-row">
-      <div><span class="setting-label">Lock Y-Axis To Zero</span><div class="setting-desc">Body stats (weight, HRV, RHR, etc.) always auto-fit. This toggle applies to nutrient and counted-metric charts.</div></div>
+      <div><span class="setting-label">{$_('extracted.settings.lock_y_axis_to_zero_513')}</span><div class="setting-desc">{$_('extracted.settings.body_stats_weight_hrv_rhr_etc_always_auto_fit_514')}</div></div>
       <Toggle checked={statsYZero} on:change={e => { statsYZero = e.detail; set('statsYZero', e.detail); }} />
     </div>
     <div class="setting-divider"></div>
@@ -152,7 +153,7 @@
     <div class="setting-row">
       <div>
         <span class="setting-label">{$_('settings_stats.include_today')}</span>
-        <div class="setting-desc">For cumulative metrics (calories, water, steps, etc.) today is partial until the day ends. Off by default — the chart looks cleaner. Statistics page also has an inline toggle for one-off overrides.</div>
+        <div class="setting-desc">{$_('extracted.settings.for_cumulative_metrics_calories_water_steps_et_515')}</div>
       </div>
       <Toggle checked={statsIncludeTodayLocal} on:change={e => { statsIncludeTodayLocal = e.detail; set('statsIncludeToday', e.detail); }} />
     </div>
@@ -160,7 +161,7 @@
     <div class="setting-row">
       <div>
         <span class="setting-label">{$_('settings_stats.show_empty_days')}</span>
-        <div class="setting-desc">Keep every date in the chart's range visible even when nothing was logged that day. Lets gaps in logging show up rather than collapsing into a denser chart that hides them. Applies to both bar and line charts.</div>
+        <div class="setting-desc">{$_('extracted.settings.keep_every_date_in_the_chart_s_range_visible_e_516')}</div>
       </div>
       <Toggle checked={statsShowEmptyDaysLocal} on:change={e => { statsShowEmptyDaysLocal = e.detail; set('statsShowEmptyDays', e.detail); }} />
     </div>
@@ -186,12 +187,12 @@
           : ''}>
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <span class="drag-handle material-symbols-rounded" on:pointerdown={e => onSMDragDown(e, i)}>drag_indicator</span>
-        <span class="setting-label">{m.label}</span>
+        <span class="setting-label">{m.group === 'nutrient' ? tr('nutriments', m.key, m.label, $locale) : m.group === 'body' ? tr('body_metrics', m.key, m.label, $locale) : tr('dynamic_ui.statistics', m.key, m.label, $locale)}</span>
         <Toggle checked={isStatsMetricVisible(m.key)} on:change={() => toggleStatsMetricVisible(m.key)} />
       </div>
     {/each}
     {#if orderedStatsMetrics.length === 0}
-      <div class="setting-row"><span class="text-3 text-sm">No metrics available.</span></div>
+      <div class="setting-row"><span class="text-3 text-sm">{$_('extracted.settings.no_metrics_available_517')}</span></div>
     {/if}
   </div>
 </div>
