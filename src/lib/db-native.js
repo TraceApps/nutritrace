@@ -14,6 +14,7 @@ import { itemSourceRef, relinkItems, relinkIngredients, itemFoodMatches, relinke
 import { baseOf, statsBase, changesOf, statsChanges } from './sync-base.js';
 import { editRevives, instantMs } from './field-sync.js';
 import { relinkStamp } from './relink-stamp.js';
+import { missingTags } from './body-stats-unit.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -1372,6 +1373,30 @@ export async function dbSaveDiaryDate(date, data) {
   const changed = await _afterEdit(db, 'diary', before?.id, before);
   const day = await dbGetDiaryDate(date);
   return day && changed ? { ...day, _stats_changed: changed } : day;
+}
+
+/**
+ * The app with no server: tag days saved without a unit with the units the
+ * app shows them in (server/lib/body-stats-tag.js does the same on a
+ * server). Nothing is sent anywhere, so updated_at stays. Returns how many
+ * days changed.
+ */
+export async function dbTagUntaggedBodyStats(weightUnit, lengthUnit) {
+  if (!['kg', 'lb'].includes(weightUnit) || !['cm', 'in'].includes(lengthUnit)) return 0; // Local mode: both are this device's
+  const db = await getDb();
+  const r = await db.query(`SELECT id, body_stats FROM diary WHERE body_stats IS NOT NULL AND body_stats != '{}'`);
+  let changed = 0;
+  for (const row of r?.values || []) {
+    let stats;
+    try { stats = JSON.parse(row.body_stats); } catch { continue; }
+    const miss = missingTags(stats);
+    if (!miss.weight && !miss.lengths) continue;
+    if (miss.weight) stats.weight_unit = weightUnit;
+    if (miss.lengths) stats.lengths_unit = lengthUnit;
+    await db.run(`UPDATE diary SET body_stats = ? WHERE id = ?`, [JSON.stringify(stats), row.id]);
+    changed++;
+  }
+  return changed;
 }
 
 /**

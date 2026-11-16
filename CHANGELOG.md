@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Weigh-ins and measurements from before 1.0 keep their unit.** Days saved on the 1.0 release candidates (up to rc.17) had no unit with them, so changing Weight or Circumference in Settings > Regional & Units made them read as the new unit (180 lb became 180 kg), and the adaptive TDEE, coaching, the weekly email and Add Activity read them as kg all along. The next time you open the app, those days get the unit you see them in now (on a server without accounts, where each browser keeps its own units, only a browser where you chose them does this): nothing on screen changes, a later unit change converts them like every other day, and the TDEE and the rest read them right.
+
 ---
 
 ## [1.5.0-dev05] - 2026-11-14 (pre-release)

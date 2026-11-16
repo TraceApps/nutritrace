@@ -618,6 +618,17 @@
     // Load auth state first (sets $currentUser and $userMgmtActive)
     try { await loadAuthState(); } finally { authLoaded = true; }
 
+    // Days saved without a unit get the ones this device shows them in.
+    // The Android app with no server: its own data, so always. A browser on
+    // a server with no accounts: only units chosen here (each device has
+    // its own). Signed in, loadServerSettings does it once the account's
+    // are in; the Android app on a server leaves it to that too.
+    if (isNative && getNativeMode() === 'local') {
+      import('./lib/body-stats-tagging.js').then(m => m.tagBodyStatUnits()).catch(() => {});
+    } else if (!isNative && !$userMgmtActive && !$setupRequired) {
+      import('./lib/body-stats-tagging.js').then(m => m.tagBodyStatUnits({ chosenOnly: true })).catch(() => {});
+    }
+
     // Mirror serverUrl + authToken from localStorage into the native SQLite
     // sync_meta table so the Kotlin HealthConnectSyncWorker (background HC
     // sync, #68 part 2) can read them without the WebView being open. Setters

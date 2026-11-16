@@ -11,7 +11,7 @@
 import {
   dbGetFoods, dbGetFood, dbCreateFood, dbUpdateFood, dbDeleteFood, dbCopyFood, dbBumpFoodUsage,
   dbGetMeals, dbGetMeal, dbCreateMeal, dbUpdateMeal, dbDeleteMeal, dbCopyMeal, dbBumpMealUsage,
-  dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary, dbSetDiaryCompletion, dbSetMealCompletion,
+  dbGetDiaryDate, dbSaveDiaryDate, dbGetAllDiary, dbSetDiaryCompletion, dbSetMealCompletion, dbTagUntaggedBodyStats,
   dbGetActivity, dbGetActivityRange, dbSumActivity, dbWearableActiveCalories,
   dbCreateActivity, dbUpdateActivity, dbDeleteActivity,
   LOCAL_USER_ID,
@@ -172,6 +172,10 @@ export const NtApiNative = {
   },
 
   // #207: local-only completion mark for standalone-native mode.
+  // Days saved without a unit tag get the units the app shows them in.
+  async tagBodyStatUnits(weightUnit, lengthUnit) {
+    return { tagged: await dbTagUntaggedBodyStats(weightUnit, lengthUnit) };
+  },
   async setDiaryCompletion(date, completed) {
     const completedAt = await dbSetDiaryCompletion(date, !!completed);
     return { ok: true, date, completed_at: completedAt };

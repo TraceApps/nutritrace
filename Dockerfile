@@ -62,6 +62,8 @@ COPY src/lib/off-nutrition-sets.js /src/lib/off-nutrition-sets.js
 COPY src/lib/usda-map.js /src/lib/usda-map.js
 # usda-map reads household units with units.js (#289).
 COPY src/lib/units.js /src/lib/units.js
+# Untagged weigh-ins are found and tagged with the app's own rule.
+COPY src/lib/body-stats-unit.js /src/lib/body-stats-unit.js
 # Also ship the root package.json so the server can read APP_VERSION from
 # it at runtime when TRACEAPPS_APP_VERSION isn't injected via ARG below.
 # Keeps versioning working even for builds that don't pass the build-arg.

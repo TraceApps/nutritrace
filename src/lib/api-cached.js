@@ -313,6 +313,11 @@ export const NtApiCached = {
   // sent through the one completion queue (sync.js flushCompletionOps), in
   // order; if it can't go now, the next sync sends it (the diary push
   // itself never carries marks, so an offline change used to be undone).
+  // The server tags its copy (POST /api/diary/body-stats-units) and moves
+  // those days forward, so the phone's copy follows at the next pull.
+  async tagBodyStatUnits(weightUnit, lengthUnit) {
+    return await _serverFetch('POST', '/api/diary/body-stats-units', { weight_unit: weightUnit, lengths_unit: lengthUnit }, 10000);
+  },
   async setDiaryCompletion(date, completed) {
     const completedAt = await dbSetDiaryCompletion(date, !!completed);
     await dbQueueCompletionOp(date, null, !!completed);

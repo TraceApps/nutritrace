@@ -419,6 +419,9 @@ export async function loadServerSettings() {
         applyAppearance(appearanceVal);
       }
     } catch {}
+
+    // Days saved without a unit get the ones this account shows them in.
+    import('../lib/body-stats-tagging.js').then(m => m.tagBodyStatUnits()).catch(() => {});
   } catch { _suppressSync = false; }
 }
 

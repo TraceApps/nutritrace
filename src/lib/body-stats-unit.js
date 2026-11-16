@@ -61,3 +61,19 @@ export function tagBodyStats(stats, weightUnit, lengthUnit) {
   if (hasLength) out.lengths_unit = lengthUnit || 'in';
   return out;
 }
+
+/**
+ * Which unit tags a day's measurements are missing: { weight, lengths }.
+ * Days saved before the tags (1.0 release candidates up to rc.17) have
+ * none; server/lib/body-stats-tag.js gives them the units the app shows
+ * them in, and so does dbTagUntaggedBodyStats for the Android app's own
+ * database.
+ */
+export function missingTags(stats) {
+  if (!stats || typeof stats !== 'object' || Array.isArray(stats)) return { weight: false, lengths: false };
+  const has = v => v != null && v !== '';
+  return {
+    weight: has(stats.weight) && !stats.weight_unit,
+    lengths: LENGTH_KEYS.some(k => has(stats[k])) && !stats.lengths_unit,
+  };
+}

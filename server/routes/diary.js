@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { mergeBodyStats, changedList } from '../lib/body-stats-merge.js';
+import { tagUntaggedBodyStats } from '../lib/body-stats-tag.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
@@ -50,6 +51,20 @@ router.get('/', wrap((req, res) => {
 // Get single date. Response includes tombstones so pulling clients can
 // drop the same items/water entries from their local mirror. Legacy clients
 // that don't read tombstones ignore the field.
+// POST /api/diary/body-stats-units { weight_unit?, lengths_unit? }: the app
+// says which units it shows this account's weight and measurements in, and
+// days saved without a unit tag get those (lib/body-stats-tag.js).
+router.post('/body-stats-units', wrap((req, res) => {
+  const { weight_unit, lengths_unit } = req.body || {};
+  if ((weight_unit == null && lengths_unit == null)
+    || (weight_unit != null && !['kg', 'lb'].includes(weight_unit))
+    || (lengths_unit != null && !['cm', 'in'].includes(lengths_unit))) {
+    return res.status(400).json({ error: 'weight_unit must be kg or lb, lengths_unit cm or in' });
+  }
+  const tagged = tagUntaggedBodyStats(db, uid(req), { weightUnit: weight_unit, lengthUnit: lengths_unit });
+  res.json({ tagged });
+}));
+
 router.get('/:date', wrap((req, res) => {
   const u = uid(req);
   const row = u == null
