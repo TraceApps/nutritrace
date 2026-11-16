@@ -1,7 +1,8 @@
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
   import { push } from 'svelte-spa-router';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../lib/i18n-label.js';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { DB, localDateStr } from '../lib/db.js';
@@ -492,8 +493,8 @@
         {#each Array(14) as _, i}<span class="conf c{i % 7}" style:--i={i}></span>{/each}
       </div>
       <span class="material-symbols-rounded wizard-done-icon">emoji_events</span>
-      <h2 class="wizard-done-title">You're All Set!</h2>
-      <p class="wizard-done-sub">Welcome to NutriTrace. Loading your diary…</p>
+      <h2 class="wizard-done-title">{$_('extracted.onboarding.you_re_all_set_540')}</h2>
+      <p class="wizard-done-sub">{$_('extracted.onboarding.welcome_to_nutritrace_loading_your_diary_541')}</p>
     </div>
   {:else}
   <!-- Skip button -->
@@ -572,8 +573,8 @@
 
             <div class="form-row-2">
               <div class="form-group">
-                <label class="form-label">Password *</label>
-                <input class="input" type="password" bind:value={adminPassword} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" placeholder="8+ chars, upper, lower, number, symbol" />
+                <label class="form-label">{$_('accept_invite.password_label')}</label>
+                <input class="input" type="password" bind:value={adminPassword} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" placeholder={$_('reset_password.password_placeholder')} />
                 {#if adminPassword}
                   {@const pwScore = passwordStrength(adminPassword)}
                   <div class="pw-strength" class:s-0={pwScore.score === 0} class:s-1={pwScore.score === 1} class:s-2={pwScore.score === 2} class:s-3={pwScore.score === 3} class:s-4={pwScore.score === 4}>
@@ -583,10 +584,10 @@
                 {/if}
               </div>
               <div class="form-group">
-                <label class="form-label">Confirm *</label>
+                <label class="form-label">{$_('settings.users.confirm_required')}</label>
                 <input class="input" type="password" bind:value={adminConfirm} autocomplete="new-password" passwordrules="minlength: 8; required: upper; required: lower; required: digit; required: special;" />
                 {#if adminConfirm && adminPassword !== adminConfirm}
-                  <p class="pw-mismatch">Passwords don't match</p>
+                  <p class="pw-mismatch">{$_('extracted.onboarding.passwords_don_t_match_545')}</p>
                 {/if}
               </div>
             </div>
@@ -605,7 +606,7 @@
           <p class="step-desc">{$_('wizard.welcome.desc')}</p>
           {#if !(_forceAccountCreation && !$userMgmtActive)}
             <button type="button" class="skip-setup-link" on:click={() => skipSetupConfirm = true}>
-              I'll do this later
+              {$_('extracted.onboarding.i_ll_do_this_later_546')}
             </button>
           {/if}
         </div>
@@ -700,14 +701,14 @@
       <!-- ── Current Weight ── -->
       {:else if currentStepName === 'weight'}
         <h2 class="step-title">{$_('wizard.weight.title')}</h2>
-        <p class="step-desc">Your current body weight ({wUnit}).</p>
+        <p class="step-desc">{$_('extracted.onboarding.your_current_body_weight_547')}{wUnit}).</p>
         <input class="input" type="text" inputmode="decimal" use:decimalInput
           bind:value={weight} style="margin-top:24px;font-size:16px" />
 
       <!-- ── Target Weight ── -->
       {:else if currentStepName === 'target'}
         <h2 class="step-title">{$_('wizard.target.title')}</h2>
-        <p class="step-desc">Your goal weight ({wUnit}). Defaults to your current weight — change it if you're trying to lose or gain.</p>
+        <p class="step-desc">{$_('extracted.onboarding.your_goal_weight_548')}{wUnit}{$_('extracted.onboarding.defaults_to_your_current_weight_change_it_if_y_549')}</p>
         <input class="input" type="text" inputmode="decimal" use:decimalInput
           bind:value={targetW} on:input={() => _targetTouched = true}
           style="margin-top:24px;font-size:16px" />
@@ -720,8 +721,8 @@
           {#each ACTIVITY_LEVELS as lvl}
             <button class="activity-card" class:selected={activity === lvl.value}
               on:click={() => activity = lvl.value}>
-              <div class="activity-label" class:selected={activity === lvl.value}>{lvl.label}</div>
-              <div class="activity-desc">{lvl.desc}</div>
+              <div class="activity-label" class:selected={activity === lvl.value}>{tr('dynamic_options.wizard_activity.' + lvl.value, 'label', lvl.label, $locale)}</div>
+              <div class="activity-desc">{tr('dynamic_options.wizard_activity.' + lvl.value, 'desc', lvl.desc, $locale)}</div>
               {#if activity === lvl.value}
                 <span class="material-symbols-rounded check">check_circle</span>
               {/if}
@@ -745,7 +746,7 @@
               <div class="int-card-icon">🥫</div>
               <div class="int-card-info">
                 <div class="int-card-title">{$_('wizard.integrations_cards.off')}</div>
-                <div class="int-card-sub">Search the global crowd-sourced food database. An account is only needed to upload edits.</div>
+                <div class="int-card-sub">{$_('extracted.onboarding.search_the_global_crowd_sourced_food_database_550')}</div>
               </div>
               {#if intSkipped.off}
                 <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, off: false}}>{$_('wizard.integrations_cards.configure')}</button>
@@ -755,7 +756,7 @@
             </div>
             {#if !intSkipped.off}
               <div class="int-fields">
-                <a href="https://world.openfoodfacts.org/cgi/user.pl" target="_blank" rel="noopener" class="about-link" style="font-size:13px">Create an OFF account →</a>
+                <a href="https://world.openfoodfacts.org/cgi/user.pl" target="_blank" rel="noopener" class="about-link" style="font-size:13px">{$_('settings.connected_services.off.account_create_link')}</a>
                 <input class="input" type="text"     placeholder={$_('wizard_deep.off_user_ph')} bind:value={intOFFUser}  autocomplete="username" />
                 <input class="input" type="password" placeholder={$_('wizard_deep.off_pass_ph')} bind:value={intOFFPass}  autocomplete="current-password" />
               </div>
@@ -778,7 +779,7 @@
             </div>
             {#if !intSkipped.usda}
               <div class="int-fields">
-                <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener" class="about-link" style="font-size:13px">Get a free API key →</a>
+                <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener" class="about-link" style="font-size:13px">{$_('extracted.onboarding.get_a_free_api_key_389')}</a>
                 <input class="input" type="text" placeholder={$_('wizard_deep.usda_key_ph')} bind:value={intUSDARKey} />
               </div>
             {/if}
@@ -790,7 +791,7 @@
               <div class="int-card-icon">🍽️</div>
               <div class="int-card-info">
                 <div class="int-card-title">{$_('wizard.integrations_cards.mealie')}</div>
-                <div class="int-card-sub">Import recipes from your self-hosted Mealie instance</div>
+                <div class="int-card-sub">{$_('extracted.onboarding.import_recipes_from_your_self_hosted_mealie_in_391')}</div>
               </div>
               {#if intSkipped.mealie}
                 <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, mealie: false}}>{$_('wizard.integrations_cards.configure')}</button>
@@ -824,7 +825,7 @@
                 <div class="int-card-icon">🤖</div>
                 <div class="int-card-info">
                   <div class="int-card-title">{$_('wizard.integrations_cards.ai')}</div>
-                  <div class="int-card-sub">Trace, your AI nutrition assistant — bring your own API key</div>
+                  <div class="int-card-sub">{$_('extracted.onboarding.trace_your_ai_nutrition_assistant_bring_your_o_552')}</div>
                 </div>
                 {#if intSkipped.ai}
                   <button class="int-restore-btn" on:click={() => intSkipped = {...intSkipped, ai: false}}>{$_('wizard.integrations_cards.configure')}</button>
@@ -864,16 +865,16 @@
           {#if _configured.length > 0}
             <div class="int-summary-row">
               <span class="material-symbols-rounded" style="font-size:16px;color:var(--accent)">check_circle</span>
-              <span>Configured: <strong>{_configured.join(', ')}</strong></span>
+              <span>{$_('extracted.onboarding.configured_556')} <strong>{_configured.join(', ')}</strong></span>
             </div>
           {/if}
           {#if _skipped.length > 0}
             <div class="int-summary-row int-summary-skip">
               <span class="material-symbols-rounded" style="font-size:16px">remove_circle</span>
-              <span>Skipped: {_skipped.join(', ')}</span>
+              <span>{$_('extracted.onboarding.skipped_557')} {_skipped.join(', ')}</span>
             </div>
           {/if}
-          <div class="int-summary-hint">You can change these anytime in Settings.</div>
+          <div class="int-summary-hint">{$_('extracted.onboarding.you_can_change_these_anytime_in_settings_558')}</div>
         </div>
 
       <!-- ── Notifications ── -->
@@ -911,7 +912,7 @@
               <div class="int-card-icon">🔔</div>
               <div class="int-card-info">
                 <div class="int-card-title">{$_('wizard_deep.enable_notifications')}</div>
-                <div class="int-card-sub">Reminders, goal celebrations, and health alerts</div>
+                <div class="int-card-sub">{$_('extracted.onboarding.reminders_goal_celebrations_and_health_alerts_559')}</div>
               </div>
               <Toggle checked={notifEnabled} on:change={e => notifEnabled = e.detail} />
             </div>
@@ -923,7 +924,7 @@
                 <div class="int-card-icon">💧</div>
                 <div class="int-card-info">
                   <div class="int-card-title">{$_('wizard_deep.hydration_reminders')}</div>
-                  <div class="int-card-sub">Periodic reminders to drink water (8am–10pm)</div>
+                  <div class="int-card-sub">{$_('extracted.onboarding.periodic_reminders_to_drink_water_8am_10pm_560')}</div>
                 </div>
                 <Toggle checked={notifWater} on:change={e => notifWater = e.detail} />
               </div>
@@ -934,7 +935,7 @@
                 <div class="int-card-icon">🍽️</div>
                 <div class="int-card-info">
                   <div class="int-card-title">{$_('wizard_deep.meal_reminders')}</div>
-                  <div class="int-card-sub">Daily reminders to log breakfast, lunch, and dinner</div>
+                  <div class="int-card-sub">{$_('extracted.onboarding.daily_reminders_to_log_breakfast_lunch_and_din_561')}</div>
                 </div>
                 <Toggle checked={notifMeals} on:change={e => notifMeals = e.detail} />
               </div>
@@ -945,7 +946,7 @@
                 <div class="int-card-icon">🎯</div>
                 <div class="int-card-info">
                   <div class="int-card-title">{$_('wizard_deep.goal_celebrations')}</div>
-                  <div class="int-card-sub">Celebrate when you hit your daily nutrition, water, or step goals</div>
+                  <div class="int-card-sub">{$_('extracted.onboarding.celebrate_when_you_hit_your_daily_nutrition_wa_562')}</div>
                 </div>
                 <Toggle checked={notifGoals} on:change={e => notifGoals = e.detail} />
               </div>
@@ -956,7 +957,7 @@
                 <div class="int-card-icon">⚠️</div>
                 <div class="int-card-info">
                   <div class="int-card-title">{$_('wizard_deep.wellness_alerts')}</div>
-                  <div class="int-card-sub">Alerts when HRV drops, sleep declines, or heart rate spikes</div>
+                  <div class="int-card-sub">{$_('extracted.onboarding.alerts_when_hrv_drops_sleep_declines_or_heart_563')}</div>
                 </div>
                 <Toggle checked={notifWellness} on:change={e => notifWellness = e.detail} />
               </div>
@@ -976,18 +977,18 @@
           <div class="tdee-row">
             <div class="tdee-label">{$_('wizard_deep.starting_tdee')}</div>
             <div class="tdee-value">{_tdeeDisp.value.toLocaleString()}</div>
-            <div class="tdee-unit">{_tdeeDisp.unit} / day</div>
-            <div class="tdee-help">Total Daily Energy Expenditure · Mifflin-St Jeor + activity level</div>
+            <div class="tdee-unit">{_tdeeDisp.unit} {$_('extracted.onboarding.day_564')}</div>
+            <div class="tdee-help">{$_('extracted.onboarding.total_daily_energy_expenditure_mifflin_st_jeor_565')}</div>
           </div>
           <hr style="border:none;border-top:1px solid var(--border);margin:16px 0" />
           <div class="summary-rows">
             <div class="summary-row">
-              <span class="text-3">{$energyUnit === 'kJ' ? 'Energy goal' : 'Calorie goal'}<br><span style="font-size:11px;opacity:0.7">{_factorLabel} ({Math.round(_goalFactor * 100)}% of TDEE)</span></span>
-              <strong>{_goalDisp.value.toLocaleString()} {_goalDisp.unit}/day</strong>
+              <span class="text-3">{$energyUnit === 'kJ' ? 'Energy goal' : 'Calorie goal'}<br><span style="font-size:11px;opacity:0.7">{_factorLabel} ({Math.round(_goalFactor * 100)}{$_('extracted.onboarding.of_tdee_566')}</span></span>
+              <strong>{_goalDisp.value.toLocaleString()} {_goalDisp.unit}{$_('extracted.onboarding.day_567')}</strong>
             </div>
             <div class="summary-row">
               <span class="text-3">{$_('wizard_deep.water_goal')}</span>
-              <strong>{waterGoal >= 1000 ? (waterGoal / 1000).toFixed(1) + ' L' : waterGoal + ' ml'}/day</strong>
+              <strong>{waterGoal >= 1000 ? (waterGoal / 1000).toFixed(1) + ' L' : waterGoal + ' ml'}{$_('extracted.onboarding.day_567')}</strong>
             </div>
             <div class="summary-row">
               <span class="text-3">{$_('wizard_deep.current_weight')}</span>
@@ -999,7 +1000,7 @@
             </div>
             <div class="summary-row">
               <span class="text-3">{$_('wizard_deep.activity_level')}</span>
-              <span>{ACTIVITY_LEVELS.find(l=>l.value===activity)?.label || activity}</span>
+              <span>{tr('dynamic_options.wizard_activity.' + activity, 'label', ACTIVITY_LEVELS.find(l=>l.value===activity)?.label || activity, $locale)}</span>
             </div>
           </div>
           <p class="text-3" style="font-size:12px;margin-top:12px;text-align:center;line-height:1.5">

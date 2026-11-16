@@ -12,7 +12,8 @@
    * Rendered only inside .diary-right-col which is ≥1280px only.
    */
   import { slide } from 'svelte/transition';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { waterContainerLabel } from '../../lib/water-container-label.js';
   import { decimalInput, parseDecimal } from '../../lib/decimal-input.js';
 
   export let logs         = [];
@@ -100,7 +101,7 @@
 
   <div class="ww-buttons">
     {#each containers as cont (cont.id ?? cont.volumeMl)}
-      <button class="ww-btn" on:click={() => onQuickAdd(cont.volumeMl)} title={cont.name}>
+      <button class="ww-btn" on:click={() => onQuickAdd(cont.volumeMl)} title={waterContainerLabel(cont.name, $locale)}>
         {displayContainer(cont)}
       </button>
     {/each}

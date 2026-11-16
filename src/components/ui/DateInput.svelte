@@ -11,6 +11,7 @@
     pickerLayer      : z-index for the calendar sheet (optional)
 -->
 <script>
+  import { _ } from 'svelte-i18n';
   import Sheet from './Sheet.svelte';
   import DatePicker from './DatePicker.svelte';
   import { dateFormat } from '../../stores/settings.js';
@@ -112,13 +113,13 @@
     on:keydown={e => { if (e.key === 'Enter') { e.preventDefault(); applyText(); e.target.blur(); } }} />
   <button type="button" class="btn-icon date-input-calendar"
     on:click={() => showPicker = true}
-    aria-label="Open calendar">
+    aria-label={$_('extracted.general.open_calendar_184')}>
     <span class="material-symbols-rounded">calendar_month</span>
   </button>
 </div>
 
 {#if showPicker}
-  <Sheet bind:open={showPicker} title="Pick a date" layer={pickerLayer}>
+  <Sheet bind:open={showPicker} title={$_('extracted.general.pick_a_date_185')} layer={pickerLayer}>
     <div class="date-input-sheet-body">
       <DatePicker bind:value {min} {max} on:select={onPickerSelect} />
     </div>

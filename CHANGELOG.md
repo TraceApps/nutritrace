@@ -30,6 +30,7 @@ Fifth dev pre-release of the 1.5.0 minor. Paste a picture into Trace, Daily Targ
 
 ### Changed
 
+- Expanded French translations across the diary, foods, goals, statistics and wellness screens, including desktop panels and dynamic metric labels.
 - **API tokens for every user** ([#245](https://github.com/TraceApps/nutritrace/pull/245)). Anyone signed in can create and revoke their own API tokens in Settings > API Tokens, so connecting your own MCP client no longer needs an admin account. Webhooks stay admin-only. Thanks @tarzan77cz.
 
 ### Fixed

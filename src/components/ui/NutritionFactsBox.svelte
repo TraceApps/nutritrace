@@ -135,7 +135,7 @@
   <div class="title">{$_('nutrition_facts.title')}</div>
 
   {#if servingsPerContainer}
-    <div class="serving-line">{servingsPerContainer} servings per container</div>
+    <div class="serving-line">{servingsPerContainer} {$_('extracted.general.servings_per_container_194')}</div>
   {/if}
   <div class="serving-line">
     <strong>{$_('nutrition_facts.serving_size')}</strong>
@@ -147,7 +147,7 @@
       {:else if servings}
         1 of {servings}
       {:else}
-        per serving
+        {$_('foods.detail.per_serving')}
       {/if}
     </span>
   </div>
@@ -171,7 +171,7 @@
   {#if per100Mode}
     <div class="dv-header">{$_('nutrition_facts.per_100', { values: { unit: baseUnit } })}</div>
   {:else}
-    <div class="dv-header">% Daily Value*</div>
+    <div class="dv-header">{$_('extracted.general.daily_value_196')}</div>
   {/if}
 
   {#each macroRows as nut (nut.id)}
@@ -191,7 +191,7 @@
         {/if}
         {#if derived}
           <span class="derived material-symbols-rounded"
-            title="Derived from {nut.id === 'sodium' ? 'salt' : 'sodium'}">calculate</span>
+            title={$_('dynamic_labels.derived_from', { values: { nutrient: nut.id === 'sodium' ? $_('nutriments.salt') : $_('nutriments.sodium') } })}>calculate</span>
         {/if}
       </span>
       <span class="row-dv" class:per100={per100Mode}>{colText(nut, v, per100Mode, base)}</span>
@@ -221,9 +221,7 @@
     </p>
   {:else}
   <p class="footnote">
-    * The % Daily Value (DV) tells you how much a nutrient in a serving
-    of food contributes to a daily diet. 2,000 calories a day is used
-    for general nutrition advice.
+    {$_('extracted.general.the_daily_value_dv_tells_you_how_much_a_nutrie_199')}
   </p>
   {/if}
 </div>

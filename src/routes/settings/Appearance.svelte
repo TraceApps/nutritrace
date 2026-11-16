@@ -1,6 +1,7 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../../lib/i18n-label.js';
   import Toggle from '../../components/settings/Toggle.svelte';
   import Sheet from '../../components/ui/Sheet.svelte';
   import { DB } from '../../lib/db.js';
@@ -154,14 +155,14 @@
 <div class="section-body">
 
   <!-- Group: Theme & Color -->
-  <p class="settings-group-heading">Theme &amp; Color</p>
-  <p class="settings-group-sub">System theme and accent palette used across the app.</p>
+  <p class="settings-group-heading">{$_('extracted.settings.theme_color_367')}</p>
+  <p class="settings-group-sub">{$_('extracted.settings.system_theme_and_accent_palette_used_across_th_368')}</p>
   <div class="card settings-card">
     <div class="setting-row">
       <span class="setting-label">{$_('settings.appearance.theme')}</span>
       <div class="select-wrap" style="width:150px">
         <select class="select sel-sm" value={$appearance} on:change={e => applyAppearance(e.target.value)}>
-          {#each APPEARANCE_OPTS as o}<option value={o.value}>{o.label}</option>{/each}
+          {#each APPEARANCE_OPTS as o}<option value={o.value}>{tr('dynamic_options.appearance.mode', o.value, o.label, $locale)}</option>{/each}
         </select>
       </div>
     </div>
@@ -174,7 +175,7 @@
             class="accent-swatch"
             class:active={$accentColor === c.value}
             style="background:{isDark ? c.dark : c.light}"
-            title={c.label}
+            title={tr('dynamic_options.appearance.colors', c.value, c.label, $locale)}
             on:click={() => applyAccentColor(c.value)}
           >
             {#if $accentColor === c.value}
@@ -193,14 +194,14 @@
   </div>
 
   <!-- Group: Navigation -->
-  <p class="settings-group-heading">Navigation</p>
-  <p class="settings-group-sub">How you get around the app and where you land on open.</p>
+  <p class="settings-group-heading">{$_('extracted.settings.navigation_369')}</p>
+  <p class="settings-group-sub">{$_('extracted.settings.how_you_get_around_the_app_and_where_you_land_370')}</p>
   <div class="card settings-card">
     <div class="setting-row">
       <span class="setting-label">{$_('settings.appearance.navigation_style')}</span>
       <div class="select-wrap" style="width:150px">
         <select class="select sel-sm" bind:value={navStyle}>
-          {#each NAV_STYLE_OPTS as o}<option value={o.value}>{o.label}</option>{/each}
+          {#each NAV_STYLE_OPTS as o}<option value={o.value}>{tr('dynamic_options.appearance.nav', o.value, o.label, $locale)}</option>{/each}
         </select>
       </div>
     </div>
@@ -219,23 +220,23 @@
       <span class="setting-label">{$_('settings_main.start_page')}</span>
       <div class="select-wrap" style="width:150px">
         <select class="select sel-sm" bind:value={startPage}>
-          {#each START_PAGE_OPTS as o}<option value={o.value}>{o.label}</option>{/each}
+          {#each START_PAGE_OPTS as o}<option value={o.value}>{tr('dynamic_options.appearance.start', o.value === '/' ? 'diary' : o.value.slice(1), o.label, $locale)}</option>{/each}
         </select>
       </div>
     </div>
     <div class="setting-divider"></div>
     <div class="setting-row">
       <div>
-        <span class="setting-label">Force Mobile Layout</span>
-        <div class="setting-desc">For users who prefer the compact phone-style layout on large screens. When on, the large-screen breakpoints (Diary right rail, Settings two-pane, week strip) are all disabled at every viewport width, and drag-to-copy meals is turned off. Keep this off to use the full large-screen experience.</div>
+        <span class="setting-label">{$_('extracted.settings.force_mobile_layout_371')}</span>
+        <div class="setting-desc">{$_('extracted.settings.for_users_who_prefer_the_compact_phone_style_l_372')}</div>
       </div>
       <Toggle checked={$forceMobileLayout} on:change={e => forceMobileLayout.set(e.detail)} />
     </div>
   </div>
 
   <!-- Group: Motion & Chrome -->
-  <p class="settings-group-heading">Motion &amp; Chrome</p>
-  <p class="settings-group-sub">Animation intensity and top-of-page banner treatment.</p>
+  <p class="settings-group-heading">{$_('extracted.settings.motion_chrome_373')}</p>
+  <p class="settings-group-sub">{$_('extracted.settings.animation_intensity_and_top_of_page_banner_tre_374')}</p>
   <div class="card settings-card">
     <div class="setting-row">
       <span class="setting-label">{$_('settings_main.reduce_motion')}</span>
@@ -285,7 +286,7 @@
 </div>
 
 <!-- Custom color picker sheet -->
-<Sheet bind:open={showColorSheet} title="Custom Color">
+<Sheet bind:open={showColorSheet} title={$_('settings_main.custom_color')}>
   <div class="cp-body">
     <!-- Live preview -->
     <div class="cp-preview" style="background:{customColorHex}">
@@ -293,7 +294,7 @@
     </div>
     <!-- Hue slider -->
     <div class="cp-slider-group">
-      <label class="form-label">Hue</label>
+      <label class="form-label">{$_('extracted.settings.hue_376')}</label>
       <div class="cp-slider-wrap">
         <input type="range" class="cp-slider cp-hue" min="0" max="360"
           bind:value={cpHue} on:input={cpUpdateFromSliders} />

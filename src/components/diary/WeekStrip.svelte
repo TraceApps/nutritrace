@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   /**
    * Diary → week strip (Phase 6 desktop redesign).
    *
@@ -43,7 +44,7 @@
       return `${dy}/${m}/${dt.getFullYear()}`;
     }
     if (fmt === 'natural') {
-      return dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+      return dt.toLocaleDateString($locale || undefined, { day: 'numeric', month: 'short', year: 'numeric' });
     }
     return iso;   // ISO / fallback
   }
@@ -308,7 +309,7 @@
   $: currentDate, $weekStartDay, refreshKey, adjustFromActivity, activityPolicy, calorieGoalMode, calorieGoalFactor, calorieGoal, _loadWeekAdjustments();
 </script>
 
-<nav class="week-strip" aria-label="Week strip">
+<nav class="week-strip" aria-label={$_('extracted.diary.week_strip_92')}>
   {#each strip as day (day.iso)}
     <button
       class="ws-day"
@@ -323,13 +324,13 @@
       on:dragover={(e) => _onDayDragOver(e, day.iso)}
       on:dragleave={() => _onDayDragLeave(day.iso)}
       on:drop={(e) => _onDayDrop(e, day.iso)}
-      title="Switch diary to {day.iso}"
+      title={$_('dynamic_labels.switch_diary_date', { values: { date: day.iso } })}
     >
       <span class="ws-dow">{day.dow}</span>
       <span class="ws-dnum">
         {day.dnum}
         {#if showCompletion && day.completed}
-          <span class="ws-complete-mark material-symbols-rounded" title="Day marked complete" aria-label="Day marked complete">check_circle</span>
+          <span class="ws-complete-mark material-symbols-rounded" title={$_('diary.day_complete.marked_toast')} aria-label={$_('diary.day_complete.marked_toast')}>check_circle</span>
         {/if}
       </span>
       <span class="ws-kcal">
@@ -350,7 +351,7 @@
   {@const day = _popDay}
   <button type="button" tabindex="-1" use:portal class="ws-popover"
     style="top: {_popPos.top}px; left: {_popPos.left}px;"
-    title="Switch diary to {day.iso}"
+    title={$_('dynamic_labels.switch_diary_date', { values: { date: day.iso } })}
     on:mouseenter={() => clearTimeout(_popHideTimer)}
     on:mouseleave={_hidePopNow}
     on:click={() => { const iso = day.iso; _hidePopNow(); onSelectDate(iso); }}
@@ -358,7 +359,7 @@
     <span class="ws-pop-date">{_formatIsoForUser(day.iso, $dateFormat)}</span>
     <span class="ws-pop-kcal">
       <span class="ws-pop-num">{day.stats.kcal.toLocaleString()}</span>
-      <span class="ws-pop-unit">kcal</span>
+      <span class="ws-pop-unit">{$_('diary.activity.field_kcal_placeholder')}</span>
     </span>
     <span class="ws-pop-macros">
       <span class="ws-pop-macro p">{day.stats.protein}g P</span>
@@ -368,7 +369,7 @@
     {#if day.stats.water_ml > 0}
       <span class="ws-pop-water">💧 {(day.stats.water_ml / 1000).toFixed(2)} L</span>
     {/if}
-    <span class="ws-pop-items">{day.stats.item_count} food{day.stats.item_count === 1 ? '' : 's'} logged</span>
+    <span class="ws-pop-items">{day.stats.item_count} {$_('extracted.diary.food_96')}{day.stats.item_count === 1 ? '' : 's'} {$_('extracted.diary.logged_46')}</span>
   </button>
 {/if}
 

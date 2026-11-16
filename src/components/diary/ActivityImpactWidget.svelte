@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   /**
    * Diary → right column → Activity Impact widget.
    *
@@ -42,64 +43,64 @@
   <section class="activity-widget card">
     <header class="aw-header">
       <span class="material-symbols-rounded aw-icon">directions_run</span>
-      <span class="aw-title">Activity impact</span>
+      <span class="aw-title">{$_('extracted.diary.activity_impact_23')}</span>
       {#if calorieGoalMode === 'dynamic'}
-        <span class="aw-mode" title="Dynamic goal moves with your wearable's burn">⚡ Dynamic</span>
+        <span class="aw-mode" title={$_('extracted.diary.dynamic_goal_moves_with_your_wearable_s_burn_24')}>{$_('extracted.diary.dynamic_25')}</span>
       {:else if calorieGoalMode === 'adaptive'}
-        <span class="aw-mode" title="Adaptive goal is learned from your weight trend">📈 Adaptive</span>
+        <span class="aw-mode" title={$_('extracted.diary.adaptive_goal_is_learned_from_your_weight_tren_26')}>{$_('extracted.diary.adaptive_27')}</span>
       {/if}
     </header>
 
     {#if calorieGoalMode === 'dynamic' && dynamicCaloriesOut != null}
       <div class="aw-body">
         <div class="aw-row">
-          <span class="aw-label">Wearable burn (yesterday)</span>
+          <span class="aw-label">{$_('extracted.diary.wearable_burn_yesterday_28')}</span>
           <span class="aw-val">{burnE.value.toLocaleString()} {burnE.unit}</span>
         </div>
         <div class="aw-row">
-          <span class="aw-label">Base goal</span>
+          <span class="aw-label">{$_('extracted.diary.base_goal_29')}</span>
           <span class="aw-val">{baseE.value.toLocaleString()} {baseE.unit}</span>
         </div>
         {#if hasActivity}
           <div class="aw-row">
-            <span class="aw-label"><span class="aw-plus">+</span> Today's active</span>
+            <span class="aw-label"><span class="aw-plus">+</span> {$_('extracted.diary.today_s_active_30')}</span>
             <span class="aw-val aw-val-active">{activeE.value.toLocaleString()} {activeE.unit}</span>
           </div>
         {/if}
         <div class="aw-row aw-row-total">
-          <span class="aw-label">Adjusted goal</span>
+          <span class="aw-label">{$_('extracted.diary.adjusted_goal_31')}</span>
           <span class="aw-val">{adjustedE.value.toLocaleString()} {adjustedE.unit}</span>
         </div>
       </div>
     {:else if calorieGoalMode === 'adaptive' && adaptiveTdee != null}
       <div class="aw-body">
         <div class="aw-row">
-          <span class="aw-label">Learned TDEE (35-day)</span>
+          <span class="aw-label">{$_('extracted.diary.learned_tdee_35_day_32')}</span>
           <span class="aw-val">{tdeeE.value.toLocaleString()} {tdeeE.unit}</span>
         </div>
         {#if hasActivity}
           <div class="aw-row">
-            <span class="aw-label"><span class="aw-plus">+</span> Today's active</span>
+            <span class="aw-label"><span class="aw-plus">+</span> {$_('extracted.diary.today_s_active_30')}</span>
             <span class="aw-val aw-val-active">{activeE.value.toLocaleString()} {activeE.unit}</span>
           </div>
         {/if}
         <div class="aw-row aw-row-total">
-          <span class="aw-label">Adjusted goal</span>
+          <span class="aw-label">{$_('extracted.diary.adjusted_goal_31')}</span>
           <span class="aw-val">{adjustedE.value.toLocaleString()} {adjustedE.unit}</span>
         </div>
       </div>
     {:else if hasActivity}
       <div class="aw-body">
         <div class="aw-row">
-          <span class="aw-label">Today's active kcal</span>
+          <span class="aw-label">{$_('extracted.diary.today_s_active_kcal_33')}</span>
           <span class="aw-val aw-val-active">{activeE.value.toLocaleString()} {activeE.unit}</span>
         </div>
         <div class="aw-row">
-          <span class="aw-label">Base goal</span>
+          <span class="aw-label">{$_('extracted.diary.base_goal_29')}</span>
           <span class="aw-val">{baseE.value.toLocaleString()} {baseE.unit}</span>
         </div>
         <div class="aw-row aw-row-total">
-          <span class="aw-label">Adjusted goal</span>
+          <span class="aw-label">{$_('extracted.diary.adjusted_goal_31')}</span>
           <span class="aw-val">{adjustedE.value.toLocaleString()} {adjustedE.unit}</span>
         </div>
       </div>

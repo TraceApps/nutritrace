@@ -77,7 +77,7 @@
     : (usdaApiKey ? 'ok' : '');
 
   async function testUsdaConnection() {
-    if (!usdaApiKey) { usdaTestStatus = 'fail'; showError('USDA test failed: API key required'); return; }
+    if (!usdaApiKey) { usdaTestStatus = 'fail'; showError($_('feedback.settings.usda_test_failed_api_key_required')); return; }
     usdaTestStatus = 'testing';
     try {
       // Direct call — USDA's FoodData Central API has open CORS, so the
@@ -87,16 +87,16 @@
       const res = await fetch(url);
       if (res.ok) {
         usdaTestStatus = 'ok';
-        showSuccess('USDA API key verified');
+        showSuccess($_('feedback.settings.usda_api_key_verified'));
       } else {
         usdaTestStatus = 'fail';
         let detail = `HTTP ${res.status}`;
         try { const j = await res.json(); if (j?.error?.message) detail = j.error.message; } catch {}
-        showError(`USDA test failed: ${detail}`);
+        showError($_('dynamic_feedback.service_test_failed', { values: { service: 'USDA', detail } }));
       }
     } catch (e) {
       usdaTestStatus = 'fail';
-      showError(`USDA test failed: ${e?.message || 'network error'}`);
+      showError($_('dynamic_feedback.service_test_failed', { values: { service: 'USDA', detail: e?.message || $_('dynamic_feedback.network_error') } }));
     }
   }
   function saveUsda() {
@@ -123,7 +123,7 @@
   async function testMealieConnection() {
     if (!mealieBaseUrl || !mealieApiToken) {
       mealieTestStatus = 'fail';
-      showError('Mealie test failed: URL and token both required');
+      showError($_('feedback.settings.mealie_test_failed_url_and_token_both_required'));
       return;
     }
     mealieTestStatus = 'testing';
@@ -151,16 +151,16 @@
       });
       if (res.ok) {
         mealieTestStatus = 'ok';
-        showSuccess('Mealie connection verified');
+        showSuccess($_('feedback.settings.mealie_connection_verified'));
       } else {
         mealieTestStatus = 'fail';
         let detail = `HTTP ${res.status}`;
         try { const j = await res.json(); if (j?.error) detail = j.error; } catch {}
-        showError(`Mealie test failed: ${detail}`);
+        showError($_('dynamic_feedback.service_test_failed', { values: { service: 'Mealie', detail } }));
       }
     } catch (e) {
       mealieTestStatus = 'fail';
-      showError(`Mealie test failed: ${e?.message || 'network error'}`);
+      showError($_('dynamic_feedback.service_test_failed', { values: { service: 'Mealie', detail: e?.message || $_('dynamic_feedback.network_error') } }));
     }
   }
   function saveMealie() {
@@ -191,7 +191,7 @@
   async function testCooktraceConnection() {
     if (!cooktraceBaseUrl || !cooktraceApiToken) {
       cooktraceTestStatus = 'fail';
-      showError('CookTrace test failed: URL and token both required');
+      showError($_('feedback.settings.cooktrace_test_failed_url_and_token_both_required'));
       return;
     }
     cooktraceTestStatus = 'testing';
@@ -219,7 +219,7 @@
         const scopes = Array.isArray(body?.scopes) ? body.scopes : [];
         if (!scopes.includes('read:recipes')) {
           cooktraceTestStatus = 'fail';
-          showError('CookTrace token is valid but lacks the read:recipes scope. Mint a new token on CookTrace with that scope ticked.');
+          showError($_('feedback.settings.cooktrace_token_is_valid_but_lacks_the_read_recipes'));
           return;
         }
         cooktraceTestStatus = 'ok';
@@ -228,11 +228,11 @@
         cooktraceTestStatus = 'fail';
         let detail = `HTTP ${res.status}`;
         try { const j = await res.json(); if (j?.error) detail = j.error; } catch {}
-        showError(`CookTrace test failed: ${detail}`);
+        showError($_('dynamic_feedback.service_test_failed', { values: { service: 'CookTrace', detail } }));
       }
     } catch (e) {
       cooktraceTestStatus = 'fail';
-      showError(`CookTrace test failed: ${e?.message || 'network error'}`);
+      showError($_('dynamic_feedback.service_test_failed', { values: { service: 'CookTrace', detail: e?.message || $_('dynamic_feedback.network_error') } }));
     }
   }
   function saveCooktrace() {
@@ -260,13 +260,13 @@
     if (ctBulkBusy) return;
     const { CookTrace } = await import('../../lib/cooktraceApi.js');
     if (!CookTrace.isConfigured()) {
-      showError('Configure and save the CookTrace connection first');
+      showError($_('feedback.settings.configure_and_save_the_cooktrace_connection_first'));
       return;
     }
     // Confirm before an ambient long-running job: users with 100+ recipes
     // won't want this to kick off from a stray tap.
     const proceed = window.confirm(
-      'Import every recipe from CookTrace into your NutriTrace recipes catalog?\n\nRe-runs update existing imports in place. Any recipe you have edited on NT will still be updated with the CookTrace copy.'
+      $_('feedback.settings.import_all_cooktrace_recipes')
     );
     if (!proceed) return;
     ctBulkBusy = true;
@@ -306,7 +306,7 @@
       ctBulkProgress = { done: 0, total: ids.length };
       if (ids.length === 0) {
         ctBulkLastResult = { imported: 0, updated: 0, skipped: 0 };
-        showSuccess('No CookTrace recipes found to import');
+        showSuccess($_('feedback.settings.no_cooktrace_recipes_found_to_import'));
         return;
       }
 
@@ -366,7 +366,7 @@
         showSuccess(summary);
       }
     } catch (e) {
-      showError(`CookTrace bulk import failed: ${e?.message || 'unknown error'}`);
+      showError($_('dynamic_feedback.service_import_failed', { values: { service: 'CookTrace', detail: e?.message || $_('dynamic_feedback.unknown_error') } }));
     } finally {
       ctBulkBusy = false;
     }
@@ -382,11 +382,11 @@
     if (ctPantryBulkBusy) return;
     const { CookTrace } = await import('../../lib/cooktraceApi.js');
     if (!CookTrace.isConfigured()) {
-      showError('Configure and save the CookTrace connection first');
+      showError($_('feedback.settings.configure_and_save_the_cooktrace_connection_first'));
       return;
     }
     const proceed = window.confirm(
-      "Import CookTrace pantry items into your NutriTrace foods library?\n\nStandalone items and variants come across. Generic parents (like 'Flour' with a Bread-flour variant) are skipped: their children carry the real nutrition. Safe to re-run."
+      $_('feedback.settings.import_cooktrace_pantry')
     );
     if (!proceed) return;
     ctPantryBulkBusy = true;
@@ -397,15 +397,15 @@
       const list = await CookTrace.listPantry();
       if (!list.ok) {
         if (list.reason === 'not_configured') {
-          showError('Configure and save the CookTrace connection first');
+          showError($_('feedback.settings.configure_and_save_the_cooktrace_connection_first'));
         } else if (list.reason === 'scope') {
-          showError('CookTrace token is missing the read:pantry scope. Mint a new token on CookTrace, tick read:pantry, and paste it here.');
+          showError($_('feedback.settings.cooktrace_token_is_missing_the_read_pantry_scope_min'));
         } else if (list.reason === 'not_found') {
-          showError('This CookTrace server is on an older version that does not expose /api/v1/pantry. Update CookTrace, then retry.');
+          showError($_('feedback.settings.this_cooktrace_server_is_on_an_older_version_that_do'));
         } else if (list.reason === 'auth') {
-          showError('CookTrace token was rejected. Re-mint it and paste the new value.');
+          showError($_('feedback.settings.cooktrace_token_was_rejected_re_mint_it_and_paste_th'));
         } else {
-          showError(`CookTrace pantry request failed (HTTP ${list.status || 'unknown'}). Check the CookTrace server log.`);
+          showError($_('dynamic_feedback.pantry_request_failed', { values: { status: list.status || 'inconnu' } }));
         }
         return;
       }
@@ -425,7 +425,7 @@
       ctPantryBulkProgress = { done: 0, total: items.length };
       if (items.length === 0) {
         ctPantryBulkLastResult = { imported: 0, updated: 0, skipped: 0, collided: 0 };
-        showSuccess('No importable CookTrace pantry items found');
+        showSuccess($_('feedback.settings.no_importable_cooktrace_pantry_items_found'));
         return;
       }
       let firstError = null;
@@ -471,7 +471,7 @@
         showSuccess(summary);
       }
     } catch (e) {
-      showError(`CookTrace pantry import failed: ${e?.message || 'unknown error'}`);
+      showError($_('dynamic_feedback.service_import_failed', { values: { service: 'CookTrace', detail: e?.message || $_('dynamic_feedback.unknown_error') } }));
     } finally {
       ctPantryBulkBusy = false;
     }
@@ -612,13 +612,10 @@
         <div style="padding:12px 16px;display:flex;gap:10px;align-items:flex-start;background:color-mix(in srgb,#3b82f6 6%,transparent);border-left:3px solid #3b82f6">
           <span class="material-symbols-rounded" style="font-size:18px;color:#3b82f6;flex-shrink:0;margin-top:2px">info</span>
           <div class="setting-desc" style="margin:0;line-height:1.5">
-            Local Open Food Facts mirror is active. OFF data is
-            licensed under the
-            <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener" class="about-link">Open Database License (ODbL)</a>.
-            If you serve other users from this instance, share-alike
-            obligations apply to your operation. See
+            {$_('extracted.settings.local_open_food_facts_mirror_is_active_off_dat_382')}
+            <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener" class="about-link">{$_('extracted.settings.open_database_license_odbl_383')}</a>{$_('extracted.settings.if_you_serve_other_users_from_this_instance_sh_384')}
             <a href="https://github.com/TraceApps/nutritrace/blob/main/LICENSES.md" target="_blank" rel="noopener" class="about-link">LICENSES.md</a>
-            for details.
+            {$_('extracted.settings.for_details_386')}
           </div>
         </div>
         <div class="setting-divider"></div>
@@ -719,13 +716,13 @@
           </button>
         </div>
         <button class="btn btn-primary" style="height:36px;font-size:13px;align-self:flex-start" on:click={saveOff}>
-          {#if offSaved}<span class="material-symbols-rounded" style="font-size:16px">check</span> Saved{:else}Save{/if}
+          {#if offSaved}<span class="material-symbols-rounded" style="font-size:16px">check</span> {$_('food_editor.saved')}{:else}{$_('settings.users.save')}{/if}
         </button>
       </div>
     {/if}
   </div>
 
-  <p class="sub-label">USDA FoodData Central</p>
+  <p class="sub-label">{$_('wizard.integrations_cards.usda')}</p>
   <div class="card settings-card">
     {#if usdaEnabled}
       <ConnectionStatus
@@ -739,8 +736,8 @@
       <div>
         <span class="setting-label">{$_('settings_integrations.enable_usda')}</span>
         <div class="setting-desc">
-          Search the USDA nutrition database when adding foods.
-          <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener" class="about-link">Get a free API key →</a>
+          {$_('extracted.settings.search_the_usda_nutrition_database_when_adding_388')}
+          <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener" class="about-link">{$_('extracted.settings.get_a_free_api_key_389')}</a>
         </div>
       </div>
       <Toggle checked={usdaEnabled} on:change={e => { usdaEnabled = e.detail; set('usdaEnabled', e.detail); }} />
@@ -748,7 +745,7 @@
     {#if usdaEnabled}
       <div class="setting-divider"></div>
       <div class="form-group" style="padding:10px 16px 14px">
-        <label class="form-label" for="usda-key">API Key</label>
+        <label class="form-label" for="usda-key">{$_('wizard_deep.api_key_ph')}</label>
         <input id="usda-key" class="input" type="text"
           placeholder={$_('wizard_deep.usda_key_ph')}
           bind:value={usdaApiKey}
@@ -771,7 +768,7 @@
     <div class="setting-row">
       <div>
         <span class="setting-label">{$_('settings_integrations.enable_mealie')}</span>
-        <div class="setting-desc">Import recipes from your self-hosted Mealie instance</div>
+        <div class="setting-desc">{$_('extracted.settings.import_recipes_from_your_self_hosted_mealie_in_391')}</div>
       </div>
       <Toggle checked={mealieEnabled} on:change={e => { mealieEnabled = e.detail; set('mealieEnabled', e.detail); }} />
     </div>
@@ -787,7 +784,7 @@
       </div>
       <div class="setting-divider"></div>
       <div class="form-group" style="padding:10px 16px">
-        <label class="form-label" for="mealie-api-token">API Token</label>
+        <label class="form-label" for="mealie-api-token">{$_('wizard_deep.mealie_token_ph')}</label>
         <div style="display:flex;gap:8px;align-items:center">
           {#if mealieShowToken}
             <input id="mealie-api-token" class="input" type="text"
@@ -840,7 +837,7 @@
       </div>
       <div class="setting-divider"></div>
       <div class="form-group" style="padding:10px 16px">
-        <label class="form-label" for="cooktrace-api-token">API Token</label>
+        <label class="form-label" for="cooktrace-api-token">{$_('wizard_deep.mealie_token_ph')}</label>
         <div style="display:flex;gap:8px;align-items:center">
           {#if cooktraceShowToken}
             <input id="cooktrace-api-token" class="input" type="text"
@@ -861,7 +858,7 @@
           </button>
         </div>
         <p class="setting-desc" style="margin-top:6px">
-          Mint on CookTrace: Settings, API Tokens, New Token, tick <code>read:recipes</code>. Copy the token immediately: it is shown once.
+          {$_('extracted.settings.mint_on_cooktrace_settings_api_tokens_new_toke_394')} <code>read:recipes</code>{$_('extracted.settings.copy_the_token_immediately_it_is_shown_once_396')}
         </p>
       </div>
       <!-- Bulk import: onboarding shortcut for someone with a lot of CT
@@ -875,8 +872,8 @@
         <div class="form-group" style="padding:10px 16px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
             <div style="min-width:0;flex:1">
-              <span class="setting-label">Import All Recipes</span>
-              <div class="setting-desc">One-tap onboarding shortcut. Pulls every CookTrace recipe into your NutriTrace catalog and stamps each one with its CookTrace source so future edits sync via the recipe's own refresh banner. Safe to re-run: existing imports update in place instead of duplicating.</div>
+              <span class="setting-label">{$_('extracted.settings.import_all_recipes_397')}</span>
+              <div class="setting-desc">{$_('extracted.settings.one_tap_onboarding_shortcut_pulls_every_cooktr_398')}</div>
             </div>
             <button class="btn btn-primary btn-sm" on:click={_ctBulkImport} disabled={ctBulkBusy} style="flex-shrink:0">
               {#if ctBulkBusy}
@@ -884,21 +881,21 @@
                 {ctBulkProgress.done}/{ctBulkProgress.total}
               {:else}
                 <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle;margin-right:4px">download</span>
-                Import All
+                {$_('extracted.settings.import_all_399')}
               {/if}
             </button>
           </div>
           {#if !ctBulkBusy && ctBulkLastResult}
             <p class="setting-desc" style="margin-top:8px;color:var(--text-2)">
-              Last run: {ctBulkLastResult.imported} imported, {ctBulkLastResult.updated} updated, {ctBulkLastResult.skipped} skipped.
+              {$_('extracted.settings.last_run_400')} {ctBulkLastResult.imported} {$_('extracted.settings.imported_401')} {ctBulkLastResult.updated} {$_('extracted.settings.updated_402')} {ctBulkLastResult.skipped} {$_('extracted.settings.skipped_403')}
             </p>
           {/if}
         </div>
         <div class="form-group" style="padding:10px 16px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
             <div style="min-width:0;flex:1">
-              <span class="setting-label">Import Pantry Items</span>
-              <div class="setting-desc">Bring your CookTrace pantry into NutriTrace's Foods library. Individual items and variants come across; generic parents (like "Flour" with a Bread-flour variant) are skipped because their variants already carry the real nutrition. Needs the <code>read:pantry</code> scope on your CookTrace token.</div>
+              <span class="setting-label">{$_('extracted.settings.import_pantry_items_404')}</span>
+              <div class="setting-desc">{$_('extracted.settings.bring_your_cooktrace_pantry_into_nutritrace_s_405')} <code>read:pantry</code> {$_('extracted.settings.scope_on_your_cooktrace_token_407')}</div>
             </div>
             <button class="btn btn-primary btn-sm" on:click={_ctBulkImportPantry} disabled={ctPantryBulkBusy} style="flex-shrink:0">
               {#if ctPantryBulkBusy}
@@ -906,15 +903,15 @@
                 {ctPantryBulkProgress.done}/{ctPantryBulkProgress.total}
               {:else}
                 <span class="material-symbols-rounded" style="font-size:16px;vertical-align:middle;margin-right:4px">kitchen</span>
-                Import Pantry
+                {$_('extracted.settings.import_pantry_408')}
               {/if}
             </button>
           </div>
           {#if !ctPantryBulkBusy && ctPantryBulkLastResult}
             <p class="setting-desc" style="margin-top:8px;color:var(--text-2)">
-              Last run: {ctPantryBulkLastResult.imported} imported, {ctPantryBulkLastResult.updated} updated, {ctPantryBulkLastResult.skipped} skipped.
+              {$_('extracted.settings.last_run_400')} {ctPantryBulkLastResult.imported} {$_('extracted.settings.imported_401')} {ctPantryBulkLastResult.updated} {$_('extracted.settings.updated_402')} {ctPantryBulkLastResult.skipped} {$_('extracted.settings.skipped_403')}
               {#if ctPantryBulkLastResult.collided}
-                <br />{ctPantryBulkLastResult.collided} already in your library (matched by barcode), left as-is.
+                <br />{ctPantryBulkLastResult.collided} {$_('extracted.settings.already_in_your_library_matched_by_barcode_lef_409')}
               {/if}
             </p>
           {/if}

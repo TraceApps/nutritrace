@@ -1,6 +1,7 @@
 <script>
   import { slide } from 'svelte/transition';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
+  import { tr } from '../../lib/i18n-label.js';
   import Toggle from './Toggle.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import { currentUser, userMgmtActive } from '../../stores/auth.js';
@@ -441,21 +442,21 @@
                       class="oidc-preset-card"
                       class:selected={oidcSelectedPreset === preset.id}
                       on:click={() => oidcSelectedPreset = preset.id}
-                      title={preset.name}
+                      title={preset.id === 'custom' ? $_('dynamic_ui.provider_custom') : preset.name}
                     >
                       {#if preset.defaults.logo_url}
                         <img src={resolveAssetUrl(preset.defaults.logo_url)} alt="" class="oidc-preset-logo" />
                       {:else}
                         <span class="material-symbols-rounded oidc-preset-icon">{preset.icon}</span>
                       {/if}
-                      <span class="oidc-preset-name">{preset.name}</span>
+                      <span class="oidc-preset-name">{preset.id === 'custom' ? $_('dynamic_ui.provider_custom') : preset.name}</span>
                     </button>
                   {/each}
                 </div>
                 {#if oidcPreset.help}
                   <div class="text-3 text-sm" style="margin-top:8px;line-height:1.4">
                     <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">info</span>
-                    {oidcPreset.help}
+                    {tr('dynamic_ui.provider_help', oidcPreset.id, oidcPreset.help, $locale)}
                   </div>
                 {/if}
               </div>

@@ -986,7 +986,7 @@
     <div class="readonly-banner">
       <span class="material-symbols-rounded">lock</span>
       <div>
-        <div class="readonly-title">Shared by {food._shared_by} — read only</div>
+        <div class="readonly-title">{$_('extracted.foods.shared_by_267')} {food._shared_by} {$_('extracted.foods.read_only_268')}</div>
         <div class="readonly-sub">{$_('food_editor.readonly_sub')}</div>
       </div>
     </div>
@@ -1005,7 +1005,7 @@
       <div class="editor-card-title">{$_('food_editor.card_photo')}</div>
       <div class="photo-preview-wrap">
         {#if food.imgUrl}
-          <img class="photo-preview-img" src={food.imgUrl} alt="Food" />
+          <img class="photo-preview-img" src={food.imgUrl} alt={$_('extracted.foods.food_269')} />
           <button class="photo-remove-btn btn-icon" on:click={removePhoto} aria-label={$_('food_editor.photo_remove')} title={$_('food_editor.photo_remove')}>
             <span class="material-symbols-rounded" style="font-size:18px">close</span>
           </button>
@@ -1018,11 +1018,11 @@
       <div class="photo-btn-row">
         <button class="btn btn-ghost photo-action-btn" on:click={openCamera}>
           <span class="material-symbols-rounded">camera_alt</span>
-          Camera
+          {$_('attach_image.camera')}
         </button>
         <button class="btn btn-ghost photo-action-btn" on:click={openGallery}>
           <span class="material-symbols-rounded">photo_library</span>
-          Upload
+          {$_('extracted.foods.upload_271')}
         </button>
         <button class="btn btn-ghost photo-action-btn" on:click={() => { showUrlInput = !showUrlInput; photoUrl = ''; }}>
           <span class="material-symbols-rounded">link</span>
@@ -1033,7 +1033,7 @@
         <div class="photo-url-row">
           <input class="input photo-url-input" placeholder="https://..." bind:value={photoUrl}
             on:keydown={e => e.key === 'Enter' && applyPhotoUrl()} />
-          <button class="btn btn-primary" on:click={applyPhotoUrl}>Get</button>
+          <button class="btn btn-primary" on:click={applyPhotoUrl}>{$_('extracted.foods.get_273')}</button>
         </div>
       {/if}
       <input bind:this={fileInput} type="file" accept="image/*" style="display:none" on:change={onFileChange} />
@@ -1054,7 +1054,7 @@
           <div class="cam-footer">
             <button class="btn btn-primary cam-capture-btn" on:click={capturePhoto}>
               <span class="material-symbols-rounded">camera_alt</span>
-              Capture
+              {$_('extracted.foods.capture_274')}
             </button>
           </div>
         </div>
@@ -1101,7 +1101,7 @@
     <div class="card editor-card">
       <div class="editor-card-title">{$_('food_editor.card_basic')}</div>
       <div class="form-group">
-        <label class="form-label">Name *</label>
+        <label class="form-label">{$_('settings_api_tokens.form.name')}</label>
         <input class="input" placeholder={$_('food_editor.name_placeholder')} bind:value={food.name} />
       </div>
       <div class="form-group">
@@ -1136,15 +1136,15 @@
         <div class="basis-toggle">
           <button type="button" class="basis-opt" class:active={food.nutrition_basis === 'g'}
             on:click={() => food.nutrition_basis = food.nutrition_basis === 'g' ? null : 'g'}>
-            Per 100 g
+            {$_('settings_foods_picker.facts_column_per100')}
           </button>
           <button type="button" class="basis-opt" class:active={food.nutrition_basis === 'ml'}
             on:click={() => food.nutrition_basis = food.nutrition_basis === 'ml' ? null : 'ml'}>
-            Per 100 ml
+            {$_('extracted.foods.per_100_ml_277')}
           </button>
         </div>
         <div class="form-hint">
-          Defaults the unit picker when logging to the diary. Leave both off if unknown; math behaves like today's default.
+          {$_('extracted.foods.defaults_the_unit_picker_when_logging_to_the_d_278')}
         </div>
       </div>
 
@@ -1156,11 +1156,11 @@
         <div class="alt-units">
           {#each (food.alt_units || []) as row, i}
             <div class="alt-unit-row">
-              <input class="input alt-unit-abbr" placeholder="e.g. slice"
+              <input class="input alt-unit-abbr" placeholder={$_('extracted.foods.e_g_slice_279')}
                 bind:value={row.abbr} />
               <span class="alt-unit-eq">=</span>
               <input class="input alt-unit-grams" type="text" inputmode="decimal" use:decimalInput
-                placeholder="grams" bind:value={row.grams} />
+                placeholder={$_('extracted.foods.grams_280')} bind:value={row.grams} />
               <span class="alt-unit-suffix">g</span>
               <button type="button" class="btn-icon alt-unit-del"
                 title={$_('food_editor.remove_serving_unit')} aria-label={$_('food_editor.remove_serving_unit')}
@@ -1172,11 +1172,11 @@
           <button type="button" class="btn-link alt-unit-add"
             on:click={() => food.alt_units = [...(food.alt_units || []), { abbr: '', grams: '' }]}>
             <span class="material-symbols-rounded" style="font-size:18px;vertical-align:middle">add</span>
-            Add serving unit
+            {$_('extracted.foods.add_serving_unit_281')}
           </button>
         </div>
         <div class="form-hint">
-          Lets you log "1 slice", "1 cookie", "1 bottle" etc. with the right gram conversion.
+          {$_('extracted.foods.lets_you_log_1_slice_1_cookie_1_bottle_etc_wit_282')}
         </div>
       </div>
 
@@ -1185,7 +1185,7 @@
            that doesn't match the basis (g picked on a per-100-ml food).
            Issues #69. -->
       <div class="form-group">
-        <label class="form-label">Density (g/ml)</label>
+        <label class="form-label">{$_('extracted.foods.density_g_ml_283')}</label>
         <div style="display:flex;align-items:center;gap:6px">
           <input class="input" type="text" inputmode="decimal" use:decimalInput
             placeholder={$_('food_editor.placeholder_optional')}
@@ -1194,7 +1194,7 @@
           <span style="color:var(--text-3);font-size:13px">g/ml</span>
         </div>
         <div class="form-hint">
-          Only used when the picked unit's system (mass vs volume) doesn't match the nutrition basis. Common values: water 1.00, milk 1.03, olive oil 0.91, honey 1.42.
+          {$_('extracted.foods.only_used_when_the_picked_unit_s_system_mass_v_284')}
         </div>
       </div>
       {/if}
@@ -1210,13 +1210,13 @@
         {#if duplicateOf}
           <div class="barcode-dup-warn">
             <span class="material-symbols-rounded" style="font-size:16px;color:var(--warning,#f59e0b)">warning</span>
-            <span>You already have a food with this barcode: <strong>{duplicateOf.name}</strong></span>
+            <span>{$_('extracted.foods.you_already_have_a_food_with_this_barcode_285')} <strong>{duplicateOf.name}</strong></span>
             <button type="button" class="btn-link" on:click={() => {
               clearFoodEditorState();
               editorState.foodStore = store;
               if (editorState.foodDiaryCtx) { /* preserve pick-mode context */ }
               push(`/foods/edit/${duplicateOf.id}`);
-            }}>Open existing →</button>
+            }}>{$_('extracted.foods.open_existing_286')}</button>
           </div>
         {/if}
         {#if hasBarcode}
@@ -1271,21 +1271,21 @@
               {#if offVerified === null}
                 <span class="off-verify-checking">
                   <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">hourglass_top</span>
-                  Verifying on Open Food Facts…
+                  {$_('extracted.foods.verifying_on_open_food_facts_287')}
                 </span>
               {:else if offVerified}
                 <span class="off-verify-ok">
                   <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">check_circle</span>
-                  Confirmed live on Open Food Facts
+                  {$_('extracted.foods.confirmed_live_on_open_food_facts_288')}
                 </span>
               {:else}
                 <span class="off-verify-pending">
                   <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle">schedule</span>
-                  Submitted — may take a few minutes to appear
+                  {$_('extracted.foods.submitted_may_take_a_few_minutes_to_appear_289')}
                 </span>
               {/if}
               <a class="off-verify-link" href="https://world.openfoodfacts.org/product/{food.barcode}" target="_blank" rel="noopener">
-                View on Open Food Facts <span class="material-symbols-rounded" style="font-size:12px;vertical-align:middle">open_in_new</span>
+                {$_('extracted.foods.view_on_open_food_facts_290')} <span class="material-symbols-rounded" style="font-size:12px;vertical-align:middle">open_in_new</span>
               </a>
             </div>
           {/if}
@@ -1333,7 +1333,7 @@
         {#if $aiEffectivelyEnabled}
           <button class="scan-label-btn" on:click={scanLabel} disabled={scanningLabel}
             title={$_('food_editor.scan_label_title')}
-            aria-label="Scan nutrition label">
+            aria-label={$_('extracted.foods.scan_nutrition_label_291')}>
             <span class="material-symbols-rounded scan-icon" class:spin={scanningLabel}>
               {scanningLabel ? 'progress_activity' : 'document_scanner'}
             </span>

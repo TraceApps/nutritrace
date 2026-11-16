@@ -31,7 +31,7 @@
       reader.readAsDataURL(blob);
     });
     await Filesystem.writeFile({ path: `Download/${filename}`, data: base64, directory: Directory.ExternalStorage, recursive: true });
-    showSuccess(`Saved to Downloads/${filename}`);
+    showSuccess($_('dynamic_feedback.saved_download', { values: { filename } }));
   }
 
   function _downloadBlob(blob, filename) {
@@ -314,7 +314,7 @@
 <div class="section-body">
   <!-- Import card -->
   <p class="settings-group-heading">{$_('settings_import_export.sections.import')}</p>
-  <p class="settings-group-sub">Pull data in: bulk-add foods by barcode list, or restore a NutriTrace JSON export.</p>
+  <p class="settings-group-sub">{$_('extracted.settings.pull_data_in_bulk_add_foods_by_barcode_list_or_139')}</p>
   <div class="card settings-card">
     <button class="setting-row setting-action" on:click={openBulkImport}>
       <span class="material-symbols-rounded si" style="color:var(--accent)">playlist_add</span>
@@ -337,7 +337,7 @@
 
   <!-- Export card -->
   <p class="settings-group-heading">{$_('settings_import_export.sections.export')}</p>
-  <p class="settings-group-sub">Portable JSON snapshot or CSV of your diary or activity log.</p>
+  <p class="settings-group-sub">{$_('extracted.settings.portable_json_snapshot_or_csv_of_your_diary_or_140')}</p>
   <div class="card settings-card">
     <button class="setting-row setting-action" on:click={exportBackup}>
       <span class="material-symbols-rounded si" style="color:var(--accent)">download</span>

@@ -118,14 +118,14 @@
   }
   $: WELLNESS_METRICS = [
     ...(_hasWellness ? [
-      ...(_wlVisible('steps')             ? [{ value: 'wl_steps',  label: 'Steps',        unit: 'steps', apiSource: 'fitgarm', apiField: 'steps' }] : []),
-      ...(_wlVisible('active_minutes')    ? [{ value: 'wl_active', label: 'Active Min.',   unit: 'min',   apiSource: 'fitgarm', apiField: 'active_minutes' }] : []),
+      ...(_wlVisible('steps')             ? [{ value: 'wl_steps',  label: tr('wellness_metric', 'steps', 'Steps', $locale),        unit: 'steps', apiSource: 'fitgarm', apiField: 'steps' }] : []),
+      ...(_wlVisible('active_minutes')    ? [{ value: 'wl_active', label: tr('wellness_metric', 'active_minutes', 'Active Min.', $locale),   unit: 'min',   apiSource: 'fitgarm', apiField: 'active_minutes' }] : []),
       // Total burned, resting included (#279). kcal or kJ per the Energy unit.
       ...(_wlVisible('calories_out')      ? [{ value: 'wl_calories', label: tr('wellness_goals', 'calories_out', 'Calories Burned', $locale), unit: 'kcal', apiSource: 'fitgarm', apiField: 'calories_out' }] : []),
-      ...(_wlVisible('sleep_duration_min')? [{ value: 'wl_sleep',  label: 'Sleep',         unit: 'hr',    apiSource: 'fitgarm', apiField: 'sleep_duration_min', fmtVal: v => Math.round(v / 6) / 10 }] : []),
-      ...(_wlVisible('resting_hr')        ? [{ value: 'wl_rhr',    label: 'Resting HR',    unit: 'bpm',   apiSource: 'fitgarm', apiField: 'resting_hr' }] : []),
-      ...(_wlVisible('hrv_daily_rmssd')   ? [{ value: 'wl_hrv',    label: 'HRV',           unit: 'ms',    apiSource: 'fitgarm', apiField: 'hrv_daily_rmssd' }] : []),
-      ...(_wlVisible('spo2_avg')          ? [{ value: 'wl_spo2',   label: 'SpO2',          unit: '%',     apiSource: 'fitgarm', apiField: 'spo2_avg' }] : []),
+      ...(_wlVisible('sleep_duration_min')? [{ value: 'wl_sleep',  label: tr('wellness_page.chip', 'sleep', 'Sleep', $locale),         unit: 'hr',    apiSource: 'fitgarm', apiField: 'sleep_duration_min', fmtVal: v => Math.round(v / 6) / 10 }] : []),
+      ...(_wlVisible('resting_hr')        ? [{ value: 'wl_rhr',    label: tr('wellness_metric', 'resting_hr', 'Resting HR', $locale),    unit: 'bpm',   apiSource: 'fitgarm', apiField: 'resting_hr' }] : []),
+      ...(_wlVisible('hrv_daily_rmssd')   ? [{ value: 'wl_hrv',    label: tr('wellness_metric', 'hrv_daily_rmssd', 'HRV', $locale),           unit: 'ms',    apiSource: 'fitgarm', apiField: 'hrv_daily_rmssd' }] : []),
+      ...(_wlVisible('spo2_avg')          ? [{ value: 'wl_spo2',   label: tr('wellness_metric', 'spo2_avg', 'SpO2', $locale),          unit: '%',     apiSource: 'fitgarm', apiField: 'spo2_avg' }] : []),
     ] : []),
     ...(($withingsEnabled || $fitbitFamilyEnabled) && _wlVisible('muscle_mass_kg') ? [
       { value: 'wl_muscle', label: tr('body_metrics', 'muscle', 'Muscle Mass', $locale), unit: '', apiSource: 'withings', apiField: 'muscle_mass_kg', isWeight: true },
@@ -510,7 +510,7 @@
     if ($statsAvgLine && summary) {
       datasets.push({
         type: 'line',
-        label: 'Average',
+        label: tr('statistics_page.summary', 'average', 'Average', $locale),
         data: displayData.map(() => summary.avg),
         borderColor: isDark ? 'rgba(255,193,7,0.7)' : 'rgba(217,119,6,0.7)',
         borderWidth: 1.5,
@@ -549,7 +549,7 @@
       const isAdaptiveOrDynamic = metric === 'calories' && ($calorieGoalMode === 'dynamic' || $calorieGoalMode === 'adaptive');
       datasets.push({
         type: 'line',
-        label: isAdaptiveOrDynamic ? 'Base Goal' : 'Goal',
+        label: isAdaptiveOrDynamic ? tr('statistics_page.desktop', 'base_goal', 'Base Goal', $locale) : tr('statistics_page.desktop', 'goal', 'Goal', $locale),
         data: displayData.map(() => _goalVal),
         borderColor: isDark ? 'rgba(129,140,248,0.8)' : 'rgba(99,102,241,0.8)',
         borderWidth: 1.5,
@@ -573,7 +573,7 @@
         });
         datasets.push({
           type: 'line',
-          label: 'Trend',
+          label: tr('statistics_page.desktop', 'trend', 'Trend', $locale),
           data: trendData,
           borderColor: isDark ? 'rgba(251,146,60,0.8)' : 'rgba(234,88,12,0.8)',
           borderWidth: 2,
@@ -748,10 +748,10 @@
       buckets[bucket].push({ ...m, _key: key });
     }
     const groups = [];
-    if (buckets.nutrient.length) groups.push({ label: 'Nutrition', metrics: buckets.nutrient });
-    if (buckets.body.length)     groups.push({ label: 'Body',      metrics: buckets.body });
-    if (buckets.water.length)    groups.push({ label: 'Water',     metrics: buckets.water });
-    if (buckets.wellness.length) groups.push({ label: 'Wellness',  metrics: buckets.wellness });
+    if (buckets.nutrient.length) groups.push({ label: tr('statistics_page.desktop', 'nutrition', 'Nutrition', $locale), metrics: buckets.nutrient });
+    if (buckets.body.length)     groups.push({ label: tr('statistics_page.desktop', 'body', 'Body', $locale),      metrics: buckets.body });
+    if (buckets.water.length)    groups.push({ label: tr('statistics_page.desktop', 'water', 'Water', $locale),     metrics: buckets.water });
+    if (buckets.wellness.length) groups.push({ label: tr('statistics_page.desktop', 'wellness', 'Wellness', $locale),  metrics: buckets.wellness });
     return groups;
   })();
 
@@ -885,7 +885,7 @@
     } catch {}
   });
 
-  $: { metric; range; customStart; customEnd; $statsIncludeToday; $statsShowEmptyDays; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine;
+  $: { metric; range; customStart; customEnd; $statsIncludeToday; $statsShowEmptyDays; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine; $locale;
        if (canvasEl) loadData(); }
 
   onDestroy(() => { if (chart) chart.destroy(); });
@@ -976,8 +976,8 @@
   <!-- Desktop left rail: grouped metric picker. Hidden on mobile; the
        horizontal metric-scroll below still owns metric selection there. -->
   <aside class="stats-left-rail">
-    <div class="stats-rail-heading">Metrics</div>
-    <input class="stats-rail-search" type="search" placeholder="Filter metrics…" bind:value={_railQuery} />
+    <div class="stats-rail-heading">{$_('statistics_page.desktop.metrics')}</div>
+    <input class="stats-rail-search" type="search" placeholder={$_('statistics_page.desktop.filter_metrics')} bind:value={_railQuery} />
     {#each groupedMetrics as g}
       {@const _filtered = g.metrics.filter(m => !_railQuery || foldText(m.label).includes(foldText(_railQuery)))}
       {#if _filtered.length}
@@ -1090,7 +1090,7 @@
         <!-- CSV export lives on the chart itself so mobile and large-screen
              both get it. Was previously desktop-rail-only. -->
         <button class="chart-csv" type="button" on:click={_exportCsv}
-          title="Export CSV" aria-label="Export CSV">
+          title={$_('statistics_page.desktop.export_csv')} aria-label={$_('statistics_page.desktop.export_csv')}>
           <span class="material-symbols-rounded">download</span>
         </button>
       {/if}
@@ -1118,11 +1118,11 @@
                    the current metric — the loader re-runs via the metric
                    reactive at line ~647. -->
               <div class="stats-empty-alts text-3 text-sm">
-                Try
+                {$_('extracted.statistics.try_526')}
                 {#each _emptyAlternatives as alt, i}
                   <button class="stats-empty-alt-link" type="button" on:click={() => metric = alt}>{_altLabel(alt)}</button>{#if i < _emptyAlternatives.length - 2}, {:else if i === _emptyAlternatives.length - 2} or {/if}
                 {/each}
-                . You may have data there.
+                {$_('extracted.statistics.you_may_have_data_there_527')}
               </div>
             {/if}
           </div>
@@ -1205,7 +1205,7 @@
   </div>
   <!-- Desktop right rail: KPI stack + overlay toggles. Hidden on mobile. -->
   <aside class="stats-right-rail">
-    <div class="stats-rail-heading">Summary</div>
+    <div class="stats-rail-heading">{$_('statistics_page.desktop.summary')}</div>
     {#if summary}
       <div class="stats-rail-kpi">
         <span class="stats-rail-kpi-lbl">{$_('statistics_page.summary.average')}</span>
@@ -1235,7 +1235,7 @@
       {#if $diaryShowCompletion && completionStats && completionStats.total > 0}
         <!-- #207: adherence pulse; independent of the selected metric. -->
         <div class="stats-rail-kpi">
-          <span class="stats-rail-kpi-lbl" title="Days marked complete over the viewed range. Purely how consistently you closed the day, not whether goals were hit.">Marked complete</span>
+          <span class="stats-rail-kpi-lbl" title={$_('statistics_page.desktop.marked_complete_hint')}>{$_('statistics_page.desktop.marked_complete')}</span>
           <span class="stats-rail-kpi-val">
             {completionStats.marked} / {completionStats.total}
             <span class="stats-rail-delta" class:good={completionStats.pct >= 70} class:neutral={completionStats.pct < 70}>
@@ -1250,7 +1250,7 @@
              goals (goal.min only) → up is good; else lower is good. -->
         {@const _tGood = _goalValReactive == null ? null : (_goalIsMin ? _trendDelta >= 0 : _trendDelta <= 0)}
         <div class="stats-rail-kpi">
-          <span class="stats-rail-kpi-lbl" title="Last 7-day average vs the previous 7 days. Deep trend analysis lives on the chart itself — this is the quick pulse.">Weekly trend</span>
+          <span class="stats-rail-kpi-lbl" title={$_('statistics_page.desktop.weekly_trend_hint')}>{$_('statistics_page.desktop.weekly_trend')}</span>
           <span class="stats-rail-kpi-val">
             <span class="stats-rail-delta"
               class:good={_tGood === true}
@@ -1265,21 +1265,21 @@
       <p class="stats-rail-empty text-3 text-sm">{$_('statistics_page.empty.no_data')}</p>
     {/if}
 
-    <div class="stats-rail-heading" style="margin-top:16px">Overlays</div>
+    <div class="stats-rail-heading" style="margin-top:16px">{$_('statistics_page.desktop.overlays')}</div>
     <label class="stats-rail-check">
       <input type="checkbox" checked={$statsAvgLine}
         on:change={(e) => statsAvgLine.set(e.currentTarget.checked)} />
-      <span>Average</span>
+      <span>{$_('statistics_page.summary.average')}</span>
     </label>
     <label class="stats-rail-check">
       <input type="checkbox" checked={$statsGoalLine}
         on:change={(e) => statsGoalLine.set(e.currentTarget.checked)} />
-      <span>Goal</span>
+      <span>{$_('statistics_page.desktop.goal')}</span>
     </label>
     <label class="stats-rail-check">
       <input type="checkbox" checked={$statsTrendLine}
         on:change={(e) => statsTrendLine.set(e.currentTarget.checked)} />
-      <span>Trend</span>
+      <span>{$_('statistics_page.desktop.trend')}</span>
     </label>
     <!-- TODO: compare mode (#5) — needs loader refactor to accept a
          metric argument (loadSeries(metricId) → { labels, values }).
@@ -1297,10 +1297,10 @@
     on:click={() => showCalFor = null} on:keydown={() => {}}>
     <div class="stat-cal-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
-      <div class="cal-title">{showCalFor === 'start' ? 'From' : 'To'} date</div>
+      <div class="cal-title">{showCalFor === 'start' ? 'From' : 'To'} {$_('extracted.statistics.date_528')}</div>
       <!-- Month / year nav -->
       <div class="dp-nav">
-        <button class="btn-icon dp-nav-btn" on:click={calPrevMonth} aria-label="Previous month" title="Previous month">
+        <button class="btn-icon dp-nav-btn" on:click={calPrevMonth} aria-label={$_('extracted.statistics.previous_month_186')} title={$_('extracted.statistics.previous_month_186')}>
           <span class="material-symbols-rounded">chevron_left</span>
         </button>
         <div class="dp-month-year">
@@ -1311,7 +1311,7 @@
             {calYear}<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;margin-left:2px">{showYearPicker ? 'expand_less' : 'expand_more'}</span>
           </button>
         </div>
-        <button class="btn-icon dp-nav-btn" on:click={calNextMonth} aria-label="Next month" title="Next month">
+        <button class="btn-icon dp-nav-btn" on:click={calNextMonth} aria-label={$_('extracted.statistics.next_month_189')} title={$_('extracted.statistics.next_month_189')}>
           <span class="material-symbols-rounded">chevron_right</span>
         </button>
       </div>

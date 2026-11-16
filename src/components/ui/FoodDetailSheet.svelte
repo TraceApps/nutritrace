@@ -244,8 +244,8 @@
         {#if onDismiss}
           <button type="button" class="detail-embedded-close"
             on:click={onDismiss}
-            aria-label="Clear detail preview"
-            title="Clear preview">
+            aria-label={$_('extracted.foods.clear_detail_preview_190')}
+            title={$_('extracted.foods.clear_preview_191')}>
             <span class="material-symbols-rounded">close</span>
           </button>
         {/if}
@@ -333,7 +333,7 @@
            we just prompt the user to select something. -->
       <div class="detail-embedded-empty">
         <span class="material-symbols-rounded">restaurant_menu</span>
-        <p>Pick a food from the list to preview.</p>
+        <p>{$_('foods.desktop.pick_food_preview')}</p>
       </div>
     {/if}
   </div>

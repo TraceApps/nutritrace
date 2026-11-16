@@ -1,4 +1,5 @@
 <script>
+  import { _ } from 'svelte-i18n';
   /**
    * Catalog-strict unit combobox.
    *
@@ -175,7 +176,7 @@
   <div use:portal class="popover" bind:this={popoverEl} role="listbox"
     style={popStyle} transition:fade={{ duration: 80 }}>
     {#if filteredGroups.length === 0}
-      <p class="empty-line">No matches. Add custom units in Settings → Foods → Custom Units.</p>
+      <p class="empty-line">{$_('extracted.general.no_matches_add_custom_units_in_settings_foods_201')}</p>
     {:else}
       {#each filteredGroups as group}
         <p class="group-label">{group.label}</p>

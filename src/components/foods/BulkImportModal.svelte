@@ -96,13 +96,12 @@
   }
 </script>
 
-<Sheet bind:open height="full" title="Bulk Import Foods" on:close={close}>
+<Sheet bind:open height="full" title={$_('settings_import_export.actions.bulk_import')} on:close={close}>
   <div class="wrap">
     <Tabs {tabs} bind:active={activeTab} />
 
     <div class="hint">
-      Paste or upload a {activeTab === 0 ? 'JSON' : 'CSV'} file. Each row needs at minimum
-      a <code>name</code> and <code>calories</code>; other nutrients are optional.
+      {$_('extracted.foods.paste_or_upload_a_103')} {activeTab === 0 ? 'JSON' : 'CSV'} {$_('extracted.foods.file_each_row_needs_at_minimum_a_104')} <code>{$_('extracted.foods.name_105')}</code> {$_('extracted.foods.and_106')} <code>{$_('extracted.foods.calories_107')}</code>{$_('extracted.foods.other_nutrients_are_optional_108')}
       <button class="link-btn" type="button" on:click={downloadTemplate}>{$_('bulk_import.download_template')}</button>
     </div>
 
@@ -115,9 +114,9 @@
       ></textarea>
     {:else}
       <div class="upload-area">
-        <p class="upload-note">CSV files don't paste cleanly. Use the upload button.</p>
+        <p class="upload-note">{$_('extracted.foods.csv_files_don_t_paste_cleanly_use_the_upload_b_109')}</p>
         {#if csvText}
-          <p class="filename">Loaded: {_fileName || 'pasted'}</p>
+          <p class="filename">{$_('extracted.foods.loaded_110')} {_fileName || 'pasted'}</p>
         {/if}
       </div>
     {/if}
@@ -125,7 +124,7 @@
     <div class="row-actions">
       <button class="btn btn-secondary" type="button" on:click={pickFile}>
         <span class="material-symbols-rounded" style="font-size:18px">upload_file</span>
-        Upload file
+        {$_('extracted.foods.upload_file_111')}
       </button>
       {#if currentText}
         <button class="btn btn-secondary" type="button" on:click={clearInput}>{$_('bulk_import.clear')}</button>
@@ -136,12 +135,12 @@
     {#if currentText}
       <div class="preview">
         <div class="preview-summary">
-          <span class="chip ok">{results.valid.length} ready</span>
+          <span class="chip ok">{results.valid.length} {$_('extracted.foods.ready_112')}</span>
           {#if results.duplicates.length > 0}
-            <span class="chip warn">{results.duplicates.length} duplicate barcode{results.duplicates.length === 1 ? '' : 's'}</span>
+            <span class="chip warn">{results.duplicates.length} {$_('extracted.foods.duplicate_barcode_113')}{results.duplicates.length === 1 ? '' : 's'}</span>
           {/if}
           {#if parsed.errors.length > 0}
-            <span class="chip err">{parsed.errors.length} error{parsed.errors.length === 1 ? '' : 's'}</span>
+            <span class="chip err">{parsed.errors.length} {$_('extracted.foods.error_114')}{parsed.errors.length === 1 ? '' : 's'}</span>
           {/if}
         </div>
 
@@ -160,22 +159,22 @@
         {/if}
 
         {#if results.duplicates.length > 0}
-          <p class="preview-section-label warn">Skipped (barcode already in your catalog)</p>
+          <p class="preview-section-label warn">{$_('extracted.foods.skipped_barcode_already_in_your_catalog_115')}</p>
           <ul class="preview-list">
             {#each results.duplicates as f}
               <li>
                 <span class="food-name">{f.name}</span>
-                <span class="food-meta">barcode {f.barcode}</span>
+                <span class="food-meta">{$_('extracted.foods.barcode_116')} {f.barcode}</span>
               </li>
             {/each}
           </ul>
         {/if}
 
         {#if parsed.errors.length > 0}
-          <p class="preview-section-label err">Errors (fix or remove these rows before importing)</p>
+          <p class="preview-section-label err">{$_('extracted.foods.errors_fix_or_remove_these_rows_before_importi_117')}</p>
           <ul class="preview-list err-list">
             {#each parsed.errors as e}
-              <li>Row {e.row}: {e.message}</li>
+              <li>{$_('extracted.foods.row_118')} {e.row}: {e.message}</li>
             {/each}
           </ul>
         {/if}
@@ -185,7 +184,7 @@
     <div class="footer">
       <button class="btn btn-secondary" type="button" on:click={close}>{$_('bulk_import.cancel')}</button>
       <button class="btn btn-primary" type="button" on:click={commit} disabled={!canCommit}>
-        Import {results.valid.length || ''}
+        {$_('settings_import_export.sections.import')} {results.valid.length || ''}
       </button>
     </div>
   </div>

@@ -263,7 +263,7 @@
                 <label class="form-label">{$_('settings_api_tokens.form.scopes')}</label>
                 {#if mcpState.enabled || mcpState.write || mcpState.destroy}
                   <div class="mcp-status">
-                    MCP on this server:
+                    {$_('extracted.settings.mcp_on_this_server_128')}
                     <span class:on={mcpState.enabled}>read {mcpState.enabled ? '✓' : '✗'}</span>
                     · <span class:on={mcpState.write}>write {mcpState.write ? '✓' : '✗'}</span>
                     · <span class:on={mcpState.destroy}>destroy {mcpState.destroy ? '✓' : '✗'}</span>

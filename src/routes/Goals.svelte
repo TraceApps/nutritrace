@@ -534,7 +534,7 @@
 
   function deleteGoal() {
     if (!editStat) return;
-    if (!confirm(`Remove goal for ${editStat.label || editStat.id}?`)) return;
+    if (!confirm($_('dynamic_feedback.remove_goal', { values: { name: editStat.label || editStat.id } }))) return;
     const storageId = _goalStorageId(editStat.id);
     goals.update(g => {
       const n = { ...g };
@@ -683,18 +683,18 @@
     const out = [];
     const kcal = _effectiveCalGoal;
     if (kcal && kcal < 1200) {
-      out.push({ level: 'warn', msg: `Extreme calorie target (${kcal.toLocaleString()} kcal). Most guidelines suggest 1,200 kcal minimum.` });
+      out.push({ level: 'warn', msg: $_('goals_page.rail.warning_low_calories', { values: { value: kcal.toLocaleString() } }) });
     } else if (kcal && kcal > 5000) {
-      out.push({ level: 'warn', msg: `Extreme calorie target (${kcal.toLocaleString()} kcal). Double-check this is intentional.` });
+      out.push({ level: 'warn', msg: $_('goals_page.rail.warning_high_calories', { values: { value: kcal.toLocaleString() } }) });
     }
     if (_macroKcalSum > 0 && kcal > 0) {
       const tol = kcal * 0.05;
       if (Math.abs(_macroKcalSum - kcal) > tol) {
-        out.push({ level: 'info', msg: `Macros sum to ${Math.round(_macroKcalSum).toLocaleString()} kcal, calorie goal is ${kcal.toLocaleString()} kcal.` });
+        out.push({ level: 'info', msg: $_('goals_page.rail.warning_macro_sum', { values: { sum: Math.round(_macroKcalSum).toLocaleString(), goal: kcal.toLocaleString() } }) });
       }
     }
     if (_macroKcalSum <= 0) {
-      out.push({ level: 'info', msg: 'Set protein / carbs / fat goals to see the macro breakdown.' });
+      out.push({ level: 'info', msg: $_('goals_page.rail.warning_no_macros') });
     }
     // TODO: weight-loss rate warning once body-weight timeline is available.
     return out;
@@ -739,7 +739,7 @@
       carbohydrates: { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.carbohydrates || {}), isPercent: false, max: cG, min: undefined, days: Array(7).fill(cG) },
       fat:           { sharedGoal: true, isMin: false, showInDiary: true, showInStats: true, ...(g.fat           || {}), isPercent: false, max: fG, min: undefined, days: Array(7).fill(fG) },
     }));
-    showSuccess('Macros set');
+    showSuccess($_('goals_page.macros.set_done'));
   }
 
   // ── All-fields filter (desktop search input) ───────────────────────────
@@ -752,9 +752,9 @@
 
   // ── Reset-all-goals (rail button on desktop) ───────────────────────────
   function _resetAllGoals() {
-    if (!confirm('Remove ALL goals? This clears every configured goal and cannot be undone.')) return;
+    if (!confirm($_('goals_page.rail.reset_confirm'))) return;
     goals.set({});
-    showSuccess('Goals cleared');
+    showSuccess($_('goals_page.rail.reset_done'));
   }
 
   function getPct(stat, totals, bodyStats, wellness, recent) {
@@ -813,7 +813,7 @@
           on:click={() => calorieGoalMode.set('fixed')}>{$_('settings_goals.mode_fixed')}</button>
         <button class="seg-opt" class:seg-active={$calorieGoalMode === 'dynamic'}
           disabled={!_hasWearable}
-          title={!_hasWearable ? 'Connect a wearable in Wellness first' : ''}
+          title={!_hasWearable ? $_('goals_page.rail.connect_wearable') : ''}
           on:click={() => _hasWearable && calorieGoalMode.set('dynamic')}>{$_('settings_goals.mode_dynamic')}</button>
         <button class="seg-opt" class:seg-active={$calorieGoalMode === 'adaptive'}
           on:click={() => calorieGoalMode.set('adaptive')}>{$_('settings_goals.mode_adaptive')}</button>
@@ -828,20 +828,20 @@
       {/if}
 
       {#if $calorieGoalMode === 'adaptive' && _adaptiveLoaded}
-        <div class="goals-rail-heading" style="margin-top:12px">Adaptive TDEE</div>
+        <div class="goals-rail-heading" style="margin-top:12px">{$_('goals_page.adaptive.title')}</div>
         <div class="goals-rail-adaptive">
           {#if _adaptive?.ready}
             {@const _tdeeE = Nutrition.displayEnergy(_adaptive.tdee, $energyUnit)}
             <div class="goals-rail-adaptive-line">
-              <span class="text-3 text-sm">Learned TDEE</span>
+              <span class="text-3 text-sm">{$_('goals_page.rail.learned_tdee')}</span>
               <strong>{_tdeeE.value.toLocaleString()} {_tdeeE.unit}</strong>
             </div>
             <div class="goals-rail-adaptive-line">
-              <span class="text-3 text-sm">Confidence</span>
+              <span class="text-3 text-sm">{$_('goals_page.adaptive.confidence')}</span>
               <strong>{Math.round((_adaptive.confidence || 0) * 100)}%</strong>
             </div>
             <div class="goals-rail-adaptive-line">
-              <span class="text-3 text-sm">Weight source</span>
+              <span class="text-3 text-sm">{$_('goals_page.adaptive.weight_source')}</span>
               <strong style="text-transform:capitalize">{_adaptive.weightSource}</strong>
             </div>
           {:else}
@@ -850,7 +850,7 @@
                 style="width:{Math.min(100, ((_adaptive?.daysAvailable ?? 0) / (_adaptive?.daysRequired ?? 21)) * 100)}%"></div>
             </div>
             <p class="text-3 text-sm" style="margin:6px 0 0">
-              {_adaptive?.daysAvailable ?? 0} / {_adaptive?.daysRequired ?? 21} days
+              {$_('goals_page.rail.days', { values: { count: `${_adaptive?.daysAvailable ?? 0} / ${_adaptive?.daysRequired ?? 21}` } })}
             </p>
           {/if}
         </div>
@@ -863,7 +863,7 @@
         </button>
         <button class="btn btn-ghost" on:click={_resetAllGoals}>
           <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">restart_alt</span>
-          Reset all
+          {$_('goals_page.rail.reset_all')}
         </button>
       </div>
     </aside>
@@ -1012,7 +1012,7 @@
                 </div>
                 {#if _statsIdForGoal(stat)}
                   <span class="goal-trend material-symbols-rounded" role="button" tabindex="0"
-                    title="View trend" aria-label="View trend in Statistics"
+                    title={$_('goals_page.trend.view')} aria-label={$_('goals_page.trend.view_in_statistics')}
                     on:click|stopPropagation={() => _openStatsForGoal(stat)}
                     on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _openStatsForGoal(stat); } }}>trending_up</span>
                 {/if}
@@ -1053,7 +1053,7 @@
                 </div>
                 {#if _statsIdForGoal(stat)}
                   <span class="goal-trend material-symbols-rounded" role="button" tabindex="0"
-                    title="View trend" aria-label="View trend in Statistics"
+                    title={$_('goals_page.trend.view')} aria-label={$_('goals_page.trend.view_in_statistics')}
                     on:click|stopPropagation={() => _openStatsForGoal(stat)}
                     on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _openStatsForGoal(stat); } }}>trending_up</span>
                 {/if}
@@ -1077,7 +1077,7 @@
             <span class="text-3 text-sm">{waterTodayDisplay.toLocaleString()} / {waterGoalDisplay.toLocaleString()} {$waterUnit}</span>
           </div>
           <span class="goal-trend material-symbols-rounded" role="button" tabindex="0"
-            title="View trend" aria-label="View trend in Statistics"
+            title={$_('goals_page.trend.view')} aria-label={$_('goals_page.trend.view_in_statistics')}
             on:click|stopPropagation={() => push('#/statistics?metric=water&range=1M')}
             on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); push('#/statistics?metric=water&range=1M'); } }}>trending_up</span>
           <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
@@ -1106,7 +1106,7 @@
               </div>
               {#if _statsIdForGoal(stat)}
                 <span class="goal-trend material-symbols-rounded" role="button" tabindex="0"
-                  title="View trend" aria-label="View trend in Statistics"
+                  title={$_('goals_page.trend.view')} aria-label={$_('goals_page.trend.view_in_statistics')}
                   on:click|stopPropagation={() => _openStatsForGoal(stat)}
                   on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _openStatsForGoal(stat); } }}>trending_up</span>
               {/if}
@@ -1122,7 +1122,7 @@
 
       <div class="goals-all-filter">
         <span class="material-symbols-rounded">search</span>
-        <input type="search" placeholder="Filter nutrients…" bind:value={_allFieldsQuery} />
+        <input type="search" placeholder={$_('goals_page.all_fields.filter')} bind:value={_allFieldsQuery} />
       </div>
 
       <!-- Body Stats -->
@@ -1151,7 +1151,7 @@
             </div>
             {#if _statsIdForGoal(stat)}
               <span class="goal-trend material-symbols-rounded" role="button" tabindex="0"
-                title="View trend" aria-label="View trend in Statistics"
+                title={$_('goals_page.trend.view')} aria-label={$_('goals_page.trend.view_in_statistics')}
                 on:click|stopPropagation={() => _openStatsForGoal(stat)}
                 on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _openStatsForGoal(stat); } }}>trending_up</span>
             {/if}
@@ -1182,7 +1182,7 @@
             </div>
             {#if _statsIdForGoal(stat)}
               <span class="goal-trend material-symbols-rounded" role="button" tabindex="0"
-                title="View trend" aria-label="View trend in Statistics"
+                title={$_('goals_page.trend.view')} aria-label={$_('goals_page.trend.view_in_statistics')}
                 on:click|stopPropagation={() => _openStatsForGoal(stat)}
                 on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _openStatsForGoal(stat); } }}>trending_up</span>
             {/if}
@@ -1203,7 +1203,7 @@
             <span class="text-3 text-sm">{waterTodayDisplay.toLocaleString()} / {waterGoalDisplay.toLocaleString()} {$waterUnit}</span>
           </div>
           <span class="goal-trend material-symbols-rounded" role="button" tabindex="0"
-            title="View trend" aria-label="View trend in Statistics"
+            title={$_('goals_page.trend.view')} aria-label={$_('goals_page.trend.view_in_statistics')}
             on:click|stopPropagation={() => push('#/statistics?metric=water&range=1M')}
             on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); push('#/statistics?metric=water&range=1M'); } }}>trending_up</span>
           <span class="material-symbols-rounded text-3" style="font-size:18px">chevron_right</span>
@@ -1237,7 +1237,7 @@
               </div>
               {#if _statsIdForGoal(stat)}
                 <span class="goal-trend material-symbols-rounded" role="button" tabindex="0"
-                  title="View trend" aria-label="View trend in Statistics"
+                  title={$_('goals_page.trend.view')} aria-label={$_('goals_page.trend.view_in_statistics')}
                   on:click|stopPropagation={() => _openStatsForGoal(stat)}
                   on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _openStatsForGoal(stat); } }}>trending_up</span>
               {/if}
@@ -1282,7 +1282,7 @@
                 <span class="text-3 text-sm">{formatDate(tpl.createdAt)} · {$_('goals_page.templates.goals_count', { values: { count: tpl.goalCount || Object.keys(tpl.goals).filter(k => tpl.goals[k]?.min != null || tpl.goals[k]?.max != null).length + (tpl.waterGoalMl > 0 ? 1 : 0) } })}</span>
                 {#if _tKcal || _tP || _tC || _tF}
                   <div class="tpl-preview-chips">
-                    {#if _tKcal}<span class="tpl-chip">{_tKcal.toLocaleString()} kcal</span>{/if}
+                    {#if _tKcal}<span class="tpl-chip">{_tKcal.toLocaleString()} {$_('diary.activity.field_kcal_placeholder')}</span>{/if}
                     {#if _tP}<span class="tpl-chip tpl-chip-p">P {_tP}g</span>{/if}
                     {#if _tC}<span class="tpl-chip tpl-chip-c">C {_tC}g</span>{/if}
                     {#if _tF}<span class="tpl-chip tpl-chip-f">F {_tF}g</span>{/if}
@@ -1308,7 +1308,7 @@
 
     <!-- ─── RIGHT RAIL — live preview (desktop only) ─────────────────────── -->
     <aside class="goals-right-rail">
-      <div class="goals-rail-heading">Preview</div>
+      <div class="goals-rail-heading">{$_('goals_page.rail.preview')}</div>
 
       <div class="goals-preview-ring">
         {#key `${_effectiveCalGoal}-${_proteinGoalG}-${_carbsGoalG}-${_fatGoalG}`}
@@ -1325,7 +1325,7 @@
         {/key}
       </div>
 
-      <div class="goals-preview-macrobar" title="Macro split by kcal">
+      <div class="goals-preview-macrobar" title={$_('goals_page.rail.macro_split')}>
         {#if _macroKcalSum > 0}
           <div class="gp-seg gp-p" style="width:{_macroPct.p}%" title={$_('common.macro_pct.protein', { values: { pct: _macroPct.p } })}></div>
           <div class="gp-seg gp-c" style="width:{_macroPct.c}%" title={$_('common.macro_pct.carbs', { values: { pct: _macroPct.c } })}></div>
@@ -1336,11 +1336,11 @@
       </div>
       <div class="goals-preview-sum">
         P {_proteinGoalG ?? '—'}g · C {_carbsGoalG ?? '—'}g · F {_fatGoalG ?? '—'}g
-        {#if _macroKcalSum > 0}= {Math.round(_macroKcalSum).toLocaleString()} kcal{/if}
+        {#if _macroKcalSum > 0}= {Math.round(_macroKcalSum).toLocaleString()} {$_('diary.activity.field_kcal_placeholder')}{/if}
       </div>
 
       {#if _goalWarnings.length}
-        <div class="goals-rail-heading" style="margin-top:14px">Notes</div>
+        <div class="goals-rail-heading" style="margin-top:14px">{$_('goals_page.rail.notes')}</div>
         <div class="goals-preview-warnings">
           {#each _goalWarnings as w}
             <div class="gp-warn gp-warn-{w.level}">

@@ -11,6 +11,7 @@
   so the bundle hit only happens when a user actually starts typing a password.
 -->
 <script>
+  import { _ } from 'svelte-i18n';
   import { estimate, STRENGTH_LABELS, STRENGTH_COLORS } from '../../lib/password-strength.js';
 
   export let password = '';
@@ -52,7 +53,7 @@
     <div class="strength-row">
       <span class="strength-label" style="color:{_color}">{_label}</span>
       {#if _belowMin}
-        <span class="strength-min">· below required strength</span>
+        <span class="strength-min">{$_('extracted.general.below_required_strength_200')}</span>
       {/if}
     </div>
     {#if _warning || _suggest.length > 0}
