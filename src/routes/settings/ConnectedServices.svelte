@@ -1,3 +1,9 @@
+<script context="module">
+  // Import All Recipes keeps running after you leave Settings; one coming
+  // back must not start a second one beside it on the same CookTrace limit.
+  let _ctImportRunning = false;
+</script>
+
 <script>
   import { onDestroy } from 'svelte';
   import { _ } from 'svelte-i18n';
@@ -6,7 +12,7 @@
   import { DB } from '../../lib/db.js';
   import { NtApi } from '../../lib/api.js';
   import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
-  import { showSuccess, showError } from '../../stores/toast.js';
+  import { showSuccess, showError, showInfo } from '../../stores/toast.js';
   import { envLocks, scheduleSave } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
 
@@ -252,12 +258,27 @@
   let ctBulkBusy         = false;
   let ctBulkProgress     = { done: 0, total: 0 };
   let ctBulkLastResult   = null;
+  // Seconds left while CookTrace's rate limit makes the import wait (#330).
+  let ctBulkWait         = 0;
+
+  // Waits out CookTrace's rate limit instead of skipping (#330).
+  const _ctPaced = async (call) => {
+    const { withRateLimitWait } = await import('../../lib/cooktraceApi.js');
+    return withRateLimitWait(call, { onWait: left => { ctBulkWait = left; } });
+  };
+  // Why a request failed. 502/503/504 and no answer at all come from this
+  // server's proxy or the network, not from CookTrace.
+  const _ctFailReason = r => !r || [0, 502, 503, 504].includes(r.status) ? $_('settings.connected_services.cooktrace_import.not_reached')
+    : r.status === 404 ? $_('settings.connected_services.cooktrace_import.deleted')
+    : r.status === 429 ? $_('settings.connected_services.cooktrace_import.rate_limited')
+    : $_('settings.connected_services.cooktrace_import.http', { values: { status: r.status } });
   let ctPantryBulkBusy   = false;
   let ctPantryBulkProgress = { done: 0, total: 0 };
   let ctPantryBulkLastResult = null;
 
   async function _ctBulkImport() {
     if (ctBulkBusy) return;
+    if (_ctImportRunning) { showInfo($_('settings.connected_services.cooktrace_import.running')); return; }
     const { CookTrace } = await import('../../lib/cooktraceApi.js');
     if (!CookTrace.isConfigured()) {
       showError('Configure and save the CookTrace connection first');
@@ -269,6 +290,8 @@
       'Import every recipe from CookTrace into your NutriTrace recipes catalog?\n\nRe-runs update existing imports in place. Any recipe you have edited on NT will still be updated with the CookTrace copy.'
     );
     if (!proceed) return;
+    if (_ctImportRunning) return;
+    _ctImportRunning = true;
     ctBulkBusy = true;
     ctBulkProgress = { done: 0, total: 0 };
     ctBulkLastResult = null;
@@ -280,7 +303,9 @@
       // this is only for the summary count.
       let existingSet = new Set();
       try {
-        const all = await NtApi.getMeals();
+        // Imports are recipes, which getMeals leaves out: every re-run
+        // counted them as imported, never as updated.
+        const all = await NtApi.getRecipes();
         for (const m of all) {
           if (m?.source_app === 'cooktrace' && m?.source_external_id) {
             existingSet.add(m.source_external_id);
@@ -288,21 +313,16 @@
         }
       } catch { /* summary count degrades gracefully */ }
 
-      // Page through CT's list endpoint. 50 per page keeps the response
-      // small and lets us start updating progress after ~one round trip.
-      const PAGE = 50;
-      let offset = 0;
-      const ids = [];
-      while (true) {
-        const meta = await CookTrace.searchWithMeta('', Math.floor(offset / PAGE) + 1, PAGE, { allowEmpty: true });
-        const items = meta?.items || [];
-        for (const it of items) if (it?.id != null) ids.push(it.id);
-        if (!meta?.hasMore || items.length === 0) break;
-        offset += items.length;
-        // Safety cap: if the server misreports hasMore, bail after
-        // 20 pages (~1000 recipes) rather than looping.
-        if (offset >= 1000) break;
+      // The whole catalog, up to the total CookTrace reports. A page it
+      // can't send stops the import with the reason: going on would import
+      // part of the catalog and call it done.
+      const { listAllRecipeIds } = await import('../../lib/cooktraceApi.js');
+      const list = await listAllRecipeIds(_ctPaced);
+      if (!list.ok) {
+        showError($_('settings.connected_services.cooktrace_import.list_failed', { values: { reason: _ctFailReason(list.failed) } }));
+        return;
       }
+      const ids = list.ids;
       ctBulkProgress = { done: 0, total: ids.length };
       if (ids.length === 0) {
         ctBulkLastResult = { imported: 0, updated: 0, skipped: 0 };
@@ -310,11 +330,12 @@
         return;
       }
 
-      let firstErrorR = null;
+      const reasons = new Set();
       for (const id of ids) {
         try {
-          const full = await CookTrace.getRecipe(id);
-          if (!full) { skipped++; if (!firstErrorR) firstErrorR = `Recipe ${id} could not be fetched from CookTrace`; continue; }
+          const r = await _ctPaced(() => CookTrace.getRecipeRaw(id));
+          const full = r?.ok ? r.body : null;
+          if (!full) { skipped++; reasons.add(_ctFailReason(r)); continue; }
           const mapped = CookTrace.mapRecipe(full);
           if (!mapped) { skipped++; continue; }
           const wasExisting = existingSet.has(mapped.source_external_id);
@@ -350,18 +371,20 @@
           await NtApi.createMeal(item);
           if (wasExisting) updated++;
           else imported++;
+          existingSet.add(mapped.source_external_id);
         } catch (e) {
           skipped++;
           const em = e?.message || String(e);
-          if (!firstErrorR) firstErrorR = em;
+          reasons.add(em);
           console.warn('[CookTrace bulk] recipe', id, 'failed:', em);
         }
         ctBulkProgress = { ...ctBulkProgress, done: ctBulkProgress.done + 1 };
       }
       ctBulkLastResult = { imported, updated, skipped };
-      const summary = `Imported ${imported}, updated ${updated}` + (skipped ? `, ${skipped} skipped` : '');
-      if (skipped && !(imported || updated)) {
-        showError(`${summary}${firstErrorR ? `. First error: ${firstErrorR}` : ''}`);
+      const summary = `Imported ${imported}, updated ${updated}`;
+      // Anything left out is said, never a green toast (#330).
+      if (skipped) {
+        showError($_('settings.connected_services.cooktrace_import.some_skipped', { values: { summary, skipped, reason: [...reasons].join('; ') } }));
       } else {
         showSuccess(summary);
       }
@@ -369,6 +392,8 @@
       showError(`CookTrace bulk import failed: ${e?.message || 'unknown error'}`);
     } finally {
       ctBulkBusy = false;
+      ctBulkWait = 0;
+      _ctImportRunning = false;
     }
   }
 
@@ -888,6 +913,11 @@
               {/if}
             </button>
           </div>
+          {#if ctBulkBusy && ctBulkWait > 0}
+            <p class="setting-desc" style="margin-top:8px;color:var(--text-2)" aria-live="polite">
+              {$_('settings.connected_services.cooktrace_import.waiting', { values: { seconds: ctBulkWait } })}
+            </p>
+          {/if}
           {#if !ctBulkBusy && ctBulkLastResult}
             <p class="setting-desc" style="margin-top:8px;color:var(--text-2)">
               Last run: {ctBulkLastResult.imported} imported, {ctBulkLastResult.updated} updated, {ctBulkLastResult.skipped} skipped.

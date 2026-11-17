@@ -283,7 +283,7 @@ test('no request or timer for people not in coaching', () => {
   // Goals only adds the tab strip, which renders nothing outside coaching.
   assert.match(read('../src/components/coaching/CoachingTabs.svelte'), /\{#if \$inCoaching \|\| force\}/);
   assert.match(read('../src/stores/settings.js'), /noteCoachingSignature\(res\.headers\.get\('X-NT-Coaching'\)\)/);
-  assert.match(read('../server/index.js'), /Access-Control-Expose-Headers', 'X-Request-ID, X-NT-Coaching'/);
+  assert.match(read('../server/index.js'), /Access-Control-Expose-Headers', 'X-Request-ID, X-NT-Coaching[,']/);
 });
 
 test('coaching strings live in en.json; Users search finds coaching', () => {

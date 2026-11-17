@@ -181,6 +181,16 @@
     },
     "connected_services": {
       "section": "Food Sources",
+      "cooktrace_import": {
+        "waiting": "CookTrace's request limit was reached. Continuing in {seconds}s.",
+        "running": "Import All is already running.",
+        "list_failed": "Couldn't list your CookTrace recipes: {reason}. Nothing was imported.",
+        "some_skipped": "{summary}. {skipped, plural, one {# recipe} other {# recipes}} couldn't be imported: {reason}.",
+        "not_reached": "CookTrace couldn't be reached. Run Import All again later",
+        "deleted": "it was deleted on CookTrace",
+        "rate_limited": "CookTrace kept refusing because of its request limit. Run Import All again later",
+        "http": "CookTrace answered {status}. Run Import All again later"
+      },
       "off": {
         "header": "Open Food Facts",
         "enable": "Enable Open Food Facts",

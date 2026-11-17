@@ -45,7 +45,10 @@ async function _proxyRaw(path, method = 'GET') {
   });
   let body = null;
   try { body = await res.json(); } catch { body = null; }
-  return { ok: res.ok, status: res.status, body };
+  // Seconds CookTrace asks to wait after a 429 (its per-token rate limit).
+  const raw = res.headers?.get?.('Retry-After');
+  const ra = raw == null || raw === '' ? NaN : Number(raw);
+  return { ok: res.ok, status: res.status, body, retryAfter: Number.isFinite(ra) && ra >= 0 ? ra : null };
 }
 
 // An item CookTrace couldn't scale (a pinch against values per 100 g)
@@ -58,6 +61,57 @@ function _ctUnscaled(it, item) {
   const amount = typeof it.amount_text === 'string' ? it.amount_text
     : it.qty_text ? String(it.qty_text) : `${item.portion} ${item.unit}`.trim();
   return { ...item, portion: Number(b.amount), unit: String(b.unit).slice(0, 16), quantity: 1, ct_amount: amount.slice(0, 60) };
+}
+
+/**
+ * Run one CookTrace request, waiting out its rate limit (#330). CookTrace
+ * allows each token so many requests a minute (60 unless its admin changed
+ * API_RATE_LIMIT_PER_MIN) and answers 429 with Retry-After past that. Waits
+ * that long plus a second (30s if it doesn't say, at most 2 minutes), then
+ * asks again; after `maxWaits` waits in a row it returns the 429.
+ * `onWait(secondsLeft)` counts down while waiting, then gets 0. The wait
+ * ends at a set time, not after so many 1-second timers: a hidden tab or a
+ * locked phone runs timers late, which would stretch every wait.
+ * A request that throws (the server can't be reached) answers status 0.
+ */
+export async function withRateLimitWait(call, {
+  onWait = () => {}, maxWaits = 5,
+  sleep = ms => new Promise(r => setTimeout(r, ms)), now = () => Date.now(),
+} = {}) {
+  for (let waits = 0; ; waits++) {
+    let r;
+    try { r = await call(); } catch { r = { ok: false, status: 0, body: null, retryAfter: null }; }
+    if (r?.status !== 429 || waits >= maxWaits) return r;
+    const secs = Math.min(120, Math.max(1, Math.ceil(r.retryAfter ?? 30)) + 1);
+    const until = now() + secs * 1000;
+    for (let left = until - now(); left > 0; left = until - now()) {
+      onWait(Math.ceil(left / 1000));
+      await sleep(Math.min(1000, left));
+    }
+    onWait(0);
+  }
+}
+
+/**
+ * Every recipe id in the catalog, a page at a time up to the total CookTrace
+ * reports, each request through `paced` (withRateLimitWait). A page that
+ * can't be read ends it: { ok: false, failed } (the answer), so the import
+ * says why instead of importing part of the catalog. Ids are kept once each:
+ * a recipe edited while the list is read moves to the front and can show up
+ * on two pages.
+ */
+export async function listAllRecipeIds(paced, { page = 50, cap = 10000 } = {}) {
+  const ids = [];
+  for (let offset = 0; ; ) {
+    const r = await paced(() => CookTrace.listRecipesRaw(offset, page));
+    if (!r?.ok) return { ok: false, failed: r, ids: [] };
+    const items = Array.isArray(r.body?.items) ? r.body.items : [];
+    for (const it of items) if (it?.id != null) ids.push(it.id);
+    offset += items.length;
+    const total = Number(r.body?.total);
+    if (items.length === 0 || !(offset < total) || offset >= cap) break;
+  }
+  return { ok: true, ids: [...new Set(ids)] };
 }
 
 const CookTrace = {
@@ -86,11 +140,11 @@ const CookTrace = {
   /**
    * Paginated search with metadata for infinite-scroll callers, same
    * envelope shape Foods.svelte expects for OFF / USDA / Mealie.
-   * An empty query returns nothing unless `allowEmpty` is set; Import All
-   * Recipes sets it to list the whole catalog.
+   * An empty query returns nothing (Import All Recipes lists the catalog
+   * with listRecipesRaw).
    */
-  async searchWithMeta(query, page = 1, perPage = 10, { allowEmpty = false } = {}) {
-    if (!query && !allowEmpty) return { items: [], totalHits: 0, page, hasMore: false };
+  async searchWithMeta(query, page = 1, perPage = 10) {
+    if (!query) return { items: [], totalHits: 0, page, hasMore: false };
     try {
       const offset = Math.max(0, (page - 1) * perPage);
       const p = `/api/v1/recipes?q=${encodeURIComponent(query)}&limit=${perPage}&offset=${offset}`;
@@ -103,6 +157,18 @@ const CookTrace = {
       console.error('[CookTrace] search failed:', e);
       return { items: [], totalHits: 0, page, hasMore: false };
     }
+  },
+
+  /**
+   * For long jobs (Import All Recipes, #330): one request, answered as
+   * { ok, status, body, retryAfter }, or null when not configured. A 429
+   * means CookTrace's rate limit; `retryAfter` says how long to wait.
+   */
+  async listRecipesRaw(offset = 0, limit = 50) {
+    return _proxyRaw(`/api/v1/recipes?q=&limit=${limit}&offset=${offset}`);
+  },
+  async getRecipeRaw(id) {
+    return _proxyRaw(`/api/v1/recipes/${encodeURIComponent(id)}`);
   },
 
   /** Full recipe by numeric id, with flattened items[] and per-item nutrition. */

@@ -153,7 +153,7 @@ router.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token, X-Request-ID');
-      res.setHeader('Access-Control-Expose-Headers', 'X-Request-ID, X-NT-Coaching');
+      res.setHeader('Access-Control-Expose-Headers', 'X-Request-ID, X-NT-Coaching, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset');
       if (req.method === 'OPTIONS') return res.sendStatus(204);
     }
   }

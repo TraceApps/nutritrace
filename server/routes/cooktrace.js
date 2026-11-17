@@ -99,6 +99,13 @@ router.post('/proxy', async (req, res) => {
 
     logger.info(`[cooktrace-proxy ${rid}] response status=${response.status} ct=${response.headers.get('content-type')}`);
 
+    // CookTrace's rate limit (per token, API_RATE_LIMIT_PER_MIN there) goes
+    // back to the app, so a long job like Import All Recipes can wait when
+    // it says to instead of losing the rest (#330).
+    for (const h of ['Retry-After', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset']) {
+      const v = response.headers.get(h);
+      if (v != null && /^[0-9]{1,12}$/.test(v)) res.set(h, v);
+    }
     const rawText = await readBody(response, 5 * 1024 * 1024).then(b => b.toString('utf8')).catch(() => '');
     if (!response.ok) {
       logger.warn(`[cooktrace-proxy ${rid}] upstream ${response.status}: ${rawText.slice(0, 200)}`);
