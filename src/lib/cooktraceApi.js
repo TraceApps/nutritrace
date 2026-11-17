@@ -86,9 +86,11 @@ const CookTrace = {
   /**
    * Paginated search with metadata for infinite-scroll callers, same
    * envelope shape Foods.svelte expects for OFF / USDA / Mealie.
+   * An empty query returns nothing unless `allowEmpty` is set; Import All
+   * Recipes sets it to list the whole catalog.
    */
-  async searchWithMeta(query, page = 1, perPage = 10) {
-    if (!query) return { items: [], totalHits: 0, page, hasMore: false };
+  async searchWithMeta(query, page = 1, perPage = 10, { allowEmpty = false } = {}) {
+    if (!query && !allowEmpty) return { items: [], totalHits: 0, page, hasMore: false };
     try {
       const offset = Math.max(0, (page - 1) * perPage);
       const p = `/api/v1/recipes?q=${encodeURIComponent(query)}&limit=${perPage}&offset=${offset}`;

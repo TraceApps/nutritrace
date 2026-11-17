@@ -294,7 +294,7 @@
       let offset = 0;
       const ids = [];
       while (true) {
-        const meta = await CookTrace.searchWithMeta('', Math.floor(offset / PAGE) + 1, PAGE);
+        const meta = await CookTrace.searchWithMeta('', Math.floor(offset / PAGE) + 1, PAGE, { allowEmpty: true });
         const items = meta?.items || [];
         for (const it of items) if (it?.id != null) ids.push(it.id);
         if (!meta?.hasMore || items.length === 0) break;
