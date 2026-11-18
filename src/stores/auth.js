@@ -358,7 +358,7 @@ export async function handleOidcCallback() {
   params.delete('oidc_error');
   const remaining = params.toString();
   const cleanHash = remaining ? `${path}?${remaining}` : path;
-  history.replaceState(null, '', window.location.pathname + window.location.search + cleanHash);
+  history.replaceState(history.state, '', window.location.pathname + window.location.search + cleanHash);
 
   const { showSuccess, showError } = await import('./toast.js');
   const { get } = await import('svelte/store');

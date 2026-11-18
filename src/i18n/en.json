@@ -35,6 +35,7 @@
     }
   },
   "common": {
+    "tap_exit": "Tap again to exit",
     "sign_out": "Sign Out",
     "log_out": "Log Out",
     "signing_out": "Signing out…",
