@@ -257,7 +257,10 @@ export function parseNumber(s) {
   // Handle "1,5" but NOT "1,500" (thousands separator). If there's exactly one
   // comma and no period, treat comma as decimal.
   let normalized = str;
-  if (normalized.includes(',') && !normalized.includes('.')) {
+  if (/^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(normalized)) {
+    // "1,150", "12,000", "1,250.5": commas group thousands
+    normalized = normalized.replace(/,/g, '');
+  } else if (normalized.includes(',') && !normalized.includes('.')) {
     const commas = normalized.split(',').length - 1;
     if (commas === 1 && /^\d+,\d+/.test(normalized)) {
       normalized = normalized.replace(',', '.');
