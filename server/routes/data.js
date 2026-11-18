@@ -77,6 +77,19 @@ router.post('/import', wrap((req, res) => {
   // A day's completion marks (#207) and when its note was written: the
   // export's, or the day's own when the export has none (one from before
   // the marks), so importing a day doesn't take them away.
+  // With user management off a day has no account, and SQLite's unique
+  // (date, user_id) never matches two NULLs: INSERT OR REPLACE added a
+  // second row for a date already here. The day here is replaced instead,
+  // the row the app reads and saves (routes/diary.js), as the account's is.
+  // Its field times stay: the trigger stamps the measurements that changed
+  // (db.js fs_diary_stats), so an older phone edit doesn't win over them.
+  const soloDay = db.prepare(`SELECT id FROM diary WHERE date = ? AND user_id IS NULL`);
+  const replaceSoloDay = db.prepare(
+    `UPDATE diary SET items=?, body_stats=?, water=?, notes=?, notes_updated_at=?,
+                      completed_at=?, completed_meals=?, completion_marked_at=?, meal_marks_at=?,
+                      deleted_at=NULL, updated_at=datetime('now')
+      WHERE id=?`
+  );
   const prevDay = db.prepare(
     `SELECT completed_at, completed_meals, completion_marked_at, meal_marks_at FROM diary WHERE date = ? AND user_id IS ? AND deleted_at IS NULL`
   );
@@ -101,6 +114,11 @@ router.post('/import', wrap((req, res) => {
     `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes, updated_at)
      VALUES (?, ?, ?, ?, ?, datetime('now'))`
   );
+
+  // Fasts already here, by start (single-user: all of them, as routes/fasts.js).
+  const sameFast = db.prepare(`SELECT id, end_at FROM fasts WHERE user_id IS ? AND start_at = ? AND deleted_at IS NULL`);
+  const activeFast = db.prepare(`SELECT id FROM fasts WHERE user_id IS ? AND end_at IS NULL AND deleted_at IS NULL`);
+  const endFast = db.prepare(`UPDATE fasts SET end_at = ?, notes = COALESCE(?, notes), updated_at = datetime('now') WHERE id = ?`);
 
   const run = db.transaction(() => {
     // A deleted copy from the same source still holds its place in the
@@ -161,7 +179,8 @@ router.post('/import', wrap((req, res) => {
       // closed"), the day's own when it's from before the marks.
       const hasMarks = ['completed_at', 'completed_meals', 'completion_marked_at', 'meal_marks_at'].some(k => k in e);
       const marks = hasMarks ? e : (prev || {});
-      insDiary.run(
+      const solo = u == null ? soloDay.get(e.date) : null;
+      (solo ? (...v) => replaceSoloDay.run(...v.slice(2), solo.id) : (...v) => insDiary.run(...v))(
         u, e.date,
         // #239: exports from before per-item uuids carry none; give them one
         // on the way in, or the app's first save of each day doubles it.
@@ -191,6 +210,15 @@ router.post('/import', wrap((req, res) => {
     }
     for (const f of fasts) {
       if (!f.start_at) continue;
+      // Already here (an export imported again): kept, not added twice. One
+      // running here and finished in the export ends as it did there.
+      const here = sameFast.get(u ?? null, f.start_at);
+      if (here) {
+        if (!here.end_at && f.end_at) endFast.run(String(f.end_at), f.notes != null ? String(f.notes).slice(0, 500) : null, here.id);
+        continue;
+      }
+      // One fast runs at a time (routes/fasts.js).
+      if (!f.end_at && activeFast.get(u ?? null)) continue;
       insFast.run(
         u, f.start_at, f.end_at || null,
         Number(f.goal_hours) || 16,

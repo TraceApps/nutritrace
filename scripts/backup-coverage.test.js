@@ -58,8 +58,7 @@ test('the JSON import keeps completion marks and the note time, and a replaced d
   assert.equal(d2.completed_at, '2026-11-02 22:00:00');
   assert.equal(d2.completed_meals, '[1,3]');
   assert.equal(d2.notes_updated_at, '2026-11-02T20:00:00.000Z');
-  // The imported day (single-user days have no account, so the import adds
-  // its own row: read the newest).
+  // The imported day (replaces the one here: scripts/import-repeat.test.js).
   const d1 = db.prepare(`SELECT * FROM diary WHERE date = '2026-11-01' ORDER BY id DESC`).get();
   assert.equal(d1.completed_at, '2026-11-01 21:00:00');
   assert.equal(d1.completed_meals, '[0,2]');
