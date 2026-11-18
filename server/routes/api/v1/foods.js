@@ -11,6 +11,7 @@ import db from '../../../db.js';
 import { wrap } from '../../../logger.js';
 import { requireScope } from '../../../middleware/bearer-auth.js';
 import { foldText } from '../../../lib/search-text.js';
+import { storedCategories } from '../../../lib/categories.js';
 
 const router = Router();
 
@@ -33,8 +34,9 @@ router.get('/', requireScope('read:foods'), wrap((req, res) => {
     args.push(like, like);
   }
   if (category) {
-    conds.push('category = ?');
-    args.push(category);
+    // Any of its categories (#332), not only the first.
+    conds.push(`(category = ? OR EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(categories) THEN categories ELSE '[]' END) WHERE value = ?))`);
+    args.push(category, category);
   }
 
   const where = conds.join(' AND ');
@@ -89,6 +91,7 @@ function _toWire(row) {
     name:       row.name,
     brand:      row.brand || null,
     category:   row.category || null,
+    categories: storedCategories(row),
     barcode:    row.barcode || null,
     portion:    typeof row.portion === 'number' ? row.portion : 100,
     unit:       row.unit || 'g',

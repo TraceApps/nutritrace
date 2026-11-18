@@ -11,6 +11,7 @@ import { sendFoodShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
 import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
+import { categoriesFromSave, categoriesOut, storedCategories } from '../lib/categories.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -105,7 +106,7 @@ function _normalizeDensity(v) {
 
 // ── POST / ────────────────────────────────────────────────────────────────
 router.post('/', wrap(async (req, res) => {
-  const { name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id,
+  const { name, brand, nutrition, portion, unit, img_url, notes, barcode, visibility, source_id,
     nutrition_basis, alt_units, density_g_ml,
     source_app, source_external_id, source_url } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
@@ -141,12 +142,16 @@ router.post('/', wrap(async (req, res) => {
       const localImg2 = img_url === undefined
         ? found.img_url
         : (_shouldLocalize ? await localizeImage(img_url, { trustedOrigins: trusted, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null));
+      // A re-import (the CookTrace pantry) changes them only when it brings
+      // some: an item with none leaves the ones picked here.
+      const cats2 = (storedCategories(req.body).length ? categoriesFromSave(req.body, found) : null)
+        ?? { category: found.category, categories: found.categories };
       db.prepare(
-        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, nutrition_basis=?, alt_units=?, density_g_ml=?, source_url=?, updated_at=datetime('now') WHERE id=?`
+        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, categories=?, barcode=?, nutrition_basis=?, alt_units=?, density_g_ml=?, source_url=?, updated_at=datetime('now') WHERE id=?`
       ).run(name ?? found.name, brand ?? found.brand,
         JSON.stringify(nutrition ?? JSON.parse(found.nutrition || '{}')),
         portion ?? found.portion, unit ?? found.unit, localImg2,
-        notes ?? found.notes, category ?? found.category, barcode ?? found.barcode,
+        notes ?? found.notes, cats2.category, cats2.categories, barcode ?? found.barcode,
         nutrition_basis === undefined ? found.nutrition_basis : (nutrition_basis || null),
         alt_units === undefined ? found.alt_units : _serializeAltUnitsForFood(alt_units),
         density_g_ml === undefined ? found.density_g_ml : _normalizeDensity(density_g_ml),
@@ -186,11 +191,12 @@ router.post('/', wrap(async (req, res) => {
     db.prepare(`UPDATE foods SET source_app = NULL, source_external_id = NULL WHERE user_id IS ? AND source_app = ? AND source_external_id = ? AND deleted_at IS NOT NULL`)
       .run(u ?? null, cleanSourceApp, cleanSourceExtId);
   }
+  const cats = categoriesFromSave(req.body, null) ?? { category: null, categories: null };
   const result = db.prepare(
-    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, categories, barcode, visibility, source_id, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(u, name, brand || null, JSON.stringify(nutrition || {}), portion ?? 100, unit || 'g',
-    localImg, notes || null, category || null, barcode || null, vis, source_id || null,
+    localImg, notes || null, cats.category, cats.categories, barcode || null, vis, source_id || null,
     nutrition_basis || null,
     _serializeAltUnitsForFood(alt_units),
     _normalizeDensity(density_g_ml),
@@ -205,7 +211,7 @@ router.put('/:id', wrap(async (req, res) => {
   const existing = db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   if (u != null && existing.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
-  const { name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, favorite,
+  const { name, brand, nutrition, portion, unit, img_url, notes, barcode, visibility, favorite,
     nutrition_basis, alt_units, density_g_ml } = req.body;
   // For img_url: undefined → keep existing, null/'' → explicit clear,
   // any other value → localize-if-external-or-data-URL-then-store. Without
@@ -228,11 +234,14 @@ router.put('/:id', wrap(async (req, res) => {
   // A save that says which fields it changed (changed_fields) changes only
   // those: a form opened before an edit made elsewhere doesn't put that
   // edit's fields back (lib/rest-merge.js).
+  // Categories: a list from this app, the first alone from an older one or
+  // the API; taking them all away clears them (lib/categories.js, #332).
+  const cats = categoriesFromSave(req.body, existing) ?? { category: existing.category, categories: existing.categories };
   const next = onlyChanged('foods', existing, {
     name: name ?? existing.name, brand: brand ?? existing.brand,
     nutrition: JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
     portion: portion ?? existing.portion, unit: unit ?? existing.unit, img_url: localImg,
-    notes: notes ?? existing.notes, category: category ?? existing.category, barcode: barcode ?? existing.barcode,
+    notes: notes ?? existing.notes, category: cats.category, categories: cats.categories, barcode: barcode ?? existing.barcode,
     favorite: fav, nutrition_basis: nb, alt_units: au, density_g_ml: dg,
   }, req.body.changed_fields);
   const vis = visibility ?? existing.visibility;
@@ -240,9 +249,9 @@ router.put('/:id', wrap(async (req, res) => {
   // brings the food back; any other is refused as gone (lib/rest-merge.js).
   if (existing.deleted_at && !deletedSave('foods', existing, next)) return res.status(410).json(goneBody);
   db.prepare(
-    `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, visibility=?, favorite=?, nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=datetime('now')${existing.deleted_at ? ', deleted_at=NULL' : ''} WHERE id=?`
+    `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, categories=?, barcode=?, visibility=?, favorite=?, nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=datetime('now')${existing.deleted_at ? ', deleted_at=NULL' : ''} WHERE id=?`
   ).run(next.name, next.brand, next.nutrition, next.portion, next.unit, next.img_url,
-    next.notes, next.category, next.barcode,
+    next.notes, next.category, next.categories, next.barcode,
     vis, next.favorite, next.nutrition_basis, next.alt_units, next.density_g_ml, req.params.id);
   res.json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id)));
 }));
@@ -352,10 +361,10 @@ router.post('/:id/copy', wrap((req, res) => {
   if (food.deleted_at) return res.status(404).json({ error: 'Not found' });
 
   const result = db.prepare(
-    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, datetime('now'))`
+    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, categories, barcode, visibility, source_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, datetime('now'))`
   ).run(u, food.name, food.brand, food.nutrition, food.portion, food.unit,
-    food.img_url, food.notes, food.category, food.barcode, food.id);
+    food.img_url, food.notes, food.category, food.categories, food.barcode, food.id);
   res.status(201).json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(result.lastInsertRowid)));
 }));
 
@@ -422,6 +431,7 @@ function parse(row) {
     field_times: undefined,
     nutrition: JSON.parse(row.nutrition || '{}'),
     alt_units: altUnits,
+    categories: categoriesOut(row),
     _specific_users: row._specific_users || undefined,
   };
 }

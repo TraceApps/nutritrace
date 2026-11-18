@@ -23,6 +23,7 @@ import {
   apiUrl,
 } from './platform.js';
 import { schedulePush, flushCompletionOps } from './sync.js';
+import { cleanCategories, storedCategories, foodCategoryFields } from './categories.js';
 
 function _headers() {
   const h = { 'Content-Type': 'application/json' };
@@ -111,7 +112,7 @@ function _sendOrQueue(serverId, method, path, body) {
 function _foodFromApi(row) {
   if (!row) return null;
   const { img_url, category, ...rest } = row;
-  return { ...rest, imgUrl: resolveAssetUrl(img_url) || '', categories: category ? [category] : [] };
+  return { ...rest, imgUrl: resolveAssetUrl(img_url) || '', categories: storedCategories(row) };
 }
 
 function _foodToApi(food) {
@@ -119,19 +120,19 @@ function _foodToApi(food) {
   return {
     ...rest,
     img_url: _stripResolvedImgUrl(imgUrl || img_url) || null,
-    category: (categories && categories[0]) || category || null,
+    ...foodCategoryFields({ categories, category }),
   };
 }
 
 function _mealFromApi(row) {
   if (!row) return null;
   const { img_url, ...rest } = row;
-  return { ...rest, imgUrl: resolveAssetUrl(img_url) || '' };
+  return { ...rest, imgUrl: resolveAssetUrl(img_url) || '', categories: storedCategories(row) };
 }
 
 function _mealToApi(meal) {
   const { imgUrl, img_url, ...rest } = meal;
-  return { ...rest, img_url: _stripResolvedImgUrl(imgUrl || img_url) || null };
+  return { ...rest, img_url: _stripResolvedImgUrl(imgUrl || img_url) || null, ...('categories' in meal ? { categories: cleanCategories(meal.categories) } : {}) };
 }
 
 export const NtApiCached = {

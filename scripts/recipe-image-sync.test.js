@@ -7,6 +7,7 @@ import { once } from 'node:events';
 import test, { after } from 'node:test';
 import { originalUrlForCachedImage } from '../src/lib/image-cache-map.js';
 import { baseOf, changesOf, statsBase, statsChanges } from '../src/lib/sync-base.js';
+import * as categories from '../src/lib/categories.js';
 
 const temp = mkdtempSync(join(tmpdir(), 'nutritrace-recipe-sync-'));
 process.env.DB_PATH = join(temp, 'test.db');
@@ -64,7 +65,7 @@ function fixture({ offline = false, useCache = true } = {}) {
     });
   platform.setImageMap(useCache ? { [original]: cached, [base + original]: cached } : {});
   const bindings = {
-    ...platform, localStorage,
+    ...platform, localStorage, ...categories,
     getServerUrl: () => base, getAuthToken: () => null, apiUrl: path => base + path,
     dbGetMeal: async () => local,
     dbUpdateMeal: async (_id, row) => {

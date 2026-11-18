@@ -13,10 +13,10 @@
  */
 export const SYNC_FIELDS = {
   foods: [
-    'name', 'brand', 'nutrition', 'portion', 'unit', 'img_url', 'notes', 'category', 'barcode',
+    'name', 'brand', 'nutrition', 'portion', 'unit', 'img_url', 'notes', 'category', 'categories', 'barcode',
     'favorite', 'nutrition_basis', 'alt_units', 'density_g_ml',
   ],
-  meals: ['name', 'nutrition', 'items', 'img_url', 'notes', 'is_recipe', 'portion', 'unit', 'servings', 'favorite'],
+  meals: ['name', 'nutrition', 'items', 'img_url', 'notes', 'categories', 'is_recipe', 'portion', 'unit', 'servings', 'favorite'],
   activity_log: ['date', 'name', 'kcal', 'duration_min', 'distance', 'source', 'met', 'is_template'],
   fasts: ['start_at', 'end_at', 'goal_hours', 'notes'],
 };
@@ -32,6 +32,8 @@ export const SYNC_GROUPS = {
     ['nutrition', 'portion', 'unit', 'nutrition_basis'],
     // Other units it can be weighed in, and its density for cups and spoons.
     ['alt_units', 'density_g_ml'],
+    // Its categories, and the first of them for older apps (#332).
+    ['category', 'categories'],
   ],
   meals: [
     // A meal's nutrients are its ingredients' for its servings and size.
@@ -45,8 +47,8 @@ export const SYNC_GROUPS = {
 
 /** Fields that hold JSON: compared by what they hold, as text or parsed. */
 export const SYNC_JSON = {
-  foods: ['nutrition', 'alt_units'],
-  meals: ['nutrition', 'items'],
+  foods: ['nutrition', 'alt_units', 'categories'],
+  meals: ['nutrition', 'items', 'categories'],
 };
 
 /** A diary day's measurements, each a field of its own in field_times. */

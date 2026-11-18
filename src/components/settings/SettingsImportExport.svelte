@@ -18,6 +18,7 @@
   import { isNative, getServerUrl } from '../../lib/platform.js';
   import { get } from 'svelte/store';
   import { foodCategories, catName as _catName, bulkSet, customNutriments, mealNames } from '../../stores/settings.js';
+  import { storedCategories } from '../../lib/categories.js';
 
   const isNativeLocal = isNative && !getServerUrl();
 
@@ -135,7 +136,8 @@
           await bulkSet(data.settings);
         }
 
-        const importedCats = [...new Set((foodList || []).map(f => (f.categories && f.categories[0]) || f.category).filter(Boolean))];
+        // Every category a food, meal or recipe has, not only the first (#332).
+        const importedCats = [...new Set([...(foodList || []), ...(meals || []), ...(recipes || [])].flatMap(f => storedCategories(f)))];
         if (importedCats.length) {
           const existing = get(foodCategories) || [];
           const existingNames = new Set(existing.map(c => _catName(c)));

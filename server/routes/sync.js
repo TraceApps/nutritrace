@@ -71,6 +71,7 @@ function _loadTombstonesSince(u, sinceSql) {
 import { freshenItemImages, hydrateItems } from '../lib/diary-helpers.js';
 import { mergeEntries } from '../lib/diary-merge.js';
 import { fromEmptyDay, dropMarksBeforeDelete, parseSlotArray } from '../lib/diary-revive.js';
+import { categoriesFromSave, cleanCategories } from '../lib/categories.js';
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
 import { clientSettingRaw, settingToStore } from '../lib/secret-settings.js';
 
@@ -93,7 +94,7 @@ function _serializeAltUnitsForServer(v) {
 
 function parse(row) {
   if (!row) return null;
-  for (const key of ['nutrition', 'items', 'body_stats', 'water', 'metadata', 'alt_units']) {
+  for (const key of ['nutrition', 'items', 'body_stats', 'water', 'metadata', 'alt_units', 'categories']) {
     if (typeof row[key] === 'string') {
       try { row[key] = JSON.parse(row[key]); } catch {}
     }
@@ -295,6 +296,7 @@ const PUSH_VALUES = {
     name: f => f.name, brand: f => f.brand ?? null, nutrition: f => JSON.stringify(f.nutrition || {}),
     portion: f => f.portion ?? 100, unit: f => f.unit || 'g', img_url: f => f.img_url || null,
     notes: f => f.notes || null, category: f => f.category || null, barcode: f => f.barcode || null,
+    categories: f => { const c = cleanCategories(f.categories); return c.length ? JSON.stringify(c) : null; },
     favorite: f => (f.favorite ? 1 : 0), nutrition_basis: f => f.nutrition_basis || null,
     alt_units: f => _serializeAltUnitsForServer(f.alt_units),
     density_g_ml: f => (f.density_g_ml != null && Number.isFinite(Number(f.density_g_ml)) ? Number(f.density_g_ml) : null),
@@ -302,6 +304,7 @@ const PUSH_VALUES = {
   meals: {
     name: m => m.name, nutrition: m => JSON.stringify(m.nutrition || {}), items: m => JSON.stringify(m.items || []),
     img_url: m => m.img_url || null, notes: m => m.notes || null, is_recipe: m => (m.is_recipe ? 1 : 0),
+    categories: m => { const c = cleanCategories(m.categories); return c.length ? JSON.stringify(c) : null; },
     portion: m => m.portion ?? 100, unit: m => m.unit || 'g',
     servings: m => (m.servings != null ? Math.max(1, parseInt(m.servings) || 1) : null), favorite: m => (m.favorite ? 1 : 0),
   },
@@ -316,6 +319,14 @@ const PUSH_VALUES = {
     notes: f => (f.notes != null ? String(f.notes).slice(0, 500) : null),
   },
 };
+// A food pushed by an app from before #332 sends its first category alone:
+// the list follows it (lib/categories.js). One that sends the list sends
+// the first with it.
+export function _withCategories(row, existing) {
+  if (!row || _has(row, 'categories') || !_has(row, 'category')) return row;
+  const cats = categoriesFromSave({ category: row.category }, existing);
+  return { ...row, category: cats.category, categories: cats.categories ? JSON.parse(cats.categories) : [] };
+}
 export function _pushValues(table, row) {
   const out = {};
   for (const [k, fn] of Object.entries(PUSH_VALUES[table])) if (_has(row, k)) out[k] = fn(row);
@@ -450,7 +461,7 @@ router.post('/push', wrap(async (req, res) => {
         if (_ownsRow(existing, u) && Number.isFinite(at)) {
           // The newer edit of each field stays. How often and when it was
           // used: the larger. Where it came from: kept unless sent.
-          const { back } = _pushEdit('foods', f, existing, at, {
+          const { back } = _pushEdit('foods', _withCategories(f, existing), existing, at, {
             sql: `, usage_count = MAX(usage_count, ?), last_used_at = MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), source_app = ?, source_external_id = ?, source_url = ?`,
             args: [f.usage_count || 0, f.last_used_at || null, ..._keepIfEmpty(f, existing, ['source_app', 'source_external_id', 'source_url'])],
           }, editsAt(f.field_edits, existing));
@@ -481,10 +492,10 @@ router.post('/push', wrap(async (req, res) => {
         }
         const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
-          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, visibility, field_times, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, categories, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, visibility, field_times, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, f.name, f.brand || null, JSON.stringify(f.nutrition || {}), f.portion ?? 100, f.unit || 'g',
-          f.img_url || null, f.notes || null, f.category || null, f.barcode || null,
+          f.img_url || null, f.notes || null, ...(c => [c?.category ?? null, c?.categories ?? null])(categoriesFromSave(f, null)), f.barcode || null,
           f.favorite ? 1 : 0, f.usage_count || 0, f.last_used_at || null,
           f.nutrition_basis || null,
           _serializeAltUnitsForServer(f.alt_units),
@@ -527,10 +538,10 @@ router.post('/push', wrap(async (req, res) => {
         if (mMade) { result.meals.push({ client_id: m.client_id, server_id: mMade.id, ...madeAnswer('meals', mMade) }); continue; }
         const vis = resolveNewItemVisibility(u);
         const r = db.prepare(
-          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, visibility, field_times, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, categories, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, visibility, field_times, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).run(u, m.name, JSON.stringify(m.nutrition || {}), JSON.stringify(m.items || []),
-          m.img_url || null, m.notes || null, m.is_recipe ? 1 : 0, m.portion ?? 100, m.unit || 'g',
+          m.img_url || null, m.notes || null, PUSH_VALUES.meals.categories(m), m.is_recipe ? 1 : 0, m.portion ?? 100, m.unit || 'g',
           Math.max(1, parseInt(m.servings) || 1),
           m.favorite ? 1 : 0, m.usage_count || 0, m.last_used_at || null,
           vis, madeTimes(m.updated_at));

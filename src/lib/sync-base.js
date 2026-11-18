@@ -16,8 +16,18 @@ import { SYNC_FIELDS, SYNC_JSON } from './sync-fields.js';
 /** A row's copy as the server has it, to keep as server_base. */
 export const baseOf = (table, row) => rowBase(SYNC_FIELDS[table], row, SYNC_JSON[table]);
 
-/** The fields of `row` changed since `base`; null when there's no base. */
-export const changesOf = (table, row, base) => rowChanges(SYNC_FIELDS[table], row, base, SYNC_JSON[table]);
+/** The fields of `row` changed since `base`; null when there's no base.
+ *  A field the base doesn't have (one synced since it was kept, such as a
+ *  food's categories, #332) counts as unchanged: a change made here is
+ *  named by edit_times, and counting it changed would send this phone's
+ *  copy over a newer edit made elsewhere. */
+export function changesOf(table, row, base) {
+  let b = base;
+  if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = null; } }
+  if (!b || typeof b !== 'object') return null;
+  const fields = SYNC_FIELDS[table].filter(f => Object.prototype.hasOwnProperty.call(b, f));
+  return rowChanges(fields, row, b, SYNC_JSON[table]);
+}
 
 const _obj = v => {
   if (v && typeof v === 'object' && !Array.isArray(v)) return v;

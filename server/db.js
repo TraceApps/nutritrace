@@ -749,6 +749,19 @@ for (const t of ['foods', 'meals', 'activity_log', 'fasts']) {
 // changed or taken away, and a day made with them stamps them from its own
 // time. A day's own updated_at moves with every food logged, so it stands
 // for none of them. Server only: never sent to an app.
+// ── Categories as a list (#332) ─────────────────────────────────────────
+// The app picks several categories; foods kept one (`category`, still the
+// first, for older apps, the API and exports) and meals none. Both keep the
+// list in `categories` (JSON); a food's single category becomes its list.
+// Before the field-time triggers below, which name every synced column.
+if (!columnExists('foods', 'categories')) {
+  db.exec(`ALTER TABLE foods ADD COLUMN categories TEXT DEFAULT NULL`);
+  db.exec(`UPDATE foods SET categories = json_array(trim(category)) WHERE category IS NOT NULL AND trim(category) != ''`);
+}
+if (!columnExists('meals', 'categories')) {
+  db.exec(`ALTER TABLE meals ADD COLUMN categories TEXT DEFAULT NULL`);
+}
+
 {
   const stamped = { ...SYNC_FIELDS, user_settings: ['value'] };
   for (const [t, fields] of Object.entries(stamped)) {

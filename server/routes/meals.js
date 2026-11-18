@@ -11,6 +11,9 @@ import { sendMealShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
 import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
+import { categoriesFromSave, categoriesOut } from '../lib/categories.js';
+
+const _has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
 
 const router = Router();
 router.use(requireAuth);
@@ -131,11 +134,11 @@ router.post('/', wrap(async (req, res) => {
       .run(u ?? null, cleanSourceApp, cleanSourceExtId);
   }
   const result = db.prepare(
-    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id,
+    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, categories, is_recipe, portion, unit, servings, visibility, source_id,
                         source_app, source_external_id, source_url, import_warnings, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(u, name, JSON.stringify(nutrition || {}), JSON.stringify(items || []),
-    localImg, notes || null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
+    localImg, notes || null, categoriesFromSave(req.body, null)?.categories ?? null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
     servings != null ? Math.max(1, parseInt(servings) || 1) : null,
     vis, source_id || null,
     cleanSourceApp, cleanSourceExtId, cleanSourceUrl, warningsCol);
@@ -169,7 +172,10 @@ router.put('/:id', wrap(async (req, res) => {
   const next = onlyChanged('meals', existing, {
     name: name ?? existing.name, nutrition: JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
     items: JSON.stringify(items ?? JSON.parse(existing.items || '[]')), img_url: img,
-    notes: notes ?? existing.notes, is_recipe: is_recipe != null ? (is_recipe ? 1 : 0) : existing.is_recipe,
+    notes: notes ?? existing.notes,
+    // Kept since #332; a save that doesn't send them leaves them.
+    categories: _has(req.body, 'categories') ? categoriesFromSave({ categories: req.body.categories }, existing).categories : existing.categories,
+    is_recipe: is_recipe != null ? (is_recipe ? 1 : 0) : existing.is_recipe,
     portion: portion ?? existing.portion, unit: unit ?? existing.unit, servings: srv, favorite: fav,
   }, req.body.changed_fields);
   const vis = visibility ?? existing.visibility;
@@ -178,8 +184,8 @@ router.put('/:id', wrap(async (req, res) => {
   // (lib/rest-merge.js).
   if (existing.deleted_at && !deletedSave('meals', existing, next)) return res.status(410).json(goneBody);
   db.prepare(
-    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?, favorite=?, updated_at=datetime('now')${existing.deleted_at ? ', deleted_at=NULL' : ''} WHERE id=?`
-  ).run(next.name, next.nutrition, next.items, next.img_url, next.notes, next.is_recipe,
+    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, categories=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?, favorite=?, updated_at=datetime('now')${existing.deleted_at ? ', deleted_at=NULL' : ''} WHERE id=?`
+  ).run(next.name, next.nutrition, next.items, next.img_url, next.notes, next.categories, next.is_recipe,
     next.portion, next.unit, next.servings,
     vis, next.favorite, req.params.id);
   res.json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id)));
@@ -288,9 +294,9 @@ router.post('/:id/copy', wrap((req, res) => {
   if (meal.deleted_at) return res.status(404).json({ error: 'Not found' });
 
   const result = db.prepare(
-    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, visibility, source_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, datetime('now'))`
-  ).run(u, meal.name, meal.nutrition, meal.items, meal.img_url, meal.notes,
+    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, categories, is_recipe, portion, unit, visibility, source_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, datetime('now'))`
+  ).run(u, meal.name, meal.nutrition, meal.items, meal.img_url, meal.notes, meal.categories,
     meal.is_recipe, meal.portion, meal.unit, meal.id);
   res.status(201).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(result.lastInsertRowid)));
 }));
@@ -310,6 +316,7 @@ function parse(row) {
     field_times: undefined,
     nutrition: JSON.parse(row.nutrition || '{}'),
     items: JSON.parse(row.items || '[]'),
+    categories: categoriesOut(row),
     is_recipe: row.is_recipe === 1,
     import_warnings: Array.isArray(warnings) ? warnings : undefined,
     _specific_users: row._specific_users || undefined,

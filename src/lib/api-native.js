@@ -21,11 +21,12 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 // ── Field mapping helpers (mirror server-side NtApi in api.js) ─────────────
 
 import { resolveAssetUrl } from './platform.js';
+import { cleanCategories, storedCategories, foodCategoryFields } from './categories.js';
 
 function _foodFromDb(row) {
   if (!row) return null;
   const { img_url, category, sync_status, ...rest } = row;
-  return { ...rest, imgUrl: resolveAssetUrl(img_url) || '', categories: category ? [category] : [] };
+  return { ...rest, imgUrl: resolveAssetUrl(img_url) || '', categories: storedCategories(row) };
 }
 
 function _foodToDb(food) {
@@ -33,19 +34,19 @@ function _foodToDb(food) {
   return {
     ...rest,
     img_url: imgUrl || img_url || null,
-    category: (categories && categories[0]) || category || null,
+    ...foodCategoryFields({ categories, category }),
   };
 }
 
 function _mealFromDb(row) {
   if (!row) return null;
   const { img_url, sync_status, ...rest } = row;
-  return { ...rest, imgUrl: resolveAssetUrl(img_url) || '' };
+  return { ...rest, imgUrl: resolveAssetUrl(img_url) || '', categories: storedCategories(row) };
 }
 
 function _mealToDb(meal) {
   const { imgUrl, img_url, ...rest } = meal;
-  return { ...rest, img_url: imgUrl || img_url || null };
+  return { ...rest, img_url: imgUrl || img_url || null, ...('categories' in meal ? { categories: cleanCategories(meal.categories) } : {}) };
 }
 
 // ── NtApi native implementation ────────────────────────────────────────────

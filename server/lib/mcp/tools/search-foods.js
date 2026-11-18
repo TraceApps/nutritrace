@@ -12,6 +12,7 @@ import { z } from 'zod';
 import db from '../../../db.js';
 import { safeJson, toolResult, toolError } from '../_util.js';
 import { foldText } from '../../search-text.js';
+import { storedCategories } from '../../categories.js';
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -42,7 +43,7 @@ export function registerSearchFoods(server, { userId }) {
       const escaped = q.replace(/[\\%_]/g, c => '\\' + c);
       const like = `%${foldText(escaped)}%`;
       const rows = db.prepare(
-        `SELECT id, name, brand, barcode, portion, unit, nutrition, category
+        `SELECT id, name, brand, barcode, portion, unit, nutrition, category, categories
            FROM foods
           WHERE user_id = ?
             AND deleted_at IS NULL
@@ -58,6 +59,7 @@ export function registerSearchFoods(server, { userId }) {
         portion: Number.isFinite(Number(r.portion)) ? Number(r.portion) : null,
         unit: r.unit || null,
         category: r.category || null,
+        categories: storedCategories(r),
         nutrition: safeJson(r.nutrition, {}),
       }));
       return toolResult({ query: q, count: items.length, limit: cap, items });

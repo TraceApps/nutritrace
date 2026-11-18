@@ -136,8 +136,8 @@ export function registerCreateFood(server, { userId }) {
       // too. Requester explicitly called out "created via the app or MCP".
       const vis = resolveNewItemVisibility(userId);
       const result = db.prepare(
-        `INSERT INTO foods (user_id, name, brand, portion, unit, nutrition, category, barcode, notes, visibility, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        `INSERT INTO foods (user_id, name, brand, portion, unit, nutrition, category, categories, barcode, notes, visibility, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
       ).run(
         userId,
         cleanName,
@@ -145,7 +145,8 @@ export function registerCreateFood(server, { userId }) {
         portion,
         unit,
         JSON.stringify(clean),
-        category || null,
+        String(category || '').trim() || null,
+        String(category || '').trim() ? JSON.stringify([String(category).trim()]) : null,
         barcode || null,
         notes || null,
         vis,

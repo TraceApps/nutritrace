@@ -36,6 +36,7 @@ import { dbGetFoods, dbGetMeals, dbGetAllDiary, getDb, dbInstallId, dbOwnInstall
 import { relinkItems, relinkIngredients } from './item-source.js';
 import { DB } from './db.js';
 import { isNative, getServerUrl, getAuthToken } from './platform.js';
+import { foodCategoryFields } from './categories.js';
 
 /**
  * Count local rows that would be uploaded. Returns
@@ -146,7 +147,7 @@ export async function uploadLocalToServer({ serverUrl, authToken, onProgress } =
       const made = await _post(`${serverUrl}/api/foods`, headers, {
         ...rest,
         img_url: imgUrl || null,
-        category: categories?.[0] || null,
+        ...foodCategoryFields({ categories }),
         client_key: key('foods', food),
       });
       if (made?.id != null) foodIds.set(id, made.id);

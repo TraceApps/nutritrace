@@ -51,8 +51,10 @@ test('queued edits of one row say every field they changed; one that can\'t say 
 test("the fields an edit changed, in the server's names (a picture, a food's category)", () => {
   const shown = { id: 1, name: 'Oats', imgUrl: '/uploads/a.jpg', categories: ['Grains'], nutrition: { kcal: 1 }, favorite: 1 };
   assert.deepEqual(changedSince('foods', shown, { ...shown }), []);
-  assert.deepEqual(changedSince('foods', shown, { ...shown, imgUrl: '', categories: ['Cereal'], nutrition: '{"kcal":1}' }).sort(), ['category', 'img_url']);
-  assert.deepEqual(pushShape('foods', { imgUrl: 'x', categories: ['A'] }), { img_url: 'x', category: 'A' });
+  // The list and its first go together (#332).
+  assert.deepEqual(changedSince('foods', shown, { ...shown, imgUrl: '', categories: ['Cereal'], nutrition: '{"kcal":1}' }).sort(), ['categories', 'category', 'img_url']);
+  assert.deepEqual(changedSince('foods', shown, { ...shown, categories: ['Grains', 'Cereal'] }).sort(), ['categories']);
+  assert.deepEqual(pushShape('foods', { imgUrl: 'x', categories: ['A'] }), { img_url: 'x', categories: ['A'], category: 'A' });
   assert.deepEqual(changedSince('activity', { name: 'Walk', kcal: 100 }, { name: 'Walk', kcal: 120, note: 'x' }), ['kcal']);
   assert.equal(copyStamp({ changed_at: 'b', updated_at: 'a' }), 'b');
 });

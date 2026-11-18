@@ -3,6 +3,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { ensureUuids } from '../lib/diary-merge.js';
+import { categoriesFromSave } from '../lib/categories.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -51,15 +52,15 @@ router.post('/import', wrap((req, res) => {
   // (nutrition_basis, alt_units, density_g_ml). Missing fields default to
   // safe values so partial or older exports still import cleanly.
   const insFood = db.prepare(
-    `INSERT OR IGNORE INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode,
+    `INSERT OR IGNORE INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, categories, barcode,
                                   visibility, source_id, favorite, usage_count, last_used_at,
                                   nutrition_basis, alt_units, density_g_ml, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
   const insMeal = db.prepare(
-    `INSERT OR IGNORE INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings,
+    `INSERT OR IGNORE INTO meals (user_id, name, nutrition, items, img_url, notes, categories, is_recipe, portion, unit, servings,
                                   visibility, source_id, favorite, usage_count, last_used_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
   // updated_at must be set explicitly on every insert: differential sync
   // filters with `updated_at >= ?` and NULL never matches. Even tables that
@@ -87,7 +88,8 @@ router.post('/import', wrap((req, res) => {
         f.portion ?? 100, f.unit || 'g',
         f.imgUrl || f.img_url || null,
         f.notes || null,
-        (f.categories && f.categories[0]) || f.category || null,
+        // The export's list (or an older export's single category), #332.
+        ...(c => [c?.category ?? null, c?.categories ?? null])(categoriesFromSave(Array.isArray(f.categories) ? { categories: f.categories } : { category: f.category }, null)),
         f.barcode || null,
         f.visibility || 'private',
         f.source_id ?? null,
@@ -105,6 +107,7 @@ router.post('/import', wrap((req, res) => {
         JSON.stringify(m.items || []),
         m.imgUrl || m.img_url || null,
         m.notes || null,
+        categoriesFromSave({ categories: m.categories }, null)?.categories ?? null,
         recipes.includes(m) ? 1 : 0,
         m.portion ?? 100, m.unit || 'g',
         m.servings != null ? Math.max(1, parseInt(m.servings) || 1) : null,

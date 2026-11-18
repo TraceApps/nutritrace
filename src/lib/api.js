@@ -569,15 +569,16 @@ const _NtApiHttp = {
   patch(path, body)   { return this._fetch('PATCH',  path, body); },
   del(path)           { return this._fetch('DELETE', path); },
 
-  // Food field mapping: server uses img_url/category, app uses imgUrl/categories
+  // Food field mapping: server uses img_url, app uses imgUrl. Categories go
+  // as the list and its first as `category`, for older servers (#332).
   _foodFromApi(row) {
     if (!row) return null;
     const { img_url, category, ...rest } = row;
-    return { ...rest, imgUrl: resolveAssetUrl(img_url) || '', categories: category ? [category] : [] };
+    return { ...rest, imgUrl: resolveAssetUrl(img_url) || '', categories: storedCategories(row) };
   },
   _foodToApi(food) {
     const { imgUrl, img_url, categories, category, ...rest } = food;
-    return { ...rest, img_url: imgUrl || img_url || null, category: (categories && categories[0]) || category || null };
+    return { ...rest, img_url: imgUrl || img_url || null, ...foodCategoryFields({ categories, category }) };
   },
 
   // Foods
@@ -595,11 +596,11 @@ const _NtApiHttp = {
   _mealFromApi(row) {
     if (!row) return null;
     const { img_url, ...rest } = row;
-    return { ...rest, imgUrl: resolveAssetUrl(img_url) || '' };
+    return { ...rest, imgUrl: resolveAssetUrl(img_url) || '', categories: storedCategories(row) };
   },
   _mealToApi(meal) {
     const { imgUrl, img_url, ...rest } = meal;
-    return { ...rest, img_url: imgUrl || img_url || null };
+    return { ...rest, img_url: imgUrl || img_url || null, ...('categories' in meal ? { categories: cleanCategories(meal.categories) } : {}) };
   },
 
   // Meals & Recipes
@@ -675,6 +676,7 @@ import { NtApiNative } from './api-native.js';
 import { NtApiCached } from './api-cached.js';
 import { createOfflineApi, offlineDeadlineMs } from './offline-api.js';
 import { fetchWithDeadline } from './request-deadline.js';
+import { cleanCategories, storedCategories, foodCategoryFields } from './categories.js';
 
 // The browser's API, wrapped so the diary keeps working without a connection
 // (#211). Built on first use, so a page that never calls the API never opens

@@ -14,6 +14,7 @@
  */
 import { z } from 'zod';
 import db from '../../../db.js';
+import { storedCategories } from '../../categories.js';
 import {
   DATE_RE,
   daysAgoLocal,
@@ -108,7 +109,7 @@ export function registerRecentFoods(server, { userId }) {
         const slice = allIds.slice(i, i + CHUNK);
         const placeholders = slice.map(() => '?').join(',');
         foods.push(...db.prepare(
-          `SELECT id, name, brand, barcode, portion, unit, nutrition, category
+          `SELECT id, name, brand, barcode, portion, unit, nutrition, category, categories
              FROM foods
             WHERE user_id = ? AND deleted_at IS NULL AND id IN (${placeholders})`
         ).all(userId, ...slice));
@@ -126,6 +127,7 @@ export function registerRecentFoods(server, { userId }) {
           portion: Number.isFinite(Number(f.portion)) ? Number(f.portion) : null,
           unit: f.unit || null,
           category: f.category || null,
+          categories: storedCategories(f),
           nutrition: safeJson(f.nutrition, {}),
           last_logged_on: lastSeen.get(f.id),
         }));

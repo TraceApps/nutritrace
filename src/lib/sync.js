@@ -33,6 +33,7 @@ import { SYNC_FIELDS } from './sync-fields.js';
 import { pullKinds } from './sync-refresh.js';
 import { localDataIsThisAccount, serverKeepsNotes, accountGeneration } from './local-account.js';
 import { get, writable } from 'svelte/store';
+import { storedCategories } from './categories.js';
 
 /** Sync state — reactive store for UI */
 export const syncState = writable({
@@ -387,7 +388,8 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
       name: f.name, brand: f.brand,
       nutrition: f.nutrition, portion: f.portion, unit: f.unit,
       img_url: f.img_url || f.imgUrl, notes: f.notes,
-      category: (f.categories && f.categories[0]) || f.category,
+      // The list, and its first for a server from before #332.
+      ...(c => ({ category: c[0] ?? null, categories: c }))(storedCategories(f)),
       barcode: f.barcode,
       // Where a food came from (CookTrace's pantry): sent back as it is,
       // or the push wiped it.
@@ -412,6 +414,7 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
       client_key: createKey('meals', m),
       name: m.name, nutrition: m.nutrition, items: m.items,
       img_url: m.img_url || m.imgUrl, notes: m.notes,
+      categories: storedCategories(m),
       is_recipe: m.is_recipe,
       portion: m.portion, unit: m.unit,
       servings: m.servings ?? null,

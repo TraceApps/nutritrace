@@ -15,6 +15,7 @@ import { baseOf, statsBase, changesOf, statsChanges } from './sync-base.js';
 import { editRevives, instantMs } from './field-sync.js';
 import { relinkStamp } from './relink-stamp.js';
 import { missingTags } from './body-stats-unit.js';
+import { storedCategories } from './categories.js';
 
 const LOCAL_USER_ID = 1;
 const DB_NAME = 'nutritrace_local';
@@ -47,6 +48,7 @@ const SCHEMA = `
     -- without these fields fall through to existing scaler behavior.
     nutrition_basis TEXT DEFAULT NULL,
     alt_units       TEXT DEFAULT NULL,
+    categories      TEXT DEFAULT NULL,
     density_g_ml    REAL DEFAULT NULL,
     -- Federation source columns for the CT pantry bulk-import.
     source_app          TEXT DEFAULT NULL,
@@ -71,6 +73,7 @@ const SCHEMA = `
     portion            REAL DEFAULT 100,
     unit               TEXT DEFAULT 'g',
     servings           INTEGER DEFAULT 1,
+    categories         TEXT DEFAULT NULL,
     visibility         TEXT NOT NULL DEFAULT 'private',
     source_id          INTEGER,
     favorite           INTEGER NOT NULL DEFAULT 0,
@@ -417,6 +420,19 @@ async function _applySchema(db) {
     }
   } catch (e) {
     console.debug('[db-native] foods OFF-units migration skipped:', e?.message);
+  }
+  // Categories as a list (#332): a food's single category becomes its list;
+  // meals and recipes had nowhere to keep theirs.
+  for (const tbl of ['foods', 'meals']) {
+    try {
+      const info = await db.query(`PRAGMA table_info(${tbl})`);
+      if (!(info?.values || []).some(r => r.name === 'categories')) {
+        await db.execute(`ALTER TABLE ${tbl} ADD COLUMN categories TEXT DEFAULT NULL`);
+        if (tbl === 'foods') await db.execute(`UPDATE foods SET categories = json_array(trim(category)) WHERE category IS NOT NULL AND trim(category) != ''`);
+      }
+    } catch (e) {
+      console.debug(`[db-native] ${tbl}.categories migration skipped:`, e?.message);
+    }
   }
 
   // activity_log.met + is_template — issue #77 (2024 Compendium picker).
@@ -818,11 +834,24 @@ function _serializeAltUnits(v) {
   return clean.length ? JSON.stringify(clean) : null;
 }
 
+// A food's categories as stored here: its first, and the list as JSON
+// (#332). From the app's form (a list), a server row (a list, or the first
+// alone from an older server) or an older form (`category`).
+function _foodCats(data) {
+  const list = storedCategories(data);
+  return [list[0] ?? null, list.length ? JSON.stringify(list) : null];
+}
+// A meal's categories as stored here: the list as JSON, or null.
+function _listJson(v) {
+  const list = storedCategories({ categories: v });
+  return list.length ? JSON.stringify(list) : null;
+}
+
 export async function dbCreateFood(data) {
   const db = await getDb();
   const r = await db.run(
-    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    `INSERT INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, categories, barcode, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     [
       LOCAL_USER_ID,
       data.name,
@@ -832,7 +861,7 @@ export async function dbCreateFood(data) {
       data.unit || 'g',
       data.img_url || data.imgUrl || null,
       data.notes || null,
-      data.category || null,
+      ..._foodCats(data),
       data.barcode || null,
       data.nutrition_basis || null,
       _serializeAltUnits(data.alt_units),
@@ -853,7 +882,7 @@ export async function dbUpdateFood(id, data) {
   const db = await getDb();
   const before = await _beforeEdit(db, 'foods', id);
   await db.run(
-    `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=?, sync_status='pending'
+    `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, categories=?, barcode=?, nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=?, sync_status='pending'
      WHERE id=? AND user_id=?`,
     [
       data.name,
@@ -863,7 +892,7 @@ export async function dbUpdateFood(id, data) {
       data.unit || 'g',
       data.img_url || data.imgUrl || null,
       data.notes || null,
-      data.category || null,
+      ..._foodCats(data),
       data.barcode || null,
       data.nutrition_basis || null,
       _serializeAltUnits(data.alt_units),
@@ -919,7 +948,7 @@ function _parseFoodRow(row) {
     ...row,
     nutrition: _parseJson(row.nutrition, {}),
     imgUrl: row.img_url || '',
-    categories: row.category ? [row.category] : [],
+    categories: storedCategories(row),
     // Issues #69 + #70: parse alt_units JSON; basis + density pass through.
     // Defaults to [] so consumers can iterate without null-checking.
     alt_units: _parseJson(row.alt_units, []),
@@ -947,8 +976,8 @@ export async function dbGetMeal(id) {
 export async function dbCreateMeal(data) {
   const db = await getDb();
   const r = await db.run(
-    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, updated_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, categories, is_recipe, portion, unit, servings, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     [
       LOCAL_USER_ID,
       data.name,
@@ -956,6 +985,7 @@ export async function dbCreateMeal(data) {
       JSON.stringify(data.items || []),
       data.img_url || data.imgUrl || null,
       data.notes || null,
+      _listJson(data.categories),
       data.is_recipe ? 1 : 0,
       data.portion ?? 100,
       data.unit || 'g',
@@ -970,7 +1000,7 @@ export async function dbUpdateMeal(id, data) {
   const db = await getDb();
   const before = await _beforeEdit(db, 'meals', id);
   await db.run(
-    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, updated_at=?, sync_status='pending'
+    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, categories=?, is_recipe=?, portion=?, unit=?, servings=?, updated_at=?, sync_status='pending'
      WHERE id=? AND user_id=?`,
     [
       data.name,
@@ -978,6 +1008,7 @@ export async function dbUpdateMeal(id, data) {
       JSON.stringify(data.items || []),
       data.img_url || data.imgUrl || null,
       data.notes || null,
+      _listJson(data.categories),
       data.is_recipe ? 1 : 0,
       data.portion ?? 100,
       data.unit || 'g',
@@ -1024,6 +1055,7 @@ function _parseMealRow(row) {
     nutrition: _parseJson(row.nutrition, {}),
     items:     _parseJson(row.items, []),
     imgUrl: row.img_url || '',
+    categories: storedCategories(row),
   };
 }
 
@@ -2321,9 +2353,9 @@ export async function dbUpsertFromServer(table, serverRecord) {
       // Federation source columns carry the CT-pantry provenance across
       // cross-device pulls, mirroring the meals path below.
       await db.run(
-        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, source_app=?, source_external_id=?, source_url=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced' WHERE server_id=?`,
+        `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, categories=?, barcode=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), nutrition_basis=?, alt_units=?, density_g_ml=?, source_app=?, source_external_id=?, source_url=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced' WHERE server_id=?`,
         [data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
-         data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
+         data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, ..._foodCats(data), data.barcode,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
          data.nutrition_basis || null,
          _serializeAltUnits(data.alt_units),
@@ -2342,10 +2374,10 @@ export async function dbUpsertFromServer(table, serverRecord) {
         ? JSON.stringify(importWarnings)
         : (typeof importWarnings === 'string' && importWarnings ? importWarnings : null);
       await db.run(
-        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), source_app=?, source_external_id=?, source_url=?, import_warnings=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced' WHERE server_id=?`,
+        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, categories=?, is_recipe=?, portion=?, unit=?, servings=?, favorite=?, usage_count=MAX(usage_count, ?), last_used_at=MAX(COALESCE(last_used_at, ''), COALESCE(?, '')), source_app=?, source_external_id=?, source_url=?, import_warnings=?, updated_at=?, server_base=?, edit_times=NULL, sync_status='synced' WHERE server_id=?`,
         [data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
-         data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
+         data.img_url, data.notes, _listJson(data.categories), data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
          data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
          data.source_app || null, data.source_external_id || null, data.source_url || null, importWarningsJson,
@@ -2360,10 +2392,10 @@ export async function dbUpsertFromServer(table, serverRecord) {
         // an item logged before then still takes its units after a rename
         // (item-source.js itemFoodMatches). Only on insert: a row's own
         // created_at stays as it was (create keys use it).
-        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, created_at, server_base, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, 'synced')`,
+        `INSERT INTO foods (server_id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, categories, barcode, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, updated_at, created_at, server_base, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, data.brand, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
-         data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, data.category, data.barcode,
+         data.portion ?? 100, data.unit || 'g', data.img_url, data.notes, ..._foodCats(data), data.barcode,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
          data.nutrition_basis || null,
          _serializeAltUnits(data.alt_units),
@@ -2379,11 +2411,11 @@ export async function dbUpsertFromServer(table, serverRecord) {
         ? JSON.stringify(importWarnings)
         : (typeof importWarnings === 'string' && importWarnings ? importWarnings : null);
       await db.run(
-        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, updated_at, server_base, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        `INSERT INTO meals (server_id, user_id, name, nutrition, items, img_url, notes, categories, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, updated_at, server_base, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
         [serverId, LOCAL_USER_ID, data.name, typeof data.nutrition === 'string' ? data.nutrition : JSON.stringify(data.nutrition || {}),
          typeof data.items === 'string' ? data.items : JSON.stringify(data.items || []),
-         data.img_url, data.notes, data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
+         data.img_url, data.notes, _listJson(data.categories), data.is_recipe ? 1 : 0, data.portion ?? 100, data.unit || 'g',
          data.servings != null ? Math.max(1, parseInt(data.servings) || 1) : null,
          data.favorite ? 1 : 0, data.usage_count || 0, data.last_used_at || null,
          data.source_app || null, data.source_external_id || null, data.source_url || null, importWarningsJson,

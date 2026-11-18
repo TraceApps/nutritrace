@@ -16,6 +16,7 @@ import { effectiveTimeZone, nextBackupAt, backupFileStamp, newestFirst } from '.
 import { logAfterRestore as logTwoStepAfterRestore } from '../lib/two-step.js';
 import { keepSessionVersions } from '../lib/session-version.js';
 import { sealStoredSecrets } from '../lib/secret-settings.js';
+import { storedCategories } from '../lib/categories.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -266,21 +267,22 @@ function restoreFromZip(zip) {
     // making a second one. changed_at, the pull's cursor, is the trigger's
     // (now), so every device pulls the restored rows.
     const insFood = db.prepare(`
-      INSERT OR IGNORE INTO foods (id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, barcode, visibility, source_id, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, created_at, updated_at, deleted_at, field_times, client_key)
-      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @nutrition_basis, @alt_units, @density_g_ml, @source_app, @source_external_id, @source_url, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times, @client_key)
+      INSERT OR IGNORE INTO foods (id, user_id, name, brand, nutrition, portion, unit, img_url, notes, category, categories, barcode, visibility, source_id, favorite, usage_count, last_used_at, nutrition_basis, alt_units, density_g_ml, source_app, source_external_id, source_url, created_at, updated_at, deleted_at, field_times, client_key)
+      VALUES (@id, @user_id, @name, @brand, @nutrition, @portion, @unit, @img_url, @notes, @category, @categories, @barcode, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @nutrition_basis, @alt_units, @density_g_ml, @source_app, @source_external_id, @source_url, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times, @client_key)
     `);
-    for (const f of data.foods || []) insFood.run({ visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, nutrition_basis: null, alt_units: null, density_g_ml: null, source_app: null, source_external_id: null, source_url: null, updated_at: null, deleted_at: null, field_times: null, client_key: null, ...f });
+    // A backup from before #332 has the single category: it becomes the list.
+    for (const f of data.foods || []) insFood.run({ categories: storedCategories(f).length ? JSON.stringify(storedCategories(f)) : null, visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null, nutrition_basis: null, alt_units: null, density_g_ml: null, source_app: null, source_external_id: null, source_url: null, updated_at: null, deleted_at: null, field_times: null, client_key: null, ...f });
 
     // Federation source columns (source_app / source_external_id / source_url /
     // import_warnings, added for the CookTrace pull flow) are part of the
     // meals row now. Restoring without them silently drops the "From
     // CookTrace" badge and the deep-link back to the source on restore.
     const insMeal = db.prepare(`
-      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, created_at, updated_at, deleted_at, field_times, client_key)
-      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @source_app, @source_external_id, @source_url, @import_warnings, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times, @client_key)
+      INSERT OR IGNORE INTO meals (id, user_id, name, nutrition, items, img_url, notes, categories, is_recipe, portion, unit, servings, visibility, source_id, favorite, usage_count, last_used_at, source_app, source_external_id, source_url, import_warnings, created_at, updated_at, deleted_at, field_times, client_key)
+      VALUES (@id, @user_id, @name, @nutrition, @items, @img_url, @notes, @categories, @is_recipe, @portion, @unit, @servings, @visibility, @source_id, @favorite, @usage_count, @last_used_at, @source_app, @source_external_id, @source_url, @import_warnings, @created_at, COALESCE(@updated_at, datetime('now')), @deleted_at, @field_times, @client_key)
     `);
     for (const m of data.meals || []) insMeal.run({
-      visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null,
+      categories: null, visibility: 'private', source_id: null, favorite: 0, usage_count: 0, last_used_at: null,
       source_app: null, source_external_id: null, source_url: null, import_warnings: null,
       updated_at: null, deleted_at: null, servings: null, field_times: null, client_key: null, ...m,
     });

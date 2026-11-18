@@ -17,6 +17,7 @@
 
 import { sameValue } from './field-sync.js';
 import { SYNC_FIELDS, SYNC_JSON } from './sync-fields.js';
+import { foodCategoryFields } from './categories.js';
 
 /** Was this error the server being unreachable, rather than a real answer? */
 export function isOfflineError(err) {
@@ -286,15 +287,13 @@ const _catalogRow = (op) => {
 
 const _SYNC_TABLE = { foods: 'foods', meals: 'meals', activity: 'activity_log', fasts: 'fasts' };
 
-/** A row as the sync push sends it: the server's names for a picture
- *  (img_url) and a food's category. */
+/** A row as the sync push sends it: the server's name for a picture
+ *  (img_url), and a food's categories as the list with its first as
+ *  `category` for a server from before #332. */
 export function pushShape(table, row) {
   const out = { ...(row || {}) };
   if ('imgUrl' in out) { if (!out.img_url) out.img_url = out.imgUrl || null; delete out.imgUrl; }
-  if (table === 'foods' && Array.isArray(out.categories)) {
-    out.category = out.categories[0] || out.category || null;
-    delete out.categories;
-  }
+  if (table === 'foods' && ('categories' in out || 'category' in out)) Object.assign(out, foodCategoryFields(out));
   return out;
 }
 
