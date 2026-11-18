@@ -323,7 +323,7 @@ async function _fastsLocalGet(path) {
   if (path.startsWith('/api/fasts')) {
     // /api/fasts or /api/fasts?limit=N
     const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
-    const limit = Math.min(365, Math.max(1, parseInt(q.get('limit')) || 60));
+    const limit = Math.min(100000, Math.max(1, parseInt(q.get('limit')) || 60));
     return await dbGetFasts(limit);
   }
   return null;

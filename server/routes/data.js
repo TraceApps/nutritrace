@@ -54,13 +54,15 @@ router.post('/import', wrap((req, res) => {
   const insFood = db.prepare(
     `INSERT OR IGNORE INTO foods (user_id, name, brand, nutrition, portion, unit, img_url, notes, category, categories, barcode,
                                   visibility, source_id, favorite, usage_count, last_used_at,
-                                  nutrition_basis, alt_units, density_g_ml, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+                                  nutrition_basis, alt_units, density_g_ml,
+                                  source_app, source_external_id, source_url, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
   const insMeal = db.prepare(
     `INSERT OR IGNORE INTO meals (user_id, name, nutrition, items, img_url, notes, categories, is_recipe, portion, unit, servings,
-                                  visibility, source_id, favorite, usage_count, last_used_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+                                  visibility, source_id, favorite, usage_count, last_used_at,
+                                  source_app, source_external_id, source_url, import_warnings, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
   // updated_at must be set explicitly on every insert: differential sync
   // filters with `updated_at >= ?` and NULL never matches. Even tables that
@@ -68,9 +70,29 @@ router.post('/import', wrap((req, res) => {
   // INSERT OR REPLACE (the row is dropped and re-inserted; the default only
   // applies when the column is omitted from the column list).
   const insDiary = db.prepare(
-    `INSERT OR REPLACE INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT OR REPLACE INTO diary (user_id, date, items, body_stats, water, notes, notes_updated_at,
+                                   completed_at, completed_meals, completion_marked_at, meal_marks_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   );
+  // A day's completion marks (#207) and when its note was written: the
+  // export's, or the day's own when the export has none (one from before
+  // the marks), so importing a day doesn't take them away.
+  const prevDay = db.prepare(
+    `SELECT completed_at, completed_meals, completion_marked_at, meal_marks_at FROM diary WHERE date = ? AND user_id IS ? AND deleted_at IS NULL`
+  );
+  const _slots = v => {
+    let a = v;
+    if (typeof a === 'string') { try { a = JSON.parse(a); } catch { a = null; } }
+    if (!Array.isArray(a)) return null;
+    const ok = [...new Set(a.filter(n => Number.isInteger(n) && n >= 0 && n <= 31))].sort((x, y) => x - y);
+    return ok.length ? JSON.stringify(ok) : null;
+  };
+  const _text = v => (typeof v === 'string' && v ? v : (v != null && typeof v === 'object' ? JSON.stringify(v) : null));
+  // A food or meal's source (source_app, source_external_id, source_url),
+  // as the editors and the CookTrace pull keep them.
+  const _source = r => (r?.source_app && r?.source_external_id)
+    ? [String(r.source_app).slice(0, 40), String(r.source_external_id).slice(0, 128), r.source_url ? String(r.source_url).slice(0, 2048) : null]
+    : [null, null, null];
   const insActivity = db.prepare(
     `INSERT INTO activity_log (user_id, date, name, kcal, duration_min, distance, source, met, is_template, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
@@ -81,7 +103,13 @@ router.post('/import', wrap((req, res) => {
   );
 
   const run = db.transaction(() => {
+    // A deleted copy from the same source still holds its place in the
+    // unique source index: it lets go, or the import skipped the food (as
+    // routes/foods.js does for one deleted and added again).
+    const releaseFood = db.prepare(`UPDATE foods SET source_app = NULL, source_external_id = NULL WHERE user_id IS ? AND source_app = ? AND source_external_id = ? AND deleted_at IS NOT NULL`);
+    const releaseMeal = db.prepare(`UPDATE meals SET source_app = NULL, source_external_id = NULL WHERE user_id IS ? AND source_app = ? AND source_external_id = ? AND deleted_at IS NOT NULL`);
     for (const f of foodList) {
+      { const [app, ext] = _source(f); if (app) releaseFood.run(u ?? null, app, ext); }
       insFood.run(
         u, f.name || '', f.brand || null,
         JSON.stringify(f.nutrition || {}),
@@ -98,10 +126,13 @@ router.post('/import', wrap((req, res) => {
         f.last_used_at || null,
         f.nutrition_basis || null,
         f.alt_units ? (typeof f.alt_units === 'string' ? f.alt_units : JSON.stringify(f.alt_units)) : null,
-        f.density_g_ml != null ? Number(f.density_g_ml) : null
+        f.density_g_ml != null ? Number(f.density_g_ml) : null,
+        // Where it came from (the CookTrace pantry): its "From CookTrace" badge and link.
+        ..._source(f)
       );
     }
     for (const m of [...meals, ...recipes]) {
+      { const [app, ext] = _source(m); if (app) releaseMeal.run(u ?? null, app, ext); }
       insMeal.run(
         u, m.name || '', JSON.stringify(m.nutrition || {}),
         JSON.stringify(m.items || []),
@@ -115,11 +146,21 @@ router.post('/import', wrap((req, res) => {
         m.source_id ?? null,
         m.favorite ? 1 : 0,
         Math.max(0, parseInt(m.usage_count) || 0),
-        m.last_used_at || null
+        m.last_used_at || null,
+        ..._source(m),
+        Array.isArray(m.import_warnings) && m.import_warnings.length
+          ? JSON.stringify(m.import_warnings.map(w => String(w || '').slice(0, 400)).filter(Boolean).slice(0, 20))
+          : (typeof m.import_warnings === 'string' && m.import_warnings ? m.import_warnings : null)
       );
     }
     for (const e of diary) {
       if (!e.date) continue;
+      const prev = prevDay.get(e.date, u ?? null);
+      const notes = (typeof e.notes === 'string' && e.notes.trim()) ? e.notes : null;
+      // The marks go as one: the export's when it has them (even "not
+      // closed"), the day's own when it's from before the marks.
+      const hasMarks = ['completed_at', 'completed_meals', 'completion_marked_at', 'meal_marks_at'].some(k => k in e);
+      const marks = hasMarks ? e : (prev || {});
       insDiary.run(
         u, e.date,
         // #239: exports from before per-item uuids carry none; give them one
@@ -127,7 +168,13 @@ router.post('/import', wrap((req, res) => {
         JSON.stringify(ensureUuids(e.items || [])),
         JSON.stringify(e.bodyStats || e.body_stats || {}),
         JSON.stringify(ensureUuids(e.water || [])),
-        (typeof e.notes === 'string' && e.notes.trim()) ? e.notes : null
+        notes,
+        // A note without its time counts from now (the insert trigger).
+        notes ? _text(e.notes_updated_at) : null,
+        _text(marks.completed_at),
+        _slots(marks.completed_meals),
+        _text(marks.completion_marked_at),
+        _text(marks.meal_marks_at)
       );
     }
     for (const a of activity) {

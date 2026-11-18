@@ -537,7 +537,7 @@ async function _fastsCachedGet(path) {
   if (path === '/api/fasts/active') return await dbGetActiveFast();
   if (path.startsWith('/api/fasts')) {
     const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
-    const limit = Math.min(365, Math.max(1, parseInt(q.get('limit')) || 60));
+    const limit = Math.min(100000, Math.max(1, parseInt(q.get('limit')) || 60));
     return await dbGetFasts(limit);
   }
   return null;

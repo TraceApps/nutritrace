@@ -124,6 +124,8 @@
             if (entry.date) await dbm.dbSaveDiaryDate(entry.date, entry).catch(() => {});
           }
           for (const a of (data.activity || [])) await dbm.dbCreateActivity(a).catch(() => {});
+          // Fasts too, as on a server (they were left out here).
+          for (const f of (data.fasts || [])) await dbm.dbRestoreFast(f).catch(() => {});
         } else {
           await NtApi.post('/api/data/import', { ...data, foodList, meals, recipes });
         }

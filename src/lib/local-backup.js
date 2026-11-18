@@ -320,7 +320,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
       const {
         dbCreateFood, dbCreateMeal, dbSaveDiaryDate, dbUpsertWellness,
         dbUpsertFromServer, dbUpsertWorkoutFromServer, dbUpsertActivityFromServer,
-        dbStartFast, dbUpdateFast,
+        dbRestoreFast,
       } = await import('./db-native.js');
       // Foods / meals / recipes — prefer the *FromServer upsert path when the
       // export carries an `id` (or `server_id`). Falling back to dbCreateFood
@@ -385,16 +385,10 @@ export async function importLocalBackup(zipFile, opts = {}) {
           counts.activity++;
         } catch {}
       }
-      // Fasts — replay completed + active fasts. Use dbStartFast + dbUpdateFast
-      // so the local sync_status pipeline applies correctly.
+      // Fasts, finished and running, as they were. Starting them one by one
+      // stopped at a running one and lost every fast older than it.
       for (const f of fasts) {
-        if (!f.start_at) continue;
-        try {
-          const row = await dbStartFast({ goal_hours: f.goal_hours, start_at: f.start_at });
-          if (f.end_at) await dbUpdateFast(row.id, { end_at: f.end_at });
-          if (f.notes)  await dbUpdateFast(row.id, { notes: f.notes });
-          counts.fasts++;
-        } catch {}
+        try { if (await dbRestoreFast(f)) counts.fasts++; } catch {}
       }
     } catch (e) {
       console.warn('[backup] native import failed:', e.message);

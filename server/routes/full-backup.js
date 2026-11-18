@@ -427,6 +427,16 @@ function restoreFromZip(zip) {
       id: null, used_at: null, created_at: null, ...r,
     });
 
+    // Emails changed and not confirmed yet (the users above cascaded them
+    // away); a backup from before has none, as then.
+    try {
+      db.prepare('DELETE FROM user_email_changes').run();
+      const insEmailChange = db.prepare(`INSERT OR IGNORE INTO user_email_changes (user_id, email, previous_email, changed_at) VALUES (@user_id, @email, @previous_email, @changed_at)`);
+      for (const c of (data.user_email_changes || []).filter(x => restoredUsers.has(x.user_id))) {
+        try { insEmailChange.run({ email: null, previous_email: null, ...c, changed_at: c.changed_at ?? Date.now() }); } catch { /* one bad row */ }
+      }
+    } catch { /* table not in this build */ }
+
     // Outstanding invite tokens so pending invites don't 404 after restore.
     db.prepare('DELETE FROM invite_tokens').run();
     const insInvite = db.prepare(`
@@ -720,6 +730,9 @@ function dumpDatabase() {
     // two-step key, which is never in the archive; recovery codes are hashes.
     user_two_step:    db.prepare('SELECT * FROM user_two_step').all(),
     user_two_step_recovery: db.prepare('SELECT * FROM user_two_step_recovery').all(),
+    // An email changed and not yet confirmed (lib/link-grant.js): without it a
+    // restore made the new email count as confirmed.
+    user_email_changes: (() => { try { return db.prepare('SELECT * FROM user_email_changes').all(); } catch { return []; } })(),
   };
 }
 

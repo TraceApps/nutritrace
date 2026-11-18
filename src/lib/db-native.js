@@ -1365,9 +1365,10 @@ export async function dbSaveDiaryDate(date, data) {
   const incomingCompleted = (typeof data.completed_at === 'string' && data.completed_at) ? data.completed_at : null;
   const completedAt = incomingCompleted || (existing?.completed_at || null);
   const existingMeals = _parseSlotArrayLocal(existing?.completed_meals);
+  // A backup keeps the marks as stored here (JSON text), an export as a list.
   const incomingMeals = Array.isArray(data.completed_meals)
     ? data.completed_meals.filter(n => Number.isInteger(n) && n >= 0 && n <= 31)
-    : [];
+    : (typeof data.completed_meals === 'string' ? _parseSlotArrayLocal(data.completed_meals) : []);
   const mergedMeals = Array.from(new Set([...existingMeals, ...incomingMeals])).sort((a, b) => a - b);
   const completedMealsJson = mergedMeals.length ? JSON.stringify(mergedMeals) : null;
   await db.run(
@@ -2957,6 +2958,35 @@ export async function dbGetFasts(limit = 60) {
     [LOCAL_USER_ID, limit]
   );
   return (r?.values || []).map(_fastRow);
+}
+
+/**
+ * A fast from a backup or an export, as it was (start, end, goal, note).
+ * dbStartFast refuses while one is running, so restoring newest first lost
+ * every fast after a running one. One already here (same start) isn't
+ * added twice, and a running one isn't added beside the one running here.
+ * Returns true when it was added.
+ */
+export async function dbRestoreFast(f) {
+  if (!f || !f.start_at) return false;
+  const db = await getDb();
+  const same = await db.query(`SELECT id, end_at FROM fasts WHERE user_id = ? AND start_at = ? AND deleted_at IS NULL`, [LOCAL_USER_ID, f.start_at]);
+  const here = (same?.values || [])[0];
+  if (here) {
+    // Running here and finished in the backup: it ends as it did there.
+    if (here.end_at || !f.end_at) return false;
+    await dbUpdateFast(here.id, { end_at: f.end_at, ...(f.notes != null ? { notes: String(f.notes).slice(0, 500) } : {}) });
+    return true;
+  }
+  if (!f.end_at && await dbGetActiveFast()) return false;
+  const now = new Date().toISOString();
+  await db.run(
+    `INSERT INTO fasts (user_id, start_at, end_at, goal_hours, notes, created_at, updated_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    [LOCAL_USER_ID, f.start_at, f.end_at || null, Number(f.goal_hours) || 16,
+      f.notes != null ? String(f.notes).slice(0, 500) : null, now, now]
+  );
+  return true;
 }
 
 export async function dbStartFast({ goal_hours = 16, start_at = null } = {}) {

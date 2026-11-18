@@ -46,7 +46,8 @@ function _row(r) {
 // ── List recent fasts ────────────────────────────────────────────────────────
 router.get('/', wrap((req, res) => {
   const u = uid(req);
-  const limit = Math.min(365, Math.max(1, parseInt(req.query.limit) || 30));
+  // A backup or export asks for all of them (#332 backup check): no cap at 365.
+  const limit = Math.min(100000, Math.max(1, parseInt(req.query.limit) || 30));
   const where = u != null ? 'user_id = ? AND deleted_at IS NULL' : 'deleted_at IS NULL';
   const params = u != null ? [u, limit] : [limit];
   const rows = db.prepare(
