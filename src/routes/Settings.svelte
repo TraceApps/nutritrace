@@ -20,7 +20,7 @@
   import { onMount, tick, afterUpdate, onDestroy } from 'svelte';
   import { fold } from '../lib/fold.js';
   import { push, querystring } from 'svelte-spa-router';
-  import { _ } from 'svelte-i18n';
+  import { _, locale } from 'svelte-i18n';
   import { slide, fade } from 'svelte/transition';
 
   import { currentUser, userMgmtActive } from '../stores/auth.js';
@@ -59,6 +59,7 @@
   import About             from './settings/About.svelte';
   import Profile           from './Profile.svelte';
   import { foldText } from '../lib/search-text.js';
+  import { sectionHaystacks, sectionMatches, normalize } from '../lib/settings-search.js';
 
 
   // ── Route param → current section ──────────────────────────────────────
@@ -298,16 +299,16 @@
   // reachable even when the section body isn't mounted — the search
   // runs on the index, before drill-in.
   const SECTION_KEYWORDS = {
-    serverConnection:  ['server','connection','sync','cloud','local','remote','connect','disconnect','url','http','https','plain http','not encrypted','unencrypted','encryption'],
+    serverConnection:  ['server','connection','sync','cloud','local','remote','connect','disconnect','url','http','https','plain http','not encrypted','unencrypted','encryption','offline','local mode'],
     authentication:    ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','pocket id','auth0','google','password login','admin group'],
-    appearance:        ['appearance','theme','dark','light','accent','color','navigation','sidebar','persistent','start page','animations','celebrations','reduce motion','banner','page banner','force mobile','mobile layout','mobile view','phone layout','narrow layout'],
-    regional:          ['regional','language','translation','date format','time format','locale','first day of week','first day','week start','start of week','week starts','monday','sunday','saturday','calendar','date','time','12h','24h','units','energy unit','weight unit','height','circumference','distance','temperature','imperial','metric'],
+    appearance:        ['appearance','theme','dark','light','accent','color','navigation','sidebar','persistent','start page','animations','celebrations','reduce motion','banner','page banner','force mobile','mobile layout','mobile view','phone layout','narrow layout','dark mode','light mode','night mode'],
+    regional:          ['regional','language','translation','date format','time format','locale','first day of week','first day','week start','start of week','week starts','monday','sunday','saturday','calendar','date','time','12h','24h','units','energy unit','weight unit','height','circumference','distance','temperature','imperial','metric','kg','kilograms','lb','lbs','pounds','stone','km','kilometers','kilometres','miles','cm','centimeters','inches','feet','celsius','fahrenheit','kj','kilojoules','kcal','calories','english','french','german','spanish','russian','norwegian','français','deutsch','español','русский','norsk'],
     diary:             ['diary','brands','timestamps','thumbnails','nutrients','nutrition units','macros','macro summary','prompt quantity','portion size','nutrition bar','goals progress','meal names','meals','activity','activity section','exercise','activity template','workout template','template','compendium','met','fasting','fast','intermittent fasting','if','16:8','omad','time restricted','unit metadata','unit conversion','unit conversions','nutrition basis','basis','serving units','serving sizes','density','g/ml','slice','bottle','cookie','milliliter','milliliters','mass','volume','oil','honey','warn','daily notes','notes','quick calories','quick cal','bolt','adjust calorie','calorie adjustment','earn back','wearable activity','activity policy','widget','widgets','rail','right rail','right column','desktop rail','desktop widgets','day summary widget','water widget','weight widget','measurements widget','activity impact','day notes','mark complete','completion','meal completion','close day','close today','adherence','default field','cursor','focus','number of servings','serving size'],
     foods:             ['foods','thumbnails','category','notes','yesterday meals','sort order','sort','barcode','scan','beep','flashlight','crop photos','search all','all sources','merged search','default source','default search','my foods','off','usda','mealie','nutrition facts','nutrition label','label','daily value','% daily value','dv','per 100 g','per 100g','per 100 ml','100 g','100 ml','compare foods','right column'],
     water:             ['water','display unit','daily goal','containers','bottle','cup','glass'],
     categories:        ['categories','food categories','tags','labels'],
     customUnits:       ['units','custom units','unit dropdown','shot','scoop','stick','add unit'],
-    nutrients:         ['nutrients','nutriments','custom nutrients','vitamins','minerals'],
+    nutrients:         ['nutrients','nutriments','custom nutrients','vitamins','minerals','kj','kcal'],
     goals:             ['goals','calorie goal','dynamic calorie','adaptive','adaptive tdee','adaptive calorie','tdee','energy expenditure','burn','calories out','factor','lose','gain','maintain','activity','exercise','weight trend','macrofactor','learn','fixed'],
     bodyStats:         ['body stats','body','weight','measurements','stats','body fat','body water','hydration','muscle','bone'],
     statistics:        ['statistics','chart','y-axis','average','goal line','trend','stats'],
@@ -346,8 +347,27 @@
     // makes the rail feel like it lost their place — the active
     // item vanishes even though they're still ON that page.
     if (key === currentSection) return true;
-    return (SECTION_KEYWORDS[key] || []).some(kw => kw.includes(query));
+    return sectionMatches(query, _searchText[key]);
   };
+  // What each section is searched by: what it shows (labels, descriptions,
+  // buttons, options; src/lib/settings-search-index.json, made from its
+  // files by scripts/gen-settings-search.mjs) in this language and in
+  // English, its title, and the other names in SECTION_KEYWORDS. Every word
+  // typed has to be in it (src/lib/settings-search.js).
+  // Loaded with Settings, not with the app; until it's in, titles and the
+  // keywords still search.
+  let _searchIndex = {};
+  import('../lib/settings-search-index.json').then(m => { _searchIndex = m.default || m; }).catch(() => {});
+  // Built when a search starts (not on every visit), again if the
+  // language or the index changes while searching.
+  $: _searching = !!settingsQuery;
+  $: _searchText = !_searching ? {} : sectionHaystacks(_searchIndex, {
+    keywords: SECTION_KEYWORDS,
+    titles: Object.fromEntries(Object.entries(SECTION_META).map(([k, m]) => [k, `${$_(m.titleKey)} ${$_(m.titleKey, { locale: 'en' })}`])),
+    translate: k => $_(k),
+    english: k => $_(k, { locale: 'en' }),
+    _locale: $locale,
+  });
   // Rail "no matches" placeholder — set to true when the query is
   // non-empty AND every section keyword-map entry fails to match.
   // Shown at the bottom of the rail so users see feedback instead
@@ -439,9 +459,14 @@
     const candidates = scope.querySelectorAll(
       '.setting-label, .setting-desc, .sub-label, .setting-row'
     );
+    // The row with the words typed, as the search matches them (any order,
+    // punctuation aside), the exact phrase first.
     let hit = null;
     for (const el of candidates) {
       if (foldText(el.textContent).includes(q_norm)) { hit = el; break; }
+    }
+    if (!hit) for (const el of candidates) {
+      if (sectionMatches(q, normalize(el.textContent))) { hit = el; break; }
     }
     if (!hit) return;
     // Climb to the enclosing .setting-row for the highlight anchor —

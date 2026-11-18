@@ -24,6 +24,10 @@ Thanks for your interest in NutriTrace.
 - The Android shell lives in `android/`; if you change web assets the maintainer will run `npx cap sync android` and rebuild the APK.
 - No DCO or CLA required.
 
+## Settings search
+
+Settings search finds a section by what it shows, from an index made from the Settings files (`src/lib/settings-search-index.json`). After adding or rewording a setting, run `node scripts/gen-settings-search.mjs` and commit the index with the change; `npm test` fails until you do. Other names people use for a setting (such as "2fa") go in `SECTION_KEYWORDS` in `src/routes/Settings.svelte`.
+
 ## Translations
 
 NutriTrace uses [svelte-i18n](https://github.com/kaisermann/svelte-i18n) with one JSON file per locale in `src/i18n/`. The English file at `src/i18n/en.json` is the source of truth.
