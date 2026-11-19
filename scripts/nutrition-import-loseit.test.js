@@ -16,6 +16,13 @@ test('the logged amount is the portion, not the number of servings', () => {
   const [item] = parseLoseit(CSV);
   assert.equal(item.quantity, 1);
   assert.equal(item.portion, 50);
-  assert.equal(item.unit, 'Grams');
+  assert.equal(item.unit, 'g');
   assert.equal(item.nutrition.calories, 185);
+});
+
+test('spelled-out units become the symbols the diary scales by', () => {
+  const head = CSV.split('\n')[0];
+  const row = (q, u) => `08/27/2025,Milk,Cereal,Breakfast,${q},${u},100,0,1,1,1,1,1,1,0,1`;
+  const items = parseLoseit([head, row(250, 'Milliliters'), row(2, 'Ounces'), row(1, 'Fluid Ounces'), row(1, 'Cup'), row(1, 'Serving')].join('\n') + '\n');
+  assert.deepEqual(items.map(i => i.unit), ['ml', 'oz', 'fl oz', 'cup', 'Serving']);
 });
