@@ -28,6 +28,7 @@ import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
 import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
 import { clientClock, parseUtc, editMs, resolveNote, sqlTime, onServerClock } from '../lib/sync-clock.js';
 import { mergeEdit, deleteLoses, editRevives, rowTimes, readTimes, instantMs, stampTimes, createdTimes, isoTime, valueKey, laterThan } from '../lib/field-sync.js';
+import { writeSetting } from '../lib/setting-merge.js';
 import { SYNC_FIELDS, SYNC_GROUPS, SYNC_JSON } from '../lib/sync-fields.js';
 import { mergeBodyStats, changedList } from '../lib/body-stats-merge.js';
 import { readablePairingIds, createMessage, deleteMessage, messageOut, notifyMessage, pairingById } from '../lib/coaching-messages.js';
@@ -893,6 +894,9 @@ router.post('/push', wrap(async (req, res) => {
       // whose pushed change lost is written anyway (updated_at, the pull's
       // cursor), so the phone's next pull puts the newer one back.
       const taken = [];
+      // Every setting edit meets the one here by the same rule, in
+      // milliseconds; a losing edit only moves updated_at (the pull's
+      // cursor) so the phone's next pull brings the winner back.
       for (const s of settings) {
         if (!s || typeof s.key !== 'string' || !s.key) continue;
         if (isServerOnlyKey(s.key)) continue; // silently skip; don't tell client what's protected
@@ -903,32 +907,14 @@ router.post('/push', wrap(async (req, res) => {
         if (stored === undefined) { result.settings.push({ key: s.key }); continue; }
         const sAt = editAt(s.updated_at);
         const at = Number.isFinite(sAt) ? sAt : receivedAt;
-        const touch = () => db.prepare(`UPDATE user_settings SET updated_at = datetime('now') WHERE user_id = ? AND key = ?`).run(u, s.key);
-        if (s.deleted_at) {
-          if (existing && !existing.deleted_at) {
-            if (deleteLoses({ existing, fields: ['value'], at }) != null) touch();
-            else {
-              db.prepare(`UPDATE user_settings SET deleted_at = datetime('now'), field_times = ?, updated_at = datetime('now') WHERE user_id = ? AND key = ?`)
-                .run(JSON.stringify(stampTimes(rowTimes(existing), ['deleted_at'], at)), u, s.key);
-            }
-          }
-        } else if (!existing) {
-          db.prepare(`INSERT INTO user_settings (user_id, key, value, field_times, updated_at) VALUES (?, ?, ?, ?, datetime('now'))`)
-            .run(u, s.key, stored, JSON.stringify(createdTimes(at)));
-          taken.push(s.key);
-        } else {
-          const m = mergeEdit({ existing, values: { value: stored }, fields: ['value'], at });
-          // One with no readable time is a copy a client has had for a
-          // while, not a change made now: it never brings a delete back.
-          const revive = existing.deleted_at && Number.isFinite(sAt) && editRevives({ existing, at });
-          if (existing.deleted_at && !revive) touch();
-          else {
-            if (revive) m.times.deleted_at = isoTime(at);
-            db.prepare(`UPDATE user_settings SET value = ?, field_times = ?, updated_at = datetime('now'), deleted_at = NULL WHERE user_id = ? AND key = ?`)
-              .run(m.row.value, JSON.stringify(m.times), u, s.key);
-            if (!m.lost.length) taken.push(s.key);
-          }
-        }
+        const written = writeSetting(
+          db, u, s.key,
+          s.deleted_at ? { deleted: true } : { value: stored },
+          at,
+          // A copy with no readable time never brings a delete back.
+          { mayRevive: Number.isFinite(sAt) }
+        );
+        if (written.kept && !s.deleted_at) taken.push(s.key);
         result.settings.push({ key: s.key });
       }
       // Setup's birthday and gender belong on the account too (#269): an

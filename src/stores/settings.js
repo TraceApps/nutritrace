@@ -164,10 +164,15 @@ async function _serverRequestDeferred() {
     return false;
   }
 }
-export function scheduleSave(key, value) {
+export function scheduleSave(key, value, at = new Date().toISOString()) {
   if (!SERVER_SETTINGS.has(key)) return;
   if (_suppressSync) return;
   clearTimeout(_saveQueue[key]);
+  // The moment this change was made, kept in its retry too: a save sent after
+  // a timeout must name the same edit time as the request that may have
+  // reached the server. An older save arriving late therefore loses to a
+  // newer edit instead of overwriting it.
+  const madeAt = at || new Date().toISOString();
   // The account the change was made for: if another one is signed in by
   // the time it goes, it doesn't go (it would land in that account).
   const forUser = _userKey();
@@ -200,7 +205,7 @@ export function scheduleSave(key, value) {
         method: 'PUT',
         credentials: 'include',
         headers: _authHeaders(),
-        body: JSON.stringify({ key, value }),
+        body: JSON.stringify({ key, value, changed_at: madeAt, client_now: new Date().toISOString() }),
         signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
@@ -223,7 +228,7 @@ export function scheduleSave(key, value) {
       if (!isNative) {
         try {
           const { queueSetting } = await import('../lib/offline-api.js');
-          await queueSetting(key, value);
+          await queueSetting(key, value, madeAt);
         } catch { /* nothing more to try */ }
       }
     }
@@ -253,6 +258,9 @@ export async function bulkSet(settingsObj) {
 
   // Filter to USER_PREFS only
   const userPrefEntries = entries.filter(([k]) => USER_PREFS.has(k));
+  // One request, one moment: every key of the batch is edited at the time
+  // the batch was made, and its retry keeps that time too.
+  const madeAt = new Date().toISOString();
 
   // Step 1: write to localStorage WITH suppressSync so the global listener
   // doesn't fire individual debounced pushes for each key
@@ -273,7 +281,7 @@ export async function bulkSet(settingsObj) {
     try {
       const { dbUpsertSetting } = await import('../lib/db-native.js');
       for (const [key, value] of userPrefEntries) {
-        const updatedAt = await dbUpsertSetting(key, value);
+        const updatedAt = await dbUpsertSetting(key, value, madeAt);
         snapshotByKey.set(key, updatedAt);
       }
     } catch (e) {
@@ -295,7 +303,7 @@ export async function bulkSet(settingsObj) {
       method: 'PUT',
       credentials: 'include',
       headers: _authHeaders(),
-      body: JSON.stringify({ settings: bulkObj }),
+      body: JSON.stringify({ settings: bulkObj, changed_at: madeAt, client_now: new Date().toISOString() }),
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw new Error(`Server responded ${res.status}`);
@@ -448,6 +456,8 @@ if (typeof window !== 'undefined') {
     if (!USER_PREFS.has(key)) return;        // device-only or unknown key — skip
     if (_suppressSync) return;                // server-sourced update — don't echo
     const value = DB.getSetting(key, undefined);
+    // The moment this edit was made: shared by the native row and the save.
+    const at = new Date().toISOString();
     _recentlyChanged.set(key, Date.now());
     // Native: write to local SQLite immediately (marks as pending for sync protection)
     // Not while the phone's copy may still be the previous account's.
@@ -455,10 +465,10 @@ if (typeof window !== 'undefined') {
       import('../lib/local-account.js').then(async la => {
         if (!la.localCopyIsCurrent()) return;
         const { dbUpsertSetting } = await import('../lib/db-native.js');
-        await dbUpsertSetting(key, value);
+        await dbUpsertSetting(key, value, at);
       }).catch(() => {});
     }
-    scheduleSave(key, value);
+    scheduleSave(key, value, at);
   });
 }
 
@@ -517,12 +527,13 @@ function createSettingStore(key, defaultValue) {
       DB.setSetting(key, value);
       store.set(value);
       if (_suppressSync) return; // Server-sourced update — don't push back
+      const at = new Date().toISOString();
       _recentlyChanged.set(key, Date.now());
       // On native: write to local SQLite immediately (marks as pending for sync protection)
       if (isNative && SERVER_SETTINGS.has(key)) {
-        import('../lib/db-native.js').then(({ dbUpsertSetting }) => dbUpsertSetting(key, value)).catch(() => {});
+        import('../lib/db-native.js').then(({ dbUpsertSetting }) => dbUpsertSetting(key, value, at)).catch(() => {});
       }
-      scheduleSave(key, value);
+      scheduleSave(key, value, at);
     },
     update(fn) {
       const current = DB.getSetting(key, defaultValue);

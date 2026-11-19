@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   applyDiaryOps, dayWithOps, collapseOps, buildDiaryPush, sentSeqs, pushError, isOfflineError, emptyDay,
+  collapseSettingOps,
 } from '../src/lib/offline-edits.js';
 
 const day = (date, items) => ({ date, id: 7, items, water: [], body_stats: {} });
@@ -317,4 +318,26 @@ test('the readings this browser keeps have a ceiling, oldest let go first', () =
   assert.deepEqual(staleReadKeys(rows, 2).sort(), ['/b', '/c']);
   assert.deepEqual(staleReadKeys(rows, 4), [], 'nothing goes while there is room');
   assert.deepEqual(staleReadKeys([{ key: '/x' }, { key: '/y', at: 5 }], 1), ['/x']);
+});
+
+
+test('settings collapse by when each was edited, not by when its save was enqueued', () => {
+  // The early save's request failed late, so its op got the bigger seq after
+  // the newer edit was already queued. Sending it would put the older value.
+  const ops = [
+    { seq: 9, type: 'setting', key: 'waterGoalMl', data: 1900, at: 1_700_000_001_000 },
+    { seq: 2, type: 'setting', key: 'waterGoalMl', data: 2400, at: 1_700_000_002_000 },
+  ];
+  const [row] = collapseSettingOps(ops);
+  assert.equal(row.value, 2400, 'the later edit is the one sent');
+  assert.equal(row.updated_at, new Date(1_700_000_002_000).toISOString(), 'named by its own edit time');
+});
+
+test('a tie between two settings for one key goes to the later queue entry', () => {
+  const at = 1_700_000_003_000;
+  const [row] = collapseSettingOps([
+    { seq: 4, type: 'setting', key: 'waterGoalMl', data: 'a', at },
+    { seq: 5, type: 'setting', key: 'waterGoalMl', data: 'b', at },
+  ]);
+  assert.equal(row.value, 'b');
 });

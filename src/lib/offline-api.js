@@ -129,7 +129,11 @@ function _db() {
   return p;
 }
 
-/** Move everything from an old database into this one, then drop it. */
+/** Move everything from an old database into this one, then drop it.
+ *  Settings are the exception: they belong to the account whose database
+ *  they were queued in, so they stay behind and only go while that account
+ *  is active. If any stayed, the old database is left in place; the work
+ *  that did move is removed from it, so nothing is sent twice. */
 async function _absorb(oldName, db) {
   if (!db) return;
   const old = await new Promise((resolve) => {
@@ -146,6 +150,7 @@ async function _absorb(oldName, db) {
   // tidied them up, and bringing a stale one back resurrects what was
   // deleted.
   const stores = _changedSomething ? ['outbox', 'meta'] : _STORES;
+  let keepOld = false;
   for (const store of stores) {
     if (!old.objectStoreNames.contains(store) || !db.objectStoreNames.contains(store)) continue;
     const rows = await new Promise((resolve) => {
@@ -156,19 +161,38 @@ async function _absorb(oldName, db) {
       } catch { resolve([]); }
     });
     if (!rows.length) continue;
-    await new Promise((resolve) => {
+    // A queued setting stays with the account it was made under.
+    const moving = store === 'outbox' ? rows.filter(row => row.type !== 'setting') : rows;
+    if (store === 'outbox' && moving.length !== rows.length) keepOld = true;
+    if (!moving.length) continue;
+    const copied = await new Promise((resolve) => {
       try {
         const tx = db.transaction(store, 'readwrite');
         const s = tx.objectStore(store);
         // The outbox is keyed by a running number, so queued work is re-added
         // and given a new one rather than landing on top of something.
-        for (const row of rows) { if (store === 'outbox') { const { seq, ...rest } = row; s.add(rest); } else s.put(row); }
-        tx.oncomplete = tx.onerror = tx.onabort = () => resolve();
-      } catch { resolve(); }
+        for (const row of moving) { if (store === 'outbox') { const { seq, ...rest } = row; s.add(rest); } else s.put(row); }
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = tx.onabort = () => resolve(false);
+      } catch { resolve(false); }
     });
+    // The work that moved is removed from the old queue: on returning to
+    // that account it must not go up a second time.
+    if (copied && store === 'outbox') {
+      await new Promise((resolve) => {
+        try {
+          const tx = old.transaction('outbox', 'readwrite');
+          const s = tx.objectStore('outbox');
+          for (const row of moving) s.delete(row.seq);
+          tx.oncomplete = tx.onerror = tx.onabort = () => resolve();
+        } catch { resolve(); }
+      });
+    }
   }
   old.close();
-  try { indexedDB.deleteDatabase(oldName); } catch { /* another tab has it open */ }
+  if (!keepOld) {
+    try { indexedDB.deleteDatabase(oldName); } catch { /* another tab has it open */ }
+  }
   _ops = null;
   await _loadOps();
   _publish();
@@ -458,10 +482,15 @@ function _superseding(key, send) {
   return mine;
 }
 
-export async function queueSetting(key, value) {
+/**
+ * A setting changed here with no connection. `changedAt` is when the change
+ * was made, not when this reaches the queue: a request that timed out is
+ * queued after the fact, and its retry must still name the edit's moment.
+ */
+export async function queueSetting(key, value, changedAt) {
   _changedSomething = true;
   const ops = await _loadOps();
-  const op = { type: 'setting', key, data: value, at: Date.now() };
+  const op = { type: 'setting', key, data: value, at: changedAt ? Date.parse(changedAt) || Date.now() : Date.now() };
   const seq = await _addOp(op);
   if (seq == null) return false;
   op.seq = seq;

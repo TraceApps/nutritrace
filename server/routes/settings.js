@@ -7,6 +7,8 @@ import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
 import { coachingSignature } from '../lib/coaching.js';
 import { fillIfSetupAnswers } from '../lib/profile-fields.js';
 import { clientSetting, readSettingRaw, settingToStore } from '../lib/secret-settings.js';
+import { clientClock, editMs } from '../lib/sync-clock.js';
+import { writeSetting } from '../lib/setting-merge.js';
 
 // Push services usually live on the home network, so that's allowed for
 // every account; the address is still checked, and a redirect only
@@ -53,6 +55,19 @@ router.get('/', wrap((req, res) => {
   res.json(out);
 }));
 
+// When the client made the change, on the server's clock (ms): its own
+// clock set right by the offset the request reports, and never in the
+// future. Absent (an older app, a detected zone) means now. This is the
+// instant that decides which edit wins (lib/setting-merge.js), and it
+// belongs to the request and to its retries.
+function _editTime(req) {
+  const raw = req.body?.changed_at;
+  if (raw == null) return null;
+  const clock = clientClock(req.body?.client_now);
+  const ms = editMs(raw, clock, Date.now(), {});
+  return Number.isFinite(ms) ? ms : null;
+}
+
 // PUT /api/settings — upsert one setting
 // SECURITY: rejects writes to server-only keys (OAuth secrets etc.).
 router.put('/', wrap((req, res) => {
@@ -63,9 +78,12 @@ router.put('/', wrap((req, res) => {
   // A secret is stored encrypted; the placeholder sent back for one leaves it be.
   const stored = settingToStore(key, value, _stored(req.user.id, key));
   if (stored === undefined) return res.json({ ok: true });
-  db.prepare(`INSERT INTO user_settings (user_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
-    ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now'), deleted_at = NULL`)
-    .run(req.user.id, key, stored);
+  // A save made at one moment and delivered later meets the newer edit and
+  // loses; the newer one stays (lib/setting-merge.js).
+  const at = _editTime(req) ?? Date.now();
+  db.transaction(() => {
+    writeSetting(db, req.user.id, key, { value: stored }, at);
+  })();
   // Setup's birthday and gender belong on the account too (#269).
   fillIfSetupAnswers(db, req.user.id, [key]);
   res.json({ ok: true });
@@ -81,17 +99,17 @@ router.put('/bulk', wrap((req, res) => {
   if (!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object required' });
   }
-  const upsert = db.prepare(
-    `INSERT INTO user_settings (user_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
-     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now'), deleted_at = NULL`
-  );
   let written = 0, skipped = 0;
+  // One request, one moment: every key of the batch is edited at the same
+  // time, so a change from another device between two keys of it can't
+  // split the batch.
+  const at = _editTime(req) ?? Date.now();
   db.transaction(() => {
     for (const [key, value] of Object.entries(settings)) {
       if (isServerOnlyKey(key)) { skipped++; continue; }
       const stored = settingToStore(key, value, _stored(req.user.id, key));
       if (stored === undefined) { skipped++; continue; }
-      upsert.run(req.user.id, key, stored);
+      writeSetting(db, req.user.id, key, { value: stored }, at);
       written++;
     }
     // Setup's birthday and gender belong on the account too (#269).
@@ -103,7 +121,13 @@ router.put('/bulk', wrap((req, res) => {
 // DELETE /api/settings — clear all settings for the current user
 router.delete('/', wrap((req, res) => {
   if (userMgmtActive() && req.user) {
-    db.prepare(`UPDATE user_settings SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE user_id = ?`).run(req.user.id);
+    // A reset clears every setting at the moment it was made, not when it
+    // arrived: a phone's newer edit still brings its setting back.
+    const at = _editTime(req) ?? Date.now();
+    db.transaction(() => {
+      const rows = db.prepare('SELECT key FROM user_settings WHERE user_id = ?').all(req.user.id);
+      for (const { key } of rows) writeSetting(db, req.user.id, key, { deleted: true }, at);
+    })();
   }
   res.json({ ok: true });
 }));
