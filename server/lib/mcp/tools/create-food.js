@@ -47,6 +47,34 @@ const KEY_ALIASES = {
   'pantothenic-acid': 'b5',
 };
 
+/**
+ * Filter nutrition to known keys with finite values. Silent drop rather
+ * than reject-the-whole-call so partial data still lands, but report what
+ * was dropped so the agent can retry. Per-value sanity cap catches
+ * hallucinated 1e12 values before they poison the catalog (real
+ * per-portion nutriments are all under 10000). Shared with update_food.
+ */
+const MAX_NUT_VALUE = 100000;
+export function cleanNutrition(nutrition) {
+  const clean = {};
+  const rejected = [];
+  const aliased = [];
+  for (const [rawKey, v] of Object.entries(nutrition || {})) {
+    // Map common aliases to canonical ids before validating so the
+    // caller's `protein` / `carbs` / `vitamin-b12` land under the
+    // key the rest of the app sums (`proteins` / `carbohydrates` /
+    // `b12`). Note the alias mapping so the response is honest.
+    const k = KEY_ALIASES[rawKey] || rawKey;
+    if (k !== rawKey) aliased.push(`${rawKey} → ${k}`);
+    if (!NUTRIMENT_KEYS.has(k))  { rejected.push(`${rawKey} (unknown key)`); continue; }
+    if (!Number.isFinite(v))     { rejected.push(`${rawKey} (not a number)`); continue; }
+    if (v < 0)                   { rejected.push(`${rawKey} (negative)`); continue; }
+    if (v > MAX_NUT_VALUE)       { rejected.push(`${rawKey} (${v} exceeds ${MAX_NUT_VALUE} cap)`); continue; }
+    clean[k] = Math.round(v * 100) / 100;
+  }
+  return { clean, rejected, aliased };
+}
+
 export function registerCreateFood(server, { userId }) {
   server.registerTool(
     'create_food',
@@ -85,28 +113,7 @@ export function registerCreateFood(server, { userId }) {
       const cleanBrand = brand?.trim() || null;
       if (!cleanName) return toolError('name is required and cannot be blank.');
 
-      // Filter nutrition to known keys with finite values. Silent drop
-      // rather than reject-the-whole-call so partial data still lands,
-      // but report what was dropped so the agent can retry. Per-value
-      // sanity cap catches hallucinated 1e12 values before they poison
-      // the catalog (real per-portion nutriments are all under 10000).
-      const MAX_NUT_VALUE = 100000;
-      const clean = {};
-      const rejected = [];
-      const aliased = [];
-      for (const [rawKey, v] of Object.entries(nutrition || {})) {
-        // Map common aliases to canonical ids before validating so the
-        // caller's `protein` / `carbs` / `vitamin-b12` land under the
-        // key the rest of the app sums (`proteins` / `carbohydrates` /
-        // `b12`). Note the alias mapping so the response is honest.
-        const k = KEY_ALIASES[rawKey] || rawKey;
-        if (k !== rawKey) aliased.push(`${rawKey} → ${k}`);
-        if (!NUTRIMENT_KEYS.has(k))  { rejected.push(`${rawKey} (unknown key)`); continue; }
-        if (!Number.isFinite(v))     { rejected.push(`${rawKey} (not a number)`); continue; }
-        if (v < 0)                   { rejected.push(`${rawKey} (negative)`); continue; }
-        if (v > MAX_NUT_VALUE)       { rejected.push(`${rawKey} (${v} exceeds ${MAX_NUT_VALUE} cap)`); continue; }
-        clean[k] = Math.round(v * 100) / 100;
-      }
+      const { clean, rejected, aliased } = cleanNutrition(nutrition);
       if (Object.keys(clean).length === 0) {
         return toolError(
           `nutrition must include at least one valid nutriment. Rejected: ${rejected.join('; ') || '(none)'}. ` +
@@ -121,7 +128,7 @@ export function registerCreateFood(server, { userId }) {
           WHERE user_id = ?
             AND deleted_at IS NULL
             AND LOWER(name) = LOWER(?)
-            AND ( (brand IS NULL AND ? IS NULL) OR LOWER(brand) = LOWER(?) )
+            AND ( (NULLIF(brand, '') IS NULL AND ? IS NULL) OR LOWER(brand) = LOWER(?) )
           LIMIT 1`
       ).get(userId, cleanName, cleanBrand, cleanBrand);
       if (existing) {

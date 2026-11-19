@@ -115,3 +115,12 @@ export function updateMeal(existing, body, img) {
     vis, next.favorite, existing.id);
   return db.prepare('SELECT * FROM meals WHERE id = ?').get(existing.id);
 }
+
+/**
+ * Soft-delete a meal or recipe: deleted_at set and updated_at bumped, so
+ * phones pull the delete on their next sync. Diary entries logged from it
+ * keep their own copy.
+ */
+export function deleteMeal(id) {
+  db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id);
+}
