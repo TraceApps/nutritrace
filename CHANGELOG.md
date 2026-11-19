@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **MCP: save meals and recipes, and log a recipe** ([#331](https://github.com/TraceApps/nutritrace/issues/331)). An assistant could log a saved meal but not make one, so a home-cooked dish became a single food with summed nutrition and lost its ingredients. `create_meal` saves a meal or recipe from foods in the catalog and `update_meal` renames it, adds, removes or replaces items and changes a recipe's servings. Nutrition is worked out on the server the way the meal editor does, a recipe keeps it per serving, and both save through the same code as the app, so phones sync them. Like `create_food` they need `MCP_DESTROY_ENABLED`, a token with `mcp:destroy` and `confirm: true` on every call. `log_meal` (and `POST /api/v1/diary/:date/meal`) now logs a recipe too, the way the app does: one entry, with `servings` as its quantity, so 1 of 4 servings adds a quarter of the recipe.
+
 ---
 
 ## [1.5.0-dev06] - 2026-11-19 (pre-release)

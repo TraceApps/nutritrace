@@ -33,6 +33,8 @@ import { registerLogBodyStat } from './log-body-stat.js';
 import { registerDeleteDiaryEntry } from './delete-diary-entry.js';
 import { registerEditDiaryEntry } from './edit-diary-entry.js';
 import { registerCreateFood } from './create-food.js';
+import { registerCreateMeal } from './create-meal.js';
+import { registerUpdateMeal } from './update-meal.js';
 
 export function registerReadTools(server, ctx) {
   registerGetGoals(server, ctx);
@@ -63,4 +65,6 @@ export function registerDestroyTools(server, ctx) {
   registerDeleteDiaryEntry(server, ctx);
   registerEditDiaryEntry(server, ctx);
   registerCreateFood(server, ctx);
+  registerCreateMeal(server, ctx);
+  registerUpdateMeal(server, ctx);
 }

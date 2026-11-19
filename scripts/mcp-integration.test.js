@@ -199,10 +199,22 @@ test('log_meal expands saved meal items into diary and preserves per-item source
   assert.equal(banana.source_meal_id, breakfastMealId); // stamped
 });
 
-test('log_meal REFUSES recipes', async () => {
-  const r = await server.call('log_meal', { meal_id: breakfastRecipeId, date: '2026-08-08' });
+test('log_meal logs a recipe as one entry, servings as its quantity (#331)', async () => {
+  const r = await server.call('log_meal', { meal_id: breakfastRecipeId, date: '2026-08-07', servings: 2 });
+  assert.equal(r.isError, undefined);
+  assert.equal(_json(r).logged.item_count, 1);
+  const items = JSON.parse(db.prepare(`SELECT items FROM diary WHERE user_id = ? AND date = '2026-08-07'`).get(userId).items);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].name, 'Overnight Oats');
+  assert.equal(items[0].is_recipe, 1);
+  assert.equal(items[0].quantity, 2);
+  assert.equal(items[0].source_meal_id, breakfastRecipeId);
+});
+
+test('log_meal refuses servings for a meal', async () => {
+  const r = await server.call('log_meal', { meal_id: breakfastMealId, date: '2026-08-07', servings: 2 });
   assert.equal(r.isError, true);
-  assert.match(_text(r), /is a recipe/i);
+  assert.match(_text(r), /servings is for recipes/);
 });
 
 test('search_meals returns the seeded meal and excludes recipes by default', async () => {
