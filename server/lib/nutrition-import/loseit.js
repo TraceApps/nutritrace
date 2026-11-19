@@ -39,7 +39,9 @@ export function parseLoseit(text) {
     const calories = parseNumber(getField(row, 'calories'));
     if (calories == null) continue;
 
-    const quantity = parseNumber(getField(row, 'quantity')) ?? 1;
+    // Calories and nutrients are the totals for the logged amount, so the item is one
+    // serving with the amount as its portion (as the other importers do).
+    const amount = parseNumber(getField(row, 'quantity'));
     const unit = getField(row, 'units') || null;
 
     const nutrition = { calories };
@@ -58,8 +60,9 @@ export function parseLoseit(text) {
       mealLabel: getField(row, 'type') || '',
       name,
       brand: null,
-      quantity,
-      portion: unit ? `${quantity} ${unit}` : null,
+      quantity: 1,
+      portion: amount,
+      unit,
       nutrition,
       notes: null,
       sourceRow: row._rowNum,
