@@ -7,10 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.5.0-dev06] - 2026-11-19 (pre-release)
+
+Sixth dev pre-release of the 1.5.0 minor. A round of fixes: imports from Lose It and spreadsheets, Import All Recipes from CookTrace, every category you pick kept, backups that keep everything, Settings search that finds every setting, Android back, and weigh-ins from before 1.0.
+
 ### Fixed
 
-- **Imported numbers with a thousands separator keep their value** ([#333](https://github.com/TraceApps/nutritrace/pull/333)). A spreadsheet export writes 1150 as `1,150`, which was read as 1.15. Commas that group thousands are now dropped; `1,5` and `0,125` still read as decimal commas.
-- **Lose It! imports count each entry once** ([#334](https://github.com/TraceApps/nutritrace/pull/334)). Lose It's calories are already the total for the logged amount, but the import multiplied them by that amount again, so 50 g of oats at 185 kcal counted as 9,250 kcal. The amount is now kept as the portion, with its unit as the app writes it (50 g, 250 ml), so the diary shows what Lose It did.
+- **Imported numbers with a thousands separator keep their value** ([#333](https://github.com/TraceApps/nutritrace/pull/333)). A spreadsheet export writes 1150 as `1,150`, which was read as 1.15. Commas that group thousands are now dropped; `1,5` and `0,125` still read as decimal commas. Thanks @jayhemnani9910.
+- **Lose It! imports count each entry once** ([#334](https://github.com/TraceApps/nutritrace/pull/334)). Lose It's calories are already the total for the logged amount, but the import multiplied them by that amount again, so 50 g of oats at 185 kcal counted as 9,250 kcal. The amount is now kept as the portion, with its unit as the app writes it (50 g, 250 ml), so the diary shows what Lose It did. Thanks @jayhemnani9910.
 - **Backups and exports keep everything they should.** A check of every backup found these gaps, now closed: restoring an Android Local mode Full Backup lost every fast older than one still running, and per-meal completion marks; backups and exports kept only the newest 365 fasts; importing an export on a phone with no server left fasts out; importing an export on a server dropped completion marks (and took them away from a day it replaced) and where foods and recipes came from (the "From CookTrace" badge and link, and recipe import warnings); and a Full Backup restore made an email changed but not yet confirmed count as confirmed.
 - **Importing an export again adds nothing twice.** Each import added every fast again, and with user management off each day already here got a second copy, so a second import showed fasts twice and could hide the imported day behind the old one. A fast already here is kept (one still running here takes its end from the export), and a day is replaced.
 - **Settings search finds every setting.** It only knew a hand-made list of words, so many settings couldn't be found at all, among them Delete My Account, Daily Targets, each nutrient, units like kg and kJ, Calories Burned in Statistics, body measurements, language names, Auto Backup, Local Mode and Linked Accounts, and typing a section's full name ("Regional & Units", "dark mode", "two step sign in") found nothing. Search now looks at everything a section shows (its settings, descriptions, buttons and options), in your language and in English, and finds a section when every word you type is in it.
