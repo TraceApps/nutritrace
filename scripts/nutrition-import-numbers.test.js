@@ -15,4 +15,5 @@ test('a comma before groups of three digits separates thousands', () => {
 test('a lone comma with one or two decimals is a decimal comma', () => {
   assert.equal(parseNumber('1,5'), 1.5);
   assert.equal(parseNumber('12,25'), 12.25);
+  assert.equal(parseNumber('0,125'), 0.125);
 });
