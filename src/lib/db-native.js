@@ -2697,9 +2697,11 @@ export async function dbMarkSettingsSynced(rows, live = () => true) {
  * successful server push, so the mark-synced step can detect mid-flight
  * re-edits (see the race description on dbMarkSettingsSynced).
  */
-export async function dbUpsertSetting(key, value) {
+export async function dbUpsertSetting(key, value, at) {
   const db = await getDb();
-  const updatedAt = _now();
+  // The edit's own moment when the caller captured one: the queued row and
+  // its push name the same time, not when the write reached SQLite.
+  const updatedAt = at || _now();
   await db.run(
     `INSERT INTO user_settings (user_id, key, value, updated_at, sync_status)
      VALUES (?, ?, ?, ?, 'pending')

@@ -46,6 +46,7 @@ async function api(method, path, body) {
   return text ? JSON.parse(text) : null;
 }
 const pull = () => api('GET', '/api/sync/pull?since=1970-01-01T00:00:00.000Z');
+const pullSince = since => api('GET', `/api/sync/pull?since=${encodeURIComponent(since)}`);
 const push = body => api('POST', '/api/sync/push', { foods: [], meals: [], diary: [], activity: [], fasts: [], wellness: [], settings: [], workouts: [], ...body, client_now: iso(Date.now()) });
 const pulled = async (kind, id) => (await pull())[kind].find(r => r.id === id);
 
@@ -473,4 +474,130 @@ test('a restored backup keeps when each field last changed', async (t) => {
   const got = await pulled('foods', f.id);
   assert.deepEqual({ brand: got.brand, notes: got.notes }, { brand: 'Bakery', notes: 'offline note' });
   assert.deepEqual((await api('GET', `/api/diary/${D}`)).body_stats, { weight: 79, waist: 88 });
+});
+
+// ── Settings edits, by the same rule as pushes (server/lib/setting-merge.js) ──
+// Base times are whole seconds: the tests name milliseconds inside one
+// second, and an arbitrary Date.now() base could make "+100 ms" and "+900 ms"
+// fall in different seconds by accident.
+const msBase = () => Math.floor((Date.now() - 60000) / 1000) * 1000;
+// A pull cursor before a request that is about to arrive (rows are written
+// with the server's time now; an incremental pull must still see them).
+const cursorNow = () => iso(Date.now() - 5000);
+
+test('two setting saves in one second are ordered by their milliseconds', async (t) => {
+  if (skip(t)) return;
+  const base = msBase();
+  const cursor = cursorNow();
+  await api('PUT', '/api/settings', {
+    key: 'testMsOrder', value: 'newer', changed_at: iso(base + 900), client_now: iso(Date.now()),
+  });
+  await api('PUT', '/api/settings', {
+    key: 'testMsOrder', value: 'older', changed_at: iso(base + 100), client_now: iso(Date.now()),
+  });
+  const mine = (await pullSince(cursor)).settings.find(s => s.key === 'testMsOrder');
+  assert.equal(JSON.parse(mine.value), 'newer', 'the older millisecond does not replace the newer one');
+});
+
+test('an exact tie keeps its edit time, and the next millisecond wins', async (t) => {
+  if (skip(t)) return;
+  const base = msBase();
+  const cursor = cursorNow();
+  await api('PUT', '/api/settings', {
+    key: 'testTieOrder', value: 'old', changed_at: iso(base - 1000), client_now: iso(Date.now()),
+  });
+  // The first save at `base` stamps field_times.value = base.
+  await api('PUT', '/api/settings', {
+    key: 'testTieOrder', value: 'first', changed_at: iso(base), client_now: iso(Date.now()),
+  });
+  // Same millisecond, different value: the arriving edit wins, and now the
+  // row's field_times text stays exactly as it was. The trigger must not
+  // stamp the request's time over the tie's, or the next edit would lose.
+  await api('PUT', '/api/settings', {
+    key: 'testTieOrder', value: 'tie', changed_at: iso(base), client_now: iso(Date.now()),
+  });
+  let mine = (await pullSince(cursor)).settings.find(s => s.key === 'testTieOrder');
+  assert.equal(JSON.parse(mine.value), 'tie', 'a tie goes to the arriving edit');
+  const data = sqlite.prepare("SELECT field_times FROM user_settings WHERE key = 'testTieOrder'").get();
+  assert.equal(Date.parse(JSON.parse(data.field_times).value), base, 'the tie keeps its own time');
+
+  await api('PUT', '/api/settings', {
+    key: 'testTieOrder', value: 'after', changed_at: iso(base + 1), client_now: iso(Date.now()),
+  });
+  mine = (await pullSince(cursor)).settings.find(s => s.key === 'testTieOrder');
+  assert.equal(JSON.parse(mine.value), 'after', 'one millisecond later still wins');
+});
+
+test('a direct save that arrives late loses to a newer one', async (t) => {
+  if (skip(t)) return;
+  const base = msBase();
+  await api('PUT', '/api/settings', {
+    key: 'testDelayed', value: 2, changed_at: iso(base + 1000), client_now: iso(Date.now()),
+  });
+  const cursor = cursorNow();
+  await api('PUT', '/api/settings', {
+    key: 'testDelayed', value: 1, changed_at: iso(base + 500), client_now: iso(Date.now()),
+  });
+  const mine = (await pullSince(cursor)).settings.find(s => s.key === 'testDelayed');
+  assert.equal(JSON.parse(mine.value), 2, 'the pull still brings the winner back');
+});
+
+test('a reset does not undo an edit made after its own moment, even when it is delivered later', async (t) => {
+  if (skip(t)) return;
+  const base = msBase();
+  await api('PUT', '/api/settings', {
+    key: 'testResetLate', value: 'phone', changed_at: iso(base + 2000), client_now: iso(Date.now()),
+  });
+  // The reset was made before that edit, but its request arrives after it.
+  await api('DELETE', '/api/settings', { changed_at: iso(base + 1000), client_now: iso(Date.now()) });
+  const mine = (await pullSince(cursorNow())).settings.find(s => s.key === 'testResetLate');
+  assert.equal(JSON.parse(mine.value), 'phone', 'the newer edit survives the older reset');
+});
+
+test('a newer pushed delete extends the tombstone, so an edit between the two deletes loses', async (t) => {
+  if (skip(t)) return;
+  const base = msBase();
+  await api('PUT', '/api/settings', {
+    key: 'testDeleteExtends', value: 'still-here', changed_at: iso(base), client_now: iso(Date.now()),
+  });
+  // Made offline: delete at t1, then a later delete at t3 (the phone had an
+  // edit at t2 in between, which must not resurrect the setting).
+  await push({ settings: [{ key: 'testDeleteExtends', deleted_at: iso(base + 1000), updated_at: iso(base + 1000) }] });
+  await push({ settings: [{ key: 'testDeleteExtends', deleted_at: iso(base + 3000), updated_at: iso(base + 3000) }] });
+  await api('PUT', '/api/settings', {
+    key: 'testDeleteExtends', value: 'between', changed_at: iso(base + 2000), client_now: iso(Date.now()),
+  });
+  const uid = sqlite.prepare("SELECT id FROM users WHERE username = 'mia'").get().id;
+  const row = sqlite.prepare('SELECT value, deleted_at, field_times FROM user_settings WHERE user_id = ? AND key = ?').get(uid, 'testDeleteExtends');
+  assert.ok(row.deleted_at, 'the setting stays deleted');
+  assert.equal(Date.parse(JSON.parse(row.field_times).deleted_at), base + 3000, 'the later delete moved the tombstone');
+  // Strictly after the newer delete brings it back.
+  await api('PUT', '/api/settings', {
+    key: 'testDeleteExtends', value: 'back', changed_at: iso(base + 3001), client_now: iso(Date.now()),
+  });
+  const back = (await pullSince(cursorNow())).settings.find(s => s.key === 'testDeleteExtends');
+  assert.equal(JSON.parse(back.value), 'back');
+});
+
+test('a reset wins a tie with a pushed edit, and a later edit brings the setting back', async (t) => {
+  if (skip(t)) return;
+  const base = msBase();
+  await api('PUT', '/api/settings', {
+    key: 'testResetTie', value: 'before', changed_at: iso(base), client_now: iso(Date.now()),
+  });
+  await api('DELETE', '/api/settings', { changed_at: iso(base + 5000), client_now: iso(Date.now()) });
+
+  // A stale push at the reset's own instant cannot bring it back.
+  await push({ settings: [{ key: 'testResetTie', value: 'stale', updated_at: iso(base + 5000) }] });
+  const uid = sqlite.prepare("SELECT id FROM users WHERE username = 'mia'").get().id;
+  const afterTie = sqlite.prepare('SELECT value, deleted_at FROM user_settings WHERE user_id = ? AND key = ?').get(uid, 'testResetTie');
+  assert.ok(afterTie.deleted_at, 'a tie keeps the delete');
+
+  // A later edit does.
+  await api('PUT', '/api/settings', {
+    key: 'testResetTie', value: 'after', changed_at: iso(base + 7000), client_now: iso(Date.now()),
+  });
+  const after = sqlite.prepare('SELECT value, deleted_at FROM user_settings WHERE user_id = ? AND key = ?').get(uid, 'testResetTie');
+  assert.equal(after.value, '"after"');
+  assert.equal(after.deleted_at, null);
 });

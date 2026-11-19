@@ -311,14 +311,20 @@ export function changedSince(table, before, after) {
  *  the server's time of its last write. */
 export const copyStamp = row => row?.changed_at || row?.updated_at || null;
 
-/** Settings changed offline, one row per key, the last value winning. */
+/** Settings changed offline, one row per key: the latest *edit* wins. Not the
+ *  last enqueued one — an early save whose request failed late gets a bigger
+ *  seq, and sending its old value over a newer edit was the bug. A tie goes
+ *  to the later queue entry. */
 export function collapseSettingOps(ops) {
   const byKey = new Map();
   for (const op of ops || []) {
     if (!op || op.type !== 'setting' || !op.key) continue;
-    byKey.set(op.key, { key: op.key, value: op.data, updated_at: new Date(op.at || Date.now()).toISOString() });
+    const at = Number(op.at) || 0;
+    const current = byKey.get(op.key);
+    if (current && (current.at > at || (current.at === at && current.seq >= (op.seq ?? -1)))) continue;
+    byKey.set(op.key, { key: op.key, value: op.data, at, seq: op.seq ?? -1 });
   }
-  return [...byKey.values()];
+  return [...byKey.values()].map(({ key, value, at }) => ({ key, value, updated_at: new Date(at || Date.now()).toISOString() }));
 }
 
 /** The /api/sync/push body for queued catalogue work. */
