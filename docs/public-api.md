@@ -134,7 +134,8 @@ flags) plus:
 | `calorie_basis` | Where the number came from: `fixed`, `dynamic` (with `calories_out`, its date and source) or `adaptive` (with `tdee` and `days_available`), or that it fell back to the fixed goal. |
 | `activity_adjustment_kcal` | Calories added for that day's logged or wearable activity, when the profile turns that on. `0` otherwise. |
 | `weekday_order`, `goals_by_weekday`, `targets` | The weekday goals by named day, and that date's goal-derived calorie and macro targets (calories before an activity adjustment, macros in grams), as in the current response. |
-| `history_complete` | On a range only: whether every day of it is known. |
+| `unknown_fields` | The settings that day never got (for example an edit made offline before goal history existed). They are left out instead of showing defaults, and when the goals are unknown so are the targets computed from them. Empty on a complete day. |
+| `history_complete` | Whether the day has every setting (`unknown_fields` empty). On a range: whether every day is known and complete. |
 
 Resolution uses NutriTrace's own rules, not a copy of them: per-weekday
 goals, percent macros, Dynamic and Adaptive calorie modes, and the activity
