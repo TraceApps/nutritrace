@@ -17,6 +17,7 @@ import db from '../db.js';
 import { encrypt, decrypt } from './token-crypto.js';
 import { logger } from '../logger.js';
 import { endCoachingIfNotCoach } from './coaching.js';
+import { ensureGoalHistoryBaseline } from './goal-history-baseline.js';
 
 // openid-client v5.7.x defaults outgoing HTTP requests to a 3500ms timeout,
 // which is too tight in practice — first-time Authentik / Keycloak / Authelia
@@ -313,6 +314,8 @@ export function resolveUser(provider, claims) {
     ).run(username, fullName, emailVal);
 
     const newUser = db.prepare(`SELECT * FROM users WHERE id = ?`).get(result.lastInsertRowid);
+    // Goal history starts with the account (server/routes/auth.js does the same).
+    ensureGoalHistoryBaseline(db, newUser.id);
     db.prepare(
       `INSERT INTO user_oidc_links (user_id, oidc_provider_id, oidc_sub, email_verified, last_login_at)
        VALUES (?, ?, ?, ?, datetime('now'))`
