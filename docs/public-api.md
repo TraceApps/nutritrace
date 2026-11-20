@@ -75,7 +75,7 @@ token lacking the required scope returns `403`.
 |---|---|---|---|
 | POST | `/api/v1/diary/:date/food` | `{food_id, meal?, quantity?, portion?, unit?, notes?}` | Appends a food from the user's catalog to a diary day. `food_id` comes from the foods federation endpoint or the app's own search. |
 | POST | `/api/v1/diary/:date/water` | `{amount_ml, time?}` | Appends a water log entry. |
-| POST | `/api/v1/diary/:date/meal` | `{meal_id, meal?}` | Expands a saved meal's items into a diary day. |
+| POST | `/api/v1/diary/:date/meal` | `{meal_id, meal?, servings?, notes?}` | Expands a saved meal's items into a diary day, or logs a recipe as one item for `servings` servings (default 1). `notes` go on the recipe item, or the first item of a meal. |
 | PUT | `/api/v1/diary/:date/body-stat` | `{stats: {weight?, body_fat?, waist?, ...}}` | Merges the given values into that day's body stats. |
 
 Not yet exposed here: editing or deleting a diary entry, or creating a

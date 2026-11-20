@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **MCP: save, edit and delete meals and recipes, and log recipes** (from [#331](https://github.com/TraceApps/nutritrace/issues/331)). New `mcp:destroy` tools, each needing `confirm=true`: `create_meal` and `update_meal` build a meal or recipe from your foods and recipes, with nutrition worked out the way the meal editor does (a recipe stores one serving); `delete_meal`; `update_food` (nutrition merged key by key) and `delete_food`. `log_meal` now logs a recipe as one diary item, with a `servings` count, and takes `notes`; the same goes for `POST /api/v1/diary/:date/meal`.
+- **MCP: log many entries in one call.** New `mcp:write` tool `log_diary_batch` takes up to 100 foods, meals and recipes across any days. Every entry is checked first, so either the whole batch is logged or nothing is, and the error names the entry that failed.
+
 ---
 
 ## [1.5.0-dev06] - 2026-11-19 (pre-release)

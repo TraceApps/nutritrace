@@ -3,10 +3,10 @@
  *
  * Mounted at /api/mcp when MCP_ENABLED=1 in the server env. Off by
  * default, so no existing user sees any change. Write tools (Phase 2:
- * log_food, log_water, log_meal, log_body_stat) additionally require
+ * log_food, log_water, log_meal, log_body_stat, log_diary_batch) additionally require
  * MCP_WRITE_ENABLED=1 on the server AND the calling token holding the
  * `mcp:write` scope. Destructive tools (Phase 3: delete_diary_entry,
- * edit_diary_entry, create_food) require MCP_DESTROY_ENABLED=1 AND
+ * edit_diary_entry, create/update/delete_food, create/update/delete_meal) require MCP_DESTROY_ENABLED=1 AND
  * `mcp:destroy` scope AND every call to include confirm=true. Any
  * missing gate and the corresponding tools don't appear in tools/list.
  *

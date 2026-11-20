@@ -104,6 +104,7 @@ test('All Phase 2 write tools are registered in registerWriteTools', () => {
     'registerLogWater',
     'registerLogMeal',
     'registerLogBodyStat',
+    'registerLogDiaryBatch',
   ];
   for (const fn of expected) {
     assert.match(mcpTools, new RegExp(`\\b${fn}\\s*\\(`), `expected ${fn}() call in tools/index.js`);
@@ -123,6 +124,11 @@ test('All Phase 3 destructive tools are registered in registerDestroyTools', () 
     'registerDeleteDiaryEntry',
     'registerEditDiaryEntry',
     'registerCreateFood',
+    'registerUpdateFood',
+    'registerDeleteFood',
+    'registerCreateMeal',
+    'registerUpdateMeal',
+    'registerDeleteMeal',
   ];
   for (const fn of expected) {
     assert.match(mcpTools, new RegExp(`\\b${fn}\\s*\\(`), `expected ${fn}() call in tools/index.js`);
@@ -130,7 +136,10 @@ test('All Phase 3 destructive tools are registered in registerDestroyTools', () 
 });
 
 test('Every Phase 3 destructive tool requires confirm=true', () => {
-  const destroyFiles = ['delete-diary-entry.js', 'edit-diary-entry.js', 'create-food.js'];
+  const destroyFiles = [
+    'delete-diary-entry.js', 'edit-diary-entry.js', 'create-food.js',
+    'update-food.js', 'delete-food.js', 'create-meal.js', 'update-meal.js', 'delete-meal.js',
+  ];
   for (const f of destroyFiles) {
     const src = readFileSync(
       new URL(`../server/lib/mcp/tools/${f}`, import.meta.url),
@@ -173,6 +182,11 @@ test('MCP tool DB queries scope on user_id — no cross-user access', () => {
     'delete-diary-entry.js',
     'edit-diary-entry.js',
     'create-food.js',
+    'update-food.js',
+    'delete-food.js',
+    'create-meal.js',
+    'update-meal.js',
+    'delete-meal.js',
   ];
   for (const f of toolFiles) {
     const src = readFileSync(
