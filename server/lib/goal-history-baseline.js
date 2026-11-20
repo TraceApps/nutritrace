@@ -23,6 +23,8 @@ import {
 import { fieldTime, instantMs, isoTime, readTimes } from './field-sync.js';
 import { isValidTimeZone, processTimeZone, zonedParts } from './zoned-time.js';
 
+const NEVER_EDITED = isoTime(0);
+
 /**
  * The goal configuration in effect now, and when each of its fields last
  * changed: the field's own edit time (user_settings.field_times) else when
@@ -108,9 +110,11 @@ export function ensureGoalHistoryBaseline(db, userId, { at = Date.now(), source 
   const date = userDate(db, userId, at);
   const { snapshot, field_times } = currentGoalState(db, userId, { at });
   // Every field has a time from the start, so a later day inherits the same
-  // when it inherits the value (captureGoalSnapshot).
+  // when it inherits the value (captureGoalSnapshot). A field the account
+  // never saved is still its default: it was never edited, so any real edit
+  // wins over it, including an offline one made before this baseline.
   const times = {};
-  for (const field of GOAL_HISTORY_FIELDS) times[field] = field_times[field] || isoTime(at);
+  for (const field of GOAL_HISTORY_FIELDS) times[field] = field_times[field] || NEVER_EDITED;
   db.prepare(
     `INSERT INTO goal_history (user_id, effective_date, snapshot, field_times, changed_at, updated_at, source)
      VALUES (?, ?, ?, ?, ?, datetime('now'), ?)

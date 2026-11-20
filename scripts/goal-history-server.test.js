@@ -231,9 +231,11 @@ test('goal settings from an app without history are dated in the account’s tim
   assert.equal(day.known, true);
   assert.equal(day.calorie_target_kcal, 2400);
   assert.equal(day.source, 'client_sync');
-  // An old-dated push cannot rewrite what the day already had (the baseline
-  // owns its fields): the fields it didn't send stay the day's own.
-  assert.equal(day.water_goal_ml, 2000, "the fields the push didn't change come from the day's own history, not the live settings");
+  // The fields the push didn't send keep what the day already had: water
+  // is the 2900 the earlier offline push set (the baseline's water was
+  // never saved, so that older edit reached it), the same as the live goal.
+  assert.equal(day.water_goal_ml, 2900, "the fields the push didn't change keep the day's own history");
+  assert.equal((await api('GET', '/api/goals/effective')).water_goal_ml, 2900);
 
   // The older days keep their own targets: today's were not written into them.
   assert.equal((await goalsOn('2026-09-07')).calorie_target_kcal, 2300);
@@ -1022,4 +1024,42 @@ test('a day that got only some fields reports the rest as unknown, not as defaul
   const byDate = new Map(range.days.map(d => [d.date, d]));
   assert.equal(byDate.get(d5).history_complete, false);
   assert.equal(byDate.get(today).history_complete, true);
+});
+
+test('a field the account never saved counts as never edited, so an older offline edit still wins', async (t) => {
+  if (skip(t)) return;
+  const tok = await freshAccount('nina4');
+  const goals = max => ({ calories: { max, sharedGoal: true } });
+  const today = new Date().toISOString().slice(0, 10);
+  const d4 = new Date(Date.now() - 4 * 86400000).toISOString().slice(0, 10);
+
+  // Only the calorie goal was ever saved; water is still its default.
+  await as(tok, 'PUT', '/api/settings', {
+    key: 'goals', value: goals(2500), effective_date: today, changed_at: new Date().toISOString(),
+  });
+  const Database = createRequire(new URL('../server/package.json', import.meta.url))('better-sqlite3');
+  const writer = new Database(join(dir, 'server.db'));
+  try {
+    const id = writer.prepare('SELECT id FROM users WHERE username = ?').get('nina4').id;
+    writer.prepare('DELETE FROM goal_history WHERE user_id = ?').run(id);
+    writer.prepare("DELETE FROM user_settings WHERE user_id = ? AND key = 'waterGoalMl'").run(id);
+    const { ensureGoalHistoryBaseline } = await import('../server/lib/goal-history-baseline.js');
+    ensureGoalHistoryBaseline(writer, id, { at: Date.now() });
+  } finally { writer.close(); }
+
+  // An offline water edit made four days ago, before the upgrade's baseline.
+  await pushAs(tok, {
+    settings: [{ key: 'waterGoalMl', value: 2800, updated_at: `${d4}T09:00:00.000Z` }],
+    goal_history: [{
+      effective_date: d4,
+      snapshot: DAY(2000, 2800),
+      changed_at: `${d4}T09:00:00.000Z`,
+      field_times: { water_goal_ml: `${d4}T09:00:00.000Z` },
+    }],
+  });
+
+  assert.equal((await as(tok, 'GET', '/api/goals/effective')).water_goal_ml, 2800);
+  const now = await goalsOnAs(tok, today);
+  assert.equal(now.water_goal_ml, 2800, "today's history takes the edit like the live goal");
+  assert.equal(now.calorie_target_kcal, 2500, 'the saved calorie goal stays');
 });
