@@ -1,7 +1,16 @@
 /**
  * api.js - External API calls (Open Food Facts)
  */
-import { settingPrefix } from './setting-key.js';
+import { settingPrefix, settingScope } from './setting-key.js';
+import { regionalDefault } from './regional-defaults.js';
+import { REGIONAL_OPTIONS } from '../../server/lib/regional-options.js';
+
+// A food search setting nobody chose: the server's default, else this
+// device's locale (nutritrace#326). Same rule as the settings stores, kept
+// here so this module stays store-free.
+function _regionalOff(key, fallback) {
+  return regionalDefault(key, fallback, { scope: settingScope(), allowed: REGIONAL_OPTIONS[key].values });
+}
 import { OFF_BASE, offLanguage, offCountryTag, offSearchUrl, offProductUrl, isOffSuccess, mapOffProduct, mapFullOffProduct, rankOffSearch } from './off-map.js';
 import { shareWithOff, OffShareError } from './off-contribute.js';
 
@@ -68,8 +77,7 @@ function _getOffSearchCountry() {
   try {
     const setKey = settingPrefix() + 'offSearchCountry';
     const raw = localStorage.getItem(setKey);
-    if (!raw) return null;
-    return offCountryTag(JSON.parse(raw));
+    return offCountryTag(raw ? JSON.parse(raw) : _regionalOff('offSearchCountry', 'World'));
   } catch { return null; }
 }
 
@@ -90,8 +98,7 @@ function _getOffSearchLanguage() {
   try {
     const setKey = settingPrefix() + 'offSearchLanguage';
     const raw = localStorage.getItem(setKey);
-    if (!raw) return 'en';
-    return offLanguage(JSON.parse(raw));
+    return offLanguage(raw ? JSON.parse(raw) : _regionalOff('offSearchLanguage', 'en'));
   } catch { return 'en'; }
 }
 

@@ -6,6 +6,7 @@ import { requireAuth, requireAdmin, userMgmtActive } from '../middleware/auth.js
 import { testSmtp, isSmtpEnvLocked } from '../email.js';
 import { getAiConfig, isAiEnvLocked } from '../ai.js';
 import { sentModel } from './ai.js';
+import { getInstanceDefaults, setInstanceDefaults } from '../lib/instance-defaults.js';
 
 const router = Router();
 
@@ -89,6 +90,24 @@ router.get('/env-locks', requireAuth, wrap(async (req, res) => {
     lifttrace_connected,
     backup_locked,
   });
+}));
+
+// ── /api/app-config/defaults: language, formats and energy for everyone ──
+// who hasn't chosen their own (nutritrace#326). Anyone may read them, signed
+// in or not and before setup (index.js lets this through): the sign-in page
+// and the setup wizard start from them, and they say nothing private.
+router.get('/defaults', wrap((req, res) => {
+  res.json(getInstanceDefaults());
+}));
+
+// body: { values: { key: value | null } }; null takes a default away.
+router.put('/defaults', requireAuth, requireAdmin, wrap((req, res) => {
+  try {
+    res.json(setInstanceDefaults(req.body?.values));
+  } catch (e) {
+    if (!e.status) throw e;
+    res.status(e.status).json({ error: e.message });
+  }
 }));
 
 // ── GET /api/app-config/sharing — sharing status + per-category counts (any auth user) ───

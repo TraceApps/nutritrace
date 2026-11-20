@@ -360,6 +360,9 @@
 
   onMount(async () => {
     trackTabDepth();
+    // Everyone's defaults (language, units, formats) from the server, signed
+    // in or not: a setting nobody chose follows them (nutritrace#326).
+    import('./stores/settings.js').then(({ loadInstanceDefaults }) => loadInstanceDefaults()).catch(() => {});
     initFold();
     // Update checks: a device that was already using the app keeps checking,
     // a fresh one stays quiet until setup asks. Runs first so nothing above
@@ -788,7 +791,7 @@
 
     // PWA: reload settings periodically + on tab focus (picks up changes from phone/other devices)
     if (!isNative && $userMgmtActive && $currentUser) {
-      const _refreshSettings = () => import('./stores/settings.js').then(({ loadServerSettings }) => loadServerSettings());
+      const _refreshSettings = () => import('./stores/settings.js').then(({ loadServerSettings, loadInstanceDefaults }) => { loadInstanceDefaults(); return loadServerSettings(); });
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') _refreshSettings();
       });
@@ -940,7 +943,7 @@
   $: {
     if (_wasNeedsLogin && !needsLogin && $currentUser) {
       _wasNeedsLogin = false;
-      import('./stores/settings.js').then(({ loadServerSettings }) => loadServerSettings()).catch(() => {});
+      import('./stores/settings.js').then(({ loadServerSettings, loadInstanceDefaults }) => { loadInstanceDefaults(); return loadServerSettings(); }).catch(() => {});
       loadEnvLocks();
       import('./stores/diary.js').then(({ diaryLoadError }) => diaryLoadError.set(false)).catch(() => {});
     } else if (needsLogin) {

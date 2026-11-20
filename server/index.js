@@ -237,6 +237,8 @@ router.get('/api/health', (req, res) => res.json(setupRequired() ? { ok: true, s
 // still returning 503 on every data call.
 router.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth')) return next(); // allow auth routes (status, register, login)
+  // Everyone's defaults, for the setup wizard (nutritrace#326).
+  if (req.method === 'GET' && req.path === '/app-config/defaults') return next();
   if (!setupRequired()) return next();              // set up, or single-user mode by choice
   res.status(503).json({ error: 'Setup required', setup_required: true });
 });

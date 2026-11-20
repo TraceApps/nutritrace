@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'crypto';
 import db from '../db.js';
 import { wrap, logger } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
+import { defaultFor } from '../lib/instance-defaults.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -883,7 +884,7 @@ async function _syncWorkouts(userId, from, to) {
       let _isKj = false;
       try {
         const euRow = db.prepare(`SELECT value FROM user_settings WHERE user_id=? AND key='energyUnit'`).get(u);
-        _isKj = (JSON.parse(euRow?.value || '"kcal"') || 'kcal') === 'kJ';
+        _isKj = (euRow?.value ? JSON.parse(euRow.value) : defaultFor('energyUnit', 'kcal')) === 'kJ';
       } catch {}
       for (const a of activities.slice(-3)) { // last 3 max
         const dur = Math.round((a.activeDuration || 0) / 60000);

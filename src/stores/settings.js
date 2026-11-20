@@ -5,6 +5,9 @@ import { GOAL_HISTORY_FIELD_OF_SETTING, GOAL_HISTORY_SETTING_KEYS, goalDateInZon
 import { noteCoachingSignature } from './coaching.js';
 import { FIRST_DAY_DEFAULT, resolveFirstDay } from '../lib/week.js';
 import { FACTS_COLUMN_DEFAULT } from '../lib/facts-column.js';
+import { regionalDefault, rememberInstanceDefaults } from '../lib/regional-defaults.js';
+import { settingScope } from '../lib/setting-key.js';
+import { REGIONAL_OPTIONS } from '../../server/lib/regional-options.js';
 
 // Verbose settings sync logs gated on dev OR opt-in verbose mode
 // (Settings → Diagnostics → Verbose diagnostic logging).
@@ -582,17 +585,22 @@ export function reloadSettingStores({ force = false } = {}) {
   _storesUser = now;
   for (const k of Object.keys(_saveQueue)) { clearTimeout(_saveQueue[k]); delete _saveQueue[k]; }
   _recentlyChanged.clear();
-  for (const { key, defaultValue, store } of _settingStores) store.set(DB.getSetting(key, defaultValue));
+  for (const { key, defaultValue, store } of _settingStores) store.set(DB.getSetting(key, _resolve(defaultValue)));
   return true;
 }
 
+// A store's default may be a function, worked out each time it's needed:
+// the regional ones follow the server's defaults and this device's locale
+// (regionalStore, below).
+const _resolve = d => (typeof d === 'function' ? d() : d);
+
 function createSettingStore(key, defaultValue) {
-  const store = writable(DB.getSetting(key, defaultValue));
+  const store = writable(DB.getSetting(key, _resolve(defaultValue)));
   _settingStores.push({ key, defaultValue, store });
 
   window.addEventListener('wl:setting', (e) => {
     if (e.detail && e.detail.key === key) {
-      const next = DB.getSetting(key, defaultValue);
+      const next = DB.getSetting(key, _resolve(defaultValue));
       const prev = get(store);
       // Only update if the value actually changed. Without this guard,
       // the 30s settings poll (loadServerSettings dispatches force=true
@@ -610,7 +618,7 @@ function createSettingStore(key, defaultValue) {
     subscribe: store.subscribe,
     set(value) {
       // Skip if value hasn't changed (prevents $: reactive statements from flooding on mount)
-      const current = DB.getSetting(key, defaultValue);
+      const current = DB.getSetting(key, _resolve(defaultValue));
       if (JSON.stringify(current) === JSON.stringify(value)) {
         store.set(value); // still update store in case it's stale
         return;
@@ -626,7 +634,7 @@ function createSettingStore(key, defaultValue) {
       scheduleSave(key, value);
     },
     update(fn) {
-      const current = DB.getSetting(key, defaultValue);
+      const current = DB.getSetting(key, _resolve(defaultValue));
       this.set(fn(current));
     },
     get() {
@@ -635,10 +643,65 @@ function createSettingStore(key, defaultValue) {
   };
 }
 
+// ── Regional defaults (nutritrace#326) ───────────────────────────────────
+// Language, units, date and time, and food search start, for someone who
+// never chose, from the server's defaults (Settings > Users), else this
+// device's locale, else `fallback`. Their own choice always wins, and the
+// default is never saved as theirs.
+
+/** Whose defaults: the server's, as settings are kept per server (the
+ *  Android app can switch servers; lib/setting-key.js). */
+export function instanceDefaultsScope() {
+  return settingScope();
+}
+
+/** What a regional setting nobody chose shows. */
+export function regionalFallback(key, fallback) {
+  // Not a setting with a default here (the units: server/lib/regional-options.js).
+  if (!REGIONAL_OPTIONS[key]) return fallback;
+  return regionalDefault(key, fallback, { scope: instanceDefaultsScope(), allowed: REGIONAL_OPTIONS[key]?.values || null });
+}
+
+/** A regional setting as it shows: the person's choice, else the default.
+ *  For code that reads settings outside the stores. */
+export function regionalSetting(key, fallback) {
+  return DB.getSetting(key, regionalFallback(key, fallback));
+}
+
+function regionalStore(key, fallback) {
+  return createSettingStore(key, () => regionalFallback(key, fallback));
+}
+
+/**
+ * The server's defaults, kept for offline, and every store showing a
+ * default (nobody chose) moved to them at once. Nothing is written into
+ * the account or sent.
+ */
+export function applyInstanceDefaults(values) {
+  if (!rememberInstanceDefaults(values, instanceDefaultsScope())) return false;
+  for (const { key, defaultValue, store } of _settingStores) {
+    if (typeof defaultValue === 'function') store.set(DB.getSetting(key, defaultValue()));
+  }
+  return true;
+}
+
+/** Ask the server for its defaults (signed in or not). Offline, the last
+ *  ones stay. In the Android app's Local mode there's no server: the
+ *  phone's locale alone. */
+export async function loadInstanceDefaults() {
+  if (isNative && !getServerUrl()) return;
+  try {
+    const res = await fetch(apiUrl('/api/app-config/defaults'), { credentials: 'include', signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return;
+    const body = await res.json();
+    applyInstanceDefaults(body?.values || {});
+  } catch { /* offline: the last ones stay */ }
+}
+
 export const appearance       = createSettingStore('appearance',       'system');
 // The browser or phone's own language until one is chosen (#323).
-export const language          = createSettingStore('language',          pickInitialLocale());
-export const energyUnit        = createSettingStore('energyUnit',       'kcal');
+export const language          = regionalStore('language',          pickInitialLocale);
+export const energyUnit        = regionalStore('energyUnit',       'kcal');
 export const mealNames         = createSettingStore('mealNames',        ['Breakfast','Lunch','Dinner','Snacks']);
 export const goals             = createSettingStore('goals',            {});
 export const goalTemplates     = createSettingStore('goalTemplates',    []);
@@ -788,8 +851,8 @@ export const cropPhotos             = createSettingStore('cropPhotos',          
 // database and the primary search source. Users who don't want their queries
 // hitting OFF servers (privacy / offline-first) can disable it.
 export const offEnabled             = createSettingStore('offEnabled',             true);
-export const offSearchLanguage      = createSettingStore('offSearchLanguage',      'en');
-export const offSearchCountry       = createSettingStore('offSearchCountry',       'World');
+export const offSearchLanguage      = regionalStore('offSearchLanguage',      'en');
+export const offSearchCountry       = regionalStore('offSearchCountry',       'World');
 export const offUploadCountry       = createSettingStore('offUploadCountry',       'Auto');
 export const offImportPortion       = createSettingStore('offImportPortion',       'per100g');
 
@@ -888,8 +951,8 @@ export const disableAnimations  = createSettingStore('disableAnimations',  false
 export const goalCelebrations   = createSettingStore('goalCelebrations',   true);
 
 // Date / time display format
-export const dateFormat = createSettingStore('dateFormat', 'US');   // 'ISO' | 'US' | 'EU' | 'natural'
-export const timeFormat = createSettingStore('timeFormat', '12h');  // '12h' | '24h'
+export const dateFormat = regionalStore('dateFormat', 'US');   // 'ISO' | 'US' | 'EU' | 'natural'
+export const timeFormat = regionalStore('timeFormat', '12h');  // '12h' | '24h'
 export const timezone   = createSettingStore('timezone',   '');     // IANA timezone (e.g. 'America/New_York'), empty = auto-detect
 // First Day of Week (#232): 'auto' (the device's locale), 'monday', 'sunday'
 // or 'saturday'. weekStartDay is the day it comes to (0 Sunday, 1 Monday ...).

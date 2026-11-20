@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Defaults for everyone** ([#326](https://github.com/TraceApps/nutritrace/issues/326), thanks @stupleb). An admin can pick the language, date and time format, energy unit, and Open Food Facts search language and country that anyone who hasn't chosen their own starts with, in Settings > Users > Defaults for Everyone, or set them with `DEFAULT_*` environment variables, which lock them there. Without one, each device's own language and region decide: a British browser starts with day-first dates and the 24-hour clock, an Australian one with kilojoules. Food search stays worldwide unless an admin picks a country. A person's own choice always wins, and nothing is written into their settings, so a later change reaches everyone who still hasn't chosen. The weekly email, push messages and agents use an admin's default for someone who hasn't chosen. An account that never picked a date or time format now follows its device's region instead of the US format. Weight, height, circumference, distance and temperature keep their US defaults until you choose: goals are saved as numbers in your unit, so a default that moved would misread them.
+
+### Fixed
+
+- **Opening Connected Services no longer saves the food search language and country** as if you had chosen them, which would have hidden the defaults above. They're saved when you change them.
+
 ---
 
 ## [1.5.0-dev06] - 2026-11-19 (pre-release)

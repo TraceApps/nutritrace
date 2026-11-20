@@ -22,7 +22,7 @@
   import { readBodyStat, LENGTH_KEYS } from '../../lib/body-stats-unit.js';
   import { callAI, callAIProxy, TOOLS, setToolHandler, historicalGoalsResult } from '../../lib/aiChat.js';
   import { nutritionForPortion } from '../../lib/units.js';
-  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled, smartLogVoiceLang } from '../../stores/settings.js';
+  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled, smartLogVoiceLang, regionalSetting } from '../../stores/settings.js';
 
   // Resolve the configured voice-input language. Shared with SmartLogModal:
   // 'auto' (default) means use device locale; explicit BCP-47 tags override.
@@ -204,9 +204,9 @@
 
     // Unit conversion for tool results — convert before AI sees the data
     function _convertWellnessUnits(data) {
-      const distUnit = DB.getSetting('distUnit', 'mi');
-      const weightUnit = DB.getSetting('weightUnit', 'lb');
-      const tempUnit = DB.getSetting('tempUnit', 'F');
+      const distUnit = regionalSetting('distUnit', 'mi');
+      const weightUnit = regionalSetting('weightUnit', 'lb');
+      const tempUnit = regionalSetting('tempUnit', 'F');
       const converted = {};
       for (const [date, metrics] of Object.entries(data)) {
         const m = { ...metrics };
@@ -303,8 +303,8 @@
             // Body-stats values are stored tagged with the unit at write
             // time. Convert into the user's current display unit + add the
             // unit hint so the AI doesn't misread "180" as kg/cm.
-            const wu = DB.getSetting('weightUnit', 'lb');
-            const lu = DB.getSetting('lengthUnit', 'in');
+            const wu = regionalSetting('weightUnit', 'lb');
+            const lu = regionalSetting('lengthUnit', 'in');
             const rawBs = entry?.body_stats || entry?.bodyStats || {};
             const bodyStats = {};
             if (rawBs.weight != null && rawBs.weight !== '') {
@@ -381,7 +381,7 @@
             catch { workouts = []; }
           }
           // Convert distance to user's preferred unit
-          const distUnit = DB.getSetting('distUnit', 'mi');
+          const distUnit = regionalSetting('distUnit', 'mi');
           if (distUnit === 'mi') {
             for (const w of workouts) {
               if (w.distance_km != null) {
@@ -482,7 +482,7 @@
               },
             };
             if (firstWeight && lastWeight && firstWeight.date !== lastWeight.date) {
-              const _wu = DB.getSetting('weightUnit', 'lb');
+              const _wu = regionalSetting('weightUnit', 'lb');
               const diff = lastWeight.value - firstWeight.value;
               result.weight_change = {
                 from_date: firstWeight.date,
@@ -1492,8 +1492,8 @@
     const _wKg = Number(DB.getSetting('weight_kg',     null)) || null;
     const _tKg = Number(DB.getSetting('target_weight', null)) || null;
     const _act = DB.getSetting('activity', '') || '';
-    const _wu = DB.getSetting('weightUnit', 'lb');
-    const _hu = DB.getSetting('heightUnit', 'ft');
+    const _wu = regionalSetting('weightUnit', 'lb');
+    const _hu = regionalSetting('heightUnit', 'ft');
     const _fmtW = (kg) => kg == null ? null : (_wu === 'lb' ? `${(kg*2.20462).toFixed(1)} lb` : `${kg.toFixed(1)} kg`);
     const _fmtH = (cm) => {
       if (cm == null) return null;
@@ -1532,8 +1532,8 @@
 
     let statsText = '';
     const bs = entry?.bodyStats || entry?.body_stats || {};
-    const _wuStat = DB.getSetting('weightUnit', 'lb');
-    const _luStat = DB.getSetting('lengthUnit', 'in');
+    const _wuStat = regionalSetting('weightUnit', 'lb');
+    const _luStat = regionalSetting('lengthUnit', 'in');
     const bsParts = [];
     const _w = readBodyStat(bs, 'weight', _wuStat, _luStat);
     if (_w != null) bsParts.push(`Weight: ${_w} ${_wuStat}`);
@@ -1556,7 +1556,7 @@
         if (fd.calories_out != null)          parts.push(`Calories burned: ${Math.round(fd.calories_out)}`);
         if (fd.floors != null)                parts.push(`Floors: ${Math.round(fd.floors)}`);
         if (fd.distance_km != null) {
-          const _du = DB.getSetting('distUnit', 'mi');
+          const _du = regionalSetting('distUnit', 'mi');
           parts.push(`Distance: ${_du === 'mi' ? (fd.distance_km * 0.621371).toFixed(2) + ' mi' : fd.distance_km.toFixed(2) + ' km'}`);
         }
         if (fd.sleep_duration_min != null)    { const h = Math.floor(fd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(fd.sleep_duration_min%60)}m`); }
@@ -1590,7 +1590,7 @@
           const details = [];
           if (w.duration_ms) details.push(`${Math.round(w.duration_ms/60000)} min`);
           if (w.distance_km) {
-            const _du = DB.getSetting('distUnit', 'mi');
+            const _du = regionalSetting('distUnit', 'mi');
             details.push(`${_du === 'mi' ? (w.distance_km * 0.621371).toFixed(2) + ' mi' : w.distance_km.toFixed(2) + ' km'}`);
           }
           if (w.calories) {
@@ -1616,7 +1616,7 @@
         if (gd.active_minutes != null)        parts.push(`Active minutes: ${Math.round(gd.active_minutes)}`);
         if (gd.calories_out != null)          parts.push(`Calories burned: ${Math.round(gd.calories_out)}`);
         if (gd.distance_km != null) {
-          const _du = DB.getSetting('distUnit', 'mi');
+          const _du = regionalSetting('distUnit', 'mi');
           parts.push(`Distance: ${_du === 'mi' ? (gd.distance_km * 0.621371).toFixed(2) + ' mi' : gd.distance_km.toFixed(2) + ' km'}`);
         }
         if (gd.sleep_duration_min != null)    { const h = Math.floor(gd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(gd.sleep_duration_min%60)}m`); }
@@ -1641,7 +1641,7 @@
       const wd = withingsRes[today];
       if (wd) {
         const parts = [];
-        const _wu = DB.getSetting('weightUnit', 'lb');
+        const _wu = regionalSetting('weightUnit', 'lb');
         const _wFmt = (kg) => _wu === 'lb' ? (kg * 2.20462).toFixed(1) + ' lbs' : kg.toFixed(1) + ' kg';
         if (wd.weight_kg?.value != null)      parts.push(`Weight: ${_wFmt(wd.weight_kg.value)}`);
         if (wd.body_fat_pct?.value != null)    parts.push(`Body fat: ${wd.body_fat_pct.value.toFixed(1)}%`);
@@ -1672,7 +1672,7 @@
         const hcData = await dbGetWellnessByDate(today, 'health_connect').catch(() => null);
         if (hcData && Object.keys(hcData).length) {
           const parts = [];
-          const _du = DB.getSetting('distUnit', 'mi');
+          const _du = regionalSetting('distUnit', 'mi');
           if (hcData.steps != null)          parts.push(`Steps: ${Math.round(hcData.steps).toLocaleString()}`);
           if (hcData.calories_out != null)   parts.push(`Calories burned: ${Math.round(hcData.calories_out)}`);
           if (hcData.active_calories != null) parts.push(`Active calories: ${Math.round(hcData.active_calories)}`);
@@ -1682,7 +1682,7 @@
           if (hcData.avg_heart_rate != null) parts.push(`Avg HR: ${Math.round(hcData.avg_heart_rate)} bpm`);
           if (hcData.hrv_rmssd != null)      parts.push(`HRV: ${hcData.hrv_rmssd.toFixed(1)} ms`);
           if (hcData.weight_kg != null) {
-            const _wu = DB.getSetting('weightUnit', 'lb');
+            const _wu = regionalSetting('weightUnit', 'lb');
             parts.push(`Weight: ${_wu === 'lb' ? (hcData.weight_kg * 2.20462).toFixed(1) + ' lbs' : hcData.weight_kg.toFixed(1) + ' kg'}`);
           }
           if (parts.length) wellnessText += (wellnessText ? '\n' : '') + `Health Connect: ${parts.join(', ')}`;
@@ -1732,11 +1732,11 @@
       .join('\n');
 
     return { today, userName, profileText, diaryText, goalsText, statsText, wellnessText, waterText, streakText, mealNamesText,
-      weightUnit: DB.getSetting('weightUnit', 'lb'),
-      distUnit: DB.getSetting('distUnit', 'mi'),
-      heightUnit: DB.getSetting('heightUnit', 'ft'),
-      tempUnit: DB.getSetting('tempUnit', 'F'),
-      energyUnit: DB.getSetting('energyUnit', 'kcal'),
+      weightUnit: regionalSetting('weightUnit', 'lb'),
+      distUnit: regionalSetting('distUnit', 'mi'),
+      heightUnit: regionalSetting('heightUnit', 'ft'),
+      tempUnit: regionalSetting('tempUnit', 'F'),
+      energyUnit: regionalSetting('energyUnit', 'kcal'),
     };
   }
 

@@ -115,6 +115,15 @@
       "saved_locally": "Your changes are saved locally and will sync automatically."
     }
   },
+  "settings_defaults": {
+    "title": "Defaults for Everyone",
+    "desc": "What anyone who hasn't chosen their own starts with, in Regional & Units and Connected Services. Their own choice always wins, and a change here reaches everyone who hasn't chosen.",
+    "device_choice": "Each Device",
+    "locked": "Set on the server by {env}.",
+    "load_failed": "Couldn't load the defaults. Check the connection, then open this page again.",
+    "saved": "Default saved",
+    "save_failed": "Couldn't save the default: {msg}"
+  },
   "settings": {
     "appearance": {
       "section": "Appearance",
