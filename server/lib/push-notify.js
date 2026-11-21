@@ -10,6 +10,7 @@ import { logger } from '../logger.js';
 import { fetchChecked, serviceBase } from './ssrf-guard.js';
 import { userWeeklyRange } from './weekly-range.js';
 import { readSettingRaw } from './secret-settings.js';
+import { defaultFor } from './instance-defaults.js';
 
 // Push services (Gotify, ntfy, Apprise) usually live on the home network,
 // so that's allowed for every account; the address is still checked on
@@ -221,10 +222,10 @@ export async function sendWeeklySummary(userId) {
   const m = {};
   for (const r of rows) m[r.metric_type] = r.avg;
 
-  let energyUnit = 'kcal';
+  let energyUnit = defaultFor('energyUnit', 'kcal');
   try {
     const euRow = db.prepare(`SELECT value FROM user_settings WHERE user_id=? AND key='energyUnit'`).get(userId);
-    energyUnit = JSON.parse(euRow?.value || '"kcal"') || 'kcal';
+    if (euRow?.value) energyUnit = JSON.parse(euRow.value) || energyUnit;
   } catch {}
   const _isKj = energyUnit === 'kJ';
 

@@ -20,9 +20,9 @@
   const NUTRIMENT_ID_LIST = NUTRIMENTS.map(n => n.id).join(', ');
   import NutritionFactsBox from '../ui/NutritionFactsBox.svelte';
   import { readBodyStat, LENGTH_KEYS } from '../../lib/body-stats-unit.js';
-  import { callAI, callAIProxy, TOOLS, setToolHandler } from '../../lib/aiChat.js';
+  import { callAI, callAIProxy, TOOLS, setToolHandler, historicalGoalsResult } from '../../lib/aiChat.js';
   import { nutritionForPortion } from '../../lib/units.js';
-  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled, smartLogVoiceLang } from '../../stores/settings.js';
+  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled, smartLogVoiceLang, regionalSetting } from '../../stores/settings.js';
 
   // Resolve the configured voice-input language. Shared with SmartLogModal:
   // 'auto' (default) means use device locale; explicit BCP-47 tags override.
@@ -204,9 +204,9 @@
 
     // Unit conversion for tool results — convert before AI sees the data
     function _convertWellnessUnits(data) {
-      const distUnit = DB.getSetting('distUnit', 'mi');
-      const weightUnit = DB.getSetting('weightUnit', 'lb');
-      const tempUnit = DB.getSetting('tempUnit', 'F');
+      const distUnit = regionalSetting('distUnit', 'mi');
+      const weightUnit = regionalSetting('weightUnit', 'lb');
+      const tempUnit = regionalSetting('tempUnit', 'F');
       const converted = {};
       for (const [date, metrics] of Object.entries(data)) {
         const m = { ...metrics };
@@ -303,8 +303,8 @@
             // Body-stats values are stored tagged with the unit at write
             // time. Convert into the user's current display unit + add the
             // unit hint so the AI doesn't misread "180" as kg/cm.
-            const wu = DB.getSetting('weightUnit', 'lb');
-            const lu = DB.getSetting('lengthUnit', 'in');
+            const wu = regionalSetting('weightUnit', 'lb');
+            const lu = regionalSetting('lengthUnit', 'in');
             const rawBs = entry?.body_stats || entry?.bodyStats || {};
             const bodyStats = {};
             if (rawBs.weight != null && rawBs.weight !== '') {
@@ -381,7 +381,7 @@
             catch { workouts = []; }
           }
           // Convert distance to user's preferred unit
-          const distUnit = DB.getSetting('distUnit', 'mi');
+          const distUnit = regionalSetting('distUnit', 'mi');
           if (distUnit === 'mi') {
             for (const w of workouts) {
               if (w.distance_km != null) {
@@ -393,9 +393,36 @@
           return workouts;
         }
         case 'get_goals': {
-          // #285: the stored goals plus weekday goals by name and today's targets.
-          const g = goals.get() || {};
-          return { goals: g, ...describeGoals(g, localDateStr()) };
+          const hasHistoricalQuery = !!(args?.date || args?.start || args?.end);
+          if (!hasHistoricalQuery) {
+            // #285: the stored goals plus weekday goals by name and today's targets.
+            const g = goals.get() || {};
+            return { goals: g, ...describeGoals(g, localDateStr()) };
+          }
+          // A past comparison needs the targets in effect then; the server's
+          // goal history resolves them (weekday splits, percent macros,
+          // Dynamic/Adaptive, activity) so Trace and MCP cannot disagree.
+          if (args?.date && (args?.start || args?.end)) {
+            return { error: 'Use either date or start/end for get_goals, not both.' };
+          }
+          if ((args?.start && !args?.end) || (!args?.start && args?.end)) {
+            return { error: 'Both start and end are required for a historical goal range.' };
+          }
+          const day = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+          if (!day(args.date) && !(day(args.start) && day(args.end))) {
+            return { error: 'Historical goals need YYYY-MM-DD dates.' };
+          }
+          try {
+            const qs = new URLSearchParams();
+            if (args.date) qs.set('date', args.date);
+            if (args.start) qs.set('start', args.start);
+            if (args.end) qs.set('end', args.end);
+            return historicalGoalsResult(await NtApi.get(`/api/goals/effective?${qs.toString()}`));
+          } catch (e) {
+            // Unknown history (single-user, local mode, a server without the
+            // data) is not a refusal: Trace says the targets may have differed.
+            return historicalGoalsResult(null, e);
+          }
         }
         case 'get_diary_averages': {
           try {
@@ -455,7 +482,7 @@
               },
             };
             if (firstWeight && lastWeight && firstWeight.date !== lastWeight.date) {
-              const _wu = DB.getSetting('weightUnit', 'lb');
+              const _wu = regionalSetting('weightUnit', 'lb');
               const diff = lastWeight.value - firstWeight.value;
               result.weight_change = {
                 from_date: firstWeight.date,
@@ -1465,8 +1492,8 @@
     const _wKg = Number(DB.getSetting('weight_kg',     null)) || null;
     const _tKg = Number(DB.getSetting('target_weight', null)) || null;
     const _act = DB.getSetting('activity', '') || '';
-    const _wu = DB.getSetting('weightUnit', 'lb');
-    const _hu = DB.getSetting('heightUnit', 'ft');
+    const _wu = regionalSetting('weightUnit', 'lb');
+    const _hu = regionalSetting('heightUnit', 'ft');
     const _fmtW = (kg) => kg == null ? null : (_wu === 'lb' ? `${(kg*2.20462).toFixed(1)} lb` : `${kg.toFixed(1)} kg`);
     const _fmtH = (cm) => {
       if (cm == null) return null;
@@ -1505,8 +1532,8 @@
 
     let statsText = '';
     const bs = entry?.bodyStats || entry?.body_stats || {};
-    const _wuStat = DB.getSetting('weightUnit', 'lb');
-    const _luStat = DB.getSetting('lengthUnit', 'in');
+    const _wuStat = regionalSetting('weightUnit', 'lb');
+    const _luStat = regionalSetting('lengthUnit', 'in');
     const bsParts = [];
     const _w = readBodyStat(bs, 'weight', _wuStat, _luStat);
     if (_w != null) bsParts.push(`Weight: ${_w} ${_wuStat}`);
@@ -1529,7 +1556,7 @@
         if (fd.calories_out != null)          parts.push(`Calories burned: ${Math.round(fd.calories_out)}`);
         if (fd.floors != null)                parts.push(`Floors: ${Math.round(fd.floors)}`);
         if (fd.distance_km != null) {
-          const _du = DB.getSetting('distUnit', 'mi');
+          const _du = regionalSetting('distUnit', 'mi');
           parts.push(`Distance: ${_du === 'mi' ? (fd.distance_km * 0.621371).toFixed(2) + ' mi' : fd.distance_km.toFixed(2) + ' km'}`);
         }
         if (fd.sleep_duration_min != null)    { const h = Math.floor(fd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(fd.sleep_duration_min%60)}m`); }
@@ -1563,7 +1590,7 @@
           const details = [];
           if (w.duration_ms) details.push(`${Math.round(w.duration_ms/60000)} min`);
           if (w.distance_km) {
-            const _du = DB.getSetting('distUnit', 'mi');
+            const _du = regionalSetting('distUnit', 'mi');
             details.push(`${_du === 'mi' ? (w.distance_km * 0.621371).toFixed(2) + ' mi' : w.distance_km.toFixed(2) + ' km'}`);
           }
           if (w.calories) {
@@ -1589,7 +1616,7 @@
         if (gd.active_minutes != null)        parts.push(`Active minutes: ${Math.round(gd.active_minutes)}`);
         if (gd.calories_out != null)          parts.push(`Calories burned: ${Math.round(gd.calories_out)}`);
         if (gd.distance_km != null) {
-          const _du = DB.getSetting('distUnit', 'mi');
+          const _du = regionalSetting('distUnit', 'mi');
           parts.push(`Distance: ${_du === 'mi' ? (gd.distance_km * 0.621371).toFixed(2) + ' mi' : gd.distance_km.toFixed(2) + ' km'}`);
         }
         if (gd.sleep_duration_min != null)    { const h = Math.floor(gd.sleep_duration_min/60); parts.push(`Sleep: ${h}h ${Math.round(gd.sleep_duration_min%60)}m`); }
@@ -1614,7 +1641,7 @@
       const wd = withingsRes[today];
       if (wd) {
         const parts = [];
-        const _wu = DB.getSetting('weightUnit', 'lb');
+        const _wu = regionalSetting('weightUnit', 'lb');
         const _wFmt = (kg) => _wu === 'lb' ? (kg * 2.20462).toFixed(1) + ' lbs' : kg.toFixed(1) + ' kg';
         if (wd.weight_kg?.value != null)      parts.push(`Weight: ${_wFmt(wd.weight_kg.value)}`);
         if (wd.body_fat_pct?.value != null)    parts.push(`Body fat: ${wd.body_fat_pct.value.toFixed(1)}%`);
@@ -1645,7 +1672,7 @@
         const hcData = await dbGetWellnessByDate(today, 'health_connect').catch(() => null);
         if (hcData && Object.keys(hcData).length) {
           const parts = [];
-          const _du = DB.getSetting('distUnit', 'mi');
+          const _du = regionalSetting('distUnit', 'mi');
           if (hcData.steps != null)          parts.push(`Steps: ${Math.round(hcData.steps).toLocaleString()}`);
           if (hcData.calories_out != null)   parts.push(`Calories burned: ${Math.round(hcData.calories_out)}`);
           if (hcData.active_calories != null) parts.push(`Active calories: ${Math.round(hcData.active_calories)}`);
@@ -1655,7 +1682,7 @@
           if (hcData.avg_heart_rate != null) parts.push(`Avg HR: ${Math.round(hcData.avg_heart_rate)} bpm`);
           if (hcData.hrv_rmssd != null)      parts.push(`HRV: ${hcData.hrv_rmssd.toFixed(1)} ms`);
           if (hcData.weight_kg != null) {
-            const _wu = DB.getSetting('weightUnit', 'lb');
+            const _wu = regionalSetting('weightUnit', 'lb');
             parts.push(`Weight: ${_wu === 'lb' ? (hcData.weight_kg * 2.20462).toFixed(1) + ' lbs' : hcData.weight_kg.toFixed(1) + ' kg'}`);
           }
           if (parts.length) wellnessText += (wellnessText ? '\n' : '') + `Health Connect: ${parts.join(', ')}`;
@@ -1705,11 +1732,11 @@
       .join('\n');
 
     return { today, userName, profileText, diaryText, goalsText, statsText, wellnessText, waterText, streakText, mealNamesText,
-      weightUnit: DB.getSetting('weightUnit', 'lb'),
-      distUnit: DB.getSetting('distUnit', 'mi'),
-      heightUnit: DB.getSetting('heightUnit', 'ft'),
-      tempUnit: DB.getSetting('tempUnit', 'F'),
-      energyUnit: DB.getSetting('energyUnit', 'kcal'),
+      weightUnit: regionalSetting('weightUnit', 'lb'),
+      distUnit: regionalSetting('distUnit', 'mi'),
+      heightUnit: regionalSetting('heightUnit', 'ft'),
+      tempUnit: regionalSetting('tempUnit', 'F'),
+      energyUnit: regionalSetting('energyUnit', 'kcal'),
     };
   }
 
@@ -1730,9 +1757,11 @@ You have FULL ACCESS to the user's complete health data through tools. ALWAYS us
 - **Wellness metrics**: steps, calories burned, distance, active minutes, sleep (duration, stages, score, efficiency), heart rate (resting HR, HRV, SpO2), respiratory rate, readiness score, stress score, skin temp, VO2 max — from Fitbit, Garmin, Health Connect (any date range) — use get_wellness_data
 - **Body composition**: weight, body fat %, muscle mass, bone mass, body water, lean/fat mass, visceral fat, vascular age, metabolic age, BMR, nerve health, ECG — from Withings (any date range) — use get_body_composition
 - **Workouts**: recorded exercises with duration, distance, calories, heart rate, steps, GPS (any date range) — use get_workouts
-- **Nutrition goals**: calorie and macro targets — use get_goals
+- **Nutrition goals**: calorie and macro targets; use get_goals. With no arguments it means CURRENT goals only; for a historical question pass date, or start+end covering the period being analyzed.
 
 When the user asks about their data (steps, sleep, weight, food log, etc.) for ANY date or date range, USE THE APPROPRIATE TOOL to fetch the real data. Do not estimate or hallucinate numbers.
+
+HISTORICAL GOAL SAFETY: Never compare past intake against the Goals line in TODAY'S SUMMARY or against a no-argument get_goals result. Those are current/today-only context. For a past day call get_goals with date. For a past period call get_goals with the matching start and end. If the targets are unknown (known=false, history unavailable, single-user or local mode), say the targets may have differed from today's, treat today's goals as only an approximation, and still answer the question; do not refuse it.
 
 To go through many days of the diary ("what did I eat last week", "which days did I have pizza"), read them with get_diary's to (31 days a call) and go on from next_from until complete is true. get_meals comes a page at a time the same way (offset). Say whether you covered everything.
 
@@ -1813,7 +1842,7 @@ NUTRITION COVERAGE — populate the full profile:
          + ($aiGoalInsights ? `
 
 GOAL INSIGHTS MODE IS ENABLED. You have permission to proactively analyze the user's actual intake vs their goals and offer evidence-based suggestions. When relevant:
-- Use get_diary_averages (28 days is a good default) + get_goals to compare actual vs target
+- Use get_diary_averages (28 days is a good default) + get_goals to compare actual vs target. For a historical period, call get_goals with start/end covering that same period; never compare historical averages to current goals.
 - If intake consistently differs from goals by >10% for 2+ weeks, mention it and offer to suggest an adjustment
 - Consider weight trends from get_body_composition or diary body stats when making calorie goal suggestions
 - Be specific: "You've averaged 1,840 kcal over 28 days vs your 2,100 goal — that's a 260 kcal gap. Want me to suggest a revised goal?"
@@ -1842,7 +1871,7 @@ ${ctx.profileText || '(no profile data set yet — politely tell the user to fil
 ${ctx.userName ? `\nGreet them by name occasionally and reference it when celebrating progress — but don't overdo it (every other sentence is too much).\n` : ''}
 TODAY'S SUMMARY (for quick reference — use tools for detailed or historical data):
 ${ctx.diaryText}
-Goals: ${ctx.goalsText}
+Goals (TODAY ONLY; never use as a historical target): ${ctx.goalsText}
 Water: ${ctx.waterText}
 Diary logging streak: ${ctx.streakText || '(unknown)'}`
          + (ctx.statsText    ? `\nBody stats: ${ctx.statsText}` : '')

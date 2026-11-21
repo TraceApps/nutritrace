@@ -2,6 +2,7 @@ import { writable, derived } from 'svelte/store';
 import { NtApi } from '../lib/api.js';
 import { Nutrition } from '../lib/nutrition.js';
 import { localDateStr, DB } from '../lib/db.js';
+import { regionalSetting } from './settings.js';
 import { resolveAssetUrl, isNative } from '../lib/platform.js';
 import { itemSourceRef } from '../lib/item-source.js';
 import { markCatalogItemUsed, countsUseHere } from '../lib/catalog-kind.js';
@@ -961,7 +962,7 @@ export async function addWaterLog(amountMl, date) {
   currentDate.subscribe(v => viewDate = v)();
   const targetDate = date || viewDate || todayStr();
 
-  const use24 = DB.getSetting('timeFormat', '12h') === '24h';
+  const use24 = regionalSetting('timeFormat', '12h') === '24h';
   const log = {
     uuid: _newUuid(),
     amount: Math.round(amountMl),

@@ -13,7 +13,7 @@
   import { NtApi } from '../../lib/api.js';
   import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
   import { showSuccess, showError, showInfo } from '../../stores/toast.js';
-  import { envLocks, scheduleSave } from '../../stores/settings.js';
+  import { envLocks, scheduleSave, offSearchLanguage, offSearchCountry } from '../../stores/settings.js';
   import { currentUser } from '../../stores/auth.js';
 
   function set(key, value) { DB.setSetting(key, value); scheduleSave(key, value); }
@@ -36,6 +36,9 @@
   let offShowPass   = false;
   let offEnabled    = DB.getSetting('offEnabled',    true);
 
+  // The same lists as the server's defaults (server/lib/regional-options.js;
+  // a test keeps them equal). Written out here so Settings search finds
+  // each name (scripts/gen-settings-search.mjs).
   const OFF_LANGUAGE_OPTS = [
     ['en','English'],['fr','French'],['de','German'],['es','Spanish'],['it','Italian'],
     ['pt','Portuguese'],['nl','Dutch'],['pl','Polish'],['ru','Russian'],['uk','Ukrainian'],['ja','Japanese'],
@@ -53,14 +56,10 @@
     'Mexico','Netherlands','New Zealand','Norway','Poland','Portugal','Singapore',
     'South Africa','South Korea','Spain','Sweden','Switzerland','Ukraine',
     'United Kingdom','United States'];
-  let offSearchLanguage = DB.getSetting('offSearchLanguage', 'en');
-  let offSearchCountry  = DB.getSetting('offSearchCountry',  'World');
   let offUploadCountry  = DB.getSetting('offUploadCountry',  'Auto');
   let offImportPortion  = DB.getSetting('offImportPortion',  'per100g');
 
   $: set('offEnabled',        offEnabled);
-  $: set('offSearchLanguage', offSearchLanguage);
-  $: set('offSearchCountry',  offSearchCountry);
   $: set('offUploadCountry',  offUploadCountry);
   $: set('offImportPortion',  offImportPortion);
 
@@ -685,7 +684,10 @@
       <div class="setting-row">
         <span class="setting-label">{$_('settings.connected_services.off.search_language')}</span>
         <div class="select-wrap" style="width:120px">
-          <select class="select sel-sm" bind:value={offSearchLanguage}>
+          <!-- Saved only when changed: opening this page used to save the
+               shown language and country, which then counted as a choice
+               and hid the server's defaults (nutritrace#326). -->
+          <select class="select sel-sm" value={$offSearchLanguage} on:change={e => offSearchLanguage.set(e.target.value)}>
             {#each OFF_LANGUAGE_OPTS as [v,l]}<option value={v}>{l}</option>{/each}
           </select>
         </div>
@@ -694,7 +696,7 @@
       <div class="setting-row">
         <span class="setting-label">{$_('settings.connected_services.off.search_country')}</span>
         <div class="select-wrap" style="width:150px">
-          <select class="select sel-sm" bind:value={offSearchCountry}>
+          <select class="select sel-sm" value={$offSearchCountry} on:change={e => offSearchCountry.set(e.target.value)}>
             {#each OFF_COUNTRY_OPTS as c}<option value={c}>{c}</option>{/each}
           </select>
         </div>

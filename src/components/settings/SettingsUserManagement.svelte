@@ -13,6 +13,7 @@
   import { validatePassword } from '../../lib/validation.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { envLocks } from '../../stores/settings.js';
+  import SettingsRegionalDefaults from './SettingsRegionalDefaults.svelte';
   import Dialog from '../ui/Dialog.svelte';
   import RequestSheet from '../coaching/RequestSheet.svelte';
   import { coachingSupported, refreshCoaching } from '../../stores/coaching.js';
@@ -800,6 +801,8 @@
             </select>
           </div>
         </div>
+
+        <SettingsRegionalDefaults />
 
         <div class="setting-divider"></div>
         <button class="setting-row setting-action danger" on:click={disableUserManagement}>

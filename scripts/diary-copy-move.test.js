@@ -237,6 +237,7 @@ async function loadStore() {
     "'../lib/db.js'": stub(`export const DB = { getSetting: (k, d) => d };
       export function localDateStr(d = new Date()) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }`),
     "'../lib/platform.js'": stub('export const isNative = false; export const resolveAssetUrl = u => u;'),
+    "'./settings.js'": stub('export const regionalSetting = (k, d) => d;'),
     "'../lib/item-source.js'": stub('export const itemSourceRef = () => null;'),
     "'../lib/catalog-kind.js'": stub('export const countsUseHere = () => true; export const markCatalogItemUsed = async (api, kind, item, date) => { globalThis.__ntCopyTest.used.push(date); };'),
     "'../lib/diary-copy.js'": JSON.stringify(String(new URL('../src/lib/diary-copy.js', import.meta.url))),

@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import db from './db.js';
 import { logger } from './logger.js';
 import { userWeeklyRange } from './lib/weekly-range.js';
+import { defaultFor } from './lib/instance-defaults.js';
 
 /** Seed app_config from env vars at startup (env vars take priority) */
 export function seedSmtpFromEnv() {
@@ -472,8 +473,8 @@ export async function sendWeeklySummaryEmail(userId, origin) {
 
     // Energy unit preference (display only; storage stays kcal)
     const euRow = db.prepare(`SELECT value FROM user_settings WHERE user_id=? AND key='energyUnit'`).get(userId);
-    let energyUnit = 'kcal';
-    try { energyUnit = JSON.parse(euRow?.value || '"kcal"') || 'kcal'; } catch {}
+    let energyUnit = defaultFor('energyUnit', 'kcal');
+    try { if (euRow?.value) energyUnit = JSON.parse(euRow.value) || energyUnit; } catch {}
     const _isKj = energyUnit === 'kJ';
     const _eUnit = _isKj ? 'kJ' : 'kcal';
     const _toE = (kcal) => kcal == null ? null : (_isKj ? Math.round(kcal * 4.184) : Math.round(kcal));

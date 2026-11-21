@@ -25,6 +25,7 @@ import { fetchExternalJson, ExternalApiError, isAirGapped } from './external-api
 import { localizeImage } from './image-localizer.js';
 import { resolveNewItemVisibility } from './default-visibility.js';
 import { readSettingRaw } from './secret-settings.js';
+import { defaultFor } from './instance-defaults.js';
 
 // The page the Foods page asks for and ranks (API.searchByName,
 // USDA.searchByName): results are ranked within it, then cut to the limit.
@@ -87,8 +88,8 @@ export function externalFoodSettings(userId) {
   const key = _setting(userId, 'usdaApiKey', '');
   return {
     offEnabled: !!_setting(userId, 'offEnabled', true),
-    lang: offLanguage(_setting(userId, 'offSearchLanguage', 'en')),
-    country: offCountryTag(_setting(userId, 'offSearchCountry', 'World')),
+    lang: offLanguage(_setting(userId, 'offSearchLanguage', defaultFor('offSearchLanguage', 'en'))),
+    country: offCountryTag(_setting(userId, 'offSearchCountry', defaultFor('offSearchCountry', 'World'))),
     importPortion: _setting(userId, 'offImportPortion', 'per100g'),
     usdaEnabled: !!_setting(userId, 'usdaEnabled', false),
     usdaKey: typeof key === 'string' ? key.trim() : '',

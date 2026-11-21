@@ -153,6 +153,7 @@ Pre-release testers can grab the rolling `dev-latest` APK; occasional milestone 
 | `MEALIE_API_KEY` | No |  | Mealie API key. |
 | `AI_PROVIDER` | No |  | Lock Trace to a provider: `claude` \| `openai` \| `gemini` \| `oai-compat`. |
 | `OIDC_ISSUER` | No |  | Enable a single OIDC provider by setting `OIDC_ISSUER` + `OIDC_CLIENT_ID` + `OIDC_CLIENT_SECRET`. Numbered form (`OIDC_PROVIDER_2_*`) for multi-provider. |
+| `DEFAULT_LANGUAGE` / `DEFAULT_DATE_FORMAT` / `DEFAULT_TIME_FORMAT` / `DEFAULT_ENERGY_UNIT` / `DEFAULT_OFF_SEARCH_LANGUAGE` / `DEFAULT_OFF_SEARCH_COUNTRY` | No | each device's language and region | What everyone who hasn't chosen their own starts with. Each one set locks it in Settings > Users > Defaults for Everyone. Values as `.env.example` lists them. |
 | `SMTP_HOST` | No |  | SMTP server for password reset & invites; also `SMTP_PORT` (587), `SMTP_SECURE` (false), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. |
 
 Full list (Docker secrets `*_FILE` variants, air-gap `OFF_LOCAL_ONLY`, per-provider AI knobs, all `OIDC_*` options) at [docs/self-hosting/env-vars/](https://traceapps.github.io/docs/self-hosting/env-vars/). SMTP and AI can also be set in the Settings UI; env vars take priority and lock those fields.
