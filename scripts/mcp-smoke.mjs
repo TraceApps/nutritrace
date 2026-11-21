@@ -109,6 +109,7 @@ const WRITE_TOOLS = [
   'log_water',
   'log_meal',
   'log_body_stat',
+  'log_diary_batch',
 ];
 const DESTROY_TOOLS = [
   'delete_diary_entry',
