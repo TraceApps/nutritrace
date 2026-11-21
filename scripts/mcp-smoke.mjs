@@ -114,6 +114,8 @@ const DESTROY_TOOLS = [
   'delete_diary_entry',
   'edit_diary_entry',
   'create_food',
+  'create_meal',
+  'update_meal',
 ];
 const expected = new Set([
   ...READ_TOOLS,

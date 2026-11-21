@@ -1,19 +1,17 @@
 import { Router } from 'express';
-import { onlyChanged, deletedSave, goneBody } from '../lib/rest-merge.js';
+import { goneBody } from '../lib/rest-merge.js';
+import { createMeal, updateMeal } from '../lib/meal-save.js';
 import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { sharingEnabled, canRead as _canRead } from '../lib/sharing.js';
-import { resolveNewItemVisibility } from '../lib/default-visibility.js';
 import { localizeImage, isExternalUrl } from '../lib/image-localizer.js';
 import { sendMealShared, isEmailConfigured } from '../email.js';
 import { logger } from '../logger.js';
 import { ownerOrOptIn } from '../lib/outbound-policy.js';
-import { cleanCreateKey, findByCreateKey, setCreateKey } from '../lib/create-keys.js';
-import { categoriesFromSave, categoriesOut } from '../lib/categories.js';
-
-const _has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
+import { cleanCreateKey, findByCreateKey } from '../lib/create-keys.js';
+import { categoriesOut } from '../lib/categories.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -64,20 +62,14 @@ router.get('/:id', wrap((req, res) => {
 
 // ── POST / ────────────────────────────────────────────────────────────────
 router.post('/', wrap(async (req, res) => {
-  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, source_id,
-          source_app, source_external_id, source_url, import_warnings } = req.body;
+  const { name, img_url, source_app } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const u = uid(req);
-  // Sent again (a retry, or the answer was lost): the meal made the first time.
-  const createKey = cleanCreateKey(req.body.client_key);
-  const made = findByCreateKey('meals', u, createKey);
+  // Sent again (a retry, or the answer was lost): the meal made the first
+  // time, before fetching any image.
+  const made = findByCreateKey('meals', u, cleanCreateKey(req.body.client_key));
   if (made) return res.status(200).json(parse(made));
-  // #183: honor the caller's defaultShareVisibility when the client
-  // omits an explicit value. Same rule applies to recipes (is_recipe=1).
-  const vis = visibility || resolveNewItemVisibility(u);
   const cleanSourceApp = source_app ? String(source_app).slice(0, 40) : null;
-  const cleanSourceExtId = source_external_id ? String(source_external_id).slice(0, 128) : null;
-  const cleanSourceUrl = source_url ? String(source_url).slice(0, 2048) : null;
   // For federation imports, trust the user's own saved integration base
   // URL for image fetches so a LAN CT/Mealie origin does not get blocked
   // by the SSRF guard (and the "From CookTrace" recipe silently ends up
@@ -101,49 +93,9 @@ router.post('/', wrap(async (req, res) => {
     ? (img_url.startsWith('http') || img_url.startsWith('data:'))
     : isExternalUrl(img_url));
   const localImg = _shouldLocalizeImg ? await localizeImage(img_url, { trustedOrigins: _trustedImgOrigins, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null);
-  const warningsCol = Array.isArray(import_warnings) && import_warnings.length
-    ? JSON.stringify(import_warnings.map(w => String(w || '').slice(0, 400)).filter(Boolean).slice(0, 20))
-    : null;
-
-  // Upsert on re-import: a save with the same (user, source_app, source_external_id)
-  // as an existing row updates that row in place. This is how the CookTrace pull
-  // flow keeps a re-imported recipe on the same NT meal id rather than tripping
-  // the partial unique index on meals(user_id, source_app, source_external_id).
-  if (cleanSourceApp && cleanSourceExtId) {
-    const existing = u == null
-      ? db.prepare(`SELECT id FROM meals WHERE user_id IS NULL AND source_app = ? AND source_external_id = ? AND deleted_at IS NULL`).get(cleanSourceApp, cleanSourceExtId)
-      : db.prepare(`SELECT id FROM meals WHERE user_id = ? AND source_app = ? AND source_external_id = ? AND deleted_at IS NULL`).get(u, cleanSourceApp, cleanSourceExtId);
-    if (existing) {
-      db.prepare(
-        `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?,
-                          source_url=?, import_warnings=?, updated_at=datetime('now') WHERE id=?`
-      ).run(name, JSON.stringify(nutrition || {}), JSON.stringify(items || []),
-        localImg, notes || null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
-        servings != null ? Math.max(1, parseInt(servings) || 1) : null,
-        vis, cleanSourceUrl, warningsCol, existing.id);
-      return res.status(200).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(existing.id)));
-    }
-  }
-
-  // A deleted meal from the same source still holds its place in the unique
-  // (source_app, source_external_id) index: it lets go, so the new one can
-  // be made (a CookTrace recipe deleted and pulled again), as a deleted food
-  // does (routes/foods.js).
-  if (cleanSourceApp && cleanSourceExtId) {
-    db.prepare(`UPDATE meals SET source_app = NULL, source_external_id = NULL WHERE user_id IS ? AND source_app = ? AND source_external_id = ? AND deleted_at IS NOT NULL`)
-      .run(u ?? null, cleanSourceApp, cleanSourceExtId);
-  }
-  const result = db.prepare(
-    `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, categories, is_recipe, portion, unit, servings, visibility, source_id,
-                        source_app, source_external_id, source_url, import_warnings, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-  ).run(u, name, JSON.stringify(nutrition || {}), JSON.stringify(items || []),
-    localImg, notes || null, categoriesFromSave(req.body, null)?.categories ?? null, is_recipe ? 1 : 0, portion ?? 100, unit || 'g',
-    servings != null ? Math.max(1, parseInt(servings) || 1) : null,
-    vis, source_id || null,
-    cleanSourceApp, cleanSourceExtId, cleanSourceUrl, warningsCol);
-  setCreateKey('meals', result.lastInsertRowid, createKey);
-  res.status(201).json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(result.lastInsertRowid)));
+  // The save itself is shared with MCP's create_meal (lib/meal-save.js).
+  const { status, row } = createMeal(u, req.body, localImg);
+  res.status(status).json(parse(row));
 }));
 
 // ── PUT /:id ──────────────────────────────────────────────────────────────
@@ -152,13 +104,7 @@ router.put('/:id', wrap(async (req, res) => {
   const existing = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   if (u != null && existing.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
-  const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, favorite } = req.body;
-  const fav = favorite != null ? (favorite ? 1 : 0) : existing.favorite;
-  // Body explicitly set servings → take it (null clears, number clamps to >=1).
-  // Body omitted servings entirely → preserve the existing row value (null stays null).
-  const srv = 'servings' in req.body
-    ? (servings != null ? Math.max(1, parseInt(servings) || 1) : null)
-    : existing.servings;
+  const { img_url } = req.body;
   // Same idiom for img_url: undefined → keep existing, null/'' → clear.
   // The old inline `img_url ?? existing.img_url` treated null as nullish and
   // preserved the existing image, so the MealEditor X-remove-photo button
@@ -168,27 +114,10 @@ router.put('/:id', wrap(async (req, res) => {
   const img = 'img_url' in req.body
     ? ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null))
     : existing.img_url;
-  // Only the fields a save says it changed, when it says (lib/rest-merge.js).
-  const next = onlyChanged('meals', existing, {
-    name: name ?? existing.name, nutrition: JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
-    items: JSON.stringify(items ?? JSON.parse(existing.items || '[]')), img_url: img,
-    notes: notes ?? existing.notes,
-    // Kept since #332; a save that doesn't send them leaves them.
-    categories: _has(req.body, 'categories') ? categoriesFromSave({ categories: req.body.categories }, existing).categories : existing.categories,
-    is_recipe: is_recipe != null ? (is_recipe ? 1 : 0) : existing.is_recipe,
-    portion: portion ?? existing.portion, unit: unit ?? existing.unit, servings: srv, favorite: fav,
-  }, req.body.changed_fields);
-  const vis = visibility ?? existing.visibility;
-  // Deleted elsewhere: a save that changes something, made after the delete,
-  // brings the meal or recipe back; any other is refused as gone
-  // (lib/rest-merge.js).
-  if (existing.deleted_at && !deletedSave('meals', existing, next)) return res.status(410).json(goneBody);
-  db.prepare(
-    `UPDATE meals SET name=?, nutrition=?, items=?, img_url=?, notes=?, categories=?, is_recipe=?, portion=?, unit=?, servings=?, visibility=?, favorite=?, updated_at=datetime('now')${existing.deleted_at ? ', deleted_at=NULL' : ''} WHERE id=?`
-  ).run(next.name, next.nutrition, next.items, next.img_url, next.notes, next.categories, next.is_recipe,
-    next.portion, next.unit, next.servings,
-    vis, next.favorite, req.params.id);
-  res.json(parse(db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id)));
+  // The save itself is shared with MCP's update_meal (lib/meal-save.js).
+  const row = updateMeal(existing, req.body, img);
+  if (!row) return res.status(410).json(goneBody);
+  res.json(parse(row));
 }));
 
 // ── POST /:id/used — bump usage_count + last_used_at on a saved meal ─────
