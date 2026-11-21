@@ -116,6 +116,9 @@ const DESTROY_TOOLS = [
   'create_food',
   'create_meal',
   'update_meal',
+  'delete_meal',
+  'update_food',
+  'delete_food',
 ];
 const expected = new Set([
   ...READ_TOOLS,
