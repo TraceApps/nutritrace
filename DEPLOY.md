@@ -136,6 +136,7 @@ services:
 | `INSECURE_COOKIES` | No | `0` | Set `1` to send the sign-in cookie over plain HTTP too. The cookie is HTTPS-only by default, so at a plain `http://` address other than `localhost` (a LAN IP, an Unraid WebUI link) the browser drops it and signing in loops back to the sign-in page; the sign-in and setup screens say so. Use `1` only on a trusted LAN, and leave it `0` behind HTTPS. See [Plain-HTTP LAN](https://traceapps.github.io/docs/getting-started/lan-http/). |
 | `BACKUPS_PATH` | No | Inside uploads dir | Where full ZIP backups are stored |
 | `TZ` | No | `UTC` | The server's time zone, such as `America/New_York` (needs no tzdata). Names backups and runs a backup schedule that has no time zone of its own, `BACKUP_TIME` included. A schedule set in Settings > Backup keeps the time zone of the browser that set it. Set it in the container's environment and restart. |
+| `DEFAULT_LANGUAGE` / `DEFAULT_DATE_FORMAT` / `DEFAULT_TIME_FORMAT` / `DEFAULT_ENERGY_UNIT` / `DEFAULT_OFF_SEARCH_LANGUAGE` / `DEFAULT_OFF_SEARCH_COUNTRY` | No | each device's language and region | What everyone who hasn't chosen their own starts with. Each one set locks it in Settings > Users > Defaults for Everyone. Values as `.env.example` lists them. |
 | `SMTP_HOST` | No | — | SMTP server hostname |
 | `SMTP_PORT` | No | `587` | SMTP port |
 | `SMTP_SECURE` | No | `false` | `true` for TLS (port 465), `false` for STARTTLS |
