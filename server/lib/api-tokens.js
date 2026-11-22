@@ -76,7 +76,7 @@ export const KNOWN_SCOPES = new Set([
   'mcp:write',
   // mcp:destroy unlocks Model Context Protocol DESTRUCTIVE tools
   // (Phase 3: edit_diary_entry, delete_diary_entry, create_food,
-  // create_meal, update_meal).
+  // create_meal, update_meal, delete_meal, update_food, delete_food).
   // Requires MCP_DESTROY_ENABLED=1 on the server AND each destructive
   // tool call to include an explicit `confirm: true` argument. Kept
   // separate from mcp:write so an admin can grant "log stuff" without

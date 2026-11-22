@@ -24,6 +24,7 @@
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearMealEditorState } from '../stores/editorState.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
+  import { sourceRollup, recipeSaveNutrition } from '../lib/recipe-rollup.js';
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, visibleNutriments, nutrimentsOrder, catName as _catName, catDisplay as _catDisplay, energyUnit, foodsSort, mealsSort, recipesSort, offEnabled, usdaEnabled, usdaApiKey } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
   import { draftKey as _mkDraftKey, loadDraft, loadDraftImg, clearDraft, makeDebouncedPersist, sweepDrafts, applyDraft, draftBase } from '../lib/editor-draft.js';
@@ -89,6 +90,9 @@
   // Banner state so a restored draft is visible + dismissable.
   let _draftRestored = false;
   let _serverBaseline = null;
+  // The source app's rollup (CookTrace) as the whole recipe, with the
+  // ingredients it was worked out for (lib/recipe-rollup.js, #343).
+  let _rollup = null;
 
   // Ingredient picker
   let showPicker = false;
@@ -183,6 +187,12 @@
       recipeYields = isExistingRecipe && !hasExplicitServings ? '' : effectiveServings;
       if (meal.portion) recipeAmount = (parseFloat(meal.portion) || 0) * effectiveServings;
       if (meal.unit) recipeUnit = meal.unit;
+      // A recipe from the catalog (it has an id) stores values per serving;
+      // a fresh import carries the whole recipe's.
+      _rollup = sourceRollup({
+        sourceApp: meal.source_app, nutrition: meal.nutrition, items: meal.items,
+        servings: meal.servings, perServing: meal.id != null,
+      });
     }
 
     // ── Restore any in-progress draft (#157) ────────────────────────
@@ -279,6 +289,8 @@
     if (isRecipe) { recipeYields = next.yields; recipeAmount = next.amount; recipeUnit = next.unit; }
     // Discarding a restored draft goes back to this copy.
     const base = _split(fresh);
+    // The saved row's rollup (per serving), for the ingredients it now has.
+    if (isRecipe) _rollup = sourceRollup({ sourceApp: row.source_app, nutrition: row.nutrition, items: row.items, servings: row.servings, perServing: true });
     if (_serverBaseline) _serverBaseline = { ..._serverBaseline, meal: draftBase(base.meal), photoPreviewUrl: base.photo || '', ...(isRecipe ? { recipeAmount: base.amount, recipeUnit: base.unit, recipeYields: base.yields } : {}) };
   }
   onMount(() => onSynced(['meals'], () => { _takeSynced(); }));
@@ -388,6 +400,8 @@
       };
       if (mapped.imgUrl) photoPreviewUrl = mapped.imgUrl;
       if (mapped.servings) recipeYields = mapped.servings;
+      // CookTrace's new rollup is the whole recipe, for its new ingredients.
+      _rollup = sourceRollup({ sourceApp: meal.source_app, nutrition: mapped.nutrition, items: meal.items });
       _ctUpdateAvailable = null;
       showSuccess($_('meal_editor.ct_refresh.refreshed_toast'));
     } catch (e) {
@@ -414,6 +428,9 @@
       recipeUnit      = _serverBaseline.recipeUnit;
       recipeYields    = _serverBaseline.recipeYields;
       isRecipe        = _serverBaseline.isRecipe;
+      // Back to the loaded recipe: its rollup, not one a Refresh brought.
+      const m = _serverBaseline.meal || {};
+      _rollup = isRecipe ? sourceRollup({ sourceApp: m.source_app, nutrition: m.nutrition, items: m.items, servings: m.servings, perServing: m.id != null }) : null;
     }
     // Nothing is changed here any more: a sync fills in every field again.
     if (_opened) _opened = JSON.parse(JSON.stringify(_formNow()));
@@ -926,35 +943,15 @@
         item.portion = totalGrams / yields;
         item.unit = recipeUnit;
         item.servings = explicit ? yields : null;
-        // #207 companion: for meals imported from an external source
-        // (CookTrace today, others via source_app in the future) with a
-        // pre-computed rollup, trust the source's totals over an
-        // items-derived recompute. Reason: CT's own rollup engine does
-        // density-aware unit conversion (e.g. "2 cups flour" -> grams via
-        // g_per_cup) that MealEditor's Nutrition.sum(items) cannot
-        // replicate here; recomputing would silently drift the totals
-        // every save. Fall back to the recomputed totals when the source
-        // did not carry a rollup, or when the user manually edited
-        // ingredients (touching items.length or item nutrition invalidates
-        // the source rollup).
-        const _hasSourceRollup = meal.source_app
-          && meal.nutrition && typeof meal.nutrition === 'object'
-          && Object.values(meal.nutrition).some(v => Number(v) > 0);
-        const _itemsMatchSourceCount = Array.isArray(meal.items)
-          && Array.isArray(_serverBaseline?.meal?.items)
-          && meal.items.length === _serverBaseline.meal.items.length;
-        // An amount CookTrace couldn't convert, now set here, isn't in
-        // CookTrace's rollup: count the ingredients instead (#296).
+        // #207 companion: a recipe imported from another app (CookTrace)
+        // keeps that app's rollup, which converts units by density where
+        // the editor's own sum can't, while its ingredients are the ones the
+        // rollup was worked out for. An amount changed, an ingredient added,
+        // removed or swapped, or an amount CookTrace couldn't convert set
+        // here (#296): the editor's sum instead (#343). Either is divided by
+        // the servings once (lib/recipe-rollup.js).
         const _ctAmountFixed = (meal.items || []).some(it => it?.ct_scaled === false && it.ct_amount == null);
-        if (_hasSourceRollup && _itemsMatchSourceCount && !_ctAmountFixed) {
-          item.nutrition = Object.fromEntries(
-            Object.entries(meal.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
-          );
-        } else {
-          item.nutrition = Object.fromEntries(
-            Object.entries(totals).map(([k, v]) => [k, (parseFloat(v) || 0) / yields])
-          );
-        }
+        item.nutrition = recipeSaveNutrition({ rollup: _rollup, items: meal.items, totals, yields, ctAmountFixed: _ctAmountFixed });
       }
       // Sharing is set by Share (or Bulk Share), never by saving: an older
       // copy here (a draft, an older load) must not undo it.

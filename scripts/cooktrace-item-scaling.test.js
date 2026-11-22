@@ -63,7 +63,7 @@ test('the recipe editor marks unscaled rows, clears the mark on Edit, and offers
   const src = read('../src/routes/MealEditor.svelte');
   assert.match(src, /\{#if item\.ct_amount != null\}[\s\S]{0,300}meal_editor\.ct_unscaled'[\s\S]{0,120}meal_editor\.ct_unscaled_blank/);
   // Once such an amount is set here, the save counts the ingredients, not CookTrace's rollup without it.
-  assert.match(src, /_ctAmountFixed = \(meal\.items \|\| \[\]\)\.some\(it => it\?\.ct_scaled === false && it\.ct_amount == null\);\s*if \(_hasSourceRollup && _itemsMatchSourceCount && !_ctAmountFixed\)/);
+  assert.match(src, /_ctAmountFixed = \(meal\.items \|\| \[\]\)\.some\(it => it\?\.ct_scaled === false && it\.ct_amount == null\);\s*item\.nutrition = recipeSaveNutrition\(\{ rollup: _rollup, items: meal\.items, totals, yields, ctAmountFixed: _ctAmountFixed \}\)/);
   assert.match(src, /const \{ ct_amount: _ctAmount, \.\.\.kept \} = item;\s*items\[editingIndex\] = \{ \.\.\.kept,/);
   assert.match(src, /_unscaledImport = \(fresh\.items \|\| \[\]\)\.some\(it => typeof it\?\.scaled === 'boolean'\)\s*&& !\(meal\.items \|\| \[\]\)\.some\(it => typeof it\?\.ct_scaled === 'boolean'\)/);
   assert.match(src, /if \(_unscaledImport \|\|/);

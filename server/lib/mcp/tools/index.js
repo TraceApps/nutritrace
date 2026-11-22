@@ -36,6 +36,9 @@ import { registerEditDiaryEntry } from './edit-diary-entry.js';
 import { registerCreateFood } from './create-food.js';
 import { registerCreateMeal } from './create-meal.js';
 import { registerUpdateMeal } from './update-meal.js';
+import { registerDeleteMeal } from './delete-meal.js';
+import { registerUpdateFood } from './update-food.js';
+import { registerDeleteFood } from './delete-food.js';
 
 export function registerReadTools(server, ctx) {
   registerGetGoals(server, ctx);
@@ -69,4 +72,7 @@ export function registerDestroyTools(server, ctx) {
   registerCreateFood(server, ctx);
   registerCreateMeal(server, ctx);
   registerUpdateMeal(server, ctx);
+  registerDeleteMeal(server, ctx);
+  registerUpdateFood(server, ctx);
+  registerDeleteFood(server, ctx);
 }

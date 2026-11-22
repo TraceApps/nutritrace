@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { goneBody } from '../lib/rest-merge.js';
-import { createMeal, updateMeal } from '../lib/meal-save.js';
+import { createMeal, updateMeal, deleteMeal } from '../lib/meal-save.js';
 import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
@@ -140,7 +140,7 @@ router.delete('/:id', wrap((req, res) => {
   const existing = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   if (u != null && existing.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
-  db.prepare(`UPDATE meals SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(req.params.id);
+  deleteMeal(existing.id);
   res.json({ ok: true });
 }));
 

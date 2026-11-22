@@ -25,7 +25,7 @@ import { dailyTotalsCore } from './daily-totals.js';
 // phone's own there and the server's in `server_id` (null: not on the
 // server yet, so the phone's id is all it has). Same rule as
 // src/lib/coach-plans.js ingredientFoodId.
-function ingredientServerId(it) {
+export function ingredientServerId(it) {
   if (!it || typeof it !== 'object') return null;
   if (typeof it.food_server_id === 'number') return it.food_server_id;
   if ('server_id' in it) return typeof it.server_id === 'number' ? it.server_id : null;

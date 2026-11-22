@@ -126,6 +126,9 @@ test('All Phase 3 destructive tools are registered in registerDestroyTools', () 
     'registerCreateFood',
     'registerCreateMeal',
     'registerUpdateMeal',
+    'registerDeleteMeal',
+    'registerUpdateFood',
+    'registerDeleteFood',
   ];
   for (const fn of expected) {
     assert.match(mcpTools, new RegExp(`\\b${fn}\\s*\\(`), `expected ${fn}() call in tools/index.js`);
@@ -134,7 +137,7 @@ test('All Phase 3 destructive tools are registered in registerDestroyTools', () 
 
 test('Every Phase 3 destructive tool requires confirm=true', () => {
   const destroyFiles = ['delete-diary-entry.js', 'edit-diary-entry.js', 'create-food.js',
-    'create-meal.js', 'update-meal.js'];
+    'create-meal.js', 'update-meal.js', 'delete-meal.js', 'update-food.js', 'delete-food.js'];
   for (const f of destroyFiles) {
     const src = readFileSync(
       new URL(`../server/lib/mcp/tools/${f}`, import.meta.url),
