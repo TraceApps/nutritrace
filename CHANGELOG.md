@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **A CookTrace recipe's totals follow your edits** ([#343](https://github.com/TraceApps/nutritrace/issues/343), thanks @Neliel999). Changing an ingredient's amount in a recipe imported from CookTrace kept CookTrace's old totals, so adding it to the diary logged the old calories. The recipe now keeps CookTrace's totals only while its ingredients are the ones CookTrace worked them out for; change an amount, or add, remove or swap an ingredient, and it counts its ingredients. Saving such a recipe with more than one serving, or one copied from a coach, also divided its values by the servings again each time; that's fixed too. A recipe already saved smaller this way is corrected the next time one of its ingredients changes, or when it's refreshed from CookTrace.
 - **Opening Connected Services no longer saves the food search language and country** as if you had chosen them, which would have hidden the defaults above. They're saved when you change them.
 
 ---
