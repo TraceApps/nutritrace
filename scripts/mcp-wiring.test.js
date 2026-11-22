@@ -104,6 +104,7 @@ test('All Phase 2 write tools are registered in registerWriteTools', () => {
     'registerLogWater',
     'registerLogMeal',
     'registerLogBodyStat',
+    'registerLogDiaryBatch',
   ];
   for (const fn of expected) {
     assert.match(mcpTools, new RegExp(`\\b${fn}\\s*\\(`), `expected ${fn}() call in tools/index.js`);

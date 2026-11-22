@@ -32,7 +32,7 @@ export function ingredientServerId(it) {
   return typeof it.id === 'number' ? it.id : null;
 }
 
-export function logMealCore(userId, { meal_id, date, meal, servings } = {}) {
+export function buildMealEntry(userId, { meal_id, date, meal, servings } = {}) {
   const day = date || todayLocal();
   if (!isCalendarDate(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
 
@@ -84,6 +84,12 @@ export function logMealCore(userId, { meal_id, date, meal, servings } = {}) {
       source_meal_id: savedMeal.id,
     }));
   }
+  return { day, cloned, savedMeal, override };
+}
+
+export function logMealCore(userId, args = {}) {
+  const { day, cloned, savedMeal, override } = buildMealEntry(userId, args);
+  const { servings } = args;
 
   // Snapshot pre-write totals for the goal.achieved webhook, before the
   // mutation below changes them. Never let this block the actual write.
