@@ -365,5 +365,10 @@
       "mark_day_complete": "Marque o Dia como Completo",
       "unmark_day_complete": "Desmarque o Dia como Completo"
     }
+  },
+  "trace_reply": {
+    "stopped_length": "A resposta foi cortada antes do fim, então não foi utilizada. Tente novamente ou faça uma pergunta menor.",
+    "stopped_thinking": "O modelo concluiu o raciocínio, mas não deu uma resposta. Tente novamente ou reduza o nível de raciocínio.",
+    "stopped_empty": "O modelo retornou uma resposta vazia. O que o Trace já fez neste turno será mantido, então verifique antes de perguntar novamente."
   }
 }
