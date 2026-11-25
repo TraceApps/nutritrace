@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Searching your own and shared foods ignores accents** ([#346](https://github.com/TraceApps/nutritrace/issues/346), thanks @herver1971). On the Foods tab, "champinon" didn't find "Champiñón" with My Foods or Shared on, though every other search box ignores accents. The same goes for the coach plan builder's food and meal picker, the foods, meals and meal slot a quick log matches by name, and the food Trace matches in your catalog, where the exact spelling still wins when you have both "Cafe" and "Café". English names match as before.
+
 ---
 
 ## [1.5.0-dev07] - 2026-11-22 (pre-release)

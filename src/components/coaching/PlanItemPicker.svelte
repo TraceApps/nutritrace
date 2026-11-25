@@ -12,6 +12,7 @@
   import { planItemFrom, planItemsFromMeal, cleanPlanPayload } from '../../lib/coach-plans.js';
   import { showError } from '../../stores/toast.js';
   import { coachingErrorText } from '../../lib/coaching-view.js';
+  import { foldText } from '../../lib/search-text.js';
 
   export let open = false;
   export let clientId;
@@ -54,8 +55,8 @@
   }
 
   $: cat = source === 'client' ? clientCat : source === 'mine' ? mine : null;
-  $: needle = query.trim().toLowerCase();
-  $: list = (cat?.[kind] || []).filter(x => !needle || `${x.name} ${x.brand || ''}`.toLowerCase().includes(needle)).slice(0, 200);
+  $: needle = foldText(query).trim();
+  $: list = (cat?.[kind] || []).filter(x => !needle || foldText(`${x.name} ${x.brand || ''}`).includes(needle)).slice(0, 200);
 
   const energy = (v) => { const e = Nutrition.displayEnergy(Math.round(Number(v) || 0), $energyUnit); return `${e.value.toLocaleString()} ${e.unit}`; };
   const sub = (x) => (kind === 'meals'

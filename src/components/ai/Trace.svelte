@@ -1,5 +1,6 @@
 <script>
   import { pastedImage } from '../../lib/paste-image.js';
+  import { foldText } from '../../lib/search-text.js';
   import AttachImageButton from './AttachImageButton.svelte';
   import { closeOnBack } from '../../lib/back-stack.js';
   import { offNutritionStatus, needsFullLookup } from '../../lib/off-nutrition.js';
@@ -683,11 +684,17 @@
           // fuzzy matcher uses edit distance but we want stricter behavior
           // for AI-driven logging — fewer false positives matter more than
           // typo tolerance, because the AI restates the user's word verbatim.
-          const _norm = s => String(s || '').toLowerCase().trim();
+          // Accents folded too: Trace may write "champinon" for "Champiñón".
+          const _norm = s => foldText(s).trim();
           const qNorm = _norm(foodQuery);
           let localFoods = [];
           try { localFoods = await NtApi.getFoods(); } catch {}
-          const exactLocal = (localFoods || []).filter(f => _norm(f.name) === qNorm);
+          // The exact spelling first, so "Café" still picks "Café" when the
+          // catalog also has a "Cafe"; ignoring accents only when nothing is.
+          const _plain = s => String(s || '').toLowerCase().trim();
+          const qPlain = _plain(foodQuery);
+          let exactLocal = (localFoods || []).filter(f => _plain(f.name) === qPlain);
+          if (!exactLocal.length) exactLocal = (localFoods || []).filter(f => _norm(f.name) === qNorm);
           if (exactLocal.length === 1) {
             // Single exact local hit — use it.
             const food = exactLocal[0];
