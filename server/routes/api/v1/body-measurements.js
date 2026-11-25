@@ -51,6 +51,7 @@ import db from '../../../db.js';
 import { wrap } from '../../../logger.js';
 import { requireScope } from '../../../middleware/bearer-auth.js';
 import { getBodyCompositionCore } from '../../../lib/mcp/tools/get-body-composition.js';
+import { mirrorWeightToBodyStats } from '../../../lib/wellness-mirror.js';
 
 const router = Router();
 
@@ -237,6 +238,11 @@ router.post('/', requireScope('write:body-measurements'), wrap((req, res) => {
     if (typeof value !== 'number' || !Number.isFinite(value)) continue;
     insertWellness.run(wellnessUid, date, key, value, wellnessMeta);
   }
+
+  // The weight in that day's Body Stats too, when Settings > Wellness >
+  // Mirror Wellness Weight to Body Stats is on (lib/wellness-mirror.js), as
+  // for Health Connect and Garmin. A manual weight stays.
+  if (typeof updates.weight_kg === 'number') mirrorWeightToBodyStats(u, date, updates.weight_kg);
 
   res.status(201).json({
     ok: true,

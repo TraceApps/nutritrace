@@ -739,7 +739,7 @@
       <div class="setting-row">
         <div>
           <span class="setting-label">Mirror wellness weight to Body Stats</span>
-          <div class="setting-desc">Also write scale readings from Health Connect and a Garmin Personal API Key into that day's Body Stats weight so the Weight goal on Goals and the Body Stats widget on Diary reflect your scale. Manual Body Stats entries are never overwritten. Withings applies this by default independently of this toggle.</div>
+          <div class="setting-desc">Also write scale readings from Withings, Health Connect, a Garmin Personal API Key and the body measurements API into that day's Body Stats weight so the Weight goal on Goals and the Body Stats widget on Diary reflect your scale. The day's first reading is kept, and manual Body Stats entries are never overwritten.</div>
         </div>
         <Toggle checked={mirrorWellnessWeightVal}
           on:change={e => { mirrorWellnessWeightVal = e.detail; mirrorWellnessWeight.set(e.detail); }} />

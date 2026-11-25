@@ -200,6 +200,20 @@ test('a request, the answer, and the privacy table for every client route', { sk
   assert.deepEqual(today.targets, { calories: 2000, proteins: 150, carbohydrates: null, fat: 70 });
   assert.equal(ov.last_logged, TODAY);
   assert.deepEqual(ov.weights, [{ date: TODAY, kg: 70.5 }]);
+  // A scale's weight on a day with none typed in (#350): a device before the
+  // body measurements API; a typed-in weight stays.
+  const YESTERDAY = (() => { const d = new Date(TODAY + 'T12:00:00'); d.setDate(d.getDate() - 1); return d.toLocaleDateString('sv-SE'); })();
+  {
+    const sql = new (serverRequire('better-sqlite3'))(join(dir, 'nt.db'));
+    const put = sql.prepare(`INSERT INTO wellness_data (user_id, date, source, metric_type, value) VALUES (?, ?, ?, 'weight_kg', ?)`);
+    put.run(ids.client1, YESTERDAY, 'federation', 71.2);
+    put.run(ids.client1, YESTERDAY, 'withings', 71.0);
+    put.run(ids.client1, TODAY, 'federation', 69.9);
+    sql.close();
+  }
+  const ov2 = await ok('coach1', 'GET', `/api/coaching/clients/${ids.client1}/overview?today=${TODAY}`);
+  assert.deepEqual(ov2.weights, [{ date: YESTERDAY, kg: 71 }, { date: TODAY, kg: 70.5 }]);
+  assert.equal((await ok('coach1', 'GET', `/api/coaching/clients/${ids.client1}/diary/${YESTERDAY}`)).weight_kg, 71);
   const day = await ok('coach1', 'GET', `/api/coaching/clients/${ids.client1}/diary/${TODAY}`);
   assert.equal(day.items.length, 1);
   assert.equal(day.items[0].name, 'Oats');

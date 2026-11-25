@@ -1,6 +1,6 @@
 <script>
   import { closeOnBack } from '../lib/back-stack.js';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { slide } from 'svelte/transition';
   import { _, locale } from 'svelte-i18n';
   import { tr } from '../lib/i18n-label.js';
@@ -13,6 +13,7 @@
   import { currentDate } from '../stores/diary.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
+  import { apiBodyData, bodyDataPath, refreshApiBodyData } from '../lib/api-body.js';
   import { resolveRangeGoal } from '../lib/goal-resolver.js';
   import { goals, energyUnit, weightUnit, lengthUnit, statsChartType, statsYZero,
            statsAvgLine, statsGoalLine, statsTrendLine, statsIncludeToday, statsShowEmptyDays,
@@ -58,7 +59,7 @@
     if (!key) return false;
     if (key.startsWith('wl_')) {
       const hasWellness = $fitbitFamilyEnabled || $garminEnabled;
-      if (key === 'wl_muscle') return hasWellness || $withingsEnabled;
+      if (key === 'wl_muscle') return hasWellness || $withingsEnabled || $apiBodyData;
       return hasWellness;
     }
     if (key === 'water') return _waterShowInStats;
@@ -127,7 +128,7 @@
       ...(_wlVisible('hrv_daily_rmssd')   ? [{ value: 'wl_hrv',    label: 'HRV',           unit: 'ms',    apiSource: 'fitgarm', apiField: 'hrv_daily_rmssd' }] : []),
       ...(_wlVisible('spo2_avg')          ? [{ value: 'wl_spo2',   label: 'SpO2',          unit: '%',     apiSource: 'fitgarm', apiField: 'spo2_avg' }] : []),
     ] : []),
-    ...(($withingsEnabled || $fitbitFamilyEnabled) && _wlVisible('muscle_mass_kg') ? [
+    ...(($withingsEnabled || $fitbitFamilyEnabled || $apiBodyData) && _wlVisible('muscle_mass_kg') ? [
       { value: 'wl_muscle', label: tr('body_metrics', 'muscle', 'Muscle Mass', $locale), unit: '', apiSource: 'withings', apiField: 'muscle_mass_kg', isWeight: true },
     ] : []),
   ];
@@ -211,19 +212,29 @@
     // null for pure-wellness metrics (which skip the diary lookup) and
     // the tally then does its own getAllDiary().
     let entryMap = null;
+    let _allDiary = null; // the whole diary, when All has read it already
 
     const isWellness   = metric.startsWith('wl_');
     // Withings + Health Connect both report weight + body fat; Withings is
     // the only device that reports body water % (Health Connect's
     // "Hydration" data type is drink intake, not body composition), so
-    // body_water is device-sourced only when Withings is connected.
+    // body_water is device-sourced only when Withings is connected, or when
+    // measurements come in through the API (#350), which sends all three.
     const isBodyDevice =
-      ((metric === 'weight' || metric === 'body_fat') && ($withingsEnabled || $fitbitFamilyEnabled)) ||
-      (metric === 'body_water' && $withingsEnabled);
+      ((metric === 'weight' || metric === 'body_fat') && ($withingsEnabled || $fitbitFamilyEnabled || $apiBodyData)) ||
+      (metric === 'body_water' && ($withingsEnabled || $apiBodyData));
 
     if (range === 'all' && (isWellness || isBodyDevice)) {
-      // Wellness data doesn't come from diary — use last 365 days
-      const n = 365;
+      // Wellness data doesn't come from diary: use last 365 days. A body
+      // stat also goes back to the first diary day, so measurements typed in
+      // more than a year ago stay in All.
+      let n = 365;
+      if (isBodyDevice) {
+        _allDiary = await NtApi.getAllDiary().catch(() => []);
+        const first = _allDiary.map(e => e.date).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d || '')).sort()[0];
+        const days = first ? Math.round((new Date(localDateStr(now) + 'T12:00:00') - new Date(first + 'T12:00:00')) / 86400000) + 1 : 0;
+        if (Number.isFinite(days)) n = Math.max(n, days);
+      }
       for (let i = n - 1; i >= 0; i--) {
         const d = new Date(now); d.setDate(d.getDate() - i);
         dates.push(localDateStr(d));
@@ -288,7 +299,7 @@
         // The fitbit /data endpoint surfaces HC body-comp metrics too
         // (weight, body_fat, muscle_mass) since it returns source IN
         // ('fitbit', 'health_connect') for every metric_type.
-        try { if ($fitbitFamilyEnabled) fitbitData = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
+        try { const p = bodyDataPath({ from: fromStr, to: toStr }, $fitbitFamilyEnabled, $apiBodyData); if (p) fitbitData = await NtApi.get(p); } catch {}
         if ($healthConnectEnabled && isNative) {
           try {
             const { dbGetWellnessGrouped } = await import('../lib/db-native.js');
@@ -300,7 +311,7 @@
             ?? fitbitData[d]?.[wlMeta.apiField]
             ?? hcData[d]?.[wlMeta.apiField]
             ?? null;
-          const val = raw != null && wlMeta.isWeight && $weightUnit === 'lb' ? raw * 2.20462 : raw;
+          const val = raw != null && wlMeta.isWeight && $weightUnit === 'lb' ? Math.round(raw * 2.20462 * 10) / 10 : raw;
           return { date: d, val };
         });
       }
@@ -312,7 +323,7 @@
       let withingsData = {}, fitbitBodyData = {}, hcBodyData = {};
       if (isBodyDevice) {
         try { if ($withingsEnabled) withingsData = await NtApi.get(`/api/wellness/withings/data?from=${fromStr}&to=${toStr}`); } catch {}
-        try { if ($fitbitFamilyEnabled) fitbitBodyData = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
+        try { const p = bodyDataPath({ from: fromStr, to: toStr }, $fitbitFamilyEnabled, $apiBodyData); if (p) fitbitBodyData = await NtApi.get(p); } catch {}
         if ($healthConnectEnabled && isNative) {
           try {
             const { dbGetWellnessGrouped } = await import('../lib/db-native.js');
@@ -322,7 +333,8 @@
       }
 
       if (ver !== _loadVer) { loading = false; return; }
-      const allEntries = await NtApi.getAllDiary();
+      // Already read for All: not twice.
+      const allEntries = _allDiary || await NtApi.getAllDiary();
       entryMap = Object.fromEntries(allEntries.map(e => [e.date, e]));
 
       for (const date of dates) {
@@ -341,7 +353,8 @@
             ?? hcBodyData[date]?.[apiField]
             ?? null;
           if (raw != null) {
-            val = metric === 'weight' && $weightUnit === 'lb' ? raw * 2.20462 : raw;
+            // One decimal, as a weight typed in reads (177.3 lb, not 177.251).
+            val = metric === 'weight' && $weightUnit === 'lb' ? Math.round(raw * 2.20462 * 10) / 10 : raw;
           } else {
             const entry = entryMap[date];
             const bs = entry?.body_stats || entry?.bodyStats || {};
@@ -880,12 +893,12 @@
       const params = new URLSearchParams(hash.slice(qi + 1));
       const mp = params.get('metric');
       const rp = params.get('range');
-      if (mp) metric = mp;
+      if (mp) { metric = mp; _linkedMetric = mp; }
       if (rp && RANGES.some(r => r.value === rp)) range = rp;
     } catch {}
   });
 
-  $: { metric; range; customStart; customEnd; $statsIncludeToday; $statsShowEmptyDays; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine;
+  $: { metric; range; customStart; customEnd; $apiBodyData; $statsIncludeToday; $statsShowEmptyDays; $statsChartType; $statsYZero; $statsAvgLine; $statsGoalLine; $statsTrendLine;
        if (canvasEl) loadData(); }
 
   onDestroy(() => { if (chart) chart.destroy(); });
@@ -893,6 +906,17 @@
   // A sync that changed diary days or wellness values (one deleted or edited
   // on the web) redraws what the page shows.
   onMount(() => onSynced(['diary', 'wellness'], () => { if (canvasEl) loadData(); }));
+  // Whether measurements come in through the API (#350). A metric linked to
+  // that only they bring (Muscle Mass from Wellness) is shown once known,
+  // not snapped away from before.
+  let _linkedMetric = null;
+  onMount(() => {
+    refreshApiBodyData(NtApi, { native: isNative }).then(async () => {
+      await tick();
+      if (_linkedMetric && METRICS.some(x => _metricKey(x) === _linkedMetric)) metric = _linkedMetric;
+      _linkedMetric = null;
+    });
+  });
 
   // ── Custom range calendar ──────────────────────────────────────────────────
   let showCalFor   = null; // 'start' | 'end' | null

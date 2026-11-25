@@ -282,7 +282,9 @@ export const NtApiNative = {
     }
     if (path.startsWith('/api/wellness/calories-out')) return _caloriesOutLocal(path);
     if (path.startsWith('/api/wellness/latest'))       return _latestWellnessLocal(path);
-    if (path.startsWith('/api/wellness/fitbit/data'))   return _wellnessDataLocal(path, ['fitbit', 'health_connect']);
+    // The server's sources for it, the measurements API's included (#349),
+    // narrowed by ?sources= as there (routes/fitbit.js _dataSources).
+    if (path.startsWith('/api/wellness/fitbit/data'))   return _wellnessDataLocal(path, _dataSources(path));
     if (path.startsWith('/api/wellness/garmin/data'))   return _wellnessDataLocal(path, ['garmin']);
     if (path.startsWith('/api/wellness/withings/data')) return _wellnessDataLocal(path, ['withings']);
     console.warn(`[NtApiNative] GET ${path} — not available in local mode`);
@@ -411,6 +413,13 @@ async function _latestWellnessLocal(path) {
 // `sources` may include multiple values (Fitbit endpoint serves both fitbit
 // and health_connect rows so a Health-Connect-only user on Android local mode
 // still sees Goals progress).
+const _DATA_SOURCES = ['fitbit', 'health_connect', 'federation'];
+export function _dataSources(path) {
+  const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+  const asked = String(q.get('sources') || '').split(',').map(x => x.trim()).filter(x => _DATA_SOURCES.includes(x));
+  return asked.length ? [...new Set(asked)] : _DATA_SOURCES;
+}
+
 async function _wellnessDataLocal(path, sources) {
   const { getDb, LOCAL_USER_ID } = await import('./db-native.js');
   const q = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
@@ -423,14 +432,14 @@ async function _wellnessDataLocal(path, sources) {
   if (date) {
     sql = `SELECT date, metric_type, value, source FROM wellness_data
            WHERE user_id = ? AND date = ? AND source IN (${placeholders})
-           ORDER BY CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`;
+           ORDER BY CASE source WHEN 'federation' THEN 0 WHEN 'health_connect' THEN 2 ELSE 1 END`;
     params = [LOCAL_USER_ID, date, ...sources];
   } else {
     const start = from || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const end   = to   || new Date().toISOString().slice(0, 10);
     sql = `SELECT date, metric_type, value, source FROM wellness_data
            WHERE user_id = ? AND date >= ? AND date <= ? AND source IN (${placeholders})
-           ORDER BY date, CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`;
+           ORDER BY date, CASE source WHEN 'federation' THEN 0 WHEN 'health_connect' THEN 2 ELSE 1 END`;
     params = [LOCAL_USER_ID, start, end, ...sources];
   }
   const r = await db.query(sql, params);

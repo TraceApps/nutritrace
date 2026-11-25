@@ -7,6 +7,7 @@ import { fillProfileFromSetup } from './lib/profile-fields.js';
 import { fieldTimesSql } from './lib/field-sync.js';
 import { SYNC_FIELDS } from './lib/sync-fields.js';
 import { ensureGoalHistoryBaseline } from './lib/goal-history-baseline.js';
+import { hydrationPct } from './lib/withings-hydration.js';
 
 const dbPath = process.env.DB_PATH || './nutritrace.db';
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -1419,6 +1420,42 @@ db.exec(`DROP INDEX IF EXISTS idx_coach_clients_open`);
 // account is created and waits for the person to answer it.
 if (!columnExists('invite_tokens', 'coach_id')) {
   db.exec(`ALTER TABLE invite_tokens ADD COLUMN coach_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+}
+
+// ── Withings body water: kilograms to percent (#350) ──────────────────────
+// Withings sends hydration in kg and it was stored as is under
+// body_water_pct, so Wellness and Statistics showed, say, 44.1 kg as 44.1 %.
+// New syncs store the percentage (routes/withings.js); this one-shot pass
+// turns the stored readings into it, from the same day's Withings weight, or
+// the nearest one within a week. synced_at is bumped so phones pull the
+// corrected value; a reading with no weight that close is left for the next
+// Withings sync to replace. (A restored backup from before this carries no
+// flag, so its readings are converted at the next start.)
+try {
+  const done = db.prepare(`SELECT value FROM app_config WHERE key = 'withings_hydration_pct_v1'`).get();
+  if (!done) {
+    const rows = db.prepare(`
+      SELECT w.id, w.value, (
+        SELECT wt.value FROM wellness_data wt
+        WHERE wt.user_id IS w.user_id AND wt.source = 'withings' AND wt.metric_type = 'weight_kg'
+          AND wt.value > 0 AND ABS(julianday(wt.date) - julianday(w.date)) <= 7
+        ORDER BY ABS(julianday(wt.date) - julianday(w.date)) LIMIT 1
+      ) AS weight FROM wellness_data w
+      WHERE w.source = 'withings' AND w.metric_type = 'body_water_pct'`).all();
+    const update = db.prepare(`UPDATE wellness_data SET value = ?, synced_at = datetime('now') WHERE id = ?`);
+    let changed = 0;
+    db.transaction(() => {
+      for (const r of rows) {
+        const pct = hydrationPct(r.value, r.weight);
+        if (pct != null) { update.run(pct, r.id); changed++; }
+      }
+      db.prepare(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('withings_hydration_pct_v1', ?)`)
+        .run(new Date().toISOString());
+    })();
+    if (changed > 0) console.log(`[db] Withings body water: ${changed} readings turned from kg into percent`);
+  }
+} catch (e) {
+  console.warn('[db] Withings body water migration failed:', e.message || e);
 }
 
 export default db;

@@ -665,6 +665,13 @@ router.post('/seed-scores', wrap(async (req, res) => {
 // Fitbit row in the per-date map. Rationale: if the user has both enabled,
 // they explicitly chose HC on their device, so HC is the more authoritative
 // source for that day.
+const _DATA_SOURCES = ['fitbit', 'health_connect', 'federation'];
+/** The sources a /data request asked for: all three unless it named some. */
+export function _dataSources(param) {
+  const asked = String(param || '').split(',').map(x => x.trim()).filter(x => _DATA_SOURCES.includes(x));
+  return asked.length ? [...new Set(asked)] : _DATA_SOURCES;
+}
+
 router.get('/data', wrap((req, res) => {
   const u = uid(req);
   const { date, from, to } = req.query;
@@ -675,19 +682,24 @@ router.get('/data', wrap((req, res) => {
   // Node-RED / Gadgetbridge pushes) so those readings show up in
   // Wellness → Body alongside Fitbit + Health Connect data. Health
   // Connect stays last in the ordering so its values win on any tie
-  // (same metric on same day from multiple sources).
-  const orderHcLast = `ORDER BY CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`;
+  // (same metric on same day from multiple sources), and the API's come
+  // first so a device's value wins over them.
+  const orderHcLast = `ORDER BY CASE source WHEN 'federation' THEN 0 WHEN 'health_connect' THEN 2 ELSE 1 END`;
+  // ?sources=federation (comma-separated, any of the three) narrows it: the
+  // measurements API's alone when Fitbit and Health Connect are off (#350).
+  const srcs = _dataSources(req.query.sources);
+  const inList = srcs.map(() => '?').join(', ');
   let rows;
   if (date) {
     rows = db.prepare(
-      `SELECT * FROM wellness_data WHERE user_id=? AND date=? AND source IN ('fitbit', 'health_connect', 'federation') ${orderHcLast}`
-    ).all(u, date);
+      `SELECT * FROM wellness_data WHERE user_id=? AND date=? AND source IN (${inList}) ${orderHcLast}`
+    ).all(u, date, ...srcs);
   } else {
     const start = from || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const end   = to   || new Date().toISOString().slice(0, 10);
     rows = db.prepare(
-      `SELECT * FROM wellness_data WHERE user_id=? AND date>=? AND date<=? AND source IN ('fitbit', 'health_connect', 'federation') ORDER BY date, CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`
-    ).all(u, start, end);
+      `SELECT * FROM wellness_data WHERE user_id=? AND date>=? AND date<=? AND source IN (${inList}) ORDER BY date, CASE source WHEN 'federation' THEN 0 WHEN 'health_connect' THEN 2 ELSE 1 END`
+    ).all(u, start, end, ...srcs);
   }
 
   // Group by date → { [date]: { [metric_type]: value } }
