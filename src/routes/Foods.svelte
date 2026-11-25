@@ -1037,7 +1037,9 @@
     _saveScrollState();
     editorState.foodPrefill = item ? { ...item } : null;
     editorState.foodStore   = store || currentStore;
-    if (pickMode) editorState.foodDiaryCtx = { date: pickDate, meal: pickMeal };
+    // Set or cleared on every open: one left from an add-to-diary edit backed
+    // out of would make a later Foods edit log to that day (#348).
+    editorState.foodDiaryCtx = pickMode ? { date: pickDate, meal: pickMeal } : null;
     push('/foods/edit');
   }
 

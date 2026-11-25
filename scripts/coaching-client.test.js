@@ -251,7 +251,7 @@ test('the editors: Share only when an admin has sharing on, Send to Client only 
   assert.match(meal, /\$: _canSend = \$clientsTab && \(Number\(\$coachingState\?\.as_coach\?\.active\) \|\| 0\) > 0 && !\(isNative && !getServerUrl\(\)\);/);
   assert.match(meal, /\{#if meal\.id && !_readOnly && _canSend\}/);
   // Saving never sends sharing: an older copy in the editor can't undo it.
-  assert.match(read('../src/routes/FoodEditor.svelte'), /const \{ visibility: _v, _specific_users: _s, \.\.\.changes \} = item;[\s\S]*?NtApi\.updateFood\(food\.id, changes\)/);
+  assert.match(read('../src/routes/FoodEditor.svelte'), /const \{ visibility: _v, _specific_users: _s, \.\.\.changes \} = toSave;[\s\S]*?NtApi\.updateFood\(food\.id, changes\)/);
   assert.match(read('../src/routes/MealEditor.svelte'), /if \(meal\.id\) \{ const \{ visibility: _v, _specific_users: _s, \.\.\.changes \} = item; await NtApi\.updateMeal\(meal\.id, changes\); \}/);
   // Whether sharing is on comes from what the Foods page and the meal editor
   // already ask: the food editor makes no request of its own for it.

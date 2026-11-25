@@ -31,6 +31,7 @@
   import { acquireScreenWakeLock } from '../lib/wake-lock.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { snapshotOf, scaledFood } from '../lib/proportional-scale.js';
+  import { keptServingOf, atKeptServing } from '../lib/kept-serving.js';
   import { onSynced, takeUntouched } from '../lib/sync-refresh.js';
 
   // ── Photo capture / upload ─────────────────────────────────
@@ -204,6 +205,9 @@
   // resets to the pre-overlay server baseline and clears the draft.
   let _draftRestored = false;
   let _serverBaseline = null;
+  // #348: the serving the food opened with, kept when it's saved while
+  // adding to the diary (the amount typed goes to the diary only).
+  let _keptServing = null;
   $: hasBarcode = !!(food.barcode && food.barcode.trim());
   // A food added from USDA keeps its FoodData Central id as the barcode.
   $: usdaId = usdaFdcId(food.barcode);
@@ -698,6 +702,7 @@
     // reset the form to what actually came from the server (or empty,
     // for the "add new" path).
     _serverBaseline = draftBase(food);
+    _keptServing = keptServingOf(editorState.foodPrefill || (params && params.id ? food : null));
     // What the form opened with: a field that differs from it was changed
     // here (a draft brought back counts as changed).
     if (typeof food.id === 'number' && !food._shared_by) _opened = JSON.parse(JSON.stringify(food));
@@ -845,15 +850,17 @@
         if (Object.keys(flags).length) _nutrition._derived = flags;
       }
       const item = { ...food, nutrition: _nutrition };
+      // If called from diary pick mode, also add to diary. The food keeps its
+      // own serving there; the amount typed is what's logged (#348).
+      const ctx = editorState.foodDiaryCtx;
+      const toSave = ctx ? atKeptServing(item, _keptServing) : item;
       // Sharing is set by Share (or Bulk Share), never by saving: an older
       // copy here (a draft, an older load) must not undo it.
-      const { visibility: _v, _specific_users: _s, ...changes } = item;
+      const { visibility: _v, _specific_users: _s, ...changes } = toSave;
       const saved = food.id
         ? await NtApi.updateFood(food.id, changes)
-        : await NtApi.createFood(item);
+        : await NtApi.createFood(toSave);
       item.id = saved.id;
-      // If called from diary pick mode, also add to diary
-      const ctx = editorState.foodDiaryCtx;
       if (ctx) {
         const { addDiaryItem } = await import('../stores/diary.js');
         await addDiaryItem(
