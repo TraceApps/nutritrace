@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Logging a food for the first time keeps its own serving in your library** ([#347](https://github.com/TraceApps/nutritrace/issues/347), thanks @herver1971). Adding an Open Food Facts, USDA or CookTrace food you hadn't saved yet at, say, 165 g saved it to your foods as 165 g, so the next time it started from that amount. And logging one already saved at another amount added it at the saved amount instead of the one you typed. Your foods now keep the serving they came with, and the diary gets the amount you typed.
 - **Searching your own and shared foods ignores accents** ([#346](https://github.com/TraceApps/nutritrace/issues/346), thanks @herver1971). On the Foods tab, "champinon" didn't find "Champiñón" with My Foods or Shared on, though every other search box ignores accents. The same goes for the coach plan builder's food and meal picker, the foods, meals and meal slot a quick log matches by name, and the food Trace matches in your catalog, where the exact spelling still wins when you have both "Cafe" and "Café". English names match as before.
 
 ---

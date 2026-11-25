@@ -17,7 +17,7 @@
   import UnitPicker  from '../components/ui/UnitPicker.svelte';
   import { portal } from '../lib/portal.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
-  import { scaleFactor as _unitScaleFactor, unitSystem as _unitSystem, amountAndUnit } from '../lib/units.js';
+  import { scaleFactor as _unitScaleFactor, canScale as _canScale, unitSystem as _unitSystem, amountAndUnit } from '../lib/units.js';
   import { diaryPromptQuantity, warnUnitMismatch, showUnitMetadata, forceMobileLayout, language } from '../stores/settings.js';
   import { showSuccess, showError, showToast } from '../stores/toast.js';
   import { staleIngredientNames } from '../lib/stale-ingredients.js';
@@ -1344,12 +1344,38 @@
   let _planSource = null;
   $: if (!showQtyPrompt) _planSource = null;
 
-  async function _addFoodToDiaryNoNav(food, qty, kind = null) {
+  // template: the food as found, before it was scaled to the amount being
+  // logged. A food not in the library yet is saved from it, so the library
+  // keeps the food's own serving rather than this meal's amount (#347).
+  async function _addFoodToDiaryNoNav(food, qty, kind = null, template = null) {
     const { addDiaryItem } = await import('../stores/diary.js');
     let savedFood = food;
     if (!food.id || typeof food.id !== 'number') {
-      const { id: _drop, ...rest } = food;
-      savedFood = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      const { id: _drop, ...rest } = template || food;
+      const created = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      savedFood = created;
+      if (template) {
+        // Log the amount asked for, from the row the server kept: the new
+        // food, or the one already in the library for this food.
+        // A saved row in a unit the typed one can't convert to (edited to
+        // "1 serving") keeps the values the prompt showed instead.
+        const basePortion = parseFloat(created.portion) || 100;
+        const baseUnit = created.unit || 'g';
+        const unit = food.unit || baseUnit;
+        const factor = _canScale(baseUnit, unit, created)
+          ? _unitScaleFactor(basePortion, baseUnit, food.portion, unit, created)
+          : null;
+        savedFood = {
+          ...created,
+          portion: food.portion,
+          unit,
+          nutrition: factor == null
+            ? food.nutrition
+            : created.nutrition
+              ? Object.fromEntries(Object.entries(created.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * factor]))
+              : created.nutrition,
+        };
+      }
       kind = 'food';
     }
     const item = {
@@ -1363,11 +1389,11 @@
     await addDiaryItem(item, Number(pickMeal) || 0, pickDate || undefined, { kind });
   }
 
-  async function _addFoodToDiary(food, qty, kind = null) {
+  async function _addFoodToDiary(food, qty, kind = null, template = null) {
     if (_addingToDiary) return;
     _addingToDiary = true;
     try {
-      await _addFoodToDiaryNoNav(food, qty, kind);
+      await _addFoodToDiaryNoNav(food, qty, kind, template);
       editorState.lastMealAdded = Number(pickMeal) || 0;
       if (!pickMode) {
         // From the food's own sheet (#267): stay on Foods, like its no-prompt
@@ -1446,7 +1472,7 @@
         ? Object.fromEntries(Object.entries(item.food.nutrition).map(([k,v]) => [k, (parseFloat(v)||0) * portionFactor]))
         : item.food.nutrition;
       const food = { ...item.food, portion: newPortion, unit: item.unit, nutrition: scaledNutrition };
-      await _addFoodToDiaryNoNav(food, parseDecimal(item.servings) || 1);
+      await _addFoodToDiaryNoNav(food, parseDecimal(item.servings) || 1, null, item.food);
     }
     showSuccess(`Added ${multiPortionItems.length} item${multiPortionItems.length > 1 ? 's' : ''} to diary`);
     editorState.lastMealAdded = Number(pickMeal) || 0;
@@ -1476,7 +1502,7 @@
       unit: newUnit,
       nutrition: scaledNutrition
     };
-    await _addFoodToDiary(food, parseDecimal(promptServings) || 1, promptKind);
+    await _addFoodToDiary(food, parseDecimal(promptServings) || 1, promptKind, promptFood);
   }
 
   async function deleteItem(item) {
