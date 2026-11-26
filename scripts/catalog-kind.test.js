@@ -149,10 +149,10 @@ test("the pane's Add to Diary says what it logs, on every path", () => {
   assert.match(onAdd, /const kind = e\.detail\.kind \|\| 'food';/);
   assert.match(onAdd, /promptKind = kind;/);
   assert.match(onAdd, /addDiaryItem\(item, chosenMeal, day, \{ kind: savedKind \}\)/);
-  const noNav = foods.match(/async function _addFoodToDiaryNoNav\(food, qty, kind = null\) \{[\s\S]*?\n  \}/)[0];
+  const noNav = foods.match(/async function _addFoodToDiaryNoNav\(food, qty, kind = null, template = null\) \{[\s\S]*?\n  \}/)[0];
   assert.match(noNav, /addDiaryItem\(item, Number\(pickMeal\) \|\| 0, pickDate \|\| undefined, \{ kind \}\)/);
-  assert.match(foods, /_addFoodToDiaryNoNav\(food, qty, kind\)/);
-  assert.match(foods, /_addFoodToDiary\(food, parseDecimal\(promptServings\) \|\| 1, promptKind\)/);
+  assert.match(foods, /_addFoodToDiaryNoNav\(food, qty, kind, template\)/);
+  assert.match(foods, /_addFoodToDiary\(food, parseDecimal\(promptServings\) \|\| 1, promptKind, promptFood\)/);
   assert.match(foods, /_addFoodToDiary\(food, 1, pickedKind\)/);
   // Every item put in the quantity prompt says what it is.
   const sets = [...foods.matchAll(/\bpromptFood = (?!null)[^;]+;\n\s*(.*)/g)];

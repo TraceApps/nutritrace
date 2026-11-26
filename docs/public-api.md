@@ -61,7 +61,7 @@ token lacking the required scope returns `403`.
 |---|---|---|
 | GET | `/api/v1/diary/:date` | One day's logged food items. `date` defaults to today. Also the day's completion marks, see [Day completion](#day-completion). |
 | GET | `/api/v1/diary/:date/totals` | Summed nutrition (calories, macros, any micronutrients present) plus total water for that day. |
-| GET | `/api/v1/goals` | The user's current macro/micronutrient/water goal targets. A goal with `sharedGoal: false` has one target per weekday in `days`, starting on Sunday, and its `max`/`min` is the week's highest; `goals_by_weekday` gives those by named day and `today.targets` gives today's targets in the user's time zone. |
+| GET | `/api/v1/goals` | The user's current macro/micronutrient/water goal targets. A goal with `sharedGoal: false` has one target per weekday in `days`, starting on Sunday, and its `max`/`min` is the week's highest; `goals_by_weekday` gives those by named day and `today.targets` gives today's targets in the user's time zone. Add `?date=YYYY-MM-DD` for the targets in effect on one day, or `?start=YYYY-MM-DD&end=YYYY-MM-DD` for an inclusive range, see [Goal history](#goal-history). |
 | GET | `/api/v1/meals/search?query=&limit=&include_recipes=` | Search the saved meals catalog by name, or list all when `query` is omitted. Recipes excluded by default. |
 | GET | `/api/v1/meals/recent?limit=&include_recipes=&start=&end=` | Most-recently-used saved meals. Optional inclusive `YYYY-MM-DD` `start`/`end` filter by the date each meal was last used; either can be left out. |
 | GET | `/api/v1/meals/:id` | One saved meal's full contents, including every item. |
@@ -75,7 +75,7 @@ token lacking the required scope returns `403`.
 |---|---|---|---|
 | POST | `/api/v1/diary/:date/food` | `{food_id, meal?, quantity?, portion?, unit?, notes?}` | Appends a food from the user's catalog to a diary day. `food_id` comes from the foods federation endpoint or the app's own search. |
 | POST | `/api/v1/diary/:date/water` | `{amount_ml, time?}` | Appends a water log entry. |
-| POST | `/api/v1/diary/:date/meal` | `{meal_id, meal?}` | Expands a saved meal's items into a diary day. |
+| POST | `/api/v1/diary/:date/meal` | `{meal_id, meal?, servings?}` | Expands a saved meal's items into a diary day. A recipe is added as one entry, with `servings` (default 1) as its quantity. |
 | PUT | `/api/v1/diary/:date/body-stat` | `{stats: {weight?, body_fat?, waist?, ...}}` | Merges the given values into that day's body stats. |
 
 Not yet exposed here: editing or deleting a diary entry, or creating a
@@ -89,6 +89,77 @@ Also not duplicated here: food search and recent-foods. The existing
 federation route `GET /api/v1/foods?q=` (scope `read:foods`) already
 covers searching the foods catalog; mint a token with `read:foods` and
 use that endpoint instead of a second, overlapping route.
+
+## Goal history
+
+`GET /api/v1/goals` with no query parameters returns the current goals,
+unchanged. For a report on past intake, ask for the target that was in
+effect then instead of applying today's settings to an old diary day:
+
+```
+GET /api/v1/goals?date=2026-09-23
+GET /api/v1/goals?start=2026-09-21&end=2026-09-27
+```
+
+Dates are **the account's calendar dates**: the day in the `timezone` the
+account set, so one edit resolves to the same day on every device. With no
+`timezone` set yet (the app records one on first launch), a dated request
+uses UTC, the same fixed fallback the app uses, so the phone and the server
+still name one day; the response without a date is unchanged. A snapshot is
+effective from its `effective_from` date (inclusive) until the day before
+the next snapshot.
+
+Several changes on one calendar day collapse to that day's final complete
+configuration, merged field by field. Each setting in it is decided by when
+that setting was last changed, so changing the water goal on one device
+does not roll back a newer calorie goal set by another on the same day. A
+save that reaches the server late still records the value it sent for its
+own day, and a change to an earlier day carries forward to the days that
+inherited that setting, up to the first day that set it itself later. A
+reset clears the settings at the moment it was made: a later edit brings a
+setting back, one in the same instant or earlier does not. A goal template
+is stored as one change, so its food and water goals never appear apart.
+
+Each day in a historical response holds the stored configuration (`goals`,
+`water_goal_ml`, `calorie_goal_mode`, `calorie_goal_factor` and the activity
+flags) plus:
+
+| Field | Meaning |
+|---|---|
+| `known` | `false` for a date before the first recorded snapshot. The response then also has `reason: "before_first_recorded_snapshot"` and `history_available_from`, and no targets. |
+| `effective_from` | The date the snapshot in effect that day was recorded. |
+| `resolved_goals` | Every goal's value for that day: weekday goals resolved, percent macros converted to grams, `calories` the day's effective target. |
+| `calorie_target_kcal` | The calorie target for the day, after the activity adjustment. |
+| `calorie_base_target_kcal` | The calorie target before the activity adjustment. Percent macros follow this one, as in the Diary. |
+| `calorie_basis` | Where the number came from: `fixed`, `dynamic` (with `calories_out`, its date and source) or `adaptive` (with `tdee` and `days_available`), or that it fell back to the fixed goal. |
+| `activity_adjustment_kcal` | Calories added for that day's logged or wearable activity, when the profile turns that on. `0` otherwise. |
+| `weekday_order`, `goals_by_weekday`, `targets` | The weekday goals by named day, and that date's goal-derived calorie and macro targets (calories before an activity adjustment, macros in grams), as in the current response. |
+| `unknown_fields` | The settings that day never got (for example an edit made offline before goal history existed). They are left out instead of showing defaults, and when the goals are unknown so are the targets computed from them. Empty on a complete day. |
+| `history_complete` | Whether the day has every setting (`unknown_fields` empty). On a range: whether every day is known and complete. |
+
+Resolution uses NutriTrace's own rules, not a copy of them: per-weekday
+goals, percent macros, Dynamic and Adaptive calorie modes, and the activity
+policy, read from that day's settings and from the wearable, diary and
+weight observations available up to that date. Use these resolved values
+rather than reimplementing the formulas.
+
+History starts with the account: an account created on a server that has
+this feature is given its first snapshot (the settings in effect, today in
+its time zone) when it is created, and an account that already existed when
+the feature was installed gets one at the first start. A backup from before
+the feature starts history at the restore. NutriTrace does not invent older
+history from today's settings.
+
+A `date` is kept within about a day of the corrected edit time sent with the
+change (`changed_at`, corrected by `client_now`); a date further out is
+replaced by the edit's own day, never refused. History belongs to an
+account: in single-user mode, and in the Android app's local mode, a dated
+request answers with `409` and `code: "goal_history_unavailable"` rather
+than an empty set of goals. Trace says the targets may have differed instead
+of refusing to answer.
+
+A range may span at most 366 days; a malformed date, a date that doesn't
+exist or a reversed range returns `400`.
 
 ## Day completion
 

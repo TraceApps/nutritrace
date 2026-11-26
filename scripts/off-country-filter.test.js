@@ -22,7 +22,8 @@ test('Open Food Facts country search uses search-a-licious with Lucene countries
   assert.match(offMapJs, /\+countries_tags:"\$\{country\}"/);
   assert.match(offMapJs, /`en:\$\{slug\}`/);
   assert.match(apiJs, /offSearchUrl\(query, \{ page, pageSize, country: _getOffSearchCountry\(\), lang: _getOffSearchLanguage\(\) \}\)/);
-  assert.match(apiJs, /return offCountryTag\(JSON\.parse\(raw\)\);/);
+  // A saved country, else the server's default for everyone (nutritrace#326).
+  assert.match(apiJs, /return offCountryTag\(raw \? JSON\.parse\(raw\) : _regionalOff\('offSearchCountry', 'World'\)\);/);
   for (const src of [apiJs, offMapJs]) {
     assert.doesNotMatch(src, /countries_tags_en/);
     assert.doesNotMatch(src, /world\.openfoodfacts\.org\/api\/v2\/search/);

@@ -14,6 +14,8 @@
  *   - workouts.json     (all workout entries)
  *   - activity.json     (manual activity entries from the Diary's Activity section)
  *   - settings.json     (all USER_PREFS — DEVICE_PREFS and SERVER_ADMIN are excluded)
+ *   - goal_history.json (the goals in effect on each day, with their per-field
+ *                        times; native only, where the phone keeps them)
  *   - images/<id>.jpg   (binary image files for each food/meal that has an imgUrl,
  *                       referenced from the JSON via "img:images/<id>.jpg")
  *
@@ -143,6 +145,16 @@ export async function exportLocalBackup(opts = {}) {
     } catch {}
   }
 
+  // Goal history — the days this phone keeps (native only; the browser has
+  // no local copy, the server keeps it).
+  let goalHistory = [];
+  if (isNative) {
+    try {
+      const { dbGetGoalHistory } = await import('./db-native.js');
+      goalHistory = await dbGetGoalHistory() || [];
+    } catch {}
+  }
+
   // Settings — only USER_PREFS, never DEVICE_PREFS or admin keys
   const allSettings = DB.getAllSettings();
   let userPrefSet = null;
@@ -172,6 +184,7 @@ export async function exportLocalBackup(opts = {}) {
       activity: activity.length,
       fasts: fasts.length,
       settings: Object.keys(settings).length,
+      goal_history: goalHistory.length,
     },
     includesImages: true,
   };
@@ -215,6 +228,7 @@ export async function exportLocalBackup(opts = {}) {
   zip.file('activity.json', JSON.stringify(activity, null, 2));
   zip.file('fasts.json',    JSON.stringify(fasts,    null, 2));
   zip.file('settings.json', JSON.stringify(settings, null, 2));
+  zip.file('goal_history.json', JSON.stringify(goalHistory, null, 2));
 
   onProgress(90, 'Compressing…');
 
@@ -263,6 +277,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
   const activity = await readJson('activity.json', []);
   const fasts    = await readJson('fasts.json', []);
   const settings = await readJson('settings.json', {});
+  const goalHistory = await readJson('goal_history.json', []);
 
   onProgress(20, 'Extracting images…');
 
@@ -313,7 +328,7 @@ export async function importLocalBackup(zipFile, opts = {}) {
   const { NtApi } = await import('./api.js');
   const { DB }     = await import('./db.js');
 
-  const counts = { foods: 0, meals: 0, recipes: 0, diary: 0, wellness: 0, workouts: 0, activity: 0, fasts: 0, settings: 0 };
+  const counts = { foods: 0, meals: 0, recipes: 0, diary: 0, wellness: 0, workouts: 0, activity: 0, fasts: 0, settings: 0, goal_history: 0 };
 
   if (isNative) {
     try {
@@ -390,6 +405,12 @@ export async function importLocalBackup(zipFile, opts = {}) {
       for (const f of fasts) {
         try { if (await dbRestoreFast(f)) counts.fasts++; } catch {}
       }
+      // The goal days, with their per-field times and whether they were
+      // still waiting to go up.
+      try {
+        const { dbRestoreGoalHistory } = await import('./db-native.js');
+        counts.goal_history = await dbRestoreGoalHistory(goalHistory);
+      } catch {}
     } catch (e) {
       console.warn('[backup] native import failed:', e.message);
     }

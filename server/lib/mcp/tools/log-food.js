@@ -30,7 +30,7 @@ import { dailyTotalsCore } from './daily-totals.js';
  * scale used here, so "200 g" of a per-100 g product with a "1 pot" unit
  * logs what the app would. Any other unit is still refused below.
  */
-export function logFoodCore(userId, { food_id, date, meal, quantity, portion, unit, notes } = {}, { sameUnitPortion = false } = {}) {
+export function buildFoodEntry(userId, { food_id, date, meal, quantity, portion, unit, notes } = {}, { sameUnitPortion = false } = {}) {
   const day = date || todayLocal();
   if (!isCalendarDate(day)) throw new Error(`Invalid date '${day}'; expected YYYY-MM-DD.`);
 
@@ -96,6 +96,11 @@ export function logFoodCore(userId, { food_id, date, meal, quantity, portion, un
     addedAt:   new Date().toISOString(),
     source:    'mcp',
   };
+  return { day, item, food, factor };
+}
+
+export function logFoodCore(userId, args = {}, opts = {}) {
+  const { day, item, food, factor } = buildFoodEntry(userId, args, opts);
 
   // Snapshot pre-write totals for the goal.achieved webhook, before the
   // mutation below changes them. Never let this block the actual write.

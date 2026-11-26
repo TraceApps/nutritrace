@@ -3365,3 +3365,411 @@ test('an offline setting keeps its edit time through the queue and the push', as
   assert.equal(q(`SELECT value FROM user_settings WHERE user_id = ? AND key = 'waterGoalMl'`, uid)[0].value, '4444');
   assert.equal(Date.parse(fieldTime), Date.parse(r.row.updated_at), 'the server keeps the edit time, not the push time');
 });
+
+// ── Goal history belongs to one account, and keeps its real edit time ─────
+test("goal history of one account never goes up under the next, and a day still waiting here counts", async (t) => {
+  if (skip(t)) return;
+  const iris = await account('iris', A);
+  const jack = await account('jack', A);
+  const me = async tok => (await http(tok, 'GET', '/api/auth/me')).user;
+  const I = await me(iris), J = await me(jack);
+
+  phone('goal-switch', iris, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(I)}, { confirm: async () => true });
+    await p.dbn.dbUpsertSetting('goals', { calories: { max: 2200, sharedGoal: true } });
+    await p.dbn.dbCaptureGoalHistory('2026-08-10', { changedAt: '2026-08-10T09:00:00.000Z' });
+    await p.sync();
+    // A day changed with no connection, still waiting to go up.
+    await p.offline(async () => {
+      await p.dbn.dbUpsertSetting('goals', { calories: { max: 2400, sharedGoal: true } });
+      await p.dbn.dbCaptureGoalHistory('2026-08-11', { changedAt: '2026-08-11T09:00:00.000Z' });
+    });
+    p.done({ pending: (await p.dbn.dbGetPendingGoalHistory()).map(r => r.effective_date) });`);
+
+  // Jack signs in on the same phone. Iris's unsent day is part of what he is
+  // asked about, and it is cleared with the rest of her rows.
+  const asked = phone('goal-switch', jack, `
+    const la = await import(p.src + 'lib/local-account.js');
+    let count = null;
+    const ok = await la.prepareLocalAccount(${JSON.stringify(J)}, { confirm: async n => { count = n; return true; } });
+    p.done({ ok, count, pending: (await p.dbn.dbGetPendingGoalHistory()).length });`);
+  assert.equal(asked.ok, true);
+  assert.ok(asked.count >= 1, "Iris's waiting goal day is counted before it can reach Jack's account");
+  assert.equal(asked.pending, 0, 'and it is cleared with the account');
+
+  const after = phone('goal-switch', jack, `
+    await p.sync();
+    p.done({ days: (await p.dbn.dbGetPendingGoalHistory()).length });`);
+  assert.equal(after.days, 0);
+  assert.deepEqual(
+    q(`SELECT u.username, g.effective_date FROM goal_history g JOIN users u ON u.id = g.user_id
+        WHERE g.effective_date IN ('2026-08-10', '2026-08-11') ORDER BY 1, 2`),
+    [{ username: 'iris', effective_date: '2026-08-10' }],
+    "only the day Iris actually sent is on the server, under Iris");
+});
+
+test("a goal day changed with no connection is stamped on the server's clock and keeps its time when the clock is put right", async (t) => {
+  if (skip(t)) return;
+  const kai = await account('kai', A);
+  const K = (await http(kai, 'GET', '/api/auth/me')).user;
+  const skew = 2 * 3600_000;
+  const r = phone('goal-clock', kai, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(K)}, { confirm: async () => true });
+    await p.sync(); // learns the server's clock
+    let row = null, day = null;
+    await p.offline(async () => {
+      await p.dbn.dbUpsertSetting('waterGoalMl', 3300);
+      day = new Date().toISOString().slice(0, 10);
+      await p.dbn.dbCaptureGoalHistory(day);
+      row = (await p.dbn.dbGetPendingGoalHistory()).find(x => x.effective_date === day);
+    });
+    // The phone's clock is put right before it syncs: a time on its old
+    // clock would now be read wrong. The day's own time must not move.
+    await p.dbn.dbSetClockOffset(0);
+    await p.sync();
+    p.done({ day, stamp: row.changed_at, fields: JSON.parse(row.field_times || '{}') });`,
+    { SKEW_MS: String(skew) });
+
+  assert.match(r.stamp, /\+00:00$/, "the edit time carries the server's clock marker");
+  assert.ok(Math.abs(Date.parse(r.stamp) - Date.now()) < 60_000,
+    `the real time, not the phone's fast clock (${r.stamp} vs ${new Date().toISOString()})`);
+  assert.equal(r.fields.water_goal_ml, r.stamp, 'the field changed is claimed with the same time');
+  const stored = q(`SELECT changed_at FROM goal_history WHERE user_id = ? AND effective_date = ?`, K.id, r.day)[0];
+  assert.ok(stored, 'the day reached the server');
+  assert.ok(Math.abs(Date.parse(stored.changed_at) - Date.parse(r.stamp)) < 5000,
+    `the server kept the time the edit was made (${stored.changed_at} vs ${r.stamp})`);
+});
+
+test("a goal edit claims only the setting it changed, not a newer copy it pulled, and dates the day in the account's zone", async (t) => {
+  if (skip(t)) return;
+  const noa = await account('noa', A);
+  const N = (await http(noa, 'GET', '/api/auth/me')).user;
+  // The account's calorie goal is 2500, set on the web; its day is UTC-11.
+  await http(noa, 'PUT', '/api/settings', { key: 'timezone', value: 'Pacific/Midway' });
+  await http(noa, 'PUT', '/api/settings', { key: 'goals', value: { calories: { max: 2500, sharedGoal: true } } });
+
+  const detail = phone('goal-claim', noa, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(N)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${N.id}');
+    await p.sync();
+    // The phone has the account's settings but, say, no local history yet.
+    const db = await p.dbn.getDb();
+    await db.run('DELETE FROM goal_history', []);
+    await p.offline(async () => {
+      const st = await import(p.src + 'stores/settings.js');
+      st.waterGoalMl.set(3300);
+      await p.sleep(900);
+    });
+    const row = (await p.dbn.dbGetPendingGoalHistory())[0];
+    p.done({ fields: Object.keys(JSON.parse(row.field_times || '{}')), date: row.effective_date });`);
+
+  assert.deepEqual(detail.fields, ['water_goal_ml'],
+    "the water edit doesn't claim the calorie goal it only carried");
+  const accountDay = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Pacific/Midway', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+  assert.equal(detail.date, accountDay, "the day is the account's, not the device's UTC day");
+
+  phone('goal-claim', noa, `await p.sync(); p.done();`);
+  const day = await http(noa, 'GET', `/api/goals/effective?date=${accountDay}`);
+  assert.equal(day.calorie_target_kcal, 2500, "the account's newer calorie goal stays");
+  assert.equal(day.water_goal_ml, 3300, 'and the phone’s own change is there');
+});
+
+test('the day and the goal configuration are read with the edit, not after the save has waited', async (t) => {
+  if (skip(t)) return;
+  const nina = await account('nina', A);
+  const N = (await http(nina, 'GET', '/api/auth/me')).user;
+  await http(nina, 'PUT', '/api/settings', { key: 'timezone', value: 'Pacific/Midway' });
+  const accountDay = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Pacific/Midway', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+
+  const r = phone('goal-race', nina, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(N)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${N.id}');
+    await p.sync();
+    const { DB } = await import(p.src + 'lib/db.js');
+    const st = await import(p.src + 'stores/settings.js');
+    DB.setSetting('timezone', 'Pacific/Midway');
+    DB.setSetting('goals', { calories: { max: 2100, sharedGoal: true } });
+    // Count the goal reads: the snapshot must be taken with the edit, in the
+    // same turn, not when the debounced request finally goes out.
+    let reads = 0;
+    const orig = DB.getSetting.bind(DB);
+    DB.getSetting = (key, dflt) => { if (key === 'goals') reads++; return orig(key, dflt); };
+    st.scheduleSave('goals', { calories: { max: 2100, sharedGoal: true } });
+    const atEdit = reads;
+    // A template, a pull or another edit lands before the request goes out.
+    st._applySetting('goals', { calories: { max: 2400, sharedGoal: true } });
+    await p.sleep(1400);
+    p.done({ atEdit });`);
+
+  assert.equal(r.atEdit, 1, 'the configuration is read with the edit, in the same turn, before the wait');
+  // The change went up for the account's day, with the edit's own value.
+  const day = await http(nina, 'GET', `/api/goals/effective?date=${accountDay}`);
+  assert.equal(day.calorie_target_kcal, 2100);
+  assert.equal(day.effective_from, accountDay);
+});
+
+test('a browser save that cannot reach the server waits in the queue with its own moment and configuration', async (t) => {
+  if (skip(t)) return;
+  const eve = await account('eve', A);
+  const E = (await http(eve, 'GET', '/api/auth/me')).user;
+  const r = await phoneAsync('browser-race', '', `
+    localStorage.setItem('wl:userId', '${E.id}');
+    const { DB } = await import(p.src + 'lib/db.js');
+    // Before the stores (and their setting listener) exist: these are the
+    // copy as the page found it, not changes to send.
+    DB.setSetting('timezone', 'UTC');
+    DB.setSetting('goals', { calories: { max: 2100, sharedGoal: true } });
+    DB.setSetting('waterGoalMl', 2000);
+    const st = await import(p.src + 'stores/settings.js');
+    const t1 = new Date().toISOString();
+    st.waterGoalMl.set(3400);
+    // Another goal lands before the failed save is even noticed.
+    st.goals.set({ calories: { max: 2400, sharedGoal: true } });
+    const t2 = new Date().toISOString();
+    await p.sleep(2500);
+    // What a reconnect would send: the browser's own queue.
+    const idb = await new Promise(res => {
+      const q = indexedDB.open('nutritrace-offline-${E.id}', 5);
+      q.onupgradeneeded = () => {};
+      q.onsuccess = () => res(q.result);
+      q.onerror = () => res(null);
+    });
+    const ops = await new Promise(res => {
+      const tx = idb.transaction('outbox');
+      const q = tx.objectStore('outbox').getAll();
+      tx.oncomplete = () => res(q.result || []);
+      tx.onerror = tx.onabort = () => res([]);
+    });
+    p.done({ t1, t2, ops });`, { NT_SERVER: 'http://127.0.0.1:9', NT_BROWSER: '1' });
+
+  const settings = r.ops.filter(op => op.type === 'setting');
+  const history = r.ops.filter(op => op.type === 'goal_history');
+  assert.equal(settings.length, 2, 'both settings were queued');
+  assert.equal(history.length, 2, 'with a day for each');
+  assert.ok(Math.abs(settings[0].at - Date.parse(r.t1)) < 2000, 'the queued setting keeps the edit time');
+  assert.ok(Math.abs(settings[1].at - Date.parse(r.t2)) < 2000);
+  assert.equal(history[0].snapshot.goals.calories.max, 2100,
+    'the first day carries the configuration at its edit, before the later goal change');
+  assert.equal(history[1].snapshot.goals.calories.max, 2400);
+  assert.deepEqual(Object.keys(history[0].field_times), ['water_goal_ml'],
+    'and only the field it changed');
+  assert.deepEqual(Object.keys(history[1].field_times), ['goals']);
+  assert.ok(Math.abs(history[0].at - Date.parse(r.t1)) < 2000, 'the day keeps the edit’s own moment');
+  assert.ok(Math.abs(history[1].at - Date.parse(r.t2)) < 2000);
+});
+
+
+
+test('a dated get_goals in Android Local mode says history is unavailable, not {}', async (t) => {
+  if (skip(t)) return;
+  const r = phone('local-goals', '', `
+    const { NtApi } = await import(p.src + 'lib/api.js');
+    try {
+      await NtApi.get('/api/goals/effective?date=2026-09-01');
+      p.done({ ok: true });
+    } catch (e) {
+      p.done({ ok: false, code: e.code, status: e.status, message: e.message });
+    }`, { NT_SERVER: '' });
+  assert.equal(r.ok, false, 'no empty object pretending there are no goals');
+  assert.equal(r.code, 'goal_history_unavailable');
+  assert.equal(r.status, 409);
+});
+
+test('a goal day the server did not confirm stays queued on the phone', async (t) => {
+  if (skip(t)) return;
+  const zara = await account('zara', A);
+  const Z = (await http(zara, 'GET', '/api/auth/me')).user;
+  // A phone with a goal change waiting to go up.
+  phone('goal-ack', zara, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(Z)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${Z.id}');
+    await p.sync();
+    await p.dbn.dbUpsertSetting('waterGoalMl', 2000);
+    await p.offline(async () => {
+      const st = await import(p.src + 'stores/settings.js');
+      st.waterGoalMl.set(3300);
+      await p.sleep(900);
+    });
+    p.done({ pending: (await p.dbn.dbGetPendingGoalHistory()).length });`);
+
+  // A server that takes the push but says it stored no goal history.
+  const px = await proxy(req => (req.url.startsWith('/api/sync/push')
+    ? {
+      rewrite: text => {
+        const body = JSON.parse(text);
+        body.goal_history = [];
+        return JSON.stringify(body);
+      },
+    }
+    : null));
+  try {
+    const r = await phoneAsync('goal-ack', zara, `
+      await p.sync();
+      p.done({ pending: (await p.dbn.dbGetPendingGoalHistory()).length });`, { NT_SERVER: px.url });
+    assert.equal(r.pending, 1, "a day the server didn't confirm is not marked sent");
+  } finally {
+    await px.close();
+  }
+  // A normal sync sends it and marks it sent.
+  const done = phone('goal-ack', zara, `
+    await p.sync();
+    p.done({ pending: (await p.dbn.dbGetPendingGoalHistory()).length });`);
+  assert.equal(done.pending, 0);
+});
+
+test('a browser template that cannot reach the server waits whole in the queue', async (t) => {
+  if (skip(t)) return;
+  const fiona = await account('fiona', A);
+  const F = (await http(fiona, 'GET', '/api/auth/me')).user;
+  const r = await phoneAsync('browser-bulk', '', `
+    localStorage.setItem('wl:userId', '${F.id}');
+    const { DB } = await import(p.src + 'lib/db.js');
+    DB.setSetting('timezone', 'UTC');
+    DB.setSetting('goals', { calories: { max: 2000, sharedGoal: true } });
+    DB.setSetting('waterGoalMl', 2000);
+    const st = await import(p.src + 'stores/settings.js');
+    await st.bulkSet({ goals: { calories: { max: 2300, sharedGoal: true } }, waterGoalMl: 3100 });
+    await p.sleep(1500);
+    const idb = await new Promise(res => {
+      const q = indexedDB.open('nutritrace-offline-${F.id}', 5);
+      q.onupgradeneeded = () => {};
+      q.onsuccess = () => res(q.result);
+      q.onerror = () => res(null);
+    });
+    const ops = await new Promise(res => {
+      const tx = idb.transaction('outbox');
+      const q = tx.objectStore('outbox').getAll();
+      tx.oncomplete = () => res(q.result || []);
+      tx.onerror = tx.onabort = () => res([]);
+    });
+    p.done({ ops });`, { NT_SERVER: 'http://127.0.0.1:9', NT_BROWSER: '1' });
+
+  const settings = r.ops.filter(op => op.type === 'setting');
+  const history = r.ops.filter(op => op.type === 'goal_history');
+  assert.equal(settings.length, 2, 'the whole batch is queued');
+  assert.equal(history.length, 1, 'with one day for the template');
+  assert.equal(history[0].snapshot.goals.calories.max, 2300, 'the template goals are kept whole');
+  assert.equal(history[0].snapshot.water_goal_ml, 3100, 'and its water goal');
+  assert.deepEqual(Object.keys(history[0].field_times).sort(), ['goals', 'water_goal_ml']);
+});
+
+test('a local backup carries the goal days and their per-field times', async (t) => {
+  if (skip(t)) return;
+  const zipPath = join(dir, 'local-goal-history.zip');
+  const made = phone('local-goals', '', `
+    const dbn = p.dbn;
+    await dbn.dbUpsertSetting('waterGoalMl', 3100);
+    await dbn.dbCaptureGoalHistory('2026-09-30', {
+      changedAt: '2026-09-30T09:00:00.000Z', changedKeys: ['waterGoalMl'],
+    });
+    const { exportLocalBackup } = await import(p.src + 'lib/local-backup.js');
+    const blob = await exportLocalBackup();
+    const fs = await import('node:fs');
+    fs.writeFileSync(${JSON.stringify(zipPath)}, Buffer.from(await blob.arrayBuffer()));
+    p.done({ rows: (await dbn.dbGetGoalHistory()).length });`, { NT_SERVER: '' });
+  assert.equal(made.rows, 1);
+
+  const restored = phone('local-goals-restored', '', `
+    const fs = await import('node:fs');
+    const { importLocalBackup } = await import(p.src + 'lib/local-backup.js');
+    const out = await importLocalBackup(fs.readFileSync(${JSON.stringify(zipPath)}));
+    const rows = await p.dbn.dbGetGoalHistory();
+    p.done({ counts: out.counts, rows });`, { NT_SERVER: '' });
+  assert.equal(restored.counts.goal_history, 1, 'the day came back');
+  assert.equal(restored.rows.length, 1);
+  assert.equal(restored.rows[0].effective_date, '2026-09-30');
+  const snapshot = JSON.parse(restored.rows[0].snapshot);
+  assert.equal(snapshot.water_goal_ml, 3100, 'the configuration came back');
+  assert.deepEqual(JSON.parse(restored.rows[0].field_times),
+    { water_goal_ml: '2026-09-30T09:00:00.000Z' }, 'and its per-field times');
+});
+
+test('a server without goal history neither keeps days queued nor counts them', async (t) => {
+  if (skip(t)) return;
+  const leo = await account('leo2', A);
+  const L = (await http(leo, 'GET', '/api/auth/me')).user;
+  // A phone signed in to the real server first, then one day captured.
+  phone('old-server', leo, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.prepareLocalAccount(${JSON.stringify(L)}, { confirm: async () => true });
+    await p.sync();
+    await p.offline(async () => {
+      await p.dbn.dbCaptureGoalHistory('2026-07-01', { changedAt: '2026-07-01T09:00:00.000Z' });
+    });
+    p.done({ pending: (await p.dbn.dbGetPendingGoalHistory()).length });`);
+
+  // A server from before goal history: its answers carry no goal_history.
+  const px = await proxy(req => ((req.url.startsWith('/api/sync/pull') || req.url.startsWith('/api/sync/push'))
+    ? {
+      rewrite: text => {
+        try {
+          const body = JSON.parse(text);
+          delete body.goal_history;
+          return JSON.stringify(body);
+        } catch { return text; }
+      },
+    }
+    : null));
+  try {
+    const r = await phoneAsync('old-server', leo, `
+      await p.sync();
+      const pendingAfter = (await p.dbn.dbGetPendingGoalHistory()).length;
+      const waiting = await p.dbn.dbCountUnsynced();
+      await p.offline(async () => {
+        await p.dbn.dbCaptureGoalHistory('2026-07-02', { changedAt: '2026-07-02T09:00:00.000Z' });
+      });
+      p.done({
+        pendingAfter, waiting,
+        pendingNew: (await p.dbn.dbGetPendingGoalHistory()).length,
+        waitingNew: await p.dbn.dbCountUnsynced(),
+      });`, { NT_SERVER: px.url });
+    assert.equal(r.pendingAfter, 0, "a day that can never be confirmed is not left waiting");
+    assert.equal(r.waiting, 0, 'and it is not counted as unsent');
+    assert.equal(r.pendingNew, 0, 'a new day is not queued for a server that has no history');
+    assert.equal(r.waitingNew, 0);
+  } finally {
+    await px.close();
+  }
+
+  // A server with history again: days are queued and go up as before.
+  const back = phone('old-server', leo, `
+    await p.sync();
+    await p.offline(async () => {
+      await p.dbn.dbCaptureGoalHistory('2026-07-03', { changedAt: '2026-07-03T09:00:00.000Z' });
+    });
+    const pending = (await p.dbn.dbGetPendingGoalHistory()).map(x => x.effective_date);
+    await p.sync();
+    p.done({ pending, after: (await p.dbn.dbGetPendingGoalHistory()).length });`);
+  assert.deepEqual(back.pending, ['2026-07-03'], 'a supporting server queues the day again');
+  assert.equal(back.after, 0);
+  assert.equal(q(
+    `SELECT COUNT(*) AS n FROM goal_history WHERE user_id = ? AND effective_date = '2026-07-03'`, L.id
+  )[0].n, 1, 'and the server stored it');
+});
+
+test('clearing the phone data forgets that its server had no goal history', async (t) => {
+  if (skip(t)) return;
+  const r = phone('goal-wipe', '', `
+    const dbn = p.dbn;
+    await dbn.dbSetGoalHistorySupport(false);
+    await dbn.dbCaptureGoalHistory('2026-06-01', { changedAt: '2026-06-01T09:00:00.000Z' });
+    const unsupported = (await dbn.dbGetPendingGoalHistory()).length;
+    await dbn.dbClearUserData();
+    await dbn.dbCaptureGoalHistory('2026-06-02', { changedAt: '2026-06-02T09:00:00.000Z' });
+    p.done({
+      unsupported,
+      afterWipe: (await dbn.dbGetPendingGoalHistory()).map(x => x.effective_date),
+    });`, { NT_SERVER: '' });
+  assert.equal(r.unsupported, 0, 'a day is not queued while the server has no history');
+  assert.deepEqual(r.afterWipe, ['2026-06-02'],
+    'clearing data forgets the flag, so the next server is asked afresh');
+});

@@ -838,7 +838,7 @@
    "Active Min",
    "Active Zone Min",
    "Add this exact URI to your Withings app's redirect URL list",
-   "Also write scale readings from Health Connect and a Garmin Personal API Key into that day's Body Stats weight so the Weight goal on Goals and the Body Stats widget on Diary reflect your scale. Manual Body Stats entries are never overwritten. Withings applies this by default independently of this toggle.",
+   "Also write scale readings from Withings, Health Connect, a Garmin Personal API Key and the body measurements API into that day's Body Stats weight so the Weight goal on Goals and the Body Stats widget on Diary reflect your scale. The day's first reading is kept, and manual Body Stats entries are never overwritten.",
    "Avg Heart Rate",
    "Basal Metabolic Rate",
    "Battery High",
@@ -1414,6 +1414,11 @@
    "settings.users.user_fallback",
    "settings.users.username_required",
    "settings.users.users_heading",
+   "settings_defaults.desc",
+   "settings_defaults.device_choice",
+   "settings_defaults.load_failed",
+   "settings_defaults.locked",
+   "settings_defaults.title",
    "two_step.admin.require",
    "two_step.admin.require_desc",
    "two_step.admin.reset",
@@ -1427,14 +1432,20 @@
   "text": [
    "Confirm button enables once the username matches exactly.",
    "Couldn't load data preview:",
+   "Deutsch",
+   "English",
+   "Español",
+   "Français",
    "Loading data preview…",
    "No data attached to this account.",
+   "Norsk bokmål",
    "This will permanently delete the account and everything it owns. This cannot be undone.",
    "Type",
    "diary",
    "manual",
    "to confirm:",
-   "wellness data points"
+   "wellness data points",
+   "Русский"
   ]
  },
  "authentication": {

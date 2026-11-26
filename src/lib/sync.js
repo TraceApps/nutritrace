@@ -20,6 +20,8 @@ import {
   dbUpsertFromServer, dbUpsertDiaryFromServer, dbUpsertWellnessFromServer,
   dbPurgeSoftDeleted,
   dbGetPendingSettings, dbMarkSettingsSynced, dbUpsertSettingFromServer,
+  dbGetPendingGoalHistory, dbMarkGoalHistorySynced, dbUpsertGoalHistoryFromServer,
+  dbSetGoalHistorySupport, dbMarkAllGoalHistorySynced,
   dbUpsertWorkoutFromServer, dbUpsertActivityFromServer,
   dbGetPendingWorkouts, dbSetWorkoutServerId,
   dbGetPendingDiaryTombstones, dbMarkTombstonesSynced, dbApplyServerTombstones,
@@ -339,6 +341,10 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
   catch (e) { console.warn('[sync] linking diary items waits for the next push:', e?.message || e); }
   const pending = await dbGetPendingChanges();
   const pendingSettings = await dbGetPendingSettings();
+  // Goal history changed here with no connection: one complete snapshot per
+  // local date, so the server learns the day each change was made for, not
+  // the day the phone reconnected.
+  const pendingGoalHistory = await dbGetPendingGoalHistory();
   const activity = pending.activity || [];
   const fasts    = pending.fasts || [];
   const wellness = pending.wellness || [];
@@ -362,7 +368,7 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
   }
   // Answers to a coach's recommendations made here (Accept works offline).
   const coachAnswers = await dbPendingCoachAnswers().catch(() => []);
-  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || fasts.length || wellness.length || workouts.length || pendingSettings.length || coachMsgs.length || coachAnswers.length;
+  const hasPending = pending.foods.length || pending.meals.length || pending.diary.length || activity.length || fasts.length || wellness.length || workouts.length || pendingSettings.length || pendingGoalHistory.length || coachMsgs.length || coachAnswers.length;
   // Option C: pending per-uuid deletions must ride along with the diary
   // rows in the same push so the server's merge treats them as explicit
   // tombstones. Load once, index by date, consume below.
@@ -371,7 +377,7 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
 
   if (!hasPending && !_hasPendingTombstones) return opsPushed;
 
-  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${fasts.length} fasts, ${wellness.length} wellness, ${workouts.length} workouts, ${pendingSettings.length} settings, tombstones=${Object.keys(_pendingDiaryTombstones).length}`);
+  _dlog(`[sync] pushing: ${pending.foods.length} foods, ${pending.meals.length} meals, ${pending.diary.length} diary, ${activity.length} activity, ${fasts.length} fasts, ${wellness.length} wellness, ${workouts.length} workouts, ${pendingSettings.length} settings, ${pendingGoalHistory.length} goal history, tombstones=${Object.keys(_pendingDiaryTombstones).length}`);
 
   const keepsNotes = await serverKeepsNotes().catch(() => false);
   // A row the server hasn't seen goes with a stable key (this install, its
@@ -512,6 +518,16 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
       updated_at: s.updated_at,
       deleted_at: s.deleted_at || null,
     })),
+    // The goals in effect on each day changed here, each with the
+    // configuration of that day and the fields this phone changed
+    // (db-native.js dbCaptureGoalHistory), so the server merges the day
+    // field by field as it merges settings.
+    goal_history: pendingGoalHistory.map(h => ({
+      effective_date: h.effective_date,
+      snapshot: _parseJson(h.snapshot),
+      field_times: _parseJson(h.field_times),
+      changed_at: h.changed_at,
+    })),
     // Locally-authored workouts (Health Connect ExerciseSession). Server
     // upserts on (user_id, source, source_id); client_id is used only to
     // stitch the server_id back to the local row via the push result. #91.
@@ -590,7 +606,7 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
     }
   }
 
-  _dlog(`[sync] push payload: ${payload.foods.length} foods, ${payload.meals.length} meals, ${payload.diary.length} diary, ${payload.activity.length} activity, ${payload.fasts.length} fasts, ${payload.wellness.length} wellness, ${payload.workouts.length} workouts, ${payload.settings.length} settings`);
+  _dlog(`[sync] push payload: ${payload.foods.length} foods, ${payload.meals.length} meals, ${payload.diary.length} diary, ${payload.activity.length} activity, ${payload.fasts.length} fasts, ${payload.wellness.length} wellness, ${payload.workouts.length} workouts, ${payload.settings.length} settings, ${payload.goal_history.length} goal history`);
 
   // 30s ceiling. Without a signal, a wedged connection (proxy timeout,
   // dropped TCP, server GC pause) stalls the whole sync loop for the OS
@@ -724,6 +740,19 @@ async function pushChanges({ token = getAuthToken(), signal = null, gen = accoun
   if (pendingSettings.length) {
     await dbMarkSettingsSynced(pendingSettings.map(s => ({ key: s.key, updated_at: s.updated_at })), live);
   }
+  if (pendingGoalHistory.length) {
+    // Only the days the server confirmed (it echoes each row it stored under
+    // the phone's own date). One it didn't take stays queued for the next
+    // push; a failed push has already thrown above, so nothing is marked.
+    const acked = new Set((result.goal_history || []).map(h => h.effective_date));
+    const confirmed = pendingGoalHistory.filter(h => acked.has(h.effective_date));
+    if (confirmed.length) {
+      await dbMarkGoalHistorySynced(
+        confirmed.map(h => ({ effective_date: h.effective_date, changed_at: h.changed_at })),
+        live
+      );
+    }
+  }
 
   // Purge soft-deleted records that have been confirmed pushed
   if (live()) await dbPurgeSoftDeleted('foods');
@@ -837,6 +866,12 @@ async function pullChanges({ signal = null, gen = accountGeneration() } = {}) {
   // checked before each kind of row is written, and before the cursor.
   const mine = () => localDataIsThisAccount(token);
   if (!(await mine())) return false;
+  // A server before goal history answers a pull without the field. Its days
+  // can never be confirmed, so stop queueing and counting them: the phone
+  // keeps them, but no "unsent changes" prompt waits on them forever.
+  const hasGoalHistory = Object.prototype.hasOwnProperty.call(data, 'goal_history');
+  await dbSetGoalHistorySupport(hasGoalHistory);
+  if (!hasGoalHistory) await dbMarkAllGoalHistorySynced();
   // Said to the open pages when this sync ends (_announce): one that lists
   // any of these reloads, deletes included (a row the server removed is
   // still a row the page was showing). Recorded before the rows are written,
@@ -897,6 +932,15 @@ async function pullChanges({ signal = null, gen = accountGeneration() } = {}) {
     if (!(await stillMine())) return false;
     try { await dbUpsertWellnessFromServer(w); }
     catch (e) { _pullErr('wellness', w, e); }
+  }
+
+  if (!(await mine())) return false;
+  // Apply the goals in effect on each past day before the current settings,
+  // so a page reading both always has the history the settings follow.
+  for (const h of (data.goal_history || [])) {
+    if (!(await stillMine())) return false;
+    try { await dbUpsertGoalHistoryFromServer(h); }
+    catch (e) { _pullErr('goal_history', h, e); }
   }
 
   if (!(await mine())) return false;
@@ -990,7 +1034,7 @@ async function pullChanges({ signal = null, gen = accountGeneration() } = {}) {
     await dbSetSyncMeta('last_sync_at', data.server_time);
   }
 
-  const totalChanges = (data.foods?.length || 0) + (data.meals?.length || 0) + (data.diary?.length || 0) + (data.activity?.length || 0) + (data.wellness?.length || 0) + pulledSettings.length + (data.workouts?.length || 0) + newChat.length
+  const totalChanges = (data.foods?.length || 0) + (data.meals?.length || 0) + (data.diary?.length || 0) + (data.activity?.length || 0) + (data.wellness?.length || 0) + pulledSettings.length + (data.goal_history?.length || 0) + (data.workouts?.length || 0) + newChat.length
     // Rows that only went away count too: a page still showing them reloads.
     + (data.fasts?.length || 0) + (data.diary_tombstones?.length || 0) + coachChanged
     + Object.values(data.deletions || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0);
@@ -1036,6 +1080,7 @@ export async function pushAllFromDevice() {
     UPDATE activity_log  SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
     UPDATE fasts         SET sync_status='pending', server_id=NULL, server_base=NULL, edit_times=NULL WHERE deleted_at IS NULL;
     UPDATE user_settings SET sync_status='pending'                  WHERE deleted_at IS NULL;
+    UPDATE goal_history  SET sync_status='pending';
   `);
 
   // Count what we just queued so the UI can confirm afterwards.
@@ -1043,6 +1088,10 @@ export async function pushAllFromDevice() {
   for (const t of ['foods', 'meals', 'diary', 'activity_log', 'fasts', 'user_settings']) {
     const r = await db.query(`SELECT COUNT(*) AS n FROM ${t} WHERE sync_status='pending' AND deleted_at IS NULL`);
     counts[t] = r?.values?.[0]?.n || 0;
+  }
+  {
+    const r = await db.query(`SELECT COUNT(*) AS n FROM goal_history WHERE sync_status='pending'`);
+    counts.goal_history = r?.values?.[0]?.n || 0;
   }
 
   // Trigger a user-requested full sync — this pushes everything we just

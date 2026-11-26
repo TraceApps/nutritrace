@@ -17,6 +17,21 @@
  */
 import { parseCsv, getField, parseDate, parseNumber } from './common.js';
 
+// Lose It spells units out ("Grams", "Fluid Ounces"); the app uses symbols so
+// the diary can convert and scale them. Other units ("Cup", "Serving") stay as named.
+const UNIT_SYMBOLS = {
+  gram: 'g', milligram: 'mg', kilogram: 'kg', ounce: 'oz', pound: 'lb',
+  milliliter: 'ml', millilitre: 'ml', liter: 'l', litre: 'l',
+  teaspoon: 'tsp', tablespoon: 'tbsp', 'fluid ounce': 'fl oz', cup: 'cup',
+};
+
+function _unit(raw) {
+  const name = String(raw || '').trim();
+  if (!name) return null;
+  const key = name.toLowerCase().replace(/s$/, '');
+  return UNIT_SYMBOLS[key] || name;
+}
+
 export function parseLoseit(text) {
   const { header, rows } = parseCsv(text);
   if (!header.length) throw new Error('Empty file');
@@ -39,8 +54,10 @@ export function parseLoseit(text) {
     const calories = parseNumber(getField(row, 'calories'));
     if (calories == null) continue;
 
-    const quantity = parseNumber(getField(row, 'quantity')) ?? 1;
-    const unit = getField(row, 'units') || null;
+    // Calories and nutrients are the totals for the logged amount, so the item is one
+    // serving with the amount as its portion (as the other importers do).
+    const amount = parseNumber(getField(row, 'quantity'));
+    const unit = _unit(getField(row, 'units'));
 
     const nutrition = { calories };
     _n(nutrition, 'fat',           row, 'fat (g)');
@@ -58,8 +75,9 @@ export function parseLoseit(text) {
       mealLabel: getField(row, 'type') || '',
       name,
       brand: null,
-      quantity,
-      portion: unit ? `${quantity} ${unit}` : null,
+      quantity: 1,
+      portion: amount,
+      unit,
       nutrition,
       notes: null,
       sourceRow: row._rowNum,

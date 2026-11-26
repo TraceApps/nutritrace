@@ -12,6 +12,7 @@
  *   - server/routes/sync.js         (Health Connect via Android push)
  *   - server/routes/withings.js     (Withings OAuth pull)
  *   - server/routes/api/v1/body-measurements.js (external API)
+ *   - server/lib/garmin-personal.js (Garmin Personal API Key)
  * Fitbit and Garmin routes don't currently handle weight; add the
  * call there if that changes.
  *

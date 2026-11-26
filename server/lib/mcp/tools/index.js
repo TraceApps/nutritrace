@@ -30,9 +30,15 @@ import { registerLogExternalFood } from './log-external-food.js';
 import { registerLogWater } from './log-water.js';
 import { registerLogMeal } from './log-meal.js';
 import { registerLogBodyStat } from './log-body-stat.js';
+import { registerLogDiaryBatch } from './log-diary-batch.js';
 import { registerDeleteDiaryEntry } from './delete-diary-entry.js';
 import { registerEditDiaryEntry } from './edit-diary-entry.js';
 import { registerCreateFood } from './create-food.js';
+import { registerCreateMeal } from './create-meal.js';
+import { registerUpdateMeal } from './update-meal.js';
+import { registerDeleteMeal } from './delete-meal.js';
+import { registerUpdateFood } from './update-food.js';
+import { registerDeleteFood } from './delete-food.js';
 
 export function registerReadTools(server, ctx) {
   registerGetGoals(server, ctx);
@@ -57,10 +63,16 @@ export function registerWriteTools(server, ctx) {
   registerLogWater(server, ctx);
   registerLogMeal(server, ctx);
   registerLogBodyStat(server, ctx);
+  registerLogDiaryBatch(server, ctx);
 }
 
 export function registerDestroyTools(server, ctx) {
   registerDeleteDiaryEntry(server, ctx);
   registerEditDiaryEntry(server, ctx);
   registerCreateFood(server, ctx);
+  registerCreateMeal(server, ctx);
+  registerUpdateMeal(server, ctx);
+  registerDeleteMeal(server, ctx);
+  registerUpdateFood(server, ctx);
+  registerDeleteFood(server, ctx);
 }

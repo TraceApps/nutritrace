@@ -212,12 +212,19 @@ included in server backups.
 **Where the values show up.** Every numeric metric writes to two
 places, matching the Withings sync pattern:
 
-- **`diary.body_stats`** — populates the Body Stats card on the diary
-  page for that date.
-- **`wellness_data`** with `source='federation'` — populates the
-  Wellness → Body tab (Weight, Body Fat, Muscle Mass, Bone Mass,
-  Body Water, Lean Mass, etc.) so all six standard metrics render
-  alongside anything synced from Withings / Fitbit / Health Connect.
+- **`wellness_data`** with `source='federation'`: the Wellness > Body
+  tab (Weight, Body Fat, Muscle Mass, Bone Mass, Body Water, Lean
+  Mass and so on), which shows once there are some, on the web and in
+  the Android app; Statistics' Weight, Body Fat, Body Water and Muscle
+  Mass charts; and the Goals page's weight and body fat goals. They
+  count as one more scale: a connected device's reading for the same
+  day wins (`GET /api/wellness/fitbit/data?sources=federation` returns
+  them alone).
+- **`diary.body_stats`** under the keys above (`weight_kg`,
+  `body_fat_pct`, ...), kept with the day. The Diary's Body Stats card
+  shows the weight only when **Settings > Wellness > Mirror wellness
+  weight to Body Stats** is on, which copies it into the day's own
+  `weight` (a weight typed in stays), as for Health Connect and Garmin.
 
 **Validation.** Each numeric field is range-checked against a
 sanity envelope (e.g. `weight` 10-500 kg, `body_fat` 1-80 %). Any

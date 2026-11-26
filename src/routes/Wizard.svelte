@@ -105,20 +105,11 @@
   // ── Unit system ───────────────────────────────────────────────────────────
   let unitSystem = ''; // 'metric' | 'imperial'
 
-  // Australia and NZ default to kilojoules on food labels and in everyday use;
-  // every other locale (incl. UK, Canada, EU) uses kcal. Pre-select kJ for
-  // those two locales as a UX nicety; the user can still toggle it manually.
-  function _localeDefaultEnergyUnit() {
-    try {
-      const lang = (navigator.language || '').toLowerCase();
-      if (lang === 'en-au' || lang === 'en-nz' || lang.startsWith('en-au-') || lang.startsWith('en-nz-')) return 'kJ';
-    } catch {}
-    return 'kcal';
-  }
-
+  // Energy isn't asked here: it follows the server's default, else the
+  // device's region (kJ in Australia and New Zealand), until changed in
+  // Settings (lib/regional-defaults.js, nutritrace#326).
   function applyUnitSystem(sys) {
     unitSystem = sys;
-    const _energy = _localeDefaultEnergyUnit();
     if (sys === 'imperial') {
       weightUnit.set('lb');
       heightUnit.set('ft');
@@ -126,7 +117,6 @@
       distUnit.set('mi');
       tempUnit.set('F');
       waterUnit.set('oz');
-      energyUnit.set(_energy);
       weight = 155; targetW = 155;
       heightFt = 5; heightIn = 9;
     } else {
@@ -136,7 +126,6 @@
       distUnit.set('km');
       tempUnit.set('C');
       waterUnit.set('ml');
-      energyUnit.set(_energy);
       weight = 70; targetW = 70;
       heightCm = 170;
     }

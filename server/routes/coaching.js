@@ -382,12 +382,15 @@ router.get('/clients/:clientId/overview', wrap((req, res) => {
   const u = db.prepare('SELECT id, full_name, username FROM users WHERE id = ?').get(clientId);
   const days = _recentDays(clientId, today);
   const from = _shift(today, -(WEIGHT_DAYS - 1));
-  const weights = db.prepare(`
+  const typed = new Map(db.prepare(`
     SELECT date, body_stats FROM diary WHERE user_id = ? AND deleted_at IS NULL AND date BETWEEN ? AND ? ORDER BY date
   `).all(clientId, from, today)
-    .map(r => ({ date: r.date, kg: _bodyStatsWeightKg(r.body_stats) }))
-    .filter(w => w.kg != null)
-    .map(w => ({ date: w.date, kg: Math.round(w.kg * 100) / 100 }));
+    .map(r => [r.date, _bodyStatsWeightKg(r.body_stats)])
+    .filter(([, kg]) => kg != null));
+  // A scale's weight on a day with none typed in (#350).
+  const scale = _scaleWeights(clientId, from, today);
+  const weights = [...new Set([...typed.keys(), ...scale.keys()])].sort()
+    .map(date => ({ date, kg: Math.round((typed.get(date) ?? scale.get(date)) * 100) / 100 }));
   res.json({
     client: person(u.id, u.full_name, u.username),
     since: req.pairing.responded_at,
@@ -400,6 +403,18 @@ router.get('/clients/:clientId/overview', wrap((req, res) => {
     weights,
   });
 }));
+
+// Each day's scale weight in kg (Withings, Health Connect, Garmin, Fitbit or
+// the body measurements API, a device before the API): date -> kg.
+function _scaleWeights(clientId, from, to) {
+  const out = new Map();
+  for (const r of db.prepare(`
+    SELECT date, value FROM wellness_data
+    WHERE user_id = ? AND metric_type = 'weight_kg' AND value > 0 AND date BETWEEN ? AND ?
+    ORDER BY date, CASE source WHEN 'federation' THEN 1 ELSE 0 END
+  `).all(clientId, from, to)) if (!out.has(r.date)) out.set(r.date, Number(r.value));
+  return out;
+}
 
 router.get('/clients/:clientId/diary/:date', wrap((req, res) => {
   const clientId = req.pairing.client_id;
@@ -426,7 +441,7 @@ router.get('/clients/:clientId/diary/:date', wrap((req, res) => {
     totals: _dayTotals(items),
     targets: _targetsFor(goals, date),
     water_ml: (_json(row?.water, []) || []).reduce((s, l) => s + (Number(l?.amount) || 0), 0),
-    weight_kg: row ? _bodyStatsWeightKg(row.body_stats) : null,
+    weight_kg: (row ? _bodyStatsWeightKg(row.body_stats) : null) ?? _scaleWeights(clientId, date, date).get(date) ?? null,
     notes: row?.notes || null,
   });
 }));

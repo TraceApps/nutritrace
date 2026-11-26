@@ -13,6 +13,7 @@ import { dispatchWebhookEvent } from '../../webhooks.js';
 import { checkWaterGoalCrossing } from '../../goal-webhook.js';
 import { getGoalsCore } from './goals.js';
 import { dailyTotalsCore } from './daily-totals.js';
+import { defaultFor } from '../../instance-defaults.js';
 
 const MAX_ML_PER_ENTRY = 5000;   // 5 L in one log = obvious agent bug or typo
 
@@ -48,7 +49,7 @@ export function logWaterCore(userId, { amount_ml, date, time } = {}) {
       `SELECT value FROM user_settings
         WHERE user_id = ? AND key = 'timeFormat' AND deleted_at IS NULL`
     ).get(userId);
-    const use24 = safeJson(tfRow?.value, '12h') === '24h';
+    const use24 = (tfRow?.value ? safeJson(tfRow.value, '12h') : defaultFor('timeFormat', '12h')) === '24h';
     logTime = isToday ? _formatTime(new Date(), use24) : (use24 ? '12:00' : '12:00 PM');
   }
   const log = { amount: Math.round(amount_ml), time: logTime };

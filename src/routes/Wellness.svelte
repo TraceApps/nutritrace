@@ -9,6 +9,7 @@
   import { showSuccess, showError } from '../stores/toast.js';
   import { localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
+  import { apiBodyData, refreshApiBodyData } from '../lib/api-body.js';
   import { isNative, getServerUrl } from '../lib/platform.js';
   import { offlineState } from '../lib/offline-api.js';
   import { portal } from '../lib/portal.js';
@@ -158,6 +159,8 @@
   let dateStr     = localDateStr();
   let status      = null; // { connected, configured, fitbitUserId, expiresAt }
   let data        = {}; // { [metricId]: value }
+  // The body measurements API's for the day, below every device (#349).
+  let apiData     = {};
   let syncing     = false;
   let lastSync    = null;
   let connecting  = false;
@@ -966,18 +969,20 @@
     const cur     = new Date(fromStr + 'T12:00:00');
     while (cur <= today) { dates.push(cur.toLocaleDateString('sv-SE')); cur.setDate(cur.getDate() + 1); }
 
-    let fitbitRange = {}, garminRange = {};
+    let fitbitRange = {}, garminRange = {}, apiRange = {};
     if (isNative) {
       try { fitbitRange = await _getWellnessRange(null, fromStr, toStr); } catch {}
     } else {
       // /api/wellness/fitbit/data also returns Health Connect rows (see rc.24).
       try { if ($fitbitFamilyEnabled) fitbitRange = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}`); } catch {}
       try { if ($garminEnabled)  garminRange  = await NtApi.get(`/api/wellness/garmin/data?from=${fromStr}&to=${toStr}`); } catch {}
+      // The body measurements API's, below the devices' (#349).
+      try { if ($apiBodyData) apiRange = await NtApi.get(`/api/wellness/fitbit/data?from=${fromStr}&to=${toStr}&sources=federation`); } catch {}
     }
 
     const result = {};
     for (const m of ALL_METRICS) {
-      result[m.id] = dates.map(d => garminRange[d]?.[m.id] ?? fitbitRange[d]?.[m.id] ?? null);
+      result[m.id] = dates.map(d => garminRange[d]?.[m.id] ?? fitbitRange[d]?.[m.id] ?? apiRange[d]?.[m.id] ?? null);
     }
     _sparklineData = result;
   }
@@ -1009,13 +1014,16 @@
   // Garmin's Personal API key also reads a Garmin scale's weight (#279):
   // the Body tab shows once there is some.
   $: garminBodyAvailable = garminAvailable && !!garminStatus?.hasWeight;
+  // Measurements sent through the API (a scale bridge, Home Assistant): the
+  // Body tab shows once there are some (#349).
+  $: apiBodyAvailable = $apiBodyData;
   // Health Connect is Android-only as a SOURCE, but its synced data lives on
   // the server now (rc.22+), so the web Wellness page must also recognize it
   // as an available integration to render the data. The setting itself is
   // managed from the Android app (Settings → Wellness card is gated by
   // isNative); the web just reflects whatever the user enabled there.
   $: healthConnectAvailable = $healthConnectEnabled;
-  $: anyAvailable      = fitbitAvailable || withingsAvailable || garminAvailable || healthConnectAvailable;
+  $: anyAvailable      = fitbitAvailable || withingsAvailable || garminAvailable || healthConnectAvailable || apiBodyAvailable;
   // Count the number of enabled providers so the left-rail can
   // hide its 'Providers' heading when there's only one — no need
   // for a section caption above a single lonely row.
@@ -1026,7 +1034,7 @@
   // Garmin contributes to activity/sleep/heart tabs alongside Fitbit
   $: _wlTabList = [
     ...(fitbitAvailable || garminAvailable || healthConnectAvailable ? ['activity', 'sleep', 'heart'] : []),
-    ...(withingsAvailable || healthConnectAvailable || garminBodyAvailable ? ['body'] : []),
+    ...(withingsAvailable || healthConnectAvailable || garminBodyAvailable || apiBodyAvailable ? ['body'] : []),
   ];
   $: _wlActiveIdx  = Math.max(0, _wlTabList.indexOf(activeTab));
   // Pill position: measure actual tab button positions for pixel-perfect alignment
@@ -1049,8 +1057,8 @@
   // Auto-correct activeTab when an integration's availability changes
   $: if (status !== null && withingsStatus !== null && garminStatus !== null) {
     const isActivityTab = activeTab === 'activity' || activeTab === 'sleep' || activeTab === 'heart';
-    if (isActivityTab && !fitbitAvailable && !garminAvailable && !healthConnectAvailable) activeTab = withingsAvailable ? 'body' : 'activity';
-    if (activeTab === 'body' && !withingsAvailable && !healthConnectAvailable && !garminBodyAvailable) activeTab = (fitbitAvailable || garminAvailable || healthConnectAvailable) ? 'activity' : 'body';
+    if (isActivityTab && !fitbitAvailable && !garminAvailable && !healthConnectAvailable) activeTab = (withingsAvailable || apiBodyAvailable) ? 'body' : 'activity';
+    if (activeTab === 'body' && !withingsAvailable && !healthConnectAvailable && !garminBodyAvailable && !apiBodyAvailable) activeTab = (fitbitAvailable || garminAvailable || healthConnectAvailable) ? 'activity' : 'body';
   }
 
   // ── Date navigation ────────────────────────────────────────────────────────
@@ -1123,6 +1131,9 @@
 
   // ── Init ───────────────────────────────────────────────────────────────────
   async function init() {
+    // Whether measurements come in through the API (#349), before deciding
+    // what to load and which tabs to show.
+    const apiLook = refreshApiBodyData(NtApi, { native: isNative });
     if (isNative) {
       // Native: load cached data IMMEDIATELY — don't wait for server status checks
       await loadLocalWellnessData();
@@ -1143,6 +1154,7 @@
 
     await initWithings();
     await initGarmin();
+    await apiLook;
 
     // Initial load fires when any wellness source has data on the server:
     // Fitbit OAuth, Google Health Web API, Garmin OAuth, or Health Connect
@@ -1151,7 +1163,7 @@
     // Google-Health-only or HC-only user landed on a blank Wellness tab
     // and had to flip to Yesterday and back to trigger loadData via the
     // prevDay/nextDay path.
-    if (status.connected || garminStatus?.connected || $fitbitFamilyEnabled) {
+    if (status.connected || garminStatus?.connected || $fitbitFamilyEnabled || $apiBodyData) {
       await loadData(); // loadData already calls loadWorkouts()
       if (isToday) {
         const key = `wl_wellness_lastSync_${dateStr}`;
@@ -1205,20 +1217,24 @@
     try {
       const { dbGetWellnessGrouped } = await import('../lib/db-native.js');
       // Load each source separately so we can populate the right state vars
-      const [fitbitData, garminLocal, withingsLocal, hcData] = await Promise.all([
+      const [fitbitData, garminLocal, withingsLocal, hcData, apiLocal] = await Promise.all([
         dbGetWellnessGrouped(dateStr, dateStr, 'fitbit'),
         dbGetWellnessGrouped(dateStr, dateStr, 'garmin'),
         dbGetWellnessGrouped(dateStr, dateStr, 'withings'),
         dbGetWellnessGrouped(dateStr, dateStr, 'health_connect'),
+        // Measurements sent through the API, as the server's Wellness shows
+        // them (#349); every device's value for the same metric wins.
+        dbGetWellnessGrouped(dateStr, dateStr, 'federation'),
       ]);
       data = { ...(hcData[dateStr] || {}), ...(fitbitData[dateStr] || {}) };
+      apiData = apiLocal[dateStr] || {};
       garminData = garminLocal[dateStr] || {};
       withingsData = withingsLocal[dateStr] || {};
-      _hasLocalData = Object.keys(data).length > 0 || Object.keys(garminData).length > 0 || Object.keys(withingsData).length > 0;
+      _hasLocalData = Object.keys(data).length > 0 || Object.keys(garminData).length > 0 || Object.keys(withingsData).length > 0 || Object.keys(apiData).length > 0;
     } catch (e) {
       console.warn('[wellness] local load failed:', e.message);
     }
-    _checkWellnessGoals({ ...garminData, ...data }, withingsData);
+    _checkWellnessGoals({ ...apiData, ...garminData, ...data }, withingsData);
     loadingData = false;
     if (activeTab === 'heart') { _readinessLoaded = false; }
     loadSparklines();
@@ -1244,12 +1260,18 @@
       return;
     }
     try {
-      const byDate = await NtApi.get(`/api/wellness/fitbit/data?date=${dateStr}`);
+      // With measurements from the API, theirs come apart so a Garmin
+      // scale's (below) also wins over them (#349).
+      const byDate = await NtApi.get(`/api/wellness/fitbit/data?date=${dateStr}${$apiBodyData ? '&sources=fitbit,health_connect' : ''}`);
       data = byDate[dateStr] || {};
     } catch { data = {}; }
+    apiData = {};
+    if ($apiBodyData) {
+      try { apiData = (await NtApi.get(`/api/wellness/fitbit/data?date=${dateStr}&sources=federation`))[dateStr] || {}; } catch {}
+    }
     await loadWithingsData();
     await loadGarminData();
-    _checkWellnessGoals({ ...garminData, ...data }, withingsData);
+    _checkWellnessGoals({ ...apiData, ...garminData, ...data }, withingsData);
     loadingData = false;
     // Refresh readiness if on heart tab (today's value just changed).
     // (Stress was replaced by Resilience in v2 of the scoring; the
@@ -1695,7 +1717,7 @@
             <span class="material-symbols-rounded tab-icon">favorite</span> {$_('wellness_page.chip.heart')}
           </button>
         {/if}
-        {#if withingsAvailable || healthConnectAvailable || garminBodyAvailable}
+        {#if withingsAvailable || healthConnectAvailable || garminBodyAvailable || apiBodyAvailable}
           <button class="tab-btn" class:active={activeTab === 'body'} on:click={() => activeTab = 'body'}>
             <span class="material-symbols-rounded tab-icon">monitor_weight</span> {$_('wellness_page.chip.body')}
           </button>
@@ -2196,10 +2218,10 @@
 
       <!-- ── Body tab (Withings) ── -->
       {:else if activeTab === 'body'}
-        {#if withingsStatus.connected || $fitbitFamilyEnabled || garminBodyAvailable || (isNative && _hasLocalData)}
+        {#if withingsStatus.connected || $fitbitFamilyEnabled || garminBodyAvailable || apiBodyAvailable || (isNative && _hasLocalData)}
           <div class="metric-grid">
             {#each BODY_METRICS.filter(m => isVisible(m.id)) as m}
-              {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? null}
+              {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? apiData[m.id] ?? null}
               {@const formatted = fmtBodyMetric(m, raw)}
               <div class="metric-card" class:no-data={formatted == null && !loadingData} class:celebrating={_celebratingMetrics.has(m.id)} title={m.desc}>
                 <div class="metric-icon-wrap">
@@ -2219,7 +2241,7 @@
             {/each}
           </div>
 
-          {#if BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id] ?? garminData[m.id]) != null)}
+          {#if BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? apiData[m.id]) != null)}
             <div class="card wl-center-only" style="margin-top:12px;padding:16px">
               <div class="sleep-stages-header" style="margin-bottom:12px">
                 <span class="material-symbols-rounded" style="color:var(--accent)">biotech</span>
@@ -2227,7 +2249,7 @@
               </div>
               <div class="metric-grid">
                 {#each BODY_SCORE_METRICS.filter(m => isVisible(m.id)) as m}
-                  {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? null}
+                  {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? apiData[m.id] ?? null}
                   {#if raw != null}
                     <div class="metric-card" title={m.desc}>
                       <div class="metric-icon-wrap">
@@ -2599,7 +2621,7 @@
             {/if}
           {:else if activeTab === 'body'}
             <!-- Body Scan Scores (rail duplicate) -->
-            {#if (withingsStatus.connected || $fitbitFamilyEnabled || garminBodyAvailable || (isNative && _hasLocalData)) && BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id] ?? garminData[m.id]) != null)}
+            {#if (withingsStatus.connected || $fitbitFamilyEnabled || garminBodyAvailable || apiBodyAvailable || (isNative && _hasLocalData)) && BODY_SCORE_METRICS.filter(m => isVisible(m.id)).some(m => (withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? apiData[m.id]) != null)}
               <div class="wl-rail-only">
                 <div class="card" style="padding:16px">
                   <div class="sleep-stages-header" style="margin-bottom:12px">
@@ -2608,7 +2630,7 @@
                   </div>
                   <div class="metric-grid">
                     {#each BODY_SCORE_METRICS.filter(m => isVisible(m.id)) as m}
-                      {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? null}
+                      {@const raw = withingsData[m.id] ?? data[m.id] ?? garminData[m.id] ?? apiData[m.id] ?? null}
                       {#if raw != null}
                         <div class="metric-card" title={m.desc}>
                           <div class="metric-icon-wrap">

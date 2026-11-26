@@ -17,7 +17,9 @@ const UNITS = ['weightUnit', 'heightUnit', 'lengthUnit', 'distUnit', 'tempUnit']
 
 const settings = read('src/stores/settings.js');
 const storeDefault = (key) => {
-  const m = settings.match(new RegExp(`createSettingStore\\('${key}',\\s*'([^']+)'\\)`));
+  // The fallback after the server's default and the device's region
+  // (regionalStore, nutritrace#326).
+  const m = settings.match(new RegExp(`(?:createSettingStore|regionalStore)\\('${key}',\\s*'([^']+)'\\)`));
   assert.ok(m, `${key} store not found`);
   return m[1];
 };
@@ -28,7 +30,7 @@ test('every fallback for a unit matches its store default', () => {
   for (const key of UNITS) {
     const want = storeDefault(key);
     for (const f of files) {
-      for (const m of read(f).matchAll(new RegExp(`getSetting\\('${key}',\\s*'([^']+)'\\)`, 'g'))) {
+      for (const m of read(f).matchAll(new RegExp(`(?:getSetting|regionalSetting)\\('${key}',\\s*'([^']+)'\\)`, 'g'))) {
         assert.equal(m[1], want, `${f}: ${key} falls back to ${m[1]}, the store says ${want}`);
       }
     }

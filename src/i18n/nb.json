@@ -58,7 +58,8 @@
       "protein": "Protein {pct}%",
       "carbs": "Karbonhydrater {pct}%",
       "fat": "Fett {pct}%"
-    }
+    },
+    "tap_exit": "Trykk igjen for å avslutte"
   },
   "sync": {
     "synced": "Synkronisert",

@@ -1,9 +1,13 @@
 import { writable, get, derived } from 'svelte/store';
 import { pickInitialLocale } from '../i18n/index.js';
 import { DB } from '../lib/db.js';
+import { GOAL_HISTORY_FIELD_OF_SETTING, GOAL_HISTORY_SETTING_KEYS, goalDateInZone, goalSnapshot } from '../lib/goal-snapshot.js';
 import { noteCoachingSignature } from './coaching.js';
 import { FIRST_DAY_DEFAULT, resolveFirstDay } from '../lib/week.js';
 import { FACTS_COLUMN_DEFAULT } from '../lib/facts-column.js';
+import { regionalDefault, rememberInstanceDefaults } from '../lib/regional-defaults.js';
+import { settingScope } from '../lib/setting-key.js';
+import { REGIONAL_OPTIONS } from '../../server/lib/regional-options.js';
 
 // Verbose settings sync logs gated on dev OR opt-in verbose mode
 // (Settings → Diagnostics → Verbose diagnostic logging).
@@ -103,6 +107,52 @@ export const DEVICE_PREFS = new Set([
 // touching every call site. Equivalent to USER_PREFS.
 const SERVER_SETTINGS = USER_PREFS;
 
+// A change to one of the goal settings also records that day's goals, so a
+// report on a past week can read the targets that were in effect then
+// (server/lib/goal-history.js, app copy in lib/db-native.js).
+
+/** The goal configuration as this device has it now. */
+function _currentGoalSnapshot() {
+  const values = {};
+  for (const key of GOAL_HISTORY_SETTING_KEYS) values[key] = DB.getSetting(key, undefined);
+  return goalSnapshot(values);
+}
+
+/** The goal configuration a batch is for: the values it set, on top of
+ *  what this device has now, independent of how much of it was written. */
+function _goalSnapshotForBatch(changed) {
+  const values = {};
+  for (const key of GOAL_HISTORY_SETTING_KEYS) values[key] = DB.getSetting(key, undefined);
+  for (const [key, value] of Object.entries(changed)) values[key] = value;
+  return goalSnapshot(values);
+}
+
+/** The fields a batch or a change claims, each with when it was made. */
+function _goalFieldTimes(keys, at) {
+  const out = {};
+  for (const key of keys) {
+    const field = GOAL_HISTORY_FIELD_OF_SETTING[key];
+    if (field) out[field] = at;
+  }
+  return out;
+}
+
+// A setting from this phone goes into its SQLite copy at once (marked
+// pending, so a pull doesn't overwrite it). A goal setting also records the
+// day's goals for the server: the push may reach it after the day ended.
+// Only the setting this write changed is claimed; the day it is for and the
+// edit time come from the write itself.
+async function _nativeSettingWrite(key, value, at) {
+  const { dbUpsertSetting, dbCaptureGoalHistory } = await import('../lib/db-native.js');
+  // The edit's own moment, so the queued row and its push name it (#335).
+  const updatedAt = await dbUpsertSetting(key, value, at);
+  if (GOAL_HISTORY_SETTING_KEYS.has(key)) {
+    const madeOn = goalDateInZone(DB.getSetting('timezone', null));
+    await dbCaptureGoalHistory(madeOn, { changedKeys: [key] });
+  }
+  return updatedAt;
+}
+
 import { isNative, getServerUrl, getAuthToken, apiUrl } from '../lib/platform.js';
 
 function _settingsUrl() {
@@ -172,7 +222,18 @@ export function scheduleSave(key, value, at = new Date().toISOString()) {
   // a timeout must name the same edit time as the request that may have
   // reached the server. An older save arriving late therefore loses to a
   // newer edit instead of overwriting it.
+  // The day and configuration this change is for, taken now with the change:
+  // a save pushed just after midnight is still the evening's targets, and a
+  // template applied, a pull or a goal changed while the request is out
+  // can't rewrite what this day's goals were. The snapshot is what the queue
+  // carries if the request doesn't get through.
+  const changesGoals = GOAL_HISTORY_SETTING_KEYS.has(key);
+  // The account's calendar day, not this device's: the server dates its own
+  // captures the same way, so one edit resolves to one day everywhere.
+  const madeOn = goalDateInZone(DB.getSetting('timezone', null));
   const madeAt = at || new Date().toISOString();
+  const madeGoals = changesGoals ? _currentGoalSnapshot() : null;
+  const madeFields = changesGoals ? _goalFieldTimes([key], madeAt) : null;
   // The account the change was made for: if another one is signed in by
   // the time it goes, it doesn't go (it would land in that account).
   const forUser = _userKey();
@@ -205,7 +266,10 @@ export function scheduleSave(key, value, at = new Date().toISOString()) {
         method: 'PUT',
         credentials: 'include',
         headers: _authHeaders(),
-        body: JSON.stringify({ key, value, changed_at: madeAt, client_now: new Date().toISOString() }),
+        body: JSON.stringify({
+          key, value, changed_at: madeAt, client_now: new Date().toISOString(),
+          ...(changesGoals ? { effective_date: madeOn } : {}),
+        }),
         signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
@@ -229,6 +293,10 @@ export function scheduleSave(key, value, at = new Date().toISOString()) {
         try {
           const { queueSetting } = await import('../lib/offline-api.js');
           await queueSetting(key, value, madeAt);
+          if (changesGoals) {
+            const { queueGoalHistory } = await import('../lib/offline-api.js');
+            await queueGoalHistory(madeOn, madeGoals, { changedAt: madeAt, fieldTimes: madeFields });
+          }
         } catch { /* nothing more to try */ }
       }
     }
@@ -259,8 +327,13 @@ export async function bulkSet(settingsObj) {
   // Filter to USER_PREFS only
   const userPrefEntries = entries.filter(([k]) => USER_PREFS.has(k));
   // One request, one moment: every key of the batch is edited at the time
-  // the batch was made, and its retry keeps that time too.
+  // the batch was made, and its retry keeps that time too. The day this
+  // batch is for; one request, so one snapshot (below), taken as soon as
+  // the batch is applied, never after the network has been waited on.
+  const madeOn = goalDateInZone(DB.getSetting('timezone', null));
   const madeAt = new Date().toISOString();
+  const goalKeys = userPrefEntries.map(([key]) => key).filter(key => GOAL_HISTORY_SETTING_KEYS.has(key));
+  const changesGoals = goalKeys.length > 0;
 
   // Step 1: write to localStorage WITH suppressSync so the global listener
   // doesn't fire individual debounced pushes for each key
@@ -273,26 +346,53 @@ export async function bulkSet(settingsObj) {
     _suppressSync = false;
   }
 
+  // The batch as it now stands, taken here from the values it set (not from
+  // how much of them happened to be written): a pull, another edit, midnight
+  // or a failed local write during the request below must not change what
+  // this day's goals were.
+  const madeGoals = changesGoals
+    ? _goalSnapshotForBatch(Object.fromEntries(userPrefEntries.filter(([key]) => GOAL_HISTORY_SETTING_KEYS.has(key))))
+    : null;
+  const madeFields = changesGoals ? _goalFieldTimes(goalKeys, madeAt) : null;
+
   // Step 2: native — write all USER_PREFS to local SQLite as pending. Capture
   // the per-key updated_at so the mark-synced step after the bulk push can
   // detect mid-flight re-edits and leave them pending for the next sync.
   const snapshotByKey = new Map();
   if (isNative && userPrefEntries.length > 0) {
     try {
-      const { dbUpsertSetting } = await import('../lib/db-native.js');
+      const { dbUpsertSetting, dbCaptureGoalHistory } = await import('../lib/db-native.js');
       for (const [key, value] of userPrefEntries) {
         const updatedAt = await dbUpsertSetting(key, value, madeAt);
         snapshotByKey.set(key, updatedAt);
       }
+      // After every key is written, so the day's snapshot is the complete
+      // template, not the half of it written so far; only the goal keys the
+      // batch touched are claimed.
+      if (changesGoals) await dbCaptureGoalHistory(madeOn, { changedKeys: goalKeys });
     } catch (e) {
       console.warn('[settings] bulk native upsert failed:', e.message);
     }
   }
 
-  // Step 3: single bulk API call (only if we should sync to server)
+  // Step 3: single bulk API call. Any way it doesn't get through — a known
+  // offline server, a failed request, a refused answer — takes the same
+  // path: the browser hands the whole batch (and its day) to the offline
+  // queue, so nothing of the template is lost.
   if (!_shouldSyncToServer() || userPrefEntries.length === 0) return;
+  const queueForLater = async () => {
+    if (isNative) return; // native rows stay pending in SQLite for the next sync
+    try {
+      const { queueSetting, queueGoalHistory } = await import('../lib/offline-api.js');
+      for (const [key, value] of userPrefEntries) await queueSetting(key, value, madeAt);
+      if (changesGoals) {
+        await queueGoalHistory(madeOn, madeGoals, { changedAt: madeAt, fieldTimes: madeFields });
+      }
+    } catch { /* nothing more to try */ }
+  };
   if (await _serverRequestDeferred()) {
     _dlog(`[settings] deferring bulk push — server is currently unreachable`);
+    await queueForLater();
     return;
   }
   try {
@@ -303,7 +403,10 @@ export async function bulkSet(settingsObj) {
       method: 'PUT',
       credentials: 'include',
       headers: _authHeaders(),
-      body: JSON.stringify({ settings: bulkObj, changed_at: madeAt, client_now: new Date().toISOString() }),
+      body: JSON.stringify({
+        settings: bulkObj, changed_at: madeAt, client_now: new Date().toISOString(),
+        ...(changesGoals ? { effective_date: madeOn } : {}),
+      }),
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw new Error(`Server responded ${res.status}`);
@@ -320,7 +423,7 @@ export async function bulkSet(settingsObj) {
     }
   } catch (e) {
     console.warn('[settings] bulk push failed:', e.message);
-    // Leave as 'pending' in local SQLite — differential sync will push them later
+    await queueForLater();
   }
 }
 
@@ -464,8 +567,7 @@ if (typeof window !== 'undefined') {
     if (isNative) {
       import('../lib/local-account.js').then(async la => {
         if (!la.localCopyIsCurrent()) return;
-        const { dbUpsertSetting } = await import('../lib/db-native.js');
-        await dbUpsertSetting(key, value, at);
+        await _nativeSettingWrite(key, value, at);
       }).catch(() => {});
     }
     scheduleSave(key, value, at);
@@ -491,17 +593,22 @@ export function reloadSettingStores({ force = false } = {}) {
   _storesUser = now;
   for (const k of Object.keys(_saveQueue)) { clearTimeout(_saveQueue[k]); delete _saveQueue[k]; }
   _recentlyChanged.clear();
-  for (const { key, defaultValue, store } of _settingStores) store.set(DB.getSetting(key, defaultValue));
+  for (const { key, defaultValue, store } of _settingStores) store.set(DB.getSetting(key, _resolve(defaultValue)));
   return true;
 }
 
+// A store's default may be a function, worked out each time it's needed:
+// the regional ones follow the server's defaults and this device's locale
+// (regionalStore, below).
+const _resolve = d => (typeof d === 'function' ? d() : d);
+
 function createSettingStore(key, defaultValue) {
-  const store = writable(DB.getSetting(key, defaultValue));
+  const store = writable(DB.getSetting(key, _resolve(defaultValue)));
   _settingStores.push({ key, defaultValue, store });
 
   window.addEventListener('wl:setting', (e) => {
     if (e.detail && e.detail.key === key) {
-      const next = DB.getSetting(key, defaultValue);
+      const next = DB.getSetting(key, _resolve(defaultValue));
       const prev = get(store);
       // Only update if the value actually changed. Without this guard,
       // the 30s settings poll (loadServerSettings dispatches force=true
@@ -519,7 +626,7 @@ function createSettingStore(key, defaultValue) {
     subscribe: store.subscribe,
     set(value) {
       // Skip if value hasn't changed (prevents $: reactive statements from flooding on mount)
-      const current = DB.getSetting(key, defaultValue);
+      const current = DB.getSetting(key, _resolve(defaultValue));
       if (JSON.stringify(current) === JSON.stringify(value)) {
         store.set(value); // still update store in case it's stale
         return;
@@ -531,12 +638,12 @@ function createSettingStore(key, defaultValue) {
       _recentlyChanged.set(key, Date.now());
       // On native: write to local SQLite immediately (marks as pending for sync protection)
       if (isNative && SERVER_SETTINGS.has(key)) {
-        import('../lib/db-native.js').then(({ dbUpsertSetting }) => dbUpsertSetting(key, value, at)).catch(() => {});
+        _nativeSettingWrite(key, value, at).catch(() => {});
       }
       scheduleSave(key, value, at);
     },
     update(fn) {
-      const current = DB.getSetting(key, defaultValue);
+      const current = DB.getSetting(key, _resolve(defaultValue));
       this.set(fn(current));
     },
     get() {
@@ -545,10 +652,65 @@ function createSettingStore(key, defaultValue) {
   };
 }
 
+// ── Regional defaults (nutritrace#326) ───────────────────────────────────
+// Language, units, date and time, and food search start, for someone who
+// never chose, from the server's defaults (Settings > Users), else this
+// device's locale, else `fallback`. Their own choice always wins, and the
+// default is never saved as theirs.
+
+/** Whose defaults: the server's, as settings are kept per server (the
+ *  Android app can switch servers; lib/setting-key.js). */
+export function instanceDefaultsScope() {
+  return settingScope();
+}
+
+/** What a regional setting nobody chose shows. */
+export function regionalFallback(key, fallback) {
+  // Not a setting with a default here (the units: server/lib/regional-options.js).
+  if (!REGIONAL_OPTIONS[key]) return fallback;
+  return regionalDefault(key, fallback, { scope: instanceDefaultsScope(), allowed: REGIONAL_OPTIONS[key]?.values || null });
+}
+
+/** A regional setting as it shows: the person's choice, else the default.
+ *  For code that reads settings outside the stores. */
+export function regionalSetting(key, fallback) {
+  return DB.getSetting(key, regionalFallback(key, fallback));
+}
+
+function regionalStore(key, fallback) {
+  return createSettingStore(key, () => regionalFallback(key, fallback));
+}
+
+/**
+ * The server's defaults, kept for offline, and every store showing a
+ * default (nobody chose) moved to them at once. Nothing is written into
+ * the account or sent.
+ */
+export function applyInstanceDefaults(values) {
+  if (!rememberInstanceDefaults(values, instanceDefaultsScope())) return false;
+  for (const { key, defaultValue, store } of _settingStores) {
+    if (typeof defaultValue === 'function') store.set(DB.getSetting(key, defaultValue()));
+  }
+  return true;
+}
+
+/** Ask the server for its defaults (signed in or not). Offline, the last
+ *  ones stay. In the Android app's Local mode there's no server: the
+ *  phone's locale alone. */
+export async function loadInstanceDefaults() {
+  if (isNative && !getServerUrl()) return;
+  try {
+    const res = await fetch(apiUrl('/api/app-config/defaults'), { credentials: 'include', signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return;
+    const body = await res.json();
+    applyInstanceDefaults(body?.values || {});
+  } catch { /* offline: the last ones stay */ }
+}
+
 export const appearance       = createSettingStore('appearance',       'system');
 // The browser or phone's own language until one is chosen (#323).
-export const language          = createSettingStore('language',          pickInitialLocale());
-export const energyUnit        = createSettingStore('energyUnit',       'kcal');
+export const language          = regionalStore('language',          pickInitialLocale);
+export const energyUnit        = regionalStore('energyUnit',       'kcal');
 export const mealNames         = createSettingStore('mealNames',        ['Breakfast','Lunch','Dinner','Snacks']);
 export const goals             = createSettingStore('goals',            {});
 export const goalTemplates     = createSettingStore('goalTemplates',    []);
@@ -698,8 +860,8 @@ export const cropPhotos             = createSettingStore('cropPhotos',          
 // database and the primary search source. Users who don't want their queries
 // hitting OFF servers (privacy / offline-first) can disable it.
 export const offEnabled             = createSettingStore('offEnabled',             true);
-export const offSearchLanguage      = createSettingStore('offSearchLanguage',      'en');
-export const offSearchCountry       = createSettingStore('offSearchCountry',       'World');
+export const offSearchLanguage      = regionalStore('offSearchLanguage',      'en');
+export const offSearchCountry       = regionalStore('offSearchCountry',       'World');
 export const offUploadCountry       = createSettingStore('offUploadCountry',       'Auto');
 export const offImportPortion       = createSettingStore('offImportPortion',       'per100g');
 
@@ -798,8 +960,8 @@ export const disableAnimations  = createSettingStore('disableAnimations',  false
 export const goalCelebrations   = createSettingStore('goalCelebrations',   true);
 
 // Date / time display format
-export const dateFormat = createSettingStore('dateFormat', 'US');   // 'ISO' | 'US' | 'EU' | 'natural'
-export const timeFormat = createSettingStore('timeFormat', '12h');  // '12h' | '24h'
+export const dateFormat = regionalStore('dateFormat', 'US');   // 'ISO' | 'US' | 'EU' | 'natural'
+export const timeFormat = regionalStore('timeFormat', '12h');  // '12h' | '24h'
 export const timezone   = createSettingStore('timezone',   '');     // IANA timezone (e.g. 'America/New_York'), empty = auto-detect
 // First Day of Week (#232): 'auto' (the device's locale), 'monday', 'sunday'
 // or 'saturday'. weekStartDay is the day it comes to (0 Sunday, 1 Monday ...).

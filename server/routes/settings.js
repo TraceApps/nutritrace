@@ -8,6 +8,15 @@ import { coachingSignature } from '../lib/coaching.js';
 import { fillIfSetupAnswers } from '../lib/profile-fields.js';
 import { clientSetting, readSettingRaw, settingToStore } from '../lib/secret-settings.js';
 import { clientClock, editMs } from '../lib/sync-clock.js';
+import {
+  GOAL_HISTORY_FIELDS,
+  GOAL_HISTORY_FIELD_OF_SETTING,
+  GOAL_HISTORY_SETTING_KEYS,
+  boundGoalDate,
+  captureGoalSnapshot,
+  currentGoalSnapshot,
+  isGoalHistoryDate,
+} from '../lib/goal-history.js';
 import { writeSetting } from '../lib/setting-merge.js';
 
 // Push services usually live on the home network, so that's allowed for
@@ -36,6 +45,53 @@ const _stored = (u, key) => db.prepare(
   'SELECT value FROM user_settings WHERE user_id = ? AND key = ? AND deleted_at IS NULL'
 ).get(u, key)?.value ?? null;
 
+// When the client made the change, on the server's clock (ms): its own
+// clock set right by the offset the request reports, and never in the
+// future. Absent (an older app, a detected zone) means now. This is the
+// instant that decides which edit wins (lib/setting-merge.js), and it
+// belongs to the request and to its retries.
+function _editTime(req) {
+  const raw = req.body?.changed_at;
+  if (raw == null) return null;
+  const clock = clientClock(req.body?.client_now);
+  const ms = editMs(raw, clock, Date.now(), {});
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// The local calendar day a goal change takes effect from: the day the client
+// made it (an offline save reaches the server later, but its targets are for
+// the day it was made), kept within a day of the corrected edit time
+// (goal-history.js boundGoalDate). An invalid date is refused; one further
+// out is filed under the edit's own day.
+function _effectiveDate(req, editAt) {
+  const supplied = req.body?.effective_date;
+  if (supplied != null && !isGoalHistoryDate(supplied)) {
+    const err = new Error('effective_date must be YYYY-MM-DD');
+    err.status = 400;
+    throw err;
+  }
+  return boundGoalDate(req.user.id, supplied ?? null, editAt ?? Date.now());
+}
+
+/**
+ * The configuration a goal save put in effect: the settings as they are,
+ * with the keys this save changed set to the values it sent (and their
+ * time). A save that loses to a newer edit still records its own value for
+ * its own day; the fields it did not change come from the day's own
+ * history, not from the live settings.
+ */
+function _saveSnapshot(userId, changed, at) {
+  const snapshot = currentGoalSnapshot(userId);
+  const fieldTimes = {};
+  for (const [key, value] of Object.entries(changed)) {
+    const field = GOAL_HISTORY_FIELD_OF_SETTING[key];
+    if (!field) continue;
+    snapshot[field] = value;
+    fieldTimes[field] = new Date(at).toISOString();
+  }
+  return { snapshot, fieldTimes };
+}
+
 // GET /api/settings — return all user settings (empty object in single-user mode)
 // SECURITY: server-only keys (OAuth secrets, admin config) are filtered out.
 router.get('/', wrap((req, res) => {
@@ -55,19 +111,6 @@ router.get('/', wrap((req, res) => {
   res.json(out);
 }));
 
-// When the client made the change, on the server's clock (ms): its own
-// clock set right by the offset the request reports, and never in the
-// future. Absent (an older app, a detected zone) means now. This is the
-// instant that decides which edit wins (lib/setting-merge.js), and it
-// belongs to the request and to its retries.
-function _editTime(req) {
-  const raw = req.body?.changed_at;
-  if (raw == null) return null;
-  const clock = clientClock(req.body?.client_now);
-  const ms = editMs(raw, clock, Date.now(), {});
-  return Number.isFinite(ms) ? ms : null;
-}
-
 // PUT /api/settings — upsert one setting
 // SECURITY: rejects writes to server-only keys (OAuth secrets etc.).
 router.put('/', wrap((req, res) => {
@@ -79,10 +122,21 @@ router.put('/', wrap((req, res) => {
   const stored = settingToStore(key, value, _stored(req.user.id, key));
   if (stored === undefined) return res.json({ ok: true });
   // A save made at one moment and delivered later meets the newer edit and
-  // loses; the newer one stays (lib/setting-merge.js).
+  // loses; the newer one stays (lib/setting-merge.js). A goal setting also
+  // records the day's configuration, in the same transaction. The day is
+  // built from the value this save sent, so a save that loses to a newer
+  // edit still says what it changed for its own day.
+  const goalChange = GOAL_HISTORY_SETTING_KEYS.has(key);
   const at = _editTime(req) ?? Date.now();
+  const effectiveDate = goalChange ? _effectiveDate(req, at) : null;
   db.transaction(() => {
     writeSetting(db, req.user.id, key, { value: stored }, at);
+    if (effectiveDate) {
+      const { snapshot, fieldTimes } = _saveSnapshot(req.user.id, { [key]: value }, at);
+      captureGoalSnapshot(req.user.id, {
+        effectiveDate, changedAt: new Date(at).toISOString(), source: 'settings', snapshot, fieldTimes,
+      });
+    }
   })();
   // Setup's birthday and gender belong on the account too (#269).
   fillIfSetupAnswers(db, req.user.id, [key]);
@@ -102,8 +156,15 @@ router.put('/bulk', wrap((req, res) => {
   let written = 0, skipped = 0;
   // One request, one moment: every key of the batch is edited at the same
   // time, so a change from another device between two keys of it can't
-  // split the batch.
+  // split the batch. One request, one snapshot: a goal template's targets
+  // and its water goal are applied together, so a reader never sees half a
+  // template.
+  const goalChanges = Object.fromEntries(
+    Object.entries(settings).filter(([key]) => GOAL_HISTORY_SETTING_KEYS.has(key) && !isServerOnlyKey(key))
+  );
+  const goalChange = Object.keys(goalChanges).length > 0;
   const at = _editTime(req) ?? Date.now();
+  const effectiveDate = goalChange ? _effectiveDate(req, at) : null;
   db.transaction(() => {
     for (const [key, value] of Object.entries(settings)) {
       if (isServerOnlyKey(key)) { skipped++; continue; }
@@ -111,6 +172,12 @@ router.put('/bulk', wrap((req, res) => {
       if (stored === undefined) { skipped++; continue; }
       writeSetting(db, req.user.id, key, { value: stored }, at);
       written++;
+    }
+    if (goalChange) {
+      const { snapshot, fieldTimes } = _saveSnapshot(req.user.id, goalChanges, at);
+      captureGoalSnapshot(req.user.id, {
+        effectiveDate, changedAt: new Date(at).toISOString(), source: 'settings_bulk', snapshot, fieldTimes,
+      });
     }
     // Setup's birthday and gender belong on the account too (#269).
     fillIfSetupAnswers(db, req.user.id, Object.keys(settings).filter(k => !isServerOnlyKey(k)));
@@ -122,11 +189,24 @@ router.put('/bulk', wrap((req, res) => {
 router.delete('/', wrap((req, res) => {
   if (userMgmtActive() && req.user) {
     // A reset clears every setting at the moment it was made, not when it
-    // arrived: a phone's newer edit still brings its setting back.
+    // arrived: a phone's newer edit still brings its setting back. Today
+    // becomes a day whose targets are the defaults, explicitly: the days
+    // before keep the targets they had.
     const at = _editTime(req) ?? Date.now();
+    const effectiveDate = _effectiveDate(req, at);
     db.transaction(() => {
       const rows = db.prepare('SELECT key FROM user_settings WHERE user_id = ?').all(req.user.id);
       for (const { key } of rows) writeSetting(db, req.user.id, key, { deleted: true }, at);
+      // The reset's own day records the defaults at the reset's moment, not
+      // the newer live value that may have won a setting: a later edit for
+      // that day wins on its own time, and an edit for another day stays
+      // there.
+      const stamp = new Date(at).toISOString();
+      const fieldTimes = {};
+      for (const field of GOAL_HISTORY_FIELDS) fieldTimes[field] = stamp;
+      captureGoalSnapshot(req.user.id, {
+        effectiveDate, changedAt: stamp, source: 'settings_reset', snapshot: {}, fieldTimes,
+      });
     })();
   }
   res.json({ ok: true });

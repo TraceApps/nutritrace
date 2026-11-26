@@ -181,11 +181,11 @@ export async function parseInput(text, userMealNames) {
  */
 export function resolveMealSlot(mealName, mealNames) {
   if (!mealName || !Array.isArray(mealNames) || mealNames.length === 0) return null;
-  const target = String(mealName).toLowerCase().trim();
+  const target = foldText(mealName).trim();
   if (!target) return null;
 
-  // 1. Exact case-insensitive match
-  const direct = mealNames.findIndex(n => String(n).toLowerCase() === target);
+  // 1. Exact match, ignoring case and accents ("Dejeuner" is "Déjeuner")
+  const direct = mealNames.findIndex(n => foldText(n) === target);
   if (direct >= 0) return direct;
 
   // 2. Substring match — prefer the SHORTEST matching slot name to avoid
@@ -193,7 +193,7 @@ export function resolveMealSlot(mealName, mealNames) {
   let bestSubstr = -1;
   let bestSubstrLen = Infinity;
   for (let i = 0; i < mealNames.length; i++) {
-    const ln = String(mealNames[i]).toLowerCase();
+    const ln = foldText(mealNames[i]);
     if (ln === target) return i; // double-check exact (shouldn't reach here but safe)
     if (ln.includes(target) || target.includes(ln)) {
       if (ln.length < bestSubstrLen) {
@@ -217,12 +217,12 @@ export function resolveMealSlot(mealName, mealNames) {
     // (handles "Snack 1" picking up "snack" as a prefix). Returns the first
     // such slot which is typically the user's "first" snack.
     for (let i = 0; i < mealNames.length; i++) {
-      const ln = String(mealNames[i]).toLowerCase();
+      const ln = foldText(mealNames[i]);
       if (aliasList.some(a => ln.startsWith(a))) return i;
     }
     // Second pass: any substring match (e.g. "Mid-afternoon Snack")
     for (let i = 0; i < mealNames.length; i++) {
-      const ln = String(mealNames[i]).toLowerCase();
+      const ln = foldText(mealNames[i]);
       if (aliasList.some(a => ln.includes(a))) return i;
     }
   }
@@ -269,10 +269,10 @@ async function _matchFood(parsedItem) {
   // ── 1. Local foods ──────────────────────────────────────────────────────
   try {
     const allFoods = await NtApi.getFoods();
-    const ql = query.toLowerCase();
+    const ql = foldText(query);
     const matches = (allFoods || []).filter(f => {
-      const n = (f.name || '').toLowerCase();
-      const b = (f.brand || '').toLowerCase();
+      const n = foldText(f.name);
+      const b = foldText(f.brand);
       return ql.split(/\s+/).every(tok => n.includes(tok) || b.includes(tok));
     });
 
@@ -291,8 +291,8 @@ async function _matchFood(parsedItem) {
         const fa = freqMap[a.id || a.name] || 0;
         const fb = freqMap[b.id || b.name] || 0;
         if (fb !== fa) return fb - fa;
-        const ea = (a.name || '').toLowerCase() === ql ? 1 : 0;
-        const eb = (b.name || '').toLowerCase() === ql ? 1 : 0;
+        const ea = foldText(a.name) === ql ? 1 : 0;
+        const eb = foldText(b.name) === ql ? 1 : 0;
         if (eb !== ea) return eb - ea;
         return (a.name || '').length - (b.name || '').length;
       });
@@ -363,8 +363,8 @@ async function _matchMeal(parsedItem, isRecipe) {
     }
     // Sort by exact-name boost, then shortest name (most specific match)
     const ranked = [...matches].sort((a, b) => {
-      const ea = (a.name || '').toLowerCase() === query ? 1 : 0;
-      const eb = (b.name || '').toLowerCase() === query ? 1 : 0;
+      const ea = foldText(a.name) === query ? 1 : 0;
+      const eb = foldText(b.name) === query ? 1 : 0;
       if (eb !== ea) return eb - ea;
       return (a.name || '').length - (b.name || '').length;
     });

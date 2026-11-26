@@ -109,11 +109,17 @@ const WRITE_TOOLS = [
   'log_water',
   'log_meal',
   'log_body_stat',
+  'log_diary_batch',
 ];
 const DESTROY_TOOLS = [
   'delete_diary_entry',
   'edit_diary_entry',
   'create_food',
+  'create_meal',
+  'update_meal',
+  'delete_meal',
+  'update_food',
+  'delete_food',
 ];
 const expected = new Set([
   ...READ_TOOLS,

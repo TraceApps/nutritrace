@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { onlyChanged, deletedSave, goneBody } from '../lib/rest-merge.js';
+import { goneBody } from '../lib/rest-merge.js';
+import { updateFood, deleteFood, serializeAltUnitsForFood, normalizeDensity } from '../lib/food-save.js';
 import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
@@ -86,24 +87,6 @@ router.get('/:id', wrap((req, res) => {
   res.json(parse(row));
 }));
 
-// Issues #69 + #70: normalize alt_units for storage. Same shape as the sync
-// route helper; duplicated here so foods.js is self-contained.
-function _serializeAltUnitsForFood(v) {
-  if (v == null) return null;
-  if (typeof v === 'string') return v;
-  if (!Array.isArray(v)) return null;
-  const clean = v
-    .filter(r => r && typeof r === 'object')
-    .map(r => ({ abbr: String(r.abbr || '').trim(), grams: Number(r.grams) }))
-    .filter(r => r.abbr && Number.isFinite(r.grams) && r.grams > 0);
-  return clean.length ? JSON.stringify(clean) : null;
-}
-function _normalizeDensity(v) {
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
 // ── POST / ────────────────────────────────────────────────────────────────
 router.post('/', wrap(async (req, res) => {
   const { name, brand, nutrition, portion, unit, img_url, notes, barcode, visibility, source_id,
@@ -153,8 +136,8 @@ router.post('/', wrap(async (req, res) => {
         portion ?? found.portion, unit ?? found.unit, localImg2,
         notes ?? found.notes, cats2.category, cats2.categories, barcode ?? found.barcode,
         nutrition_basis === undefined ? found.nutrition_basis : (nutrition_basis || null),
-        alt_units === undefined ? found.alt_units : _serializeAltUnitsForFood(alt_units),
-        density_g_ml === undefined ? found.density_g_ml : _normalizeDensity(density_g_ml),
+        alt_units === undefined ? found.alt_units : serializeAltUnitsForFood(alt_units),
+        density_g_ml === undefined ? found.density_g_ml : normalizeDensity(density_g_ml),
         source_url === undefined ? found.source_url : (source_url || null),
         found.id);
       return res.status(200).json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(found.id)));
@@ -198,8 +181,8 @@ router.post('/', wrap(async (req, res) => {
   ).run(u, name, brand || null, JSON.stringify(nutrition || {}), portion ?? 100, unit || 'g',
     localImg, notes || null, cats.category, cats.categories, barcode || null, vis, source_id || null,
     nutrition_basis || null,
-    _serializeAltUnitsForFood(alt_units),
-    _normalizeDensity(density_g_ml),
+    serializeAltUnitsForFood(alt_units),
+    normalizeDensity(density_g_ml),
     cleanSourceApp, cleanSourceExtId, source_url || null);
   setCreateKey('foods', result.lastInsertRowid, createKey);
   res.status(201).json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(result.lastInsertRowid)));
@@ -211,8 +194,7 @@ router.put('/:id', wrap(async (req, res) => {
   const existing = db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   if (u != null && existing.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
-  const { name, brand, nutrition, portion, unit, img_url, notes, barcode, visibility, favorite,
-    nutrition_basis, alt_units, density_g_ml } = req.body;
+  const { img_url } = req.body;
   // For img_url: undefined → keep existing, null/'' → explicit clear,
   // any other value → localize-if-external-or-data-URL-then-store. Without
   // this distinction, the X-remove-photo button in FoodEditor doesn't
@@ -224,36 +206,10 @@ router.put('/:id', wrap(async (req, res) => {
   const localImg = img_url === undefined
     ? existing.img_url
     : ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null));
-  const fav = favorite != null ? (favorite ? 1 : 0) : existing.favorite;
-  // For the OFF metadata: undefined → keep existing, null → explicit clear,
-  // any other value → normalize-and-store. Lets the client patch one field
-  // without resetting the others.
-  const nb = nutrition_basis === undefined ? existing.nutrition_basis : (nutrition_basis || null);
-  const au = alt_units === undefined ? existing.alt_units : _serializeAltUnitsForFood(alt_units);
-  const dg = density_g_ml === undefined ? existing.density_g_ml : _normalizeDensity(density_g_ml);
-  // A save that says which fields it changed (changed_fields) changes only
-  // those: a form opened before an edit made elsewhere doesn't put that
-  // edit's fields back (lib/rest-merge.js).
-  // Categories: a list from this app, the first alone from an older one or
-  // the API; taking them all away clears them (lib/categories.js, #332).
-  const cats = categoriesFromSave(req.body, existing) ?? { category: existing.category, categories: existing.categories };
-  const next = onlyChanged('foods', existing, {
-    name: name ?? existing.name, brand: brand ?? existing.brand,
-    nutrition: JSON.stringify(nutrition ?? JSON.parse(existing.nutrition || '{}')),
-    portion: portion ?? existing.portion, unit: unit ?? existing.unit, img_url: localImg,
-    notes: notes ?? existing.notes, category: cats.category, categories: cats.categories, barcode: barcode ?? existing.barcode,
-    favorite: fav, nutrition_basis: nb, alt_units: au, density_g_ml: dg,
-  }, req.body.changed_fields);
-  const vis = visibility ?? existing.visibility;
-  // Deleted elsewhere: a save that changes something, made after the delete,
-  // brings the food back; any other is refused as gone (lib/rest-merge.js).
-  if (existing.deleted_at && !deletedSave('foods', existing, next)) return res.status(410).json(goneBody);
-  db.prepare(
-    `UPDATE foods SET name=?, brand=?, nutrition=?, portion=?, unit=?, img_url=?, notes=?, category=?, categories=?, barcode=?, visibility=?, favorite=?, nutrition_basis=?, alt_units=?, density_g_ml=?, updated_at=datetime('now')${existing.deleted_at ? ', deleted_at=NULL' : ''} WHERE id=?`
-  ).run(next.name, next.brand, next.nutrition, next.portion, next.unit, next.img_url,
-    next.notes, next.category, next.categories, next.barcode,
-    vis, next.favorite, next.nutrition_basis, next.alt_units, next.density_g_ml, req.params.id);
-  res.json(parse(db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id)));
+  // The save itself is shared with MCP's update_food (lib/food-save.js).
+  const row = updateFood(existing, req.body, localImg);
+  if (!row) return res.status(410).json(goneBody);
+  res.json(parse(row));
 }));
 
 // ── POST /:id/used — bump usage_count + last_used_at ──────────────────────
@@ -280,7 +236,7 @@ router.delete('/:id', wrap((req, res) => {
   const existing = db.prepare('SELECT * FROM foods WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   if (u != null && existing.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
-  db.prepare(`UPDATE foods SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(req.params.id);
+  deleteFood(existing.id);
   res.json({ ok: true });
 }));
 

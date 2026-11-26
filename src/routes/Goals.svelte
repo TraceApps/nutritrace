@@ -7,8 +7,10 @@
   import { push } from 'svelte-spa-router';
   import { DB, localDateStr } from '../lib/db.js';
   import { NtApi } from '../lib/api.js';
+  import { isNative } from '../lib/platform.js';
+  import { apiBodyData, bodyDataPath, refreshApiBodyData } from '../lib/api-body.js';
   import { portal } from '../lib/portal.js';
-  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, calorieGoalMode, calorieGoalFactor, weekStartDay } from '../stores/settings.js';
+  import { goals, goalTemplates, energyUnit, weightUnit, heightUnit, lengthUnit, visibleNutriments, hiddenBodyStats, waterGoalMl, waterUnit, pageBanners, bannerStyle, wellnessEnabled, fitbitEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled, fitbitFamilyEnabled, withingsEnabled, calorieGoalMode, calorieGoalFactor, weekStartDay, bulkSet } from '../stores/settings.js';
   import { weekdayOrder } from '../lib/week.js';
   import { NUTRIMENTS, Nutrition } from '../lib/nutrition.js';
   import { readBodyStat } from '../lib/body-stats-unit.js';
@@ -162,11 +164,14 @@
     return next;
   }
 
-  function applyTemplate(tpl) {
-    goals.set(_migrateKilojoulesGoal({ ...tpl.goals }));
-    if (tpl.waterGoalMl != null) waterGoalMl.set(tpl.waterGoalMl);
+  async function applyTemplate(tpl) {
+    const next = { goals: _migrateKilojoulesGoal({ ...tpl.goals }) };
+    if (tpl.waterGoalMl != null) next.waterGoalMl = tpl.waterGoalMl;
     // A template saved before a coach's change also holds the calorie mode.
-    if (tpl.calorieGoalMode) calorieGoalMode.set(tpl.calorieGoalMode);
+    if (tpl.calorieGoalMode) next.calorieGoalMode = tpl.calorieGoalMode;
+    // One bulk write makes one effective-date snapshot: a reader can never
+    // see the template's food goals without its matching water goal.
+    await bulkSet(next);
     showApplyConfirm = null;
     activeTab = 'yours';
     showSuccess($_('goals.toast.template_applied', { values: { name: tpl.name } }));
@@ -194,7 +199,7 @@
   let recentBodyStats = {};
   let todayWaterMl = 0;
   let todayWellness    = {}; // merged fitbit + garmin for today
-  let _wellnessLoaded  = false;
+  let _wellnessSeq     = 0;  // the newest read wins, not the slowest
 
   // Dynamic calorie goal support
   let _dynamicCaloriesOut = null;
@@ -215,16 +220,33 @@
   // one call covers fitbit + google-health + health-connect; the shared
   // derived store ($fitbitFamilyEnabled) is the canonical gate.
   async function loadWellnessToday() {
-    _wellnessLoaded = true;
-    let fitbit = {}, garmin = {};
-    try { if ($fitbitFamilyEnabled) { const r = await NtApi.get(`/api/wellness/fitbit/data?date=${today}`); fitbit = r[today] || {}; } } catch {}
+    const seq = ++_wellnessSeq;
+    let fitbit = {}, garmin = {}, withings = {};
+    // With Fitbit and Health Connect off, the API's measurements alone (#350).
+    try { const p = bodyDataPath({ date: today }, $fitbitFamilyEnabled, $apiBodyData); if (p) { const r = await NtApi.get(p); fitbit = r[today] || {}; } } catch {}
     try { if ($garminEnabled) { const r = await NtApi.get(`/api/wellness/garmin/data?date=${today}`); garmin = r[today] || {}; } } catch {}
-    todayWellness = { ...fitbit, ...garmin };
+    // A Withings scale's weight and body fat, for those goals.
+    try {
+      if ($withingsEnabled) {
+        const r = await NtApi.get(`/api/wellness/withings/data?date=${today}`);
+        for (const [k, v] of Object.entries(r[today] || {})) withings[k] = v && typeof v === 'object' ? v.value : v;
+      }
+    } catch {}
+    if (seq !== _wellnessSeq) return;
+    todayWellness = { ...fitbit, ...garmin, ...withings };
   }
+  onMount(() => { refreshApiBodyData(NtApi, { native: isNative }); });
 
   // Fire as soon as settings stores resolve true — avoids the first-load race
   // where onMount ran before settings loaded from server (both start false).
-  $: if (($fitbitFamilyEnabled || $garminEnabled) && !_wellnessLoaded) loadWellnessToday();
+  // Read again when a source turns on, or measurements turn up through the API.
+  let _wellnessKey = '';
+  $: _wellnessSources = [$fitbitFamilyEnabled, $garminEnabled, $withingsEnabled, $apiBodyData];
+  $: if (_wellnessSources.join() !== _wellnessKey) {
+    _wellnessKey = _wellnessSources.join();
+    if (_wellnessSources.some(Boolean)) loadWellnessToday();
+    else { _wellnessSeq++; todayWellness = {}; }   // every source off: nothing stale left
+  }
 
   // Half open like a book, the targets go on the left-hand page and the
   // preview on the right, with the crease as the gutter between them: the

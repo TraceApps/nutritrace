@@ -3,6 +3,7 @@
   import { push, replace, location } from 'svelte-spa-router';
   import { _, locale } from 'svelte-i18n';
   import { closeOnBack } from '../lib/back-stack.js';
+  import { fuzzyMatchFood as _fuzzyMatch } from '../lib/food-search-match.js';
   import { fade, fly, slide } from 'svelte/transition';
 
   import Tabs        from '../components/ui/Tabs.svelte';
@@ -16,7 +17,7 @@
   import UnitPicker  from '../components/ui/UnitPicker.svelte';
   import { portal } from '../lib/portal.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
-  import { scaleFactor as _unitScaleFactor, unitSystem as _unitSystem, amountAndUnit } from '../lib/units.js';
+  import { scaleFactor as _unitScaleFactor, canScale as _canScale, unitSystem as _unitSystem, amountAndUnit } from '../lib/units.js';
   import { diaryPromptQuantity, warnUnitMismatch, showUnitMetadata, forceMobileLayout, language } from '../stores/settings.js';
   import { showSuccess, showError, showToast } from '../stores/toast.js';
   import { staleIngredientNames } from '../lib/stale-ingredients.js';
@@ -780,35 +781,6 @@
   // Aggregate hasMore across ALL-mode external sources — sentinel + footer
   // only render while at least one source still has pages left.
   $: _allHasMoreAny = _allOffHasMore || _allUsdaHasMore || _allMealieHasMore || _allCooktraceHasMore || _allCtPantryHasMore;
-  function _editDist(a, b) {
-    if (Math.abs(a.length - b.length) > 2) return 99;
-    const m = a.length, n = b.length;
-    const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
-    for (let j = 0; j <= n; j++) dp[0][j] = j;
-    for (let i = 1; i <= m; i++)
-      for (let j = 1; j <= n; j++)
-        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
-    return dp[m][n];
-  }
-
-  function _fuzzyMatch(food, q) {
-    const name  = (food.name  || '').toLowerCase();
-    const brand = (food.brand || '').toLowerCase();
-    const combined = name + (brand ? ' ' + brand : '');
-    const qLow = q.toLowerCase().trim();
-    if (!qLow) return true;
-    // 1. Exact substring (current behavior)
-    if (combined.includes(qLow)) return true;
-    // 2. All query words appear somewhere
-    const qWords = qLow.split(/\s+/);
-    if (qWords.length > 1 && qWords.every(w => combined.includes(w))) return true;
-    // 3. Fuzzy per-word: each query word matches a target word within edit distance 1
-    const tWords = combined.split(/\s+/);
-    return qWords.every(qw =>
-      qw.length >= 4 && tWords.some(tw => tw.length >= 3 && _editDist(qw, tw) <= 1)
-    );
-  }
-
   $: filteredBySearch = search
     ? displayList.filter(f => _fuzzyMatch(f, search))
     : displayList;
@@ -1065,7 +1037,9 @@
     _saveScrollState();
     editorState.foodPrefill = item ? { ...item } : null;
     editorState.foodStore   = store || currentStore;
-    if (pickMode) editorState.foodDiaryCtx = { date: pickDate, meal: pickMeal };
+    // Set or cleared on every open: one left from an add-to-diary edit backed
+    // out of would make a later Foods edit log to that day (#348).
+    editorState.foodDiaryCtx = pickMode ? { date: pickDate, meal: pickMeal } : null;
     push('/foods/edit');
   }
 
@@ -1372,12 +1346,38 @@
   let _planSource = null;
   $: if (!showQtyPrompt) _planSource = null;
 
-  async function _addFoodToDiaryNoNav(food, qty, kind = null) {
+  // template: the food as found, before it was scaled to the amount being
+  // logged. A food not in the library yet is saved from it, so the library
+  // keeps the food's own serving rather than this meal's amount (#347).
+  async function _addFoodToDiaryNoNav(food, qty, kind = null, template = null) {
     const { addDiaryItem } = await import('../stores/diary.js');
     let savedFood = food;
     if (!food.id || typeof food.id !== 'number') {
-      const { id: _drop, ...rest } = food;
-      savedFood = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      const { id: _drop, ...rest } = template || food;
+      const created = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      savedFood = created;
+      if (template) {
+        // Log the amount asked for, from the row the server kept: the new
+        // food, or the one already in the library for this food.
+        // A saved row in a unit the typed one can't convert to (edited to
+        // "1 serving") keeps the values the prompt showed instead.
+        const basePortion = parseFloat(created.portion) || 100;
+        const baseUnit = created.unit || 'g';
+        const unit = food.unit || baseUnit;
+        const factor = _canScale(baseUnit, unit, created)
+          ? _unitScaleFactor(basePortion, baseUnit, food.portion, unit, created)
+          : null;
+        savedFood = {
+          ...created,
+          portion: food.portion,
+          unit,
+          nutrition: factor == null
+            ? food.nutrition
+            : created.nutrition
+              ? Object.fromEntries(Object.entries(created.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * factor]))
+              : created.nutrition,
+        };
+      }
       kind = 'food';
     }
     const item = {
@@ -1391,11 +1391,11 @@
     await addDiaryItem(item, Number(pickMeal) || 0, pickDate || undefined, { kind });
   }
 
-  async function _addFoodToDiary(food, qty, kind = null) {
+  async function _addFoodToDiary(food, qty, kind = null, template = null) {
     if (_addingToDiary) return;
     _addingToDiary = true;
     try {
-      await _addFoodToDiaryNoNav(food, qty, kind);
+      await _addFoodToDiaryNoNav(food, qty, kind, template);
       editorState.lastMealAdded = Number(pickMeal) || 0;
       if (!pickMode) {
         // From the food's own sheet (#267): stay on Foods, like its no-prompt
@@ -1474,7 +1474,7 @@
         ? Object.fromEntries(Object.entries(item.food.nutrition).map(([k,v]) => [k, (parseFloat(v)||0) * portionFactor]))
         : item.food.nutrition;
       const food = { ...item.food, portion: newPortion, unit: item.unit, nutrition: scaledNutrition };
-      await _addFoodToDiaryNoNav(food, parseDecimal(item.servings) || 1);
+      await _addFoodToDiaryNoNav(food, parseDecimal(item.servings) || 1, null, item.food);
     }
     showSuccess(`Added ${multiPortionItems.length} item${multiPortionItems.length > 1 ? 's' : ''} to diary`);
     editorState.lastMealAdded = Number(pickMeal) || 0;
@@ -1504,7 +1504,7 @@
       unit: newUnit,
       nutrition: scaledNutrition
     };
-    await _addFoodToDiary(food, parseDecimal(promptServings) || 1, promptKind);
+    await _addFoodToDiary(food, parseDecimal(promptServings) || 1, promptKind, promptFood);
   }
 
   async function deleteItem(item) {

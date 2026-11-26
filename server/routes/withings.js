@@ -21,6 +21,8 @@ function _userCfg(key, userId) {
 }
 
 import { encrypt, decrypt } from '../lib/token-crypto.js';
+import { hydrationPct } from '../lib/withings-hydration.js';
+import { mirrorWeightToBodyStats } from '../lib/wellness-mirror.js';
 
 function _getTokens(userId) {
   const row = db.prepare('SELECT * FROM withings_tokens WHERE user_id = ?').get(userId);
@@ -227,10 +229,9 @@ const BODY_STAT_TYPES = {
   6:   { metric: 'body_fat_pct',  label: 'Body Fat',      toValue: v => v },       // %
   76:  { metric: 'muscle_mass_kg',label: 'Muscle Mass',   toValue: v => v },       // kg
   88:  { metric: 'bone_mass_kg',  label: 'Bone Mass',     toValue: v => v },       // kg
-  77:  { metric: 'body_water_pct',label: 'Body Water',    toValue: (v, grp) => {
-    // Withings returns hydration in kg; convert to % using weight
-    return v; // stored as raw value; UI can display either
-  }},
+  // Withings sends hydration in kg: stored as a percentage of the same
+  // reading's weight (lib/withings-hydration.js), in the loop below.
+  77:  { metric: 'body_water_pct',label: 'Body Water',    toValue: v => v },
 };
 
 // Types that go to wellness_data only
@@ -341,12 +342,24 @@ async function _syncRange(userId, fromDate, toDate) {
     const latestByMetric = {}; // metricKey → { value, deviceModel, ts }
     const bodyStatUpdates = {};
 
+    // The day's latest weight, for a hydration reading whose group has none.
+    let dayWeight = null, dayWeightTs = -1;
+    for (const { grp } of entries) {
+      const m = (grp.measures || []).find(x => x.type === 1);
+      if (m && grp.date > dayWeightTs) { dayWeight = _withingsValue(m); dayWeightTs = grp.date; }
+    }
+
     for (const { grp, deviceModel } of entries) {
       const segCounts = {}; // per-type position counter, reset per grp
+      const grpWeight = (grp.measures || []).find(x => x.type === 1);
 
       for (const measure of grp.measures) {
         const type = measure.type;
-        const value = _withingsValue(measure);
+        let value = _withingsValue(measure);
+        if (type === 77) {
+          value = hydrationPct(value, grpWeight ? _withingsValue(grpWeight) : dayWeight);
+          if (value == null) { logger.debug(`[withings] hydration without a weight to go with it (date: ${date}), skipped`); continue; }
+        }
         if (type === 227) logger.debug(`[withings] metabolic_age raw: value=${measure.value} unit=${measure.unit} → ${value} (date: ${date})`);
 
         if (SEGMENTAL_TYPES[type]) {
@@ -385,6 +398,12 @@ async function _syncRange(userId, fromDate, toDate) {
 
     if (Object.keys(bodyStatUpdates).length > 0) {
       _mergeDiaryBodyStats(uid, date, bodyStatUpdates);
+    }
+    // The day's weight in Body Stats too, when Settings > Wellness > Mirror
+    // Wellness Weight to Body Stats is on, as for the other scales. A manual
+    // weight stays.
+    if (bodyStatUpdates.weight_kg) {
+      mirrorWeightToBodyStats(uid === 0 ? null : uid, date, bodyStatUpdates.weight_kg.value);
     }
   }
 

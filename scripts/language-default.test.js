@@ -14,7 +14,9 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 test('the language setting defaults to the browser pick, not English', () => {
   const s = read('../src/stores/settings.js');
   assert.match(s, /import \{ pickInitialLocale \} from '\.\.\/i18n\/index\.js';/);
-  assert.match(s, /createSettingStore\('language',\s+pickInitialLocale\(\)\)/);
+  // The browser's pick is the fallback after the server's default for
+  // everyone (lib/regional-defaults.js): a function, read when needed.
+  assert.match(s, /regionalStore\('language',\s+pickInitialLocale\)/);
   assert.doesNotMatch(s, /createSettingStore\('language',\s+'en'\)/);
 });
 

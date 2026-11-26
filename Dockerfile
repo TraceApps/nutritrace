@@ -48,6 +48,9 @@ COPY src/lib/nutrition.js /src/lib/nutrition.js
 COPY src/lib/sleep-quality.js /src/lib/sleep-quality.js
 # Coaching resolves a client's targets for a day the way their Diary does.
 COPY src/lib/goal-resolver.js /src/lib/goal-resolver.js
+# Goal history keeps the configuration of a past day; the server and the
+# app's local copy build it with the same rules.
+COPY src/lib/goal-snapshot.js /src/lib/goal-snapshot.js
 # Coaching checks a coach's recommended targets with the app's own rules.
 COPY src/lib/coach-targets.js /src/lib/coach-targets.js
 COPY src/lib/coach-plans.js /src/lib/coach-plans.js

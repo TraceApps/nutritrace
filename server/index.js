@@ -64,6 +64,7 @@ import { initUpdateCheckSetting } from './lib/update-check.js';
 import { seedOidcFromEnv } from './lib/oidc-env.js';
 import { APP_VERSION } from './routes/version-source.js';
 import { caloriesOutFor } from './lib/effective-goal.js';
+import { getGoalsCore } from './lib/mcp/tools/goals.js';
 
 // Initialise DB (runs schema)
 import db from './db.js';
@@ -236,6 +237,8 @@ router.get('/api/health', (req, res) => res.json(setupRequired() ? { ok: true, s
 // still returning 503 on every data call.
 router.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth')) return next(); // allow auth routes (status, register, login)
+  // Everyone's defaults, for the setup wizard (nutritrace#326).
+  if (req.method === 'GET' && req.path === '/app-config/defaults') return next();
   if (!setupRequired()) return next();              // set up, or single-user mode by choice
   res.status(503).json({ error: 'Setup required', setup_required: true });
 });
@@ -351,6 +354,31 @@ function _readBoolSetting(userId, key, defaultValue) {
   } catch { return defaultValue; }
 }
 router.use('/api/sync',             syncRoutes);
+
+// Effective-dated nutrition goals for the app's built-in Trace assistant.
+// This is the signed-in sibling of the public API's GET /api/v1/goals, on
+// the same core: no query args = current goals, date = one local calendar
+// day, start+end = an inclusive range.
+router.get('/api/goals/effective', (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    // Single-user mode has no account to date the history to; say so, rather
+    // than answering with no goals.
+    return res.status(409).json({
+      error: 'Historical goals need a signed-in account.',
+      code: 'goal_history_unavailable',
+    });
+  }
+  try {
+    res.json(getGoalsCore(userId, {
+      date: req.query.date,
+      start: req.query.start,
+      end: req.query.end,
+    }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 
 // Adaptive TDEE — compute on demand from 35-day intake + weight trend.
 router.get('/api/goals/adaptive-tdee', async (req, res) => {
