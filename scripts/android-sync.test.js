@@ -3317,6 +3317,55 @@ test("a sync tells the open pages which kinds of rows it changed: deletes, edits
   assert.deepEqual(fourth.foods, ['Stale Honey', 'Stale Oats Renamed']);
 });
 
+test('a setting reaches the server even when its local save fails', async (t) => {
+  if (skip(t)) return;
+  const wade = await account('wt-local-fail', A);
+  const W = (await http(wade, 'GET', '/api/auth/me')).user;
+  const r = phone('local-fail', wade, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.ensureLocalAccount(${JSON.stringify(W)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${W.id}');
+    await p.sync();
+    await p.dbn.dbUpsertSetting('waterGoalMl', 2000);
+    const db = await p.dbn.getDb();
+    // The local write of this value is refused.
+    await db.run("CREATE TRIGGER nt_fail BEFORE UPDATE ON user_settings WHEN NEW.key = 'waterGoalMl' AND NEW.value = '3333' BEGIN SELECT RAISE(ABORT, 'no'); END", []);
+    const st = await import(p.src + 'stores/settings.js');
+    st.waterGoalMl.set(3333);
+    await p.sleep(1500);
+    const row = (await db.query("SELECT value FROM user_settings WHERE key = 'waterGoalMl'"))?.values?.[0];
+    p.done({ row });`);
+  assert.deepEqual(r.row, { value: '2000' }, 'the local write failed');
+  assert.equal(q(`SELECT value FROM user_settings WHERE user_id = ? AND key = 'waterGoalMl'`, W.id)[0].value, '3333',
+    'the setting still went to the server');
+});
+
+test('an offline setting keeps its edit time through the queue and the push', async (t) => {
+  if (skip(t)) return;
+  const wren = await account('wt-edit-time', A);
+  const W = (await http(wren, 'GET', '/api/auth/me')).user;
+  const r = phone('edit-time', wren, `
+    const la = await import(p.src + 'lib/local-account.js');
+    await la.ensureLocalAccount(${JSON.stringify(W)}, { confirm: async () => true });
+    localStorage.setItem('wl:userId', '${W.id}');
+    await p.sync();
+    await p.dbn.dbUpsertSetting('waterGoalMl', 2000);
+    const st = await import(p.src + 'stores/settings.js');
+    await p.offline(async () => {
+      st.waterGoalMl.set(4444);
+      await p.sleep(1200);
+    });
+    const db = await p.dbn.getDb();
+    const row = (await db.query("SELECT updated_at FROM user_settings WHERE key = 'waterGoalMl'"))?.values?.[0];
+    await p.sync();
+    p.done({ row });`);
+  const uid = W.id;
+  const times = JSON.parse(q(`SELECT field_times FROM user_settings WHERE user_id = ? AND key = 'waterGoalMl'`, uid)[0].field_times);
+  const fieldTime = times.value ?? times._base;
+  assert.equal(q(`SELECT value FROM user_settings WHERE user_id = ? AND key = 'waterGoalMl'`, uid)[0].value, '4444');
+  assert.equal(Date.parse(fieldTime), Date.parse(r.row.updated_at), 'the server keeps the edit time, not the push time');
+});
+
 // ── Goal history belongs to one account, and keeps its real edit time ─────
 test("goal history of one account never goes up under the next, and a day still waiting here counts", async (t) => {
   if (skip(t)) return;

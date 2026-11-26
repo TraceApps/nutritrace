@@ -142,9 +142,10 @@ function _goalFieldTimes(keys, at) {
 // day's goals for the server: the push may reach it after the day ended.
 // Only the setting this write changed is claimed; the day it is for and the
 // edit time come from the write itself.
-async function _nativeSettingWrite(key, value) {
+async function _nativeSettingWrite(key, value, at) {
   const { dbUpsertSetting, dbCaptureGoalHistory } = await import('../lib/db-native.js');
-  const updatedAt = await dbUpsertSetting(key, value);
+  // The edit's own moment, so the queued row and its push name it (#335).
+  const updatedAt = await dbUpsertSetting(key, value, at);
   if (GOAL_HISTORY_SETTING_KEYS.has(key)) {
     const madeOn = goalDateInZone(DB.getSetting('timezone', null));
     await dbCaptureGoalHistory(madeOn, { changedKeys: [key] });
@@ -213,20 +214,24 @@ async function _serverRequestDeferred() {
     return false;
   }
 }
-export function scheduleSave(key, value) {
+export function scheduleSave(key, value, at = new Date().toISOString()) {
   if (!SERVER_SETTINGS.has(key)) return;
   if (_suppressSync) return;
   clearTimeout(_saveQueue[key]);
-  // The day, moment and configuration this change is for, taken now with
-  // the change: a save pushed just after midnight is still the evening's
-  // targets, and a template applied, a pull or a goal changed while the
-  // request is out can't rewrite what this day's goals were. The snapshot
-  // is what the queue carries if the request doesn't get through.
+  // The moment this change was made, kept in its retry too: a save sent after
+  // a timeout must name the same edit time as the request that may have
+  // reached the server. An older save arriving late therefore loses to a
+  // newer edit instead of overwriting it.
+  // The day and configuration this change is for, taken now with the change:
+  // a save pushed just after midnight is still the evening's targets, and a
+  // template applied, a pull or a goal changed while the request is out
+  // can't rewrite what this day's goals were. The snapshot is what the queue
+  // carries if the request doesn't get through.
   const changesGoals = GOAL_HISTORY_SETTING_KEYS.has(key);
   // The account's calendar day, not this device's: the server dates its own
   // captures the same way, so one edit resolves to one day everywhere.
   const madeOn = goalDateInZone(DB.getSetting('timezone', null));
-  const madeAt = new Date().toISOString();
+  const madeAt = at || new Date().toISOString();
   const madeGoals = changesGoals ? _currentGoalSnapshot() : null;
   const madeFields = changesGoals ? _goalFieldTimes([key], madeAt) : null;
   // The account the change was made for: if another one is signed in by
@@ -262,8 +267,8 @@ export function scheduleSave(key, value) {
         credentials: 'include',
         headers: _authHeaders(),
         body: JSON.stringify({
-          key, value,
-          ...(changesGoals ? { effective_date: madeOn, changed_at: madeAt, client_now: new Date().toISOString() } : {}),
+          key, value, changed_at: madeAt, client_now: new Date().toISOString(),
+          ...(changesGoals ? { effective_date: madeOn } : {}),
         }),
         signal: AbortSignal.timeout(8000),
       });
@@ -287,7 +292,7 @@ export function scheduleSave(key, value) {
       if (!isNative) {
         try {
           const { queueSetting } = await import('../lib/offline-api.js');
-          await queueSetting(key, value);
+          await queueSetting(key, value, madeAt);
           if (changesGoals) {
             const { queueGoalHistory } = await import('../lib/offline-api.js');
             await queueGoalHistory(madeOn, madeGoals, { changedAt: madeAt, fieldTimes: madeFields });
@@ -321,9 +326,10 @@ export async function bulkSet(settingsObj) {
 
   // Filter to USER_PREFS only
   const userPrefEntries = entries.filter(([k]) => USER_PREFS.has(k));
-  // The day and moment this batch is for; one request, so one snapshot
-  // (below), taken as soon as the batch is applied — never after the
-  // network has been waited on.
+  // One request, one moment: every key of the batch is edited at the time
+  // the batch was made, and its retry keeps that time too. The day this
+  // batch is for; one request, so one snapshot (below), taken as soon as
+  // the batch is applied, never after the network has been waited on.
   const madeOn = goalDateInZone(DB.getSetting('timezone', null));
   const madeAt = new Date().toISOString();
   const goalKeys = userPrefEntries.map(([key]) => key).filter(key => GOAL_HISTORY_SETTING_KEYS.has(key));
@@ -357,7 +363,7 @@ export async function bulkSet(settingsObj) {
     try {
       const { dbUpsertSetting, dbCaptureGoalHistory } = await import('../lib/db-native.js');
       for (const [key, value] of userPrefEntries) {
-        const updatedAt = await dbUpsertSetting(key, value);
+        const updatedAt = await dbUpsertSetting(key, value, madeAt);
         snapshotByKey.set(key, updatedAt);
       }
       // After every key is written, so the day's snapshot is the complete
@@ -378,7 +384,7 @@ export async function bulkSet(settingsObj) {
     if (isNative) return; // native rows stay pending in SQLite for the next sync
     try {
       const { queueSetting, queueGoalHistory } = await import('../lib/offline-api.js');
-      for (const [key, value] of userPrefEntries) await queueSetting(key, value);
+      for (const [key, value] of userPrefEntries) await queueSetting(key, value, madeAt);
       if (changesGoals) {
         await queueGoalHistory(madeOn, madeGoals, { changedAt: madeAt, fieldTimes: madeFields });
       }
@@ -398,8 +404,8 @@ export async function bulkSet(settingsObj) {
       credentials: 'include',
       headers: _authHeaders(),
       body: JSON.stringify({
-        settings: bulkObj,
-        ...(changesGoals ? { effective_date: madeOn, changed_at: madeAt, client_now: new Date().toISOString() } : {}),
+        settings: bulkObj, changed_at: madeAt, client_now: new Date().toISOString(),
+        ...(changesGoals ? { effective_date: madeOn } : {}),
       }),
       signal: AbortSignal.timeout(8000),
     });
@@ -553,16 +559,18 @@ if (typeof window !== 'undefined') {
     if (!USER_PREFS.has(key)) return;        // device-only or unknown key — skip
     if (_suppressSync) return;                // server-sourced update — don't echo
     const value = DB.getSetting(key, undefined);
+    // The moment this edit was made: shared by the native row and the save.
+    const at = new Date().toISOString();
     _recentlyChanged.set(key, Date.now());
     // Native: write to local SQLite immediately (marks as pending for sync protection)
     // Not while the phone's copy may still be the previous account's.
     if (isNative) {
       import('../lib/local-account.js').then(async la => {
         if (!la.localCopyIsCurrent()) return;
-        await _nativeSettingWrite(key, value);
+        await _nativeSettingWrite(key, value, at);
       }).catch(() => {});
     }
-    scheduleSave(key, value);
+    scheduleSave(key, value, at);
   });
 }
 
@@ -626,12 +634,13 @@ function createSettingStore(key, defaultValue) {
       DB.setSetting(key, value);
       store.set(value);
       if (_suppressSync) return; // Server-sourced update — don't push back
+      const at = new Date().toISOString();
       _recentlyChanged.set(key, Date.now());
       // On native: write to local SQLite immediately (marks as pending for sync protection)
       if (isNative && SERVER_SETTINGS.has(key)) {
-        _nativeSettingWrite(key, value).catch(() => {});
+        _nativeSettingWrite(key, value, at).catch(() => {});
       }
-      scheduleSave(key, value);
+      scheduleSave(key, value, at);
     },
     update(fn) {
       const current = DB.getSetting(key, _resolve(defaultValue));

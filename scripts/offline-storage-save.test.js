@@ -116,15 +116,14 @@ function fakeIndexedDB() {
     deleteDatabase(name) { env.dbs.delete(name); },
   };
   /** A change already waiting when the page opens. */
-  env.seed = (op) => {
-    const name = 'nutritrace-offline-single';
+  env.seed = (op, name = 'nutritrace-offline-single') => {
     let db = env.dbs.get(name);
     if (!db) { db = new DB(name); env.dbs.set(name, db); db.createObjectStore('outbox', { keyPath: 'seq', autoIncrement: true }); }
     const out = db.stores.get('outbox');
     const seq = ++out.seq;
     out.rows.set(seq, { ...op, seq });
   };
-  env.outbox = () => [...(env.dbs.get('nutritrace-offline-single')?.stores.get('outbox')?.rows.values() || [])];
+  env.outbox = (name = 'nutritrace-offline-single') => [...(env.dbs.get(name)?.stores.get('outbox')?.rows.values() || [])];
   return { idb, env };
 }
 
@@ -156,10 +155,10 @@ function fakeHttp() {
 
 let loads = 0;
 /** A fresh copy of the offline layer, as a newly opened page has. */
-async function page({ seed = [], openThrows = false } = {}) {
+async function page({ seed = [], openThrows = false, seedName = 'nutritrace-offline-single' } = {}) {
   const { idb, env } = fakeIndexedDB();
   env.openThrows = openThrows;
-  for (const op of seed) env.seed(op);
+  for (const op of seed) env.seed(op, seedName);
   globalThis.indexedDB = idb;
   const mod = await import(`../src/lib/offline-api.js?page=${++loads}`);
   const http = fakeHttp();
@@ -395,4 +394,126 @@ test('the API layer gives the web app\'s requests their deadline, uploads none',
   const api = readFileSync(new URL('../src/lib/api.js', import.meta.url), 'utf8');
   assert.match(api, /\}, !isNative && !isUpload \? offlineDeadlineMs\(method, path\) : null\);/);
   assert.match(api, /const res = await fetchWithDeadline\(/);
+});
+
+
+/** A page that can say who is signed in (the offline database is named after it). */
+function setUser(id) {
+  const map = new Map();
+  if (id != null) map.set('wl:userId', String(id));
+  globalThis.localStorage = {
+    getItem: k => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => map.set(k, String(v)),
+    removeItem: k => map.delete(k),
+  };
+  return map;
+}
+
+test('a setting whose early save failed late is sent as the newer edit, and both leave the queue', async () => {
+  setOnline(true);
+  setUser('1');
+  try {
+    // The early save's request failed late, so its op got the bigger seq
+    // after the newer edit was already queued.
+    const ops = [
+      { type: 'setting', key: 'waterGoalMl', data: 1900, at: 1_700_000_001_000 },
+      { type: 'setting', key: 'waterGoalMl', data: 2400, at: 1_700_000_002_000 },
+    ];
+    const { mod, http, env } = await page({ seed: ops, seedName: 'nutritrace-offline-1' });
+    let sent = null;
+    http.post = async (path, body) => { http.sent.push(['post', path, body]); sent = body; return { settings: [] }; };
+    const done = await mod.flushOutbox();
+    assert.equal(done, true);
+    assert.deepEqual(sent.settings.map(s => s.value), [2400], 'the later edit is the one sent');
+    assert.equal(sent.settings[0].updated_at, new Date(1_700_000_002_000).toISOString(), 'named by its own edit time');
+    assert.deepEqual(env.outbox('nutritrace-offline-1'), [], 'both saves are confirmed once it lands');
+  } finally { globalThis.localStorage = undefined; }
+});
+
+test('signing in to another account leaves queued settings with their own account, and sends other work once', async () => {
+  setOnline(true);
+  setUser('1');
+  try {
+    const setting = { type: 'setting', key: 'ntfyToken', data: 'tk_a', at: 1 };
+    const catalog = { type: 'catalog', table: 'foods', action: 'create', id: -7, data: { name: 'a' }, at: 2 };
+    const { mod, http, env } = await page({ seed: [setting, catalog], seedName: 'nutritrace-offline-1' });
+    assert.equal(await mod.pendingCount(), 2); // account 1's database is open
+    http.post = async (path, body) => { http.sent.push(['post', path, body]); return { settings: [] }; };
+
+    setUser('2');
+    await mod.queueSetting('waterGoalMl', 2000, Date.now());
+    for (let i = 0; i < 500 && env.outbox('nutritrace-offline-2').length < 2; i++) await new Promise(r => setImmediate(r));
+
+    // The setting stayed with account 1; account 2 got its own and the
+    // catalogue (once).
+    assert.deepEqual(env.outbox('nutritrace-offline-1').map(o => o.type).filter(t => t === 'setting'), ['setting']);
+    assert.deepEqual(env.outbox('nutritrace-offline-2').map(o => o.type).sort(), ['catalog', 'setting']);
+    const before = http.sent.length;
+    const doneB = await mod.flushOutbox();
+    assert.equal(doneB, true);
+    const bPushes = http.sent.slice(before).filter(s => s[0] === 'post').map(s => s[2]);
+    assert.deepEqual(bPushes.flatMap(p => p.settings || []).map(s => s.key), ['waterGoalMl'],
+      "account 1's setting was not sent as account 2's");
+    const catalogSends = () => http.sent.filter(s => s[0] === 'post').flatMap(s => s[2].foods || [])
+      .filter(f => f.client_id === -7).length;
+    assert.equal(catalogSends(), 1, 'the catalogue went once');
+
+    // Back in account 1, its setting is still there and goes under its own
+    // account; the catalogue is not sent a second time.
+    setUser('1');
+    await mod.queueSetting('energyUnit', 'kJ', Date.now());
+    for (let i = 0; i < 500 && env.outbox('nutritrace-offline-1').length < 2; i++) await new Promise(r => setImmediate(r));
+    const doneA = await mod.flushOutbox();
+    assert.equal(doneA, true);
+    const aPushes = http.sent.filter(s => s[0] === 'post').map(s => s[2]);
+    assert.ok(aPushes.some(p => (p.settings || []).some(s => s.key === 'ntfyToken')), "account 1's setting went under account 1");
+    assert.equal(catalogSends(), 1, 'the catalogue was not sent twice after returning');
+  } finally { globalThis.localStorage = undefined; }
+});
+
+test('settings and goal days queued before user management move to the account with everything else', async () => {
+  setOnline(true);
+  setUser(null);
+  try {
+    // Queued in the single-user database: before user management was turned
+    // on, or before the signed-in id was known. It belongs to no other
+    // account, and nothing opens it again once the id is known.
+    const setting = { type: 'setting', key: 'waterGoalMl', data: 2500, at: 1 };
+    const day = { type: 'goal_history', effective_date: '2026-11-20', at: 1,
+      snapshot: { water_goal_ml: 2500 }, field_times: { water_goal_ml: '2026-11-20T09:00:00.000Z' } };
+    const catalog = { type: 'catalog', table: 'foods', action: 'create', id: -8, data: { name: 'b' }, at: 2 };
+    const { mod, http, env } = await page({ seed: [setting, day, catalog] });
+    assert.equal(await mod.pendingCount(), 3); // the single-user database is open
+    http.post = async (path, body) => { http.sent.push(['post', path, body]); return { settings: [], goal_history: body.goal_history || [] }; };
+
+    setUser('1');
+    await mod.queueSetting('energyUnit', 'kJ', Date.now());
+    // Until the move has finished: copied, then taken out of the old queue.
+    for (let i = 0; i < 500 && (env.outbox('nutritrace-offline-1').length < 4 || env.outbox('nutritrace-offline-single').length); i++) await new Promise(r => setImmediate(r));
+
+    assert.deepEqual(env.outbox('nutritrace-offline-1').map(o => o.type).sort(), ['catalog', 'goal_history', 'setting', 'setting']);
+    assert.deepEqual(env.outbox('nutritrace-offline-single'), [], 'nothing is left where nothing would send it');
+    await mod.flushOutbox();
+    const sent = http.sent.filter(s => s[0] === 'post').flatMap(s => s[2].settings || []).map(s => s.key).sort();
+    assert.deepEqual(sent, ['energyUnit', 'waterGoalMl'], 'the setting from before went up under the account');
+    const days = http.sent.filter(s => s[0] === 'post').flatMap(s => s[2].goal_history || []).map(d => d.effective_date);
+    assert.deepEqual(days, ['2026-11-20'], 'and so did its goal day');
+  } finally { globalThis.localStorage = undefined; }
+});
+
+test("signing in to another account leaves a queued goal day with its own account", async () => {
+  setOnline(true);
+  setUser('1');
+  try {
+    const day = { type: 'goal_history', effective_date: '2026-11-21', at: 1,
+      snapshot: { water_goal_ml: 3000 }, field_times: { water_goal_ml: '2026-11-21T09:00:00.000Z' } };
+    const catalog = { type: 'catalog', table: 'foods', action: 'create', id: -9, data: { name: 'c' }, at: 2 };
+    const { mod, env } = await page({ seed: [day, catalog], seedName: 'nutritrace-offline-1' });
+    assert.equal(await mod.pendingCount(), 2);
+    setUser('2');
+    await mod.queueSetting('waterGoalMl', 2000, Date.now());
+    for (let i = 0; i < 500 && (env.outbox('nutritrace-offline-2').length < 2 || env.outbox('nutritrace-offline-1').length > 1); i++) await new Promise(r => setImmediate(r));
+    assert.deepEqual(env.outbox('nutritrace-offline-1').map(o => o.type), ['goal_history'], "account 1's goal day stayed with account 1");
+    assert.deepEqual(env.outbox('nutritrace-offline-2').map(o => o.type).sort(), ['catalog', 'setting']);
+  } finally { globalThis.localStorage = undefined; }
 });

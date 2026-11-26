@@ -1063,3 +1063,39 @@ test('a field the account never saved counts as never edited, so an older offlin
   assert.equal(now.water_goal_ml, 2800, "today's history takes the edit like the live goal");
   assert.equal(now.calorie_target_kcal, 2500, 'the saved calorie goal stays');
 });
+
+test("a day's goals and the live setting agree on which of two edits in one second won", async (t) => {
+  if (skip(t)) return;
+  const tok = await freshAccount('ines2');
+  const DAY_ = '2026-10-20';
+  const send = (ml, at) => pushAs(tok, { settings: [{ key: 'waterGoalMl', value: ml, updated_at: at }] });
+  // The later edit (in milliseconds) arrives first; the earlier one, in the
+  // same second, arrives after it and loses.
+  await send(2500, '2026-10-20T10:00:00.800Z');
+  await send(2000, '2026-10-20T10:00:00.200Z');
+  assert.equal((await as(tok, 'GET', '/api/goals/effective')).water_goal_ml, 2500, 'the live setting keeps the later edit');
+  assert.equal((await goalsOnAs(tok, DAY_)).water_goal_ml, 2500, "and the day's goals say the same");
+});
+
+test("a reset and an edit in one second: the day's goals follow the live setting", async (t) => {
+  if (skip(t)) return;
+  const tok = await freshAccount('jonas2');
+  const DAY_ = '2026-10-21';
+  await pushAs(tok, { settings: [{ key: 'waterGoalMl', value: 2400, updated_at: '2026-10-21T08:00:00.000Z' }] });
+  // Settings' reset at .100, then a phone's edit made at .900 of the same second.
+  await as(tok, 'DELETE', '/api/settings', { changed_at: '2026-10-21T10:00:00.100Z', client_now: new Date().toISOString(), effective_date: DAY_ });
+  await pushAs(tok, { settings: [{ key: 'waterGoalMl', value: 3100, updated_at: '2026-10-21T10:00:00.900Z' }] });
+  assert.equal((await as(tok, 'GET', '/api/goals/effective')).water_goal_ml, 3100, 'the later edit brings the goal back');
+  assert.equal((await goalsOnAs(tok, DAY_)).water_goal_ml, 3100, "and the day's goals have it too");
+});
+
+test("an edit, then a reset made earlier in the same second: the day's goals keep the edit, as the setting does", async (t) => {
+  if (skip(t)) return;
+  const tok = await freshAccount('kira2');
+  const DAY_ = '2026-10-22';
+  await pushAs(tok, { settings: [{ key: 'waterGoalMl', value: 3100, updated_at: '2026-10-22T10:00:00.900Z' }] });
+  // Settings' reset, made at .100 of that second, arrives after it.
+  await as(tok, 'DELETE', '/api/settings', { changed_at: '2026-10-22T10:00:00.100Z', client_now: new Date().toISOString(), effective_date: DAY_ });
+  assert.equal((await as(tok, 'GET', '/api/goals/effective')).water_goal_ml, 3100, 'the later edit keeps the goal');
+  assert.equal((await goalsOnAs(tok, DAY_)).water_goal_ml, 3100, "and the day's goals say the same");
+});
