@@ -38,15 +38,21 @@ import db from '../db.js';
 // /api/foods/:id), and the ingredients of a meal or recipe shared with
 // them, which GET /api/meals/:id already hands them. These used to look
 // across every account, so an item could pick up another account's
-// category, barcode, units or photo. userId null (user management off)
-// reads everything, as the routes do. One query each, not one per row.
+// category, barcode, units or photo. A meal's ingredient counts only when
+// it's the meal owner's own food: any account can list any food id in a
+// meal of its own, so that alone unlocked nothing but another account's
+// private food (an access audit, after cooktrace#110). userId null (user
+// management off) reads everything, as the routes do. One query each, not
+// one per row.
 const READABLE_MEAL = `(m.user_id IS NULL OR m.user_id = @u OR m.visibility = 'group'
   OR (m.visibility = 'specific' AND EXISTS (SELECT 1 FROM meal_shares ms WHERE ms.meal_id = m.id AND ms.user_id = @u)))`;
 const READABLE_FOOD = `(f.user_id IS NULL OR f.user_id = @u OR f.visibility = 'group'
   OR (f.visibility = 'specific' AND EXISTS (SELECT 1 FROM food_shares fs WHERE fs.food_id = f.id AND fs.user_id = @u))
-  OR f.id IN (SELECT CAST(COALESCE(json_extract(j.value, '$.food_server_id'), json_extract(j.value, '$.id')) AS INTEGER)
+  OR (f.id, f.user_id) IN (SELECT CAST(COALESCE(json_extract(j.value, '$.food_server_id'), json_extract(j.value, '$.id')) AS INTEGER), m.user_id
                 FROM meals m, json_each(CASE WHEN json_valid(m.items) THEN m.items ELSE '[]' END) j
                WHERE m.deleted_at IS NULL AND j.type = 'object' AND ${READABLE_MEAL}))`;
+// (The pair, not a per-food subquery: the subquery runs once, not once a
+// food, which is thousands of times faster on a big library.)
 const foodScope = userId => (userId == null ? { sql: '1', args: {} } : { sql: READABLE_FOOD, args: { u: userId } });
 const mealScope = userId => (userId == null ? { sql: '1', args: {} } : { sql: READABLE_MEAL, args: { u: userId } });
 

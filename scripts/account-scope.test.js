@@ -107,3 +107,33 @@ test("your own food's photo wins a name match", (t) => {
   const [pear] = helpers.freshenItemImages([{ id: 999999, name }], s.me);
   assert.equal(pear.imgUrl, '/uploads/my-pear.jpg');
 });
+
+// An access audit after cooktrace#110: any account can list any food id in
+// a meal of its own, so a meal's ingredients unlock only the meal owner's
+// own foods. Listing another account's private food unlocked its barcode,
+// category and units before.
+test("a food id put in your own meal unlocks nothing of another account's food", (t) => {
+  if (!helpers) return t.skip('better-sqlite3 is not built for this Node');
+  const s = seed();
+  db.prepare(`INSERT INTO meals (user_id, name, items, visibility) VALUES (?, 'My Bowl', ?, 'private')`)
+    .run(s.me, JSON.stringify([{ id: s.theirs, food_server_id: s.theirs, name: 'Whatever' }]));
+  const [item] = helpers.hydrateItems([{ food_server_id: s.theirs, name: 'Secret' }], s.me);
+  assert.equal(item.category, undefined);
+  assert.equal(item.barcode, undefined);
+});
+
+test("a third account's shared meal can't hand over a food that isn't its own", (t) => {
+  if (!helpers) return t.skip('better-sqlite3 is not built for this Node');
+  const s = seed();
+  const third = Number(db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run('third' + Math.random(), 'x').lastInsertRowid);
+  db.prepare(`INSERT INTO meals (user_id, name, items, visibility) VALUES (?, 'Their Bowl', ?, 'group')`)
+    .run(third, JSON.stringify([{ id: s.theirs, food_server_id: s.theirs, name: 'Secret' }]));
+  const [item] = helpers.hydrateItems([{ food_server_id: s.theirs, name: 'Secret' }], s.me);
+  assert.equal(item.barcode, undefined);
+});
+
+test('marking a meal used needs the same access as reading it', () => {
+  const meals = read('../server/routes/meals.js');
+  const used = meals.slice(meals.indexOf("router.post('/:id/used'"));
+  assert.match(used.slice(0, used.indexOf('\n}));')), /if \(u != null && !canRead\(meal, u\)\) return res\.status\(403\)/);
+});

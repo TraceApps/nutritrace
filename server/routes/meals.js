@@ -125,7 +125,9 @@ router.post('/:id/used', wrap((req, res) => {
   const u = uid(req);
   const meal = db.prepare('SELECT * FROM meals WHERE id = ?').get(req.params.id);
   if (!meal) return res.status(404).json({ error: 'Not found' });
-  if (u != null && meal.user_id !== u && meal.visibility === 'private') return res.status(403).json({ error: 'Forbidden' });
+  // The same rule as reading it (GET /:id): 'specific' meals only for the
+  // people they're shared with (an access audit, after cooktrace#110).
+  if (u != null && !canRead(meal, u)) return res.status(403).json({ error: 'Forbidden' });
   const date = (req.body?.date && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date))
     ? req.body.date
     : new Date().toISOString().slice(0, 10);
