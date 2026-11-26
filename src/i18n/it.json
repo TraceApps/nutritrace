@@ -27,7 +27,11 @@
       "protein": "Proteine {pct}%",
       "carbs": "Carboidrati {pct}%",
       "fat": "Grassi {pct}%"
-    }
+    },
+    "tap_exit": "Clicca ancora per uscire",
+    "sign_out": "Logout",
+    "log_out": "Log Out",
+    "signing_out": "Sto uscendo…"
   },
   "sync": {
     "synced": "Sincronizzato",
@@ -61,6 +65,41 @@
   "coaching": {
     "needs_server": {
       "connect": "Connetti al Server"
+    }
+  },
+  "trace_reply": {
+    "stopped_length": "La risposta è stata interrotta prima della fine, quindi non è stata utilizzata. Prova di nuovo oppure chiedi meno cose alla volta.",
+    "stopped_thinking": "Il modello ha fornito il ragionamento, ma non ha dato una risposta. Prova di nuovo oppure riduci il livello di dettaglio del ragionamento.",
+    "stopped_empty": "Il modello ha restituito una risposta vuota. Qualsiasi azione Trace abbia già compiuto in questo turno viene mantenuta, quindi controlla prima di riproporre la domanda.",
+    "out_of_rounds": "Ci sono voluti più passaggi di quanti ne consenta una singola risposta e non è stato ottenuto alcun risultato. Limita la richiesta, ad esempio specificando un intervallo di date più breve.",
+    "stuck_on_tool": "Trace continuava a chiedere le stesse informazioni senza ottenere risposta, quindi ha smesso. Prova a chiedere in un altro modo."
+  },
+  "nav": {
+    "diary": "Diario",
+    "foods": "Cibi",
+    "wellness": "Benessere",
+    "statistics": "Statistiche",
+    "goals": "Obbiettivi",
+    "settings": "Configurazione"
+  },
+  "routes": {
+    "diary": {
+      "title": "Diario"
+    },
+    "foods": {
+      "title": "Cibi"
+    },
+    "wellness": {
+      "title": "Benessere"
+    },
+    "statistics": {
+      "title": "Statistiche"
+    },
+    "goals": {
+      "title": "Obbiettivi"
+    },
+    "settings": {
+      "title": "Configurazione"
     }
   }
 }
