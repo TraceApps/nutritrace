@@ -7,15 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Security
-
-- **Another account's private food stays private** (an access audit after [cooktrace#110](https://github.com/TraceApps/cooktrace/issues/110)). Listing another account's food in a meal of your own filled in its barcode, category, units and photo in your diary; a meal's ingredients now count only when they're its owner's own foods. Marking a meal used needs the same access as opening it.
-
 ---
 
 ## [1.5.0-dev08] - 2026-11-26 (pre-release)
 
-Eighth dev pre-release of the 1.5.0 minor. Measurements sent through the body measurements API now show in Statistics, Wellness and Goals, Withings body water reads as a percentage, foods keep their own serving when you log or edit them while adding to the diary, your own foods' search ignores accents, and a late settings save no longer replaces a newer change.
+Eighth dev pre-release of the 1.5.0 minor. Measurements sent through the body measurements API now show in Statistics, Wellness and Goals, Withings body water reads as a percentage, foods keep their own serving when you log or edit them while adding to the diary, your own foods' search ignores accents, and a late settings save no longer replaces a newer change. Another account's private food also stays private.
 
 ### Fixed
 
@@ -27,6 +23,9 @@ Eighth dev pre-release of the 1.5.0 minor. Measurements sent through the body me
 - **Logging a food for the first time keeps its own serving in your library** ([#347](https://github.com/TraceApps/nutritrace/issues/347), thanks @herver1971). Adding an Open Food Facts, USDA or CookTrace food you hadn't saved yet at, say, 165 g saved it to your foods as 165 g, so the next time it started from that amount. And logging one already saved at another amount added it at the saved amount instead of the one you typed. Your foods now keep the serving they came with, and the diary gets the amount you typed.
 - **Searching your own and shared foods ignores accents** ([#346](https://github.com/TraceApps/nutritrace/issues/346), thanks @herver1971). On the Foods tab, "champinon" didn't find "Champiñón" with My Foods or Shared on, though every other search box ignores accents. The same goes for the coach plan builder's food and meal picker, the foods, meals and meal slot a quick log matches by name, and the food Trace matches in your catalog, where the exact spelling still wins when you have both "Cafe" and "Café". English names match as before.
 
+### Security
+
+- **Another account's private food stays private** (an access audit after [cooktrace#110](https://github.com/TraceApps/cooktrace/issues/110)). Listing another account's food in a meal of your own filled in its barcode, category, units and photo in your diary; a meal's ingredients now count only when they're its owner's own foods. Marking a meal used needs the same access as opening it.
 
 ---
 
