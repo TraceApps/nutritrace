@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.5.0-dev08] - 2026-11-26 (pre-release)
+
+Eighth dev pre-release of the 1.5.0 minor. Measurements sent through the body measurements API now show in Statistics, Wellness and Goals, Withings body water reads as a percentage, foods keep their own serving when you log or edit them while adding to the diary, your own foods' search ignores accents, and a late settings save no longer replaces a newer change.
+
 ### Fixed
 
 - **A late-arriving settings save no longer replaces a newer change** ([#335](https://github.com/TraceApps/nutritrace/pull/335), thanks @kgenerozov). Settings now carry the moment they were changed, so a save whose request got through late (a slow connection, a retry) loses to a newer change of the same setting on any device, as a phone's offline changes already did. A setting queued offline in the browser also stays with the account it was changed in when another account signs in on that browser, and one queued before user management was turned on goes up once you sign in.
