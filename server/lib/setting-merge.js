@@ -93,6 +93,28 @@ function _writeValue(db, userId, key, value, nextText, existing) {
 
 // A losing edit still moves updated_at (the pull's cursor), so the phone's
 // next pull brings the newer value back — as the sync push has always done.
+/**
+ * Write a setting's delete and field_times, with the same guard as a value
+ * write: a delete with the same time as the one stored (a push sent again)
+ * leaves field_times text as it was while deleted_at moves, and the trigger
+ * would stamp the arrival time over the delete's own.
+ */
+function _writeDelete(db, userId, key, nextText, existing) {
+  const run = () => db.prepare(
+    `UPDATE user_settings SET deleted_at = datetime('now'), field_times = ?, updated_at = datetime('now')
+      WHERE user_id = ? AND key = ?`
+  ).run(nextText, userId, key);
+  if (!existing || existing.field_times !== nextText) return run();
+  db.prepare(
+    `UPDATE user_settings SET field_times = json_set(field_times, '$._w', 1) WHERE user_id = ? AND key = ?`
+  ).run(userId, key);
+  try { return run(); } finally {
+    db.prepare(
+      `UPDATE user_settings SET field_times = json_remove(field_times, '$._w') WHERE user_id = ? AND key = ?`
+    ).run(userId, key);
+  }
+}
+
 const _touch = (db, userId, key) => db.prepare(
   `UPDATE user_settings SET updated_at = datetime('now') WHERE user_id = ? AND key = ?`
 ).run(userId, key);
@@ -131,10 +153,7 @@ export function writeSetting(db, userId, key, edit, at, { mayRevive = true } = {
       // the old and the new delete time must still lose.
       if (!settingDeleteBeats(stamp, deletedAt)) return { kept: false, times };
       const next = { ...times, deleted_at: stamp };
-      db.prepare(
-        `UPDATE user_settings SET deleted_at = datetime('now'), field_times = ?, updated_at = datetime('now')
-          WHERE user_id = ? AND key = ?`
-      ).run(JSON.stringify(next), userId, key);
+      _writeDelete(db, userId, key, JSON.stringify(next), existing);
       return { kept: true, deleted: true, times: next };
     }
     const latest = Math.max(valueAt ?? -Infinity, deletedAt ?? -Infinity);
@@ -143,10 +162,7 @@ export function writeSetting(db, userId, key, edit, at, { mayRevive = true } = {
       return { kept: false, times };
     }
     const next = { ...times, deleted_at: stamp };
-    db.prepare(
-      `UPDATE user_settings SET deleted_at = datetime('now'), field_times = ?, updated_at = datetime('now')
-        WHERE user_id = ? AND key = ?`
-    ).run(JSON.stringify(next), userId, key);
+    _writeDelete(db, userId, key, JSON.stringify(next), existing);
     return { kept: true, deleted: true, times: next };
   }
 

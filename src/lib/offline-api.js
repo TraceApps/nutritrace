@@ -130,10 +130,14 @@ function _db() {
 }
 
 /** Move everything from an old database into this one, then drop it.
- *  Settings are the exception: they belong to the account whose database
- *  they were queued in, so they stay behind and only go while that account
- *  is active. If any stayed, the old database is left in place; the work
- *  that did move is removed from it, so nothing is sent twice. */
+ *  Settings and goal days are the exception: they belong to the account
+ *  whose database they were queued in, so they stay behind and only go while
+ *  that account is active. If any stayed, the old database is left in place;
+ *  the work that did move is removed from it, so nothing is sent twice.
+ *  The single-user database (before user management was turned on, or
+ *  before the signed-in id was known) belongs to no other account: its
+ *  settings and goal days move with everything else, or nothing would ever
+ *  send them. */
 async function _absorb(oldName, db) {
   if (!db) return;
   const old = await new Promise((resolve) => {
@@ -150,6 +154,7 @@ async function _absorb(oldName, db) {
   // tidied them up, and bringing a stale one back resurrects what was
   // deleted.
   const stores = _changedSomething ? ['outbox', 'meta'] : _STORES;
+  const ownerless = oldName === 'nutritrace-offline-single';
   let keepOld = false;
   for (const store of stores) {
     if (!old.objectStoreNames.contains(store) || !db.objectStoreNames.contains(store)) continue;
@@ -161,8 +166,10 @@ async function _absorb(oldName, db) {
       } catch { resolve([]); }
     });
     if (!rows.length) continue;
-    // A queued setting stays with the account it was made under.
-    const moving = store === 'outbox' ? rows.filter(row => row.type !== 'setting') : rows;
+    // A queued setting or goal day stays with the account it was made under.
+    const moving = store === 'outbox' && !ownerless
+      ? rows.filter(row => row.type !== 'setting' && row.type !== 'goal_history')
+      : rows;
     if (store === 'outbox' && moving.length !== rows.length) keepOld = true;
     if (!moving.length) continue;
     const copied = await new Promise((resolve) => {

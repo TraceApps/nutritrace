@@ -27,7 +27,7 @@ import {
   isGoalHistoryDate,
   normalizeGoalSnapshot,
 } from '../../src/lib/goal-snapshot.js';
-import { instantMs, isoTime, laterThan, readTimes } from './field-sync.js';
+import { instantMs, isoTime, readTimes } from './field-sync.js';
 import { currentGoalState, currentUserDate, userDate } from './goal-history-baseline.js';
 import { effectiveCalorieGoal } from './effective-goal.js';
 import { effectiveActiveCalories } from './active-calories.js';
@@ -88,21 +88,23 @@ const _iso = value => {
 };
 
 /** Whether an edit made at `incoming` is the newer one over `here`, by the
- *  same whole-second rule the app's settings merge uses (lib/field-sync.js
- *  laterThan): a tie in the same second goes to the incoming edit. A missing
- *  `here` has nothing to lose to. */
+ *  rule the live settings use (lib/setting-merge.js settingEditBeats): in
+ *  milliseconds, a tie going to the incoming edit, so a day's history and
+ *  the setting agree on which of two edits in one second won (#335). A
+ *  missing `here` has nothing to lose to. */
 function _editBeats(incoming, here) {
   const a = instantMs(incoming), b = instantMs(here);
   if (!Number.isFinite(b)) return true;
   if (!Number.isFinite(a)) return false;
-  return !laterThan(b, a);
+  return a >= b;
 }
 
-/** Two edits made in the same whole second (the app's setting times count in
- *  whole seconds: field-sync.js laterThan). */
-function _sameSecond(a, b) {
+/** An edit made at the very instant of a delete: the delete keeps it, as a
+ *  live setting is only brought back strictly later than its delete
+ *  (lib/setting-merge.js settingEditRevives). */
+function _sameInstant(a, b) {
   const x = instantMs(a), y = instantMs(b);
-  return Number.isFinite(x) && Number.isFinite(y) && Math.floor(x / 1000) === Math.floor(y / 1000);
+  return Number.isFinite(x) && Number.isFinite(y) && x === y;
 }
 
 const SETTING_OF_FIELD = Object.fromEntries(
@@ -236,13 +238,14 @@ export function captureGoalSnapshot(userId, {
     const here = baseTimeOf(field);
     const incoming = claimed.get(field);
     // The newer edit wins, by the same rule the settings merge uses; a claim
-    // on a setting that is deleted must be later than the delete, in whole
-    // seconds, or the delete keeps it (editRevives).
+    // on a setting that is deleted must be later than the delete, in
+    // milliseconds, or the delete keeps it (settingEditRevives).
     const tombstone = tombstones?.get(field);
-    // A claim in the same second as the delete loses (a setting is only
-    // brought back later than its delete); a claim for an earlier day is
-    // the configuration of that day and is left to it.
-    const bringsBack = !Number.isFinite(tombstone) || !incoming || !_sameSecond(incoming, tombstone);
+    // A claim at the delete's own instant loses (a setting is only brought
+    // back later than its delete); an earlier claim loses to the delete's
+    // own time below, and a claim for an earlier day is the configuration
+    // of that day and is left to it.
+    const bringsBack = !Number.isFinite(tombstone) || !incoming || !_sameInstant(incoming, tombstone);
     if (incoming && bringsBack && _editBeats(incoming, here)) {
       out[field] = value[field];
       times[field] = incoming;
@@ -299,12 +302,13 @@ function _carryForward(userId, fromDate, corrections) {
     let snapshot = null;
     for (const [field, correction] of pending) {
       // A correction reaches only a day whose value is older than it, in
-      // whole seconds (the app's settings rule). A day that decided the
-      // field later, or in the same second, keeps its own and stops the
-      // walk for that field. A baseline's older field times are the same
-      // comparison: the correction wins over them only when it is newer.
+      // milliseconds (the settings rule, lib/setting-merge.js). A day that
+      // decided the field later, or at the same instant, keeps its own and
+      // stops the walk for that field. A baseline's older field times are
+      // the same comparison: the correction wins over them only when it is
+      // newer.
       const here = _iso(rowTimes[field]);
-      if (here && !laterThan(correction.time, here)) { pending.delete(field); continue; }
+      if (here && !(instantMs(correction.time) > instantMs(here))) { pending.delete(field); continue; }
       if (!snapshot) snapshot = { ...(_json(row.snapshot, {}) || {}) };
       snapshot[field] = correction.value;
       rowTimes[field] = correction.time;

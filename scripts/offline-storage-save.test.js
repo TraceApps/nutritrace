@@ -470,3 +470,50 @@ test('signing in to another account leaves queued settings with their own accoun
     assert.equal(catalogSends(), 1, 'the catalogue was not sent twice after returning');
   } finally { globalThis.localStorage = undefined; }
 });
+
+test('settings and goal days queued before user management move to the account with everything else', async () => {
+  setOnline(true);
+  setUser(null);
+  try {
+    // Queued in the single-user database: before user management was turned
+    // on, or before the signed-in id was known. It belongs to no other
+    // account, and nothing opens it again once the id is known.
+    const setting = { type: 'setting', key: 'waterGoalMl', data: 2500, at: 1 };
+    const day = { type: 'goal_history', effective_date: '2026-11-20', at: 1,
+      snapshot: { water_goal_ml: 2500 }, field_times: { water_goal_ml: '2026-11-20T09:00:00.000Z' } };
+    const catalog = { type: 'catalog', table: 'foods', action: 'create', id: -8, data: { name: 'b' }, at: 2 };
+    const { mod, http, env } = await page({ seed: [setting, day, catalog] });
+    assert.equal(await mod.pendingCount(), 3); // the single-user database is open
+    http.post = async (path, body) => { http.sent.push(['post', path, body]); return { settings: [], goal_history: body.goal_history || [] }; };
+
+    setUser('1');
+    await mod.queueSetting('energyUnit', 'kJ', Date.now());
+    // Until the move has finished: copied, then taken out of the old queue.
+    for (let i = 0; i < 500 && (env.outbox('nutritrace-offline-1').length < 4 || env.outbox('nutritrace-offline-single').length); i++) await new Promise(r => setImmediate(r));
+
+    assert.deepEqual(env.outbox('nutritrace-offline-1').map(o => o.type).sort(), ['catalog', 'goal_history', 'setting', 'setting']);
+    assert.deepEqual(env.outbox('nutritrace-offline-single'), [], 'nothing is left where nothing would send it');
+    await mod.flushOutbox();
+    const sent = http.sent.filter(s => s[0] === 'post').flatMap(s => s[2].settings || []).map(s => s.key).sort();
+    assert.deepEqual(sent, ['energyUnit', 'waterGoalMl'], 'the setting from before went up under the account');
+    const days = http.sent.filter(s => s[0] === 'post').flatMap(s => s[2].goal_history || []).map(d => d.effective_date);
+    assert.deepEqual(days, ['2026-11-20'], 'and so did its goal day');
+  } finally { globalThis.localStorage = undefined; }
+});
+
+test("signing in to another account leaves a queued goal day with its own account", async () => {
+  setOnline(true);
+  setUser('1');
+  try {
+    const day = { type: 'goal_history', effective_date: '2026-11-21', at: 1,
+      snapshot: { water_goal_ml: 3000 }, field_times: { water_goal_ml: '2026-11-21T09:00:00.000Z' } };
+    const catalog = { type: 'catalog', table: 'foods', action: 'create', id: -9, data: { name: 'c' }, at: 2 };
+    const { mod, env } = await page({ seed: [day, catalog], seedName: 'nutritrace-offline-1' });
+    assert.equal(await mod.pendingCount(), 2);
+    setUser('2');
+    await mod.queueSetting('waterGoalMl', 2000, Date.now());
+    for (let i = 0; i < 500 && (env.outbox('nutritrace-offline-2').length < 2 || env.outbox('nutritrace-offline-1').length > 1); i++) await new Promise(r => setImmediate(r));
+    assert.deepEqual(env.outbox('nutritrace-offline-1').map(o => o.type), ['goal_history'], "account 1's goal day stayed with account 1");
+    assert.deepEqual(env.outbox('nutritrace-offline-2').map(o => o.type).sort(), ['catalog', 'setting']);
+  } finally { globalThis.localStorage = undefined; }
+});

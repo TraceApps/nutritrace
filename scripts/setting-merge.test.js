@@ -160,3 +160,25 @@ test('deleting a setting the server never had stores nothing', (t) => {
   assert.equal(made.kept, true);
   assert.equal(valueOf('neverWasHere'), 'here');
 });
+
+test('a delete sent again with the same time keeps the delete’s own time', (t) => {
+  if (skip(t)) return;
+  const base = Date.parse('2026-10-08T10:00:00.000Z');
+  writeSetting(db, userId, 'distUnit', { value: 'km' }, base - 1000);
+  writeSetting(db, userId, 'distUnit', { deleted: true }, base);
+  // The first delete was stored a while ago (another second, on the
+  // server's clock): only deleted_at's text can move when it comes again.
+  // (Two steps, so the field-time trigger sees field_times change with it.)
+  const kept = JSON.stringify(timesOf('distUnit'));
+  db.prepare(`UPDATE user_settings SET deleted_at = '2026-10-08 10:00:00', field_times = ? WHERE user_id = ? AND key = 'distUnit'`)
+    .run(JSON.stringify(timesOf('distUnit'), null, 1), userId);
+  db.prepare(`UPDATE user_settings SET field_times = ? WHERE user_id = ? AND key = 'distUnit'`).run(kept, userId);
+  assert.equal(Date.parse(timesOf('distUnit').deleted_at), base);
+  // The same push again (a retry): same delete, same time.
+  writeSetting(db, userId, 'distUnit', { deleted: true }, base);
+  assert.equal(Date.parse(timesOf('distUnit').deleted_at), base, 'not the time it arrived again');
+  // So an edit made after the delete, before the retry, still brings it back.
+  const back = writeSetting(db, userId, 'distUnit', { value: 'mi' }, base + 1);
+  assert.equal(back.kept, true);
+  assert.equal(valueOf('distUnit'), 'mi');
+});
