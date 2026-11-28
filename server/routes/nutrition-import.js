@@ -252,15 +252,17 @@ router.post('/commit', upload.single('file'), wrap((req, res) => {
       const notes     = existing ? existing.notes : null;
 
       if (userId == null) {
-        db.prepare(
-          `INSERT INTO diary (date, items, body_stats, water, notes, updated_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'))
-           ON CONFLICT(date, user_id) DO UPDATE SET
-             items=excluded.items, body_stats=excluded.body_stats,
-             water=excluded.water, notes=excluded.notes,
-             updated_at=excluded.updated_at,
-             deleted_at=NULL`
-        ).run(date, itemsJson, bodyStats, water, notes);
+        // user_id NULL never conflicts in SQLite, so update the day by id.
+        if (existing) {
+          db.prepare(
+            `UPDATE diary SET items=?, body_stats=?, water=?, notes=?, updated_at=datetime('now'), deleted_at=NULL WHERE id=?`
+          ).run(itemsJson, bodyStats, water, notes, existing.id);
+        } else {
+          db.prepare(
+            `INSERT INTO diary (date, items, body_stats, water, notes, updated_at)
+             VALUES (?, ?, ?, ?, ?, datetime('now'))`
+          ).run(date, itemsJson, bodyStats, water, notes);
+        }
       } else {
         db.prepare(
           `INSERT INTO diary (user_id, date, items, body_stats, water, notes, updated_at)
